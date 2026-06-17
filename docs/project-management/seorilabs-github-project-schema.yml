@@ -1,0 +1,253 @@
+name: Seorilabs Execution Board
+owner: seorilabs
+purpose: >
+  Organization-level GitHub Project used as the single execution ticket dashboard
+  for Seorilabs apps, releases, QA, and operational work. Obsidian/Vault remains
+  the source of truth for planning, decisions, and approvals.
+
+implementation_notes:
+  status_field:
+    recommendation: "Use the default GitHub Projects Status field as Stage when possible."
+    reason: "Built-in workflows and board grouping are easier to keep aligned with the default Status field."
+  auto_add:
+    template_support: false
+    note: "Project templates do not include auto-add workflows. Configure them per repository as it is added to the operating flow."
+  current_local_gh:
+    checked_version: "2.93.0"
+    required_scopes:
+      read: "read:project"
+      write: "project"
+
+initial_repositories:
+  - crossword-puzzle
+  - happy-farm
+  - lucid-chess
+  - periodic-table-app
+  - gemini-pr-bot
+
+fields:
+  - name: Status
+    alias: Stage
+    type: single_select
+    preferred_implementation: default_status_field
+    options:
+      - Inbox
+      - Planning
+      - Ready
+      - Development
+      - Review
+      - QA
+      - Launch Prep
+      - Release
+      - Done
+      - Blocked
+
+  - name: App/Repo
+    type: single_select
+    options:
+      - crossword-puzzle
+      - happy-farm
+      - lucid-chess
+      - periodic-table-app
+      - gemini-pr-bot
+      - Other
+
+  - name: Market
+    type: single_select
+    options:
+      - Google Play
+      - App Store
+      - AppsInToss
+      - Web
+      - Internal
+      - Multi-market
+      - Not applicable
+
+  - name: Priority
+    type: single_select
+    options:
+      - P0
+      - P1
+      - P2
+      - P3
+
+  - name: Owner
+    type: single_select
+    options:
+      - User
+      - Codex
+      - Claude
+      - Gemini Bot
+      - GitHub Actions
+      - External
+
+  - name: Agent
+    type: single_select
+    options:
+      - User
+      - Codex
+      - Claude
+      - Gemini Bot
+      - GitHub Actions
+      - External
+
+  - name: Contribution Type
+    type: single_select
+    options:
+      - bugfix
+      - feature
+      - refactor
+      - QA
+      - release-prep
+      - docs
+      - ops
+      - CI
+
+  - name: Version Impact
+    type: single_select
+    options:
+      - none
+      - patch
+      - minor
+      - major
+
+  - name: Intake State
+    type: single_select
+    options:
+      - Needs ticket
+      - Needs spec
+      - Needs tests
+      - Needs split
+      - Blocked by approval
+      - Ready for review
+      - Accepted
+      - Rejected
+
+  - name: Spec Version
+    type: text
+
+  - name: Approval
+    type: single_select
+    options:
+      - Not needed
+      - Planning approval
+      - Release approval
+      - Planning and release approval
+
+  - name: Target
+    type: date
+
+  - name: Verification
+    type: single_select
+    options:
+      - Not run
+      - Local passed
+      - CI passed
+      - Live verified
+
+  - name: Source of Truth
+    type: text
+    examples:
+      - "Obsidian/Vault/프로젝트/..."
+      - "docs/release-readiness.md"
+
+  - name: Blocked Reason
+    type: text
+
+views:
+  - name: 전체 Board
+    layout: board
+    group_by: Status
+
+  - name: 앱별 View
+    layout: table
+    group_by: App/Repo
+
+  - name: 마켓별 View
+    layout: table
+    group_by: Market
+
+  - name: 이번 주 작업
+    layout: table
+    filter: "Target within 7 days and Status != Done"
+    sort_by:
+      - Priority
+      - Target
+
+  - name: Blocked
+    layout: table
+    filter: "Status = Blocked"
+
+  - name: Launch Prep
+    layout: board
+    filter: "Status = Launch Prep"
+    group_by: App/Repo
+
+  - name: Release readiness
+    layout: table
+    filter: "Status in [Launch Prep, Release] or Approval in [Release approval, Planning and release approval]"
+
+  - name: Agent PR Intake
+    layout: table
+    group_by: Intake State
+    sort_by:
+      - Priority
+      - Target
+
+labels:
+  - name: project:seorilabs-exec
+    color: "5319E7"
+    description: "Add this issue or PR to the Seorilabs execution Project."
+  - name: agent:contribution
+    color: "1D76DB"
+    description: "Created or primarily modified by an automation agent."
+  - name: approval:planning
+    color: "FBCA04"
+    description: "Requires human planning approval before implementation."
+  - name: approval:release
+    color: "B60205"
+    description: "Requires human release approval before deployment."
+
+auto_add_filters:
+  issues: "is:issue label:project:seorilabs-exec"
+  pull_requests: "is:pr label:project:seorilabs-exec"
+
+ticket_template:
+  file: docs/project-management/seorilabs-execution-ticket-template.md
+  required_sections:
+    - 목표
+    - 배경
+    - 범위
+    - Acceptance criteria
+    - 검증 계획
+    - Source of truth
+    - 승인 필요 여부
+    - Spec / Version Impact
+
+sample_tickets:
+  - title: "[crossword-puzzle] AIT Web 한글 입력 QA 회귀 테스트 정리"
+    app_repo: crossword-puzzle
+    market: AppsInToss
+    priority: P1
+    owner: Codex
+    approval: Not needed
+    verification: Not run
+    source_of_truth: "repo docs or Obsidian path required"
+
+  - title: "[lucid-chess] AppsInToss full-screen ad 표시 경로 검증"
+    app_repo: lucid-chess
+    market: AppsInToss
+    priority: P1
+    owner: Codex
+    approval: Not needed
+    verification: Not run
+    source_of_truth: "repo docs or Obsidian path required"
+
+  - title: "[periodic-table-app] Store release readiness checklist 점검"
+    app_repo: periodic-table-app
+    market: Multi-market
+    priority: P2
+    owner: User
+    approval: Release approval
+    verification: Not run
+    source_of_truth: "repo docs or Obsidian path required"
