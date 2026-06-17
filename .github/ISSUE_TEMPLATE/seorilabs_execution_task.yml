@@ -1,0 +1,129 @@
+name: Seorilabs execution task
+description: Ticket for scoped Seorilabs work that can be tracked in GitHub Projects.
+title: "[repo] "
+labels:
+  - project:seorilabs-exec
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for scoped implementation, QA, release-prep, docs, and operations work.
+        Planning and release approvals remain human gates.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: 목표
+      description: 이 티켓이 끝났을 때 실제로 달라져야 하는 상태.
+    validations:
+      required: true
+
+  - type: textarea
+    id: background
+    attributes:
+      label: 배경
+      description: 왜 지금 필요한지, 관련 사용자/운영/릴리즈 맥락.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: 범위
+      value: |
+        포함:
+        -
+
+        제외:
+        -
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      value: |
+        - [ ]
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: 검증 계획
+      value: |
+        Local:
+        CI:
+        Runtime/browser/device:
+        Store/console/live:
+    validations:
+      required: true
+
+  - type: textarea
+    id: spec_version
+    attributes:
+      label: Spec / Version Impact
+      value: |
+        기준 스펙:
+        Spec Version:
+        Version Impact: none / patch / minor / major
+        Migration needed: no / yes
+    validations:
+      required: true
+
+  - type: textarea
+    id: source_of_truth
+    attributes:
+      label: Source of Truth
+      value: |
+        Obsidian/Vault:
+        Repo docs:
+        관련 PR/Issue:
+    validations:
+      required: true
+
+  - type: dropdown
+    id: planning_approval
+    attributes:
+      label: Planning approval
+      options:
+        - Not needed
+        - Required
+        - Approved
+    validations:
+      required: true
+
+  - type: dropdown
+    id: release_approval
+    attributes:
+      label: Release approval
+      options:
+        - Not needed
+        - Required
+        - Approved
+    validations:
+      required: true
+
+  - type: textarea
+    id: project_fields
+    attributes:
+      label: Project fields
+      value: |
+        App/Repo:
+        Market:
+        Priority:
+        Owner:
+        Agent:
+        Contribution Type:
+        Intake State:
+        Target:
+        Verification: Not run
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 메모
+      description: blocker, 의사결정, follow-up.
