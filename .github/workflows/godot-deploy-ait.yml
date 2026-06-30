@@ -162,12 +162,24 @@ jobs:
         shell: bash
         run: godot --headless --path "$PROJECT_DIR" --import --quit-after 1
 
-      - name: Run smoke tests
+      # smoke: godot-checks와 동일한 custom/default 분리(eval 미사용).
+      - name: Run smoke tests (custom)
         if: inputs.smoke_command != ''
         shell: bash
         run: |
           set -euo pipefail
           ${{ inputs.smoke_command }}
+
+      - name: Run smoke tests (default)
+        if: inputs.smoke_command == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f scripts/run_godot_smokes.sh ]; then
+            bash scripts/run_godot_smokes.sh
+          else
+            echo "smoke_command 미지정 + scripts/run_godot_smokes.sh 없음 → smoke 생략"
+          fi
 
       - name: Export Godot Web
         shell: bash

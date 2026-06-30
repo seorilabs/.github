@@ -116,25 +116,35 @@ jobs:
           corepack enable
           corepack prepare pnpm@${{ inputs.pnpm_version }} --activate
 
-      - name: Install dependencies
+      # install/build: eval 제거(시크릿 보유 스텝의 명령 인젝션 표면 차단).
+      # custom 입력은 run 본문에 직접 보간, 미지정 시 package_manager 기반 고정 명령.
+      - name: Install dependencies (custom)
+        if: inputs.install_command != ''
         shell: bash
-        env:
-          INSTALL_COMMAND: ${{ inputs.install_command }}
         run: |
           set -euo pipefail
-          if [ -n "$INSTALL_COMMAND" ]; then eval "$INSTALL_COMMAND"
-          elif [ "$PM" = "npm" ]; then npm ci
-          else pnpm install --frozen-lockfile; fi
+          ${{ inputs.install_command }}
 
-      - name: Build .ait bundle
+      - name: Install dependencies (default)
+        if: inputs.install_command == ''
         shell: bash
-        env:
-          BUILD_COMMAND: ${{ inputs.build_command }}
         run: |
           set -euo pipefail
-          if [ -n "$BUILD_COMMAND" ]; then eval "$BUILD_COMMAND"
-          elif [ "$PM" = "npm" ]; then npm --prefix "$AIT_DIR" run build
-          else pnpm --dir "$AIT_DIR" build; fi
+          if [ "$PM" = "npm" ]; then npm ci; else pnpm install --frozen-lockfile; fi
+
+      - name: Build .ait bundle (custom)
+        if: inputs.build_command != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.build_command }}
+
+      - name: Build .ait bundle (default)
+        if: inputs.build_command == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$PM" = "npm" ]; then npm --prefix "$AIT_DIR" run build; else pnpm --dir "$AIT_DIR" build; fi
 
       - name: Upload .ait artifact
         if: inputs.artifact_path != ''
