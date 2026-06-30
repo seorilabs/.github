@@ -46,6 +46,11 @@ on:
 permissions:
   contents: write
 
+# 동시 caller(release bot/telegram/manual dispatch)가 같은 ref에 동시 bump 시 race 방지.
+concurrency:
+  group: release-tag-${{ inputs.target_ref || 'main' }}
+  cancel-in-progress: false
+
 jobs:
   create:
     name: Create SemVer release tag
@@ -130,8 +135,21 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$tag" "$target_commit" -m "Release $tag ($short_sha)"
-          git push origin "refs/tags/$tag"
-          { echo "created=true"; echo "tag=$tag"; echo "sha=$target_commit"; } >> "$GITHUB_OUTPUT"
+          if git push origin "refs/tags/$tag" 2>/tmp/push_err; then
+            { echo "created=true"; echo "tag=$tag"; echo "sha=$target_commit"; } >> "$GITHUB_OUTPUT"
+          else
+            # race: 다른 동시 실행이 같은 태그를 먼저 push했을 수 있음 → 원격 확인 후 idempotent 처리
+            remote_commit="$(git ls-remote origin "refs/tags/$tag^{}" | awk '{print $1}')"
+            [ -n "$remote_commit" ] || remote_commit="$(git ls-remote origin "refs/tags/$tag" | awk '{print $1}')"
+            if [ "$remote_commit" = "$target_commit" ]; then
+              echo "Tag '$tag' already on remote at $target_commit (race). Idempotent success."
+              { echo "created=false"; echo "tag=$tag"; echo "sha=$target_commit"; } >> "$GITHUB_OUTPUT"
+            else
+              cat /tmp/push_err >&2
+              echo "Failed to push '$tag' (remote points to different commit: ${remote_commit:-unknown})." >&2
+              exit 1
+            fi
+          fi
 
       - name: Summary
         shell: bash

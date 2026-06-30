@@ -269,7 +269,7 @@ jobs:
           set -euo pipefail
           args=(
             --aab-path "${{ steps.android.outputs.aab_path }}"
-            --release-name "${{ steps.release.outputs.release_name || steps.tag.outputs.tag }}"
+            --release-name "${{ steps.release.outputs.release_name || steps.release.outputs.version_name || steps.tag.outputs.tag }}"
             --release-status "${{ inputs.release_status }}"
             --track "${{ inputs.track }}"
           )

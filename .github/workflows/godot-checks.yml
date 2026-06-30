@@ -118,18 +118,24 @@ jobs:
         shell: bash
         run: godot --headless --path "$PROJECT_DIR" --import --quit-after 1
 
-      - name: Run checks
+      # caller가 준 check_command를 run 본문에 직접 보간(rn-static-checks와 동일 패턴, eval 미사용).
+      - name: Run checks (custom)
+        if: inputs.check_command != ''
         shell: bash
         run: |
           set -euo pipefail
-          CMD='${{ inputs.check_command }}'
-          if [ -n "$CMD" ]; then
-            eval "$CMD"
-          elif [ -f scripts/godot_quality_gate.sh ]; then
+          ${{ inputs.check_command }}
+
+      - name: Run checks (default quality gate)
+        if: inputs.check_command == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f scripts/godot_quality_gate.sh ]; then
             bash scripts/godot_quality_gate.sh --project "$PROJECT_DIR"
             [ -f scripts/run_godot_smokes.sh ] && bash scripts/run_godot_smokes.sh || true
           else
-            echo "No check_command and no scripts/godot_quality_gate.sh found." >&2
-            echo "Provide check_command input or add the quality gate script." >&2
+            echo "No check_command input and no scripts/godot_quality_gate.sh found." >&2
+            echo "Provide check_command or add the quality gate script." >&2
             exit 1
           fi
