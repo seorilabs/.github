@@ -1,0 +1,219 @@
+# Seorilabs org 재사용 워크플로우: Godot 게임 AIT(.ait) 빌드 + AppsInToss 배포
+# 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-ait.yml@main
+# 러너: seorilabs-rpi-arm64 (ARC). Godot Web export → wrapper build → ait deploy.
+# 인증: org secret APPS_IN_TOSS_API_KEY.
+name: Godot Deploy AIT (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "배포할 릴리즈 태그. 비우면 호출 ref."
+        required: false
+        default: ""
+        type: string
+      memo:
+        description: "AppsInToss 배포 메모"
+        required: false
+        default: ""
+        type: string
+      godot_version:
+        required: false
+        default: "4.6.3"
+        type: string
+      godot_status:
+        required: false
+        default: "stable"
+        type: string
+      project_dir:
+        description: "Godot 프로젝트 경로"
+        required: false
+        default: "."
+        type: string
+      wrapper_dir:
+        description: "AIT 웹 래퍼 디렉터리"
+        required: false
+        default: "ait/apps-in-toss-web"
+        type: string
+      web_output_dir:
+        description: "Godot web export 출력 경로"
+        required: false
+        default: "build/web"
+        type: string
+      smoke_command:
+        description: "export 전 실행할 smoke 명령(여러 줄, 선택)"
+        required: false
+        default: ""
+        type: string
+      node_version:
+        required: false
+        default: "24"
+        type: string
+      timeout_minutes:
+        required: false
+        default: 30
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Godot web export and AIT deploy
+    runs-on: seorilabs-rpi-arm64
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment: apps-in-toss
+
+    env:
+      APPS_IN_TOSS_API_KEY: ${{ secrets.APPS_IN_TOSS_API_KEY }}
+      GODOT_VERSION: ${{ inputs.godot_version }}
+      GODOT_STATUS: ${{ inputs.godot_status }}
+      PROJECT_DIR: ${{ inputs.project_dir }}
+      WRAPPER_DIR: ${{ inputs.wrapper_dir }}
+      INPUT_MEMO: ${{ inputs.memo }}
+      RELEASE_REF: ${{ inputs.release_tag }}
+      VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY || vars.FIREBASE_API_KEY || '' }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN || vars.FIREBASE_AUTH_DOMAIN || '' }}
+      VITE_FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || '' }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.FIREBASE_STORAGE_BUCKET || '' }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.FIREBASE_GCM_SENDER_ID || vars.FIREBASE_MESSAGING_SENDER_ID || '' }}
+      VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID || vars.FIREBASE_APP_ID || '' }}
+      VITE_FIREBASE_MEASUREMENT_ID: ${{ vars.VITE_FIREBASE_MEASUREMENT_ID || '' }}
+      VITE_TOSS_INTERSTITIAL_AD_GROUP_ID: ${{ secrets.VITE_TOSS_INTERSTITIAL_AD_GROUP_ID || secrets.VITE_TOSS_FULLSCREEN_AD_GROUP_ID || '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Validate AppsInToss secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "$APPS_IN_TOSS_API_KEY" ] || { echo "APPS_IN_TOSS_API_KEY secret is required." >&2; exit 1; }
+
+      - name: Resolve release ref
+        id: ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$RELEASE_REF"
+          [ -n "$ref" ] || ref="${GITHUB_REF_NAME:-$(git rev-parse --abbrev-ref HEAD)}"
+          { echo "ref=$ref"; echo "short_sha=$(git rev-parse --short HEAD)"; } >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.wrapper_dir }}/package-lock.json
+
+      - name: Ensure fontconfig runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ldconfig -p 2>/dev/null | grep -q "libfontconfig.so.1"; then exit 0; fi
+          command -v apt-get >/dev/null 2>&1 || { echo "apt-get unavailable; continuing" >&2; exit 0; }
+          sudo_cmd=""; command -v sudo >/dev/null 2>&1 && sudo_cmd="sudo"
+          ${sudo_cmd} apt-get update && ${sudo_cmd} apt-get install -y libfontconfig1 fontconfig
+
+      - name: Cache Godot editor and templates
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ github.workspace }}/.cache/godot/${{ inputs.godot_version }}-${{ inputs.godot_status }}/${{ runner.arch }}
+            ~/.local/share/godot/export_templates/${{ inputs.godot_version }}.${{ inputs.godot_status }}
+          key: godot-web-${{ runner.os }}-${{ runner.arch }}-${{ inputs.godot_version }}-${{ inputs.godot_status }}
+
+      - name: Install Godot and web export templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${RUNNER_ARCH:-}" in
+            X64) arch="x86_64" ;;
+            ARM64) arch="arm64" ;;
+            ARM) arch="arm32" ;;
+            *) echo "Unsupported arch: ${RUNNER_ARCH:-unknown}" >&2; exit 1 ;;
+          esac
+          bin="Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.${arch}"
+          install_dir="$GITHUB_WORKSPACE/.cache/godot/${GODOT_VERSION}-${GODOT_STATUS}/${RUNNER_ARCH:-unknown}"
+          mkdir -p "$install_dir"
+          if [ ! -x "$install_dir/godot" ]; then
+            curl -L -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/${bin}.zip"
+            unzip -q godot.zip
+            mv "$bin" "$install_dir/godot"
+            chmod +x "$install_dir/godot"
+          fi
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+          tdir="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
+          if [ ! -f "$tdir/web_release.zip" ] && [ ! -f "$tdir/web_dlink_nothreads_release.zip" ]; then
+            curl -L -o export_templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_export_templates.tpz"
+            unzip -q export_templates.tpz
+            mkdir -p "$tdir"
+            mv templates/* "$tdir/"
+          fi
+          "$install_dir/godot" --version
+
+      - name: Import Godot project
+        shell: bash
+        run: godot --headless --path "$PROJECT_DIR" --import --quit-after 1
+
+      - name: Run smoke tests
+        if: inputs.smoke_command != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.smoke_command }}
+
+      - name: Export Godot Web
+        shell: bash
+        env:
+          GODOT_WEB_OUTPUT_DIR: ${{ inputs.web_output_dir }}
+        run: |
+          set -euo pipefail
+          if [ -f scripts/export_godot_web.sh ]; then
+            bash scripts/export_godot_web.sh
+          else
+            echo "scripts/export_godot_web.sh not found in caller repo." >&2
+            echo "Add the standard Godot web export script." >&2
+            exit 1
+          fi
+
+      - name: Install wrapper dependencies
+        working-directory: ${{ inputs.wrapper_dir }}
+        run: npm ci
+
+      - name: Lint wrapper
+        working-directory: ${{ inputs.wrapper_dir }}
+        run: npm run lint
+
+      - name: Build AIT package
+        working-directory: ${{ inputs.wrapper_dir }}
+        run: npm run build
+
+      - name: Deploy to AppsInToss
+        working-directory: ${{ inputs.wrapper_dir }}
+        shell: bash
+        env:
+          DEPLOY_REF: ${{ steps.ref.outputs.ref }}
+          DEPLOY_SHORT_SHA: ${{ steps.ref.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          memo="$INPUT_MEMO"
+          if [ -z "$memo" ]; then
+            memo="GitHub Actions ${DEPLOY_REF}@${DEPLOY_SHORT_SHA}"
+          else
+            memo="${DEPLOY_REF} · ${memo}"
+          fi
+          npm run deploy -- --api-key "$APPS_IN_TOSS_API_KEY" --memo "$memo"
+
+      - name: Summary
+        shell: bash
+        env:
+          DEPLOY_REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          { echo "### Godot Deploy AIT"; echo ""; echo "- ref: $DEPLOY_REF"; echo "- runner: seorilabs-rpi-arm64"; } >> "$GITHUB_STEP_SUMMARY"

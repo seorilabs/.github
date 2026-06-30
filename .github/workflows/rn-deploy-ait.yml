@@ -1,0 +1,173 @@
+# Seorilabs org 재사용 워크플로우: RN 앱 AIT(.ait) 빌드 + AppsInToss 배포
+# 호출: uses: seorilabs/.github/.github/workflows/rn-deploy-ait.yml@main
+# 러너: seorilabs-rpi-arm64 (ARC). 인증: org secret APPS_IN_TOSS_API_KEY.
+name: RN Deploy AIT (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "배포할 릴리즈 태그. 비우면 호출 ref."
+        required: false
+        default: ""
+        type: string
+      memo:
+        description: "AppsInToss 배포 메모(최대 1000자)"
+        required: false
+        default: ""
+        type: string
+      ait_dir:
+        description: ".ait 빌드/배포 디렉터리(루트면 '.')"
+        required: false
+        default: "apps/ait"
+        type: string
+      package_manager:
+        description: "pnpm | npm"
+        required: false
+        default: "pnpm"
+        type: string
+      pnpm_version:
+        required: false
+        default: "11.3.0"
+        type: string
+      node_version:
+        required: false
+        default: "24"
+        type: string
+      install_command:
+        description: "설치 명령(비우면 pm 기본값)"
+        required: false
+        default: ""
+        type: string
+      build_command:
+        description: "빌드 명령(비우면 pm + ait_dir 기본값)"
+        required: false
+        default: ""
+        type: string
+      artifact_path:
+        description: "업로드할 .ait 경로(비우면 업로드 생략)"
+        required: false
+        default: "apps/ait/*.ait"
+        type: string
+      timeout_minutes:
+        required: false
+        default: 25
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and deploy .ait
+    runs-on: seorilabs-rpi-arm64
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment: apps-in-toss
+
+    env:
+      APPS_IN_TOSS_API_KEY: ${{ secrets.APPS_IN_TOSS_API_KEY }}
+      AIT_DIR: ${{ inputs.ait_dir }}
+      PM: ${{ inputs.package_manager }}
+      INPUT_MEMO: ${{ inputs.memo }}
+      RELEASE_REF: ${{ inputs.release_tag }}
+      # 빌드 시 임베드되는 표준 Firebase env (미설정이면 빈 값)
+      VITE_FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY || secrets.VITE_FIREBASE_API_KEY || '' }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN || '' }}
+      VITE_FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || '' }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.FIREBASE_STORAGE_BUCKET || '' }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.FIREBASE_MESSAGING_SENDER_ID || vars.FIREBASE_GCM_SENDER_ID || '' }}
+      VITE_FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID || vars.VITE_FIREBASE_APP_ID || '' }}
+      VITE_FIREBASE_MEASUREMENT_ID: ${{ vars.FIREBASE_MEASUREMENT_ID || vars.VITE_FIREBASE_MEASUREMENT_ID || '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Validate AppsInToss secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "$APPS_IN_TOSS_API_KEY" ] || { echo "APPS_IN_TOSS_API_KEY secret is required." >&2; exit 1; }
+
+      - name: Resolve release ref
+        id: ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$RELEASE_REF"
+          [ -n "$ref" ] || ref="${GITHUB_REF_NAME:-$(git rev-parse --abbrev-ref HEAD)}"
+          { echo "ref=$ref"; echo "short_sha=$(git rev-parse --short HEAD)"; } >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          check-latest: false
+
+      - name: Enable pnpm
+        if: inputs.package_manager == 'pnpm'
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@${{ inputs.pnpm_version }} --activate
+
+      - name: Install dependencies
+        shell: bash
+        env:
+          INSTALL_COMMAND: ${{ inputs.install_command }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INSTALL_COMMAND" ]; then eval "$INSTALL_COMMAND"
+          elif [ "$PM" = "npm" ]; then npm ci
+          else pnpm install --frozen-lockfile; fi
+
+      - name: Build .ait bundle
+        shell: bash
+        env:
+          BUILD_COMMAND: ${{ inputs.build_command }}
+        run: |
+          set -euo pipefail
+          if [ -n "$BUILD_COMMAND" ]; then eval "$BUILD_COMMAND"
+          elif [ "$PM" = "npm" ]; then npm --prefix "$AIT_DIR" run build
+          else pnpm --dir "$AIT_DIR" build; fi
+
+      - name: Upload .ait artifact
+        if: inputs.artifact_path != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: ait-${{ github.event.repository.name }}-${{ steps.ref.outputs.ref }}-${{ steps.ref.outputs.short_sha }}
+          path: ${{ inputs.artifact_path }}
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Deploy to AppsInToss
+        shell: bash
+        env:
+          DEPLOY_REF: ${{ steps.ref.outputs.ref }}
+          DEPLOY_SHORT_SHA: ${{ steps.ref.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          memo="$INPUT_MEMO"
+          if [ -z "$memo" ]; then
+            memo="GitHub Actions ${DEPLOY_REF}@${DEPLOY_SHORT_SHA}"
+          else
+            memo="${DEPLOY_REF} · ${memo}"
+          fi
+
+          if [ "$PM" = "npm" ]; then
+            npm --prefix "$AIT_DIR" run deploy -- --api-key "$APPS_IN_TOSS_API_KEY" --memo "$memo"
+          else
+            pnpm --dir "$AIT_DIR" run deploy --api-key "$APPS_IN_TOSS_API_KEY" --memo "$memo"
+          fi
+
+      - name: Summary
+        shell: bash
+        env:
+          DEPLOY_REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          { echo "### Deploy AIT"; echo ""; echo "- ref: $DEPLOY_REF"; echo "- runner: seorilabs-rpi-arm64"; } >> "$GITHUB_STEP_SUMMARY"

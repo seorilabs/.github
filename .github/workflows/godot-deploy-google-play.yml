@@ -1,0 +1,276 @@
+# Seorilabs org 재사용 워크플로우: Godot 게임 Google Play (서명 AAB + 업로드)
+# 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-google-play.yml@main
+# 러너: ubuntu-latest (x64). godot --export-release Android → 서명 AAB → WIF 업로드.
+# 표준 contract(tools/): set_google_play_version_code.py, upload_google_play_internal.py
+#   (선택) install_android_build_template.sh, build_admob_plugin.sh, check_google_play_readiness.py
+name: Godot Deploy Google Play (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: false
+        default: ""
+        type: string
+      version_name:
+        description: "Google Play versionName SemVer (예: 1.0.1)"
+        required: true
+        type: string
+      version_code:
+        description: "비우면 versionName에서 파생"
+        required: false
+        default: ""
+        type: string
+      track:
+        required: false
+        default: "internal"
+        type: string
+      release_status:
+        required: false
+        default: "draft"
+        type: string
+      upload:
+        required: false
+        default: true
+        type: boolean
+      godot_version:
+        required: false
+        default: "4.6.3"
+        type: string
+      godot_status:
+        required: false
+        default: "stable"
+        type: string
+      project_dir:
+        required: false
+        default: "."
+        type: string
+      aab_name:
+        description: "AAB 파일명(확장자 제외). 비우면 repo 이름."
+        required: false
+        default: ""
+        type: string
+      scripts_dir:
+        required: false
+        default: "tools"
+        type: string
+      timeout_minutes:
+        required: false
+        default: 30
+        type: number
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-aab:
+    name: Godot signed Android App Bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment: google-play
+
+    env:
+      GODOT_VERSION: ${{ inputs.godot_version }}
+      GODOT_STATUS: ${{ inputs.godot_status }}
+      PROJECT_DIR: ${{ inputs.project_dir }}
+      SCRIPTS_DIR: ${{ inputs.scripts_dir }}
+      SHOULD_UPLOAD: ${{ inputs.upload }}
+      ADMOB_APP_ID: ${{ vars.ADMOB_APP_ID }}
+      ADMOB_INTERSTITIAL_AD_UNIT_ID: ${{ vars.ADMOB_INTERSTITIAL_AD_UNIT_ID }}
+      FIREBASE_ANDROID_APP_ID: ${{ vars.FIREBASE_ANDROID_APP_ID }}
+      FIREBASE_ANDROID_API_KEY: ${{ secrets.FIREBASE_ANDROID_API_KEY }}
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      FIREBASE_GCM_SENDER_ID: ${{ vars.FIREBASE_GCM_SENDER_ID }}
+      FIREBASE_STORAGE_BUCKET: ${{ vars.FIREBASE_STORAGE_BUCKET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve AAB name
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="${{ inputs.aab_name }}"
+          [ -n "$name" ] || name="${{ github.event.repository.name }}"
+          echo "aab_path=build/android/${name}.aab" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          [ -n "$ROOT" ] || { echo "ANDROID_HOME required." >&2; exit 1; }
+          SM="$ROOT/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SM" ] || SM="$(find "$ROOT/cmdline-tools" -path '*/bin/sdkmanager' -type f 2>/dev/null | sort | tail -n1)"
+          [ -x "$SM" ] || { echo "sdkmanager not found." >&2; exit 1; }
+          echo "$(dirname "$SM")" >> "$GITHUB_PATH"
+          set +o pipefail; yes | "$SM" --licenses >/dev/null; st="${PIPESTATUS[1]}"; set -o pipefail
+          [ "$st" -eq 0 ] || exit "$st"
+          "$SM" "platform-tools" "platforms;android-35" "platforms;android-36" "build-tools;36.1.0" "cmdline-tools;latest"
+
+      - name: Validate and restore upload keystore
+        id: keystore
+        shell: bash
+        env:
+          GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64 }}
+          GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [ -n "$GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64" ] || { echo "GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64 required." >&2; exit 1; }
+          [ -n "$GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD" ] || { echo "GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD required." >&2; exit 1; }
+          dir="$RUNNER_TEMP/godot-gp-signing"; mkdir -p "$dir"
+          path="$dir/upload-key.jks"
+          printf '%s' "$GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$path"
+          chmod 600 "$path"
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+
+      - name: Set Google Play version
+        id: play_version
+        shell: bash
+        run: |
+          set -euo pipefail
+          vn="${{ inputs.version_name }}"
+          [ -n "$vn" ] || { echo "version_name required (stable SemVer)." >&2; exit 1; }
+          args=(--version-name "$vn")
+          [ -n "${{ inputs.version_code }}" ] && args+=(--version-code "${{ inputs.version_code }}")
+          if [ -f "$SCRIPTS_DIR/set_google_play_version_code.py" ]; then
+            python3 "$SCRIPTS_DIR/set_google_play_version_code.py" "${args[@]}" > "$RUNNER_TEMP/gp-version.json"
+            cat "$RUNNER_TEMP/gp-version.json"
+            python3 -c 'import json,sys;v=json.load(open(sys.argv[1]));print("version_name=%s"%v["versionName"]);print("version_code=%s"%v["versionCode"])' "$RUNNER_TEMP/gp-version.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "version_name=$vn" >> "$GITHUB_OUTPUT"
+            echo "version_code=${{ inputs.version_code }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Godot
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f "$SCRIPTS_DIR/install_godot_ci_dependencies.sh" ] && bash "$SCRIPTS_DIR/install_godot_ci_dependencies.sh" || true
+          [ -f scripts/install_godot_ci_dependencies.sh ] && bash scripts/install_godot_ci_dependencies.sh || true
+          curl -L -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.x86_64.zip"
+          unzip -q godot.zip
+          sudo mv "Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.x86_64" /usr/local/bin/godot
+          sudo chmod +x /usr/local/bin/godot
+          curl -L -o export_templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_export_templates.tpz"
+          unzip -q export_templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
+          mv templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}/"
+          godot --version
+
+      - name: Import Godot project
+        run: godot --headless --path "$PROJECT_DIR" --import --quit-after 1
+
+      - name: Validate AdMob variables
+        if: ${{ vars.ADMOB_APP_ID != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ "$ADMOB_APP_ID" != "ca-app-pub-3940256099942544~3347511713" ] || { echo "ADMOB_APP_ID는 테스트 ID 사용 금지." >&2; exit 1; }
+          [ "${ADMOB_INTERSTITIAL_AD_UNIT_ID:-}" != "ca-app-pub-3940256099942544/1033173712" ] || { echo "ADMOB_INTERSTITIAL_AD_UNIT_ID는 테스트 ID 사용 금지." >&2; exit 1; }
+
+      - name: Install Android build template
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f "$SCRIPTS_DIR/install_android_build_template.sh" ] && bash "$SCRIPTS_DIR/install_android_build_template.sh" || echo "no install_android_build_template.sh; skipping"
+
+      - name: Build AdMob plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f "$SCRIPTS_DIR/build_admob_plugin.sh" ] && bash "$SCRIPTS_DIR/build_admob_plugin.sh" || echo "no build_admob_plugin.sh; skipping"
+
+      - name: Export signed Android AAB
+        shell: bash
+        env:
+          GODOT_ANDROID_KEYSTORE_RELEASE_PATH: ${{ steps.keystore.outputs.path }}
+          GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD }}
+          GOOGLE_PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEY_PASSWORD }}
+          GOOGLE_PLAY_UPLOAD_KEY_ALIAS: ${{ vars.GOOGLE_PLAY_UPLOAD_KEY_ALIAS }}
+          AAB_PATH: ${{ steps.meta.outputs.aab_path }}
+        run: |
+          set -euo pipefail
+          alias="$(keytool -list -v -keystore "$GODOT_ANDROID_KEYSTORE_RELEASE_PATH" -storepass "$GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD" | awk -F': ' '/^Alias name: /{print $2; exit}')"
+          [ -n "$alias" ] || { echo "upload key alias 탐지 실패." >&2; exit 1; }
+          key_password="$GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD"
+          if [ -n "${GOOGLE_PLAY_UPLOAD_KEY_ALIAS:-}" ] && [ "$alias" = "$GOOGLE_PLAY_UPLOAD_KEY_ALIAS" ] && [ -n "${GOOGLE_PLAY_UPLOAD_KEY_PASSWORD:-}" ]; then
+            key_password="$GOOGLE_PLAY_UPLOAD_KEY_PASSWORD"
+          fi
+          export GODOT_ANDROID_KEYSTORE_RELEASE_USER="$alias"
+          export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="$GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD"
+          export GODOT_ANDROID_KEYSTORE_RELEASE_KEY_PASSWORD="$key_password"
+          mkdir -p "$(dirname "$AAB_PATH")"
+          godot --headless --path "$PROJECT_DIR" --export-release Android "$AAB_PATH"
+
+      - name: Validate Google Play readiness
+        if: ${{ hashFiles(format('{0}/check_google_play_readiness.py', inputs.scripts_dir)) != '' }}
+        run: python3 "$SCRIPTS_DIR/check_google_play_readiness.py"
+
+      - name: Upload AAB artifact
+        if: ${{ !inputs.upload }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: godot-google-play-aab-${{ steps.play_version.outputs.version_name }}-${{ steps.play_version.outputs.version_code }}
+          path: ${{ steps.meta.outputs.aab_path }}
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Validate Google Play WIF config
+        if: ${{ inputs.upload }}
+        shell: bash
+        env:
+          GOOGLE_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
+        run: |
+          set -euo pipefail
+          [ -n "$GOOGLE_WORKLOAD_IDENTITY_PROVIDER" ] || { echo "GOOGLE_WORKLOAD_IDENTITY_PROVIDER var required." >&2; exit 1; }
+          [ -n "$GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL" ] || { echo "GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL var required." >&2; exit 1; }
+
+      - name: Authenticate to Google Cloud
+        if: ${{ inputs.upload }}
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
+          create_credentials_file: true
+
+      - name: Install Google Play API client
+        if: ${{ inputs.upload }}
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install google-api-python-client google-auth google-auth-httplib2 httplib2
+
+      - name: Upload to Google Play
+        if: ${{ inputs.upload }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --track "${{ inputs.track }}"
+            --release-status "${{ inputs.release_status }}"
+            --release-name "${{ github.event.repository.name }} ${{ steps.play_version.outputs.version_name }} (${{ steps.play_version.outputs.version_code }})"
+          )
+          python3 "$SCRIPTS_DIR/upload_google_play_internal.py" "${args[@]}"
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "### Godot Deploy Google Play"; echo ""
+            echo "- version: ${{ steps.play_version.outputs.version_name }} (${{ steps.play_version.outputs.version_code }})"
+            echo "- track: ${{ inputs.track }} / status: ${{ inputs.release_status }} / uploaded: ${{ inputs.upload }}"
+          } >> "$GITHUB_STEP_SUMMARY"

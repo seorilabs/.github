@@ -1,0 +1,141 @@
+# Seorilabs org 재사용 워크플로우: GitHub Actions 스토리지 정리
+# 호출: uses: seorilabs/.github/.github/workflows/cleanup-actions-storage.yml@main
+# 아티팩트/캐시를 정리해 Actions 스토리지 쿼터를 비운다. 각 repo는 얇은 caller에서
+# workflow_dispatch(또는 cron)로 이 워크플로우를 호출한다.
+name: Cleanup Actions Storage (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      delete_artifacts:
+        description: "Workflow artifacts 삭제"
+        required: false
+        default: true
+        type: boolean
+      delete_caches:
+        description: "Actions caches 삭제"
+        required: false
+        default: true
+        type: boolean
+      dry_run:
+        description: "삭제하지 않고 대상/용량만 출력"
+        required: false
+        default: false
+        type: boolean
+      runs_on:
+        description: "실행 러너 (private repo는 ARC, public은 ubuntu-latest)"
+        required: false
+        default: "seorilabs-rpi-arm64"
+        type: string
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    name: Delete artifacts and caches
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: 15
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      DELETE_ARTIFACTS: ${{ inputs.delete_artifacts }}
+      DELETE_CACHES: ${{ inputs.delete_caches }}
+      DRY_RUN: ${{ inputs.dry_run }}
+
+    steps:
+      - name: Delete workflow artifacts
+        if: env.DELETE_ARTIFACTS == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          human_bytes() {
+            awk -v bytes="${1:-0}" '
+              BEGIN {
+                split("B KiB MiB GiB TiB", units)
+                value = bytes; unit = 1
+                while (value >= 1024 && unit < 5) { value /= 1024; unit += 1 }
+                printf "%.2f %s", value, units[unit]
+              }'
+          }
+
+          rows="$(gh api --paginate "repos/$GH_REPO/actions/artifacts?per_page=100" --jq '.artifacts[] | [.id, .name, .size_in_bytes] | @tsv')"
+          if [ -z "$rows" ]; then
+            echo "No workflow artifacts found."
+            { echo "### Workflow artifacts"; echo ""; echo "- candidates: 0"; echo "- deleted: 0"; } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          count="$(printf '%s\n' "$rows" | awk 'NF { c += 1 } END { print c + 0 }')"
+          bytes="$(printf '%s\n' "$rows" | awk -F '\t' '{ s += $3 } END { print s + 0 }')"
+          echo "Found $count workflow artifacts using $(human_bytes "$bytes")."
+
+          deleted=0
+          while IFS=$'\t' read -r id name size; do
+            [ -n "${id:-}" ] || continue
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "[dry-run] artifact #$id $name ($size bytes)"
+            else
+              echo "Deleting artifact #$id $name ($size bytes)"
+              gh api --method DELETE "repos/$GH_REPO/actions/artifacts/$id" >/dev/null
+            fi
+            deleted=$((deleted + 1))
+          done <<< "$rows"
+
+          {
+            echo "### Workflow artifacts"; echo ""
+            echo "- candidates: $count"
+            echo "- size: $(human_bytes "$bytes") ($bytes bytes)"
+            echo "- processed: $deleted"
+            echo "- dry_run: $DRY_RUN"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete Actions caches
+        if: env.DELETE_CACHES == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          human_bytes() {
+            awk -v bytes="${1:-0}" '
+              BEGIN {
+                split("B KiB MiB GiB TiB", units)
+                value = bytes; unit = 1
+                while (value >= 1024 && unit < 5) { value /= 1024; unit += 1 }
+                printf "%.2f %s", value, units[unit]
+              }'
+          }
+
+          rows="$(gh api --paginate "repos/$GH_REPO/actions/caches?per_page=100" --jq '.actions_caches[] | [.id, .key, .size_in_bytes] | @tsv')"
+          if [ -z "$rows" ]; then
+            echo "No Actions caches found."
+            { echo "### Actions caches"; echo ""; echo "- candidates: 0"; echo "- deleted: 0"; } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          count="$(printf '%s\n' "$rows" | awk 'NF { c += 1 } END { print c + 0 }')"
+          bytes="$(printf '%s\n' "$rows" | awk -F '\t' '{ s += $3 } END { print s + 0 }')"
+          echo "Found $count Actions caches using $(human_bytes "$bytes")."
+
+          deleted=0
+          while IFS=$'\t' read -r id key size; do
+            [ -n "${id:-}" ] || continue
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "[dry-run] cache #$id $key ($size bytes)"
+            else
+              echo "Deleting cache #$id $key ($size bytes)"
+              gh api --method DELETE "repos/$GH_REPO/actions/caches/$id" >/dev/null
+            fi
+            deleted=$((deleted + 1))
+          done <<< "$rows"
+
+          {
+            echo "### Actions caches"; echo ""
+            echo "- candidates: $count"
+            echo "- size: $(human_bytes "$bytes") ($bytes bytes)"
+            echo "- processed: $deleted"
+            echo "- dry_run: $DRY_RUN"
+          } >> "$GITHUB_STEP_SUMMARY"

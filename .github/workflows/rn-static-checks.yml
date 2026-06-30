@@ -1,0 +1,98 @@
+# Seorilabs org 재사용 워크플로우: RN/Node 정적 품질 게이트 (main)
+# 호출: uses: seorilabs/.github/.github/workflows/rn-static-checks.yml@main
+# 원칙: main 병합/PR 이벤트는 정적 체크만(lint/typecheck/test/style + 정적 게이트).
+# 무거운 빌드/배포 금지. ARC(private) 우선, public PR은 ubuntu.
+name: RN Static Checks (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: "Node 버전"
+        required: false
+        default: "24"
+        type: string
+      package_manager:
+        description: "pnpm | npm"
+        required: false
+        default: "pnpm"
+        type: string
+      pnpm_version:
+        description: "corepack로 활성화할 pnpm 버전"
+        required: false
+        default: "11.3.0"
+        type: string
+      install_command:
+        description: "설치 명령(비우면 pm 기본값)"
+        required: false
+        default: ""
+        type: string
+      check_command:
+        description: "실행할 체크 명령(여러 줄 가능). 예: lint/typecheck/test/style"
+        required: true
+        type: string
+      working_directory:
+        description: "체크 실행 디렉터리"
+        required: false
+        default: "."
+        type: string
+      timeout_minutes:
+        description: "잡 타임아웃(분)"
+        required: false
+        default: 20
+        type: number
+      runs_on:
+        description: "러너. public repo는 'ubuntu-latest' 전달."
+        required: false
+        default: "seorilabs-rpi-arm64"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Static checks
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          check-latest: false
+
+      - name: Enable pnpm
+        if: inputs.package_manager == 'pnpm'
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@${{ inputs.pnpm_version }} --activate
+
+      - name: Install dependencies
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          INSTALL_COMMAND: ${{ inputs.install_command }}
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INSTALL_COMMAND" ]; then
+            eval "$INSTALL_COMMAND"
+          elif [ "$PACKAGE_MANAGER" = "npm" ]; then
+            npm ci
+          else
+            pnpm install --frozen-lockfile
+          fi
+
+      - name: Run checks
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.check_command }}

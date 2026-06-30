@@ -1,0 +1,287 @@
+# Seorilabs org 재사용 워크플로우: RN 앱 Google Play (서명 AAB + 업로드)
+# 호출: uses: seorilabs/.github/.github/workflows/rn-deploy-google-play.yml@main
+# 러너: ubuntu-latest (Android aapt2가 x86-64 → ARC 금지). 업로드: WIF(keyless).
+# 표준 contract(템플릿이 구현):
+#   - scripts/resolve-release-version.mjs --tag <tag> --github-output
+#       → version_name, android_version_code, release_name
+#   - apps/mobile/android(또는 android)/gradlew :app:bundleRelease
+#       -PversionNameOverride -PversionCodeOverride
+#   - scripts/upload-google-play-internal.py --aab-path --release-name --release-status [--track] [--changes-not-sent-for-review]
+#   - scripts/restore-mobile-firebase-config.mjs --android --require
+name: RN Deploy Google Play (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "빌드/업로드할 릴리즈 태그. 비우면 최신 vX.Y.Z."
+        required: false
+        default: ""
+        type: string
+      upload:
+        description: "AAB를 Google Play track에 업로드"
+        required: false
+        default: true
+        type: boolean
+      track:
+        description: "Google Play track (internal/production 등)"
+        required: false
+        default: "internal"
+        type: string
+      release_status:
+        description: "track release status (draft/completed)"
+        required: false
+        default: "completed"
+        type: string
+      changes_not_sent_for_review:
+        description: "검토 제출 없이 edit commit"
+        required: false
+        default: false
+        type: boolean
+      package_manager:
+        description: "npm | pnpm"
+        required: false
+        default: "npm"
+        type: string
+      pnpm_version:
+        required: false
+        default: "11.3.0"
+        type: string
+      node_version:
+        required: false
+        default: "24"
+        type: string
+      android_dir:
+        description: "Android Gradle 프로젝트 경로(비우면 자동 탐지)"
+        required: false
+        default: ""
+        type: string
+      version_script:
+        required: false
+        default: "scripts/resolve-release-version.mjs"
+        type: string
+      upload_script:
+        required: false
+        default: "scripts/upload-google-play-internal.py"
+        type: string
+      firebase_restore_script:
+        required: false
+        default: "scripts/restore-mobile-firebase-config.mjs"
+        type: string
+      timeout_minutes:
+        required: false
+        default: 35
+        type: number
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-aab:
+    name: Signed Android App Bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment: google-play
+
+    env:
+      PM: ${{ inputs.package_manager }}
+      SHOULD_UPLOAD: ${{ inputs.upload }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.release_tag }}"
+          if [ -z "$tag" ]; then
+            tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+            [ -n "$tag" ] || { echo "release_tag 비어있고 vX.Y.Z 태그 없음." >&2; exit 1; }
+          fi
+          git -c advice.detachedHead=false checkout "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          check-latest: false
+
+      - name: Enable pnpm
+        if: inputs.package_manager == 'pnpm'
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@${{ inputs.pnpm_version }} --activate
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$PM" = "pnpm" ]; then
+            pnpm install --frozen-lockfile
+          else
+            npm ci
+            [ -f apps/mobile/package-lock.json ] && npm ci --prefix apps/mobile || true
+          fi
+
+      - name: Resolve release version
+        id: release
+        shell: bash
+        run: node ${{ inputs.version_script }} --tag "${{ steps.tag.outputs.tag }}" --github-output
+
+      - name: Restore Android Firebase config
+        shell: bash
+        env:
+          FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
+          FIREBASE_RESTORE_SCRIPT: ${{ inputs.firebase_restore_script }}
+        run: |
+          set -euo pipefail
+          if [ -f "$FIREBASE_RESTORE_SCRIPT" ]; then
+            node "$FIREBASE_RESTORE_SCRIPT" --android --require
+          elif [ -n "${FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64:-}" ]; then
+            mkdir -p apps/mobile/android/app
+            printf '%s' "$FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > apps/mobile/android/app/google-services.json
+          else
+            echo "No Firebase restore script and no FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64; continuing." >&2
+          fi
+
+      - name: Resolve Android project
+        id: android
+        shell: bash
+        env:
+          ANDROID_DIR_INPUT: ${{ inputs.android_dir }}
+        run: |
+          set -euo pipefail
+          if [ -n "$ANDROID_DIR_INPUT" ]; then
+            android_dir="$ANDROID_DIR_INPUT"
+          elif [ -x apps/mobile/android/gradlew ]; then
+            android_dir="apps/mobile/android"
+          elif [ -x android/gradlew ]; then
+            android_dir="android"
+          else
+            echo "Android Gradle project를 찾지 못함(apps/mobile/android 또는 android)." >&2; exit 1
+          fi
+          aab_path="$android_dir/app/build/outputs/bundle/release/app-release.aab"
+          { echo "android_dir=$android_dir"; echo "aab_path=$aab_path"; } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sm="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$sm" ] || { echo "sdkmanager not found at $sm" >&2; exit 1; }
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          set +o pipefail
+          yes 2>/dev/null | "$sm" --licenses >/dev/null
+          st="${PIPESTATUS[1]}"; set -o pipefail
+          [ "$st" -eq 0 ] || exit "$st"
+          "$sm" "platform-tools" "platforms;android-35" "platforms;android-36" "build-tools;35.0.0" "build-tools;36.0.0" "cmdline-tools;latest"
+
+      - name: Validate and restore upload keystore
+        shell: bash
+        env:
+          GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64 }}
+          GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD }}
+          GOOGLE_PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEY_PASSWORD }}
+          GOOGLE_PLAY_UPLOAD_KEY_ALIAS: ${{ vars.GOOGLE_PLAY_UPLOAD_KEY_ALIAS }}
+          ANDROID_DIR: ${{ steps.android.outputs.android_dir }}
+        run: |
+          set -euo pipefail
+          [ -n "$GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64" ] || { echo "GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64 required." >&2; exit 1; }
+          [ -n "$GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD" ] || { echo "GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD required." >&2; exit 1; }
+
+          signing_dir="$RUNNER_TEMP/gp-signing"
+          keystore_path="$signing_dir/upload-key.jks"
+          key_alias="${GOOGLE_PLAY_UPLOAD_KEY_ALIAS:-upload}"
+          key_password="${GOOGLE_PLAY_UPLOAD_KEY_PASSWORD:-$GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD}"
+          mkdir -p "$signing_dir"
+          printf '%s' "$GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          chmod 600 "$keystore_path"
+          {
+            printf 'storeFile=%s\n' "$keystore_path"
+            printf 'storePassword=%s\n' "$GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$key_alias"
+            printf 'keyPassword=%s\n' "$key_password"
+          } > "$ANDROID_DIR/key.properties"
+          chmod 600 "$ANDROID_DIR/key.properties"
+
+      - name: Build signed Android AAB
+        working-directory: ${{ steps.android.outputs.android_dir }}
+        env:
+          APP_VERSION_NAME: ${{ steps.release.outputs.version_name }}
+          APP_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
+        run: ./gradlew :app:bundleRelease --no-daemon -PversionNameOverride="$APP_VERSION_NAME" -PversionCodeOverride="$APP_VERSION_CODE"
+
+      - name: Upload AAB artifact
+        if: ${{ !inputs.upload }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: google-play-aab-${{ steps.release.outputs.release_name || steps.tag.outputs.tag }}
+          path: ${{ steps.android.outputs.aab_path }}
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Validate Google Play WIF config
+        if: ${{ inputs.upload }}
+        shell: bash
+        env:
+          GOOGLE_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
+        run: |
+          set -euo pipefail
+          [ -n "$GOOGLE_WORKLOAD_IDENTITY_PROVIDER" ] || { echo "GOOGLE_WORKLOAD_IDENTITY_PROVIDER var required." >&2; exit 1; }
+          [ -n "$GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL" ] || { echo "GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL var required." >&2; exit 1; }
+
+      - name: Authenticate to Google Cloud
+        if: ${{ inputs.upload }}
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
+          create_credentials_file: true
+
+      - name: Install Google Play API client
+        if: ${{ inputs.upload }}
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install google-api-python-client google-auth google-auth-httplib2 httplib2
+
+      - name: Upload AAB to Google Play
+        if: ${{ inputs.upload }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --aab-path "${{ steps.android.outputs.aab_path }}"
+            --release-name "${{ steps.release.outputs.release_name || steps.tag.outputs.tag }}"
+            --release-status "${{ inputs.release_status }}"
+            --track "${{ inputs.track }}"
+          )
+          [ "${{ inputs.changes_not_sent_for_review }}" = "true" ] && args+=(--changes-not-sent-for-review)
+          python3 ${{ inputs.upload_script }} "${args[@]}"
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "### Deploy Google Play"; echo ""
+            echo "- tag: ${{ steps.tag.outputs.tag }}"
+            echo "- track: ${{ inputs.track }} / status: ${{ inputs.release_status }}"
+            echo "- uploaded: ${{ inputs.upload }}"
+          } >> "$GITHUB_STEP_SUMMARY"

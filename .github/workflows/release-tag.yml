@@ -1,0 +1,143 @@
+# Seorilabs org 재사용 워크플로우: 명시적 SemVer 릴리즈 태그 생성
+# 호출: uses: seorilabs/.github/.github/workflows/release-tag.yml@main
+# 원칙: 태그는 사람이 의도적으로 찍는다(merge마다 자동 태깅 금지).
+# 백오피스/텔레그램 또는 각 repo의 release-tag.yml caller(workflow_dispatch)에서 호출.
+name: Release Tag (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      target_ref:
+        description: "태그를 붙일 ref/SHA (브랜치/태그/커밋). 비우면 main."
+        required: false
+        default: "main"
+        type: string
+      tag:
+        description: "직접 지정할 SemVer 태그(v1.2.3 또는 1.2.3). 비우면 최신 태그 + bump."
+        required: false
+        default: ""
+        type: string
+      bump:
+        description: "tag 미지정 시 증가 단위 (major/minor/patch)"
+        required: false
+        default: "patch"
+        type: string
+      dry_run:
+        description: "푸시 없이 계산만"
+        required: false
+        default: false
+        type: boolean
+      runs_on:
+        description: "실행 러너"
+        required: false
+        default: "seorilabs-rpi-arm64"
+        type: string
+    outputs:
+      tag:
+        description: "생성/확정된 태그"
+        value: ${{ jobs.create.outputs.tag }}
+      sha:
+        description: "태그가 가리키는 커밋 SHA"
+        value: ${{ jobs.create.outputs.sha }}
+      created:
+        description: "신규 생성 여부 (true/false)"
+        value: ${{ jobs.create.outputs.created }}
+
+permissions:
+  contents: write
+
+jobs:
+  create:
+    name: Create SemVer release tag
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      sha: ${{ steps.tag.outputs.sha }}
+      created: ${{ steps.tag.outputs.created }}
+
+    env:
+      TARGET_REF: ${{ inputs.target_ref || 'main' }}
+      TAG_INPUT: ${{ inputs.tag || '' }}
+      BUMP: ${{ inputs.bump || 'patch' }}
+      DRY_RUN: ${{ inputs.dry_run }}
+
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.target_ref || 'main' }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve and create tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin >/dev/null 2>&1 || true
+
+          if [[ "$TARGET_REF" == -* ]]; then
+            echo "target_ref must not start with '-'. Received: $TARGET_REF" >&2; exit 1
+          fi
+
+          target_commit="$(git rev-parse --verify "${TARGET_REF}^{commit}")"
+          short_sha="$(git rev-parse --short "$target_commit")"
+
+          normalize_semver() {
+            local raw="$1"; local v="${raw#v}"
+            if [[ ! "$v" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo "Tag must be stable SemVer vMAJOR.MINOR.PATCH. Received: $raw" >&2; exit 1
+            fi
+            echo "v$v"
+          }
+
+          if [ -n "$TAG_INPUT" ]; then
+            tag="$(normalize_semver "$TAG_INPUT")"
+          else
+            latest="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+            if [ -z "$latest" ]; then
+              base="0.0.0"
+            else
+              base="${latest#v}"
+            fi
+            IFS='.' read -r MA MI PA <<< "$base"
+            case "$BUMP" in
+              major) MA=$((MA+1)); MI=0; PA=0 ;;
+              minor) MI=$((MI+1)); PA=0 ;;
+              patch) PA=$((PA+1)) ;;
+              *) echo "Unsupported bump: $BUMP" >&2; exit 1 ;;
+            esac
+            tag="v${MA}.${MI}.${PA}"
+          fi
+
+          tag_ref="refs/tags/$tag"
+          if tag_commit="$(git rev-parse -q --verify "$tag_ref^{commit}" 2>/dev/null)"; then
+            if [ "$tag_commit" = "$target_commit" ]; then
+              echo "Tag '$tag' already points to $target_commit. Skipping."
+              { echo "created=false"; echo "tag=$tag"; echo "sha=$target_commit"; } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Tag '$tag' already exists for a different commit ($tag_commit)." >&2; exit 1
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "[dry-run] would create $tag at $short_sha"
+            { echo "created=false"; echo "tag=$tag"; echo "sha=$target_commit"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" "$target_commit" -m "Release $tag ($short_sha)"
+          git push origin "refs/tags/$tag"
+          { echo "created=true"; echo "tag=$tag"; echo "sha=$target_commit"; } >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        shell: bash
+        env:
+          CREATED: ${{ steps.tag.outputs.created }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          SHA: ${{ steps.tag.outputs.sha }}
+        run: |
+          { echo "### Release Tag"; echo ""; echo "- created: $CREATED"; echo "- tag: $TAG"; echo "- sha: $SHA"; } >> "$GITHUB_STEP_SUMMARY"

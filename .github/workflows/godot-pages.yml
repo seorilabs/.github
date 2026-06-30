@@ -1,0 +1,120 @@
+# Seorilabs org 재사용 워크플로우: Godot Web export → GitHub Pages 배포
+# 호출: uses: seorilabs/.github/.github/workflows/godot-pages.yml@main
+# 러너: ARC(private) 우선. caller가 public repo면 runs_on='ubuntu-latest' 전달.
+name: Godot Pages (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      godot_version:
+        required: false
+        default: "4.6.3"
+        type: string
+      godot_status:
+        required: false
+        default: "stable"
+        type: string
+      pages_dir:
+        description: "Pages 산출물 경로"
+        required: false
+        default: "build/pages"
+        type: string
+      runs_on:
+        required: false
+        default: "seorilabs-rpi-arm64"
+        type: string
+      timeout_minutes:
+        required: false
+        default: 30
+        type: number
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build Godot Web
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    env:
+      GODOT_VERSION: ${{ inputs.godot_version }}
+      GODOT_STATUS: ${{ inputs.godot_status }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Ensure fontconfig runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ldconfig -p 2>/dev/null | grep -q "libfontconfig.so.1"; then exit 0; fi
+          command -v apt-get >/dev/null 2>&1 || exit 0
+          sudo_cmd=""; command -v sudo >/dev/null 2>&1 && sudo_cmd="sudo"
+          ${sudo_cmd} apt-get update && ${sudo_cmd} apt-get install -y libfontconfig1 fontconfig
+
+      - name: Install Godot deps (repo script)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f scripts/install_godot_ci_dependencies.sh ] && bash scripts/install_godot_ci_dependencies.sh || true
+
+      - name: Ensure Godot
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f scripts/ensure_godot.sh ]; then
+            bash scripts/ensure_godot.sh --with-export-templates
+            exit 0
+          fi
+          case "${RUNNER_ARCH:-}" in
+            X64) arch="x86_64" ;; ARM64) arch="arm64" ;; ARM) arch="arm32" ;;
+            *) echo "Unsupported arch" >&2; exit 1 ;;
+          esac
+          bin="Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.${arch}"
+          curl -L -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/${bin}.zip"
+          unzip -q godot.zip && sudo mv "$bin" /usr/local/bin/godot && sudo chmod +x /usr/local/bin/godot
+          tdir="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
+          curl -L -o tpl.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_export_templates.tpz"
+          unzip -q tpl.tpz && mkdir -p "$tdir" && mv templates/* "$tdir/"
+          godot --version
+
+      - name: Export Godot Web
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f scripts/export_godot_web.sh ] || { echo "scripts/export_godot_web.sh 필요." >&2; exit 1; }
+          bash scripts/export_godot_web.sh
+
+      - name: Validate Pages artifact
+        shell: bash
+        env:
+          PAGES_DIR: ${{ inputs.pages_dir }}
+        run: |
+          set -euo pipefail
+          test -f "$PAGES_DIR/index.html"
+          test -f "$PAGES_DIR/.nojekyll" || touch "$PAGES_DIR/.nojekyll"
+          find "$PAGES_DIR" -maxdepth 1 -type f -print | sort
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ inputs.pages_dir }}
+
+  deploy:
+    name: Deploy GitHub Pages
+    needs: build
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

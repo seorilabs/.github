@@ -1,0 +1,358 @@
+# Seorilabs org 재사용 워크플로우: RN 앱 App Store (Xcode archive + 업로드)
+# 호출: uses: seorilabs/.github/.github/workflows/rn-deploy-app-store.yml@main
+# 러너: macos-26 (Xcode 필요 → ARC 금지). 업로드: App Store Connect API key(.p8).
+# 서명: Apple Distribution 인증서 + App Store provisioning profile(manual).
+# 표준 contract: scripts/resolve-release-version.mjs → apple_marketing_version, apple_build_number
+name: RN Deploy App Store (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "업로드할 릴리즈 태그. 비우면 최신 vX.Y.Z."
+        required: false
+        default: ""
+        type: string
+      upload:
+        description: "archive 후 App Store Connect 업로드"
+        required: false
+        default: true
+        type: boolean
+      ios_scheme:
+        description: "Xcode scheme"
+        required: true
+        type: string
+      ios_workspace:
+        description: "Xcode workspace 경로(.xcworkspace)"
+        required: true
+        type: string
+      ios_bundle_id:
+        description: "iOS bundle id"
+        required: true
+        type: string
+      ios_app_name:
+        description: ".app 산출물 이름(비우면 scheme)"
+        required: false
+        default: ""
+        type: string
+      ios_dir:
+        description: "iOS RN 앱 디렉터리"
+        required: false
+        default: "apps/mobile"
+        type: string
+      package_manager:
+        description: "npm | pnpm"
+        required: false
+        default: "npm"
+        type: string
+      pnpm_version:
+        required: false
+        default: "11.3.0"
+        type: string
+      node_version:
+        required: false
+        default: "24"
+        type: string
+      version_script:
+        required: false
+        default: "scripts/resolve-release-version.mjs"
+        type: string
+      firebase_restore_script:
+        required: false
+        default: "scripts/restore-mobile-firebase-config.mjs"
+        type: string
+      timeout_minutes:
+        required: false
+        default: 70
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  archive-upload:
+    name: iOS archive and App Store upload
+    runs-on: macos-26
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment: app-store
+
+    env:
+      SHOULD_UPLOAD: ${{ inputs.upload }}
+      IOS_SCHEME: ${{ inputs.ios_scheme }}
+      IOS_WORKSPACE: ${{ inputs.ios_workspace }}
+      IOS_BUNDLE_ID: ${{ inputs.ios_bundle_id }}
+      IOS_APP_NAME: ${{ inputs.ios_app_name || inputs.ios_scheme }}
+      IOS_DIR: ${{ inputs.ios_dir }}
+      PM: ${{ inputs.package_manager }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID || vars.APPLE_TEAM_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.release_tag }}"
+          if [ -z "$tag" ]; then
+            tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+            [ -n "$tag" ] || { echo "release_tag 비어있고 vX.Y.Z 태그 없음." >&2; exit 1; }
+          fi
+          git -c advice.detachedHead=false checkout "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Check release ref
+        shell: bash
+        env:
+          REF: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$SHOULD_UPLOAD" = "true" ] && ! [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "App Store 업로드는 vX.Y.Z 태그 필요. 받음: ${REF:-empty}" >&2; exit 1
+          fi
+
+      - name: Verify Xcode SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          sdk="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iphoneos SDK: $sdk"
+          [ "${sdk%%.*}" -ge 26 ] || { echo "App Store는 iOS 26 SDK 이상 필요. 현재: $sdk" >&2; exit 1; }
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          check-latest: false
+
+      - name: Enable pnpm
+        if: inputs.package_manager == 'pnpm'
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@${{ inputs.pnpm_version }} --activate
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$PM" = "pnpm" ]; then
+            pnpm install --frozen-lockfile
+          else
+            npm ci
+            [ -f "$IOS_DIR/package-lock.json" ] && npm ci --prefix "$IOS_DIR" || true
+          fi
+
+      - name: Restore iOS Firebase config
+        shell: bash
+        env:
+          FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64: ${{ secrets.FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64 }}
+          FIREBASE_RESTORE_SCRIPT: ${{ inputs.firebase_restore_script }}
+        run: |
+          set -euo pipefail
+          if [ -f "$FIREBASE_RESTORE_SCRIPT" ]; then
+            node "$FIREBASE_RESTORE_SCRIPT" --ios --require
+          else
+            echo "Firebase restore script 없음; 스킵." >&2
+          fi
+
+      - name: Resolve release version
+        id: release
+        shell: bash
+        run: node ${{ inputs.version_script }} --tag "${{ steps.tag.outputs.tag }}" --github-output
+
+      - name: Install CocoaPods
+        working-directory: ${{ inputs.ios_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle config set --local path vendor/bundle
+          bundle install
+          bundle exec pod install --project-directory=ios
+
+      - name: Validate signing and upload secrets
+        shell: bash
+        env:
+          APPLE_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          for v in APPLE_DISTRIBUTION_CERTIFICATE_BASE64 APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD APPLE_PROVISIONING_PROFILE_BASE64 APPLE_KEYCHAIN_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!v:-}" ] || { echo "$v is required." >&2; exit 1; }
+          done
+          if [ "$SHOULD_UPLOAD" = "true" ]; then
+            for v in APP_STORE_CONNECT_API_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_PRIVATE_KEY_BASE64; do
+              [ -n "${!v:-}" ] || { echo "$v is required when upload=true." >&2; exit 1; }
+            done
+          fi
+
+      - name: Restore Apple signing assets
+        id: signing
+        shell: bash
+        env:
+          APPLE_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          decode_base64() {
+            if ! printf '%s' "$1" | base64 --decode > "$2" 2>/dev/null; then printf '%s' "$1" | base64 -D > "$2"; fi
+          }
+          signing_dir="$RUNNER_TEMP/app-store-signing"
+          keychain_path="$signing_dir/app-store.keychain-db"
+          certificate_path="$signing_dir/apple-distribution.p12"
+          profile_path="$signing_dir/app-store.mobileprovision"
+          mkdir -p "$signing_dir"
+          decode_base64 "$APPLE_DISTRIBUTION_CERTIFICATE_BASE64" "$certificate_path"
+          decode_base64 "$APPLE_PROVISIONING_PROFILE_BASE64" "$profile_path"
+
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" -P "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security default-keychain -s "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+
+          profile_plist="$signing_dir/profile.plist"
+          security cms -D -i "$profile_path" > "$profile_plist"
+          profile_uuid="$(plutil -extract UUID raw -o - "$profile_plist")"
+          profile_name="$(plutil -extract Name raw -o - "$profile_plist")"
+          profile_team="$(plutil -extract TeamIdentifier.0 raw -o - "$profile_plist")"
+          profile_app_id="$(plutil -extract Entitlements.application-identifier raw -o - "$profile_plist")"
+          profile_get_task_allow="$(plutil -extract Entitlements.get-task-allow raw -o - "$profile_plist")"
+
+          expected="$APPLE_TEAM_ID.$IOS_BUNDLE_ID"; wildcard="$APPLE_TEAM_ID.*"
+          [ "$profile_team" = "$APPLE_TEAM_ID" ] || { echo "profile team != APPLE_TEAM_ID" >&2; exit 1; }
+          { [ "$profile_app_id" = "$expected" ] || [ "$profile_app_id" = "$wildcard" ]; } || { echo "profile bundle != $IOS_BUNDLE_ID" >&2; exit 1; }
+          [ "$profile_get_task_allow" = "false" ] || { echo "App Store profile은 get-task-allow=false 필요" >&2; exit 1; }
+
+          profiles_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$profiles_dir"
+          cp "$profile_path" "$profiles_dir/$profile_uuid.mobileprovision"
+          { echo "keychain_path=$keychain_path"; echo "profile_name=$profile_name"; echo "profile_uuid=$profile_uuid"; } >> "$GITHUB_OUTPUT"
+          echo "Signing identities:"; security find-identity -v -p codesigning "$keychain_path"
+
+      - name: Archive iOS app
+        id: archive
+        shell: bash
+        env:
+          APPLE_MARKETING_VERSION: ${{ steps.release.outputs.apple_marketing_version }}
+          APPLE_BUILD_NUMBER: ${{ steps.release.outputs.apple_build_number }}
+          KEYCHAIN_PATH: ${{ steps.signing.outputs.keychain_path }}
+          PROFILE_NAME: ${{ steps.signing.outputs.profile_name }}
+        run: |
+          set -euo pipefail
+          archive_path="$RUNNER_TEMP/${IOS_APP_NAME}-v${APPLE_MARKETING_VERSION}-build${APPLE_BUILD_NUMBER}.xcarchive"
+          xcodebuild archive \
+            -workspace "$IOS_WORKSPACE" \
+            -scheme "$IOS_SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$archive_path" \
+            MARKETING_VERSION="$APPLE_MARKETING_VERSION" \
+            CURRENT_PROJECT_VERSION="$APPLE_BUILD_NUMBER" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH"
+
+          info_plist="$archive_path/Products/Applications/${IOS_APP_NAME}.app/Info.plist"
+          amv="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$info_plist")"
+          abn="$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$info_plist")"
+          [ "$amv" = "$APPLE_MARKETING_VERSION" ] || { echo "marketing version mismatch: $amv != $APPLE_MARKETING_VERSION" >&2; exit 1; }
+          [ "$abn" = "$APPLE_BUILD_NUMBER" ] || { echo "build number mismatch: $abn != $APPLE_BUILD_NUMBER" >&2; exit 1; }
+          { echo "archive_path=$archive_path"; echo "marketing_version=$amv"; echo "build_number=$abn"; } >> "$GITHUB_OUTPUT"
+
+      - name: Upload xcarchive artifact
+        if: ${{ !inputs.upload }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-store-archive-${{ steps.tag.outputs.tag }}-build${{ steps.archive.outputs.build_number }}
+          path: ${{ steps.archive.outputs.archive_path }}
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Prepare App Store Connect API key
+        if: ${{ inputs.upload }}
+        id: asc
+        shell: bash
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/asc-api-key"
+          path="$dir/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          mkdir -p "$dir"
+          if ! printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY_BASE64" | base64 --decode > "$path" 2>/dev/null; then
+            printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY_BASE64" | base64 -D > "$path"
+          fi
+          chmod 600 "$path"
+          echo "api_key_path=$path" >> "$GITHUB_OUTPUT"
+
+      - name: Export and upload to App Store Connect
+        if: ${{ inputs.upload }}
+        shell: bash
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_PATH: ${{ steps.asc.outputs.api_key_path }}
+          PROFILE_NAME: ${{ steps.signing.outputs.profile_name }}
+          ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
+        run: |
+          set -euo pipefail
+          opts="$RUNNER_TEMP/AppStoreExportOptions.plist"
+          out="$RUNNER_TEMP/app-store-export"
+          cat > "$opts" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>signingStyle</key><string>manual</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict><key>${IOS_BUNDLE_ID}</key><string>${PROFILE_NAME}</string></dict>
+            <key>stripSwiftSymbols</key><true/>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          EOF
+          plutil -lint "$opts"
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportOptionsPlist "$opts" \
+            -exportPath "$out" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$APP_STORE_CONNECT_API_KEY_PATH" \
+            -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID"
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "### Deploy App Store"; echo ""
+            echo "- tag: ${{ steps.tag.outputs.tag }}"
+            echo "- marketing: ${{ steps.archive.outputs.marketing_version }} / build: ${{ steps.archive.outputs.build_number }}"
+            echo "- uploaded: ${{ inputs.upload }}"
+          } >> "$GITHUB_STEP_SUMMARY"

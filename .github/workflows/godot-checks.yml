@@ -1,0 +1,135 @@
+# Seorilabs org 재사용 워크플로우: Godot 정적 게이트 (main)
+# 호출: uses: seorilabs/.github/.github/workflows/godot-checks.yml@main
+# import → compile/quality gate → headless smoke. 무거운 export/배포 금지.
+# ARC(ARM64)에서 Godot 4.6.3 실행. public repo는 ubuntu 전달.
+name: Godot Checks (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      godot_version:
+        description: "Godot 버전"
+        required: false
+        default: "4.6.3"
+        type: string
+      godot_status:
+        description: "Godot 릴리즈 상태"
+        required: false
+        default: "stable"
+        type: string
+      project_dir:
+        description: "Godot 프로젝트 경로"
+        required: false
+        default: "."
+        type: string
+      check_command:
+        description: "체크 명령(여러 줄). 비우면 import + quality gate 스크립트 탐색."
+        required: false
+        default: ""
+        type: string
+      with_export_templates:
+        description: "export templates 설치 여부(compile-only는 false)"
+        required: false
+        default: false
+        type: boolean
+      timeout_minutes:
+        required: false
+        default: 25
+        type: number
+      runs_on:
+        description: "러너. public repo는 'ubuntu-latest' 전달."
+        required: false
+        default: "seorilabs-rpi-arm64"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Godot compile and smoke
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    env:
+      GODOT_VERSION: ${{ inputs.godot_version }}
+      GODOT_STATUS: ${{ inputs.godot_status }}
+      PROJECT_DIR: ${{ inputs.project_dir }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Ensure fontconfig runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ldconfig -p 2>/dev/null | grep -q "libfontconfig.so.1"; then
+            echo "fontconfig already available"; exit 0
+          fi
+          if ! command -v apt-get >/dev/null 2>&1; then
+            echo "libfontconfig missing and apt-get unavailable; continuing" >&2; exit 0
+          fi
+          sudo_cmd=""; command -v sudo >/dev/null 2>&1 && sudo_cmd="sudo"
+          ${sudo_cmd} apt-get update
+          ${sudo_cmd} apt-get install -y libfontconfig1 fontconfig
+
+      - name: Cache Godot binary
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/godot-bin
+          key: godot-bin-${{ inputs.godot_version }}-${{ inputs.godot_status }}-${{ runner.arch }}
+
+      - name: Install Godot
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir="$RUNNER_TEMP/godot-bin"
+          if [ ! -x "$install_dir/godot" ]; then
+            case "${RUNNER_ARCH:-}" in
+              X64) arch="x86_64" ;;
+              ARM64) arch="arm64" ;;
+              ARM) arch="arm32" ;;
+              *) echo "Unsupported arch: ${RUNNER_ARCH:-unknown}" >&2; exit 1 ;;
+            esac
+            bin="Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.${arch}"
+            curl -L -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/${bin}.zip"
+            unzip -q godot.zip
+            mkdir -p "$install_dir"
+            mv "$bin" "$install_dir/godot"
+            chmod +x "$install_dir/godot"
+          fi
+          echo "$install_dir" >> "$GITHUB_PATH"
+          "$install_dir/godot" --version
+
+      - name: Install export templates
+        if: inputs.with_export_templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          tdir="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
+          if [ ! -d "$tdir" ] || [ -z "$(ls -A "$tdir" 2>/dev/null)" ]; then
+            curl -L -o export_templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_export_templates.tpz"
+            unzip -q export_templates.tpz
+            mkdir -p "$tdir"
+            mv templates/* "$tdir/"
+          fi
+
+      - name: Import project
+        shell: bash
+        run: godot --headless --path "$PROJECT_DIR" --import --quit-after 1
+
+      - name: Run checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          CMD='${{ inputs.check_command }}'
+          if [ -n "$CMD" ]; then
+            eval "$CMD"
+          elif [ -f scripts/godot_quality_gate.sh ]; then
+            bash scripts/godot_quality_gate.sh --project "$PROJECT_DIR"
+            [ -f scripts/run_godot_smokes.sh ] && bash scripts/run_godot_smokes.sh || true
+          else
+            echo "No check_command and no scripts/godot_quality_gate.sh found." >&2
+            echo "Provide check_command input or add the quality gate script." >&2
+            exit 1
+          fi
