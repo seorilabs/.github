@@ -94,8 +94,11 @@ jobs:
           PAGES_DIR: ${{ inputs.pages_dir }}
         run: |
           set -euo pipefail
-          test -f "$PAGES_DIR/index.html"
-          test -f "$PAGES_DIR/.nojekyll" || touch "$PAGES_DIR/.nojekyll"
+          if [ ! -f "$PAGES_DIR/index.html" ]; then
+            echo "Pages 산출물에 index.html이 없습니다(빈 사이트 배포 방지): $PAGES_DIR" >&2
+            exit 1
+          fi
+          [ -f "$PAGES_DIR/.nojekyll" ] || touch "$PAGES_DIR/.nojekyll"
           find "$PAGES_DIR" -maxdepth 1 -type f -print | sort
 
       - name: Configure Pages
