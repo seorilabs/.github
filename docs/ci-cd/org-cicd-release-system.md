@@ -152,8 +152,7 @@ flowchart LR
 | `release-tag.yml` | `target_ref`, `tag`, `bump`(major/minor/patch) | — | ARC | 명시적 SemVer 태그 생성/push(contents:write) |
 | `cleanup-actions-storage.yml` | `delete_artifacts`, `delete_caches`, `dry_run` | — | ARC | gh api 기반 정리(검증됨) |
 
-**공용 composite actions** (`seorilabs/.github/.github/actions/`):
-- `setup-pnpm-workspace` (corepack pnpm + 캐시), `setup-node-npm`, `setup-android-build`(JDK17 + SDK 35/36 + build-tools), `install-godot`(버전 캐시 + export templates), `restore-apple-signing`(키체인/프로파일 복원 — 검증된 90줄 스크립트), `restore-firebase-config`.
+**setup 스텝(v1 = 인라인)**: 재사용 워크플로우가 다른 repo의 로컬 `./.github/actions/*`를 참조할 때 생기는 교차참조 취약성을 피하기 위해, v1은 setup(node/pnpm, Android SDK, Godot 설치, Apple 서명 복원, Firebase config 복원)을 **각 재사용 워크플로우에 인라인**한다. 중복이 커지면 `seorilabs/.github/.github/actions/`의 composite action(`setup-pnpm-workspace`, `install-godot`, `setup-android-build`, `restore-apple-signing` 등)으로 추출하는 것을 후속 과제로 둔다.
 
 > **secrets 모델(실측 기반)**: org 레벨에 `APPS_IN_TOSS_API_KEY`, `APPLE_DISTRIBUTION_CERTIFICATE_*`, `APPLE_KEYCHAIN_PASSWORD`, `APP_STORE_CONNECT_*`, `GOOGLE_PLAY_UPLOAD_*`가 이미 존재. org 변수: `APPLE_TEAM_ID`, `GOOGLE_PLAY_UPLOAD_KEY_ALIAS`, `GOOGLE_WORKLOAD_IDENTITY_PROVIDER`. **앱 특화**(per-repo/per-environment): `APPLE_PROVISIONING_PROFILE_BASE64`, `FIREBASE_*_BASE64`, `GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL`(repo var). `secrets: inherit`로 org+repo+environment 시크릿이 reusable로 그대로 전달된다.
 
