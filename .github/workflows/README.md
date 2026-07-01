@@ -24,6 +24,7 @@
 | `rn-deploy-google-play.yml` | RN 서명 AAB + Google Play 업로드 | ubuntu |
 | `godot-deploy-google-play.yml` | Godot 서명 AAB + Google Play 업로드 | ubuntu |
 | `rn-deploy-app-store.yml` | RN Xcode archive + App Store 업로드 | macos-26 |
+| `godot-deploy-app-store.yml` | Godot iOS export + Xcode archive + App Store 업로드 | macos-26 |
 | `cleanup-actions-storage.yml` | 아티팩트/캐시 정리 | ARC |
 
 ## @ref 핀 정책
@@ -47,6 +48,7 @@
 - Google Play 업로드: `scripts/upload-google-play-internal.py`(RN) / `tools/upload_google_play_internal.py`(Godot).
 - Firebase 복원: `scripts/restore-mobile-firebase-config.mjs --android|--ios --require`.
 - Godot web export: `scripts/export_godot_web.sh`.
+- Godot iOS: `scripts/ensure_godot.sh --with-export-templates`, `scripts/export_godot_ios.sh`(→ `<ios_output>.xcodeproj`). caller는 `ios_scheme`/`ios_bundle_id` 입력 필수(App Store).
 
 ## caller 예시
 
