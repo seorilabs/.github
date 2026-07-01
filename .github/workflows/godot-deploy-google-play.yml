@@ -254,9 +254,48 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install google-api-python-client google-auth google-auth-httplib2 httplib2
 
+      # Backoffice 가 Release 에 첨부한 정형 출시노트(release-notes.json)를 받아 Play 트랙에 반영.
+      # 에셋이 없으면 found=false → 업로드 스크립트가 config 기본값으로 폴백(기존 동작 유지).
+      - name: Resolve store release notes
+        id: notes
+        if: ${{ inputs.upload }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="$RELEASE_TAG_INPUT"
+          [ -n "$tag" ] || tag="${{ github.ref_name }}"
+          out="$RUNNER_TEMP/release-notes.json"
+          if [ -n "$tag" ] && gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern release-notes.json --output "$out" --clobber 2>/dev/null; then
+            lang="$(jq -r '(.notes // {}) as $n | if ($n|has("ko-KR")) then "ko-KR" elif ($n|has("en-US")) then "en-US" else ($n|keys_unsorted|.[0] // "") end' "$out")"
+            text="$(jq -r --arg l "$lang" '(.notes // {})[$l] // empty' "$out")"
+            if [ -n "$lang" ] && [ -n "$text" ]; then
+              {
+                echo "found=true"
+                echo "language=$lang"
+                echo "text<<__NOTES_EOF__"
+                printf '%s\n' "$text"
+                echo "__NOTES_EOF__"
+              } >> "$GITHUB_OUTPUT"
+              echo "release-notes.json 로드: $lang (${#text} chars)"
+            else
+              echo "found=false" >> "$GITHUB_OUTPUT"
+              echo "release-notes.json 파싱 결과 비어있음 → config 기본값 사용" >&2
+            fi
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "release-notes.json 에셋 없음 → config 기본값 사용" >&2
+          fi
+
       - name: Upload to Google Play
         if: ${{ inputs.upload }}
         shell: bash
+        env:
+          RELEASE_NOTES_FOUND: ${{ steps.notes.outputs.found }}
+          RELEASE_NOTES: ${{ steps.notes.outputs.text }}
+          RELEASE_NOTES_LANG: ${{ steps.notes.outputs.language }}
         run: |
           set -euo pipefail
           args=(
@@ -264,6 +303,10 @@ jobs:
             --release-status "${{ inputs.release_status }}"
             --release-name "${{ github.event.repository.name }} ${{ steps.play_version.outputs.version_name }} (${{ steps.play_version.outputs.version_code }})"
           )
+          # 출시노트는 인젝션 방지를 위해 env 로 받아 인자에 안전하게 전달.
+          if [ "$RELEASE_NOTES_FOUND" = "true" ]; then
+            args+=(--release-notes "$RELEASE_NOTES" --release-notes-language "$RELEASE_NOTES_LANG")
+          fi
           python3 "$SCRIPTS_DIR/upload_google_play_internal.py" "${args[@]}"
 
       - name: Summary
