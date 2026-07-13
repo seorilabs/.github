@@ -82,6 +82,7 @@ jobs:
       VITE_TOSS_INTERSTITIAL_AD_GROUP_ID: ${{ secrets.VITE_TOSS_INTERSTITIAL_AD_GROUP_ID || secrets.VITE_TOSS_FULLSCREEN_AD_GROUP_ID || '' }}
       VITE_TOSS_REWARDED_AD_GROUP_ID: ${{ secrets.VITE_TOSS_REWARDED_AD_GROUP_ID || '' }}
       VITE_TOSS_LEVEL_REWARD_AD_GROUP_ID: ${{ secrets.VITE_TOSS_LEVEL_REWARD_AD_GROUP_ID || '' }}
+      VITE_GA4_MP_API_SECRET: ${{ secrets.VITE_GA4_MP_API_SECRET || '' }}
 
     steps:
       - name: Checkout
