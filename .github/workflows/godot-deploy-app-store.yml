@@ -177,6 +177,24 @@ jobs:
             fi
           fi
 
+      # GA4 Measurement Protocol 설정(<project>/analytics.config.json)을 secret 에서 복원.
+      # 미설정 repo 는 경고만 남기고 통과(애널리틱스 비활성 빌드) — 기존 동작 보존.
+      - name: Restore GA4 analytics config
+        shell: bash
+        env:
+          GODOT_ANALYTICS_CONFIG_JSON_BASE64: ${{ secrets.GODOT_ANALYTICS_CONFIG_JSON_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GODOT_ANALYTICS_CONFIG_JSON_BASE64:-}" ]; then
+            echo "::warning::GODOT_ANALYTICS_CONFIG_JSON_BASE64 미설정 — GA4 전송 비활성 빌드."
+            exit 0
+          fi
+          dest="$PROJECT_DIR/analytics.config.json"
+          if ! printf '%s' "$GODOT_ANALYTICS_CONFIG_JSON_BASE64" | base64 --decode > "$dest" 2>/dev/null; then
+            printf '%s' "$GODOT_ANALYTICS_CONFIG_JSON_BASE64" | base64 -D > "$dest"
+          fi
+          echo "analytics.config.json 복원 완료 → $dest"
+
       - name: Import Godot project
         shell: bash
         run: godot --headless --path "$PROJECT_DIR" --import --quit-after 1
