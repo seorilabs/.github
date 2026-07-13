@@ -300,6 +300,7 @@ flowchart TD
 - **Org variables**: APPLE_TEAM_ID, GOOGLE_PLAY_UPLOAD_KEY_ALIAS, GOOGLE_WORKLOAD_IDENTITY_PROVIDER
 - **Repo 레벨(예: happy-farm)**: FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64, (var) GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL
 - **앱 특화(repo/environment)**: APPLE_PROVISIONING_PROFILE_BASE64, FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64
+- **Godot 게임 애널리틱스(repo)**: GODOT_ANALYTICS_CONFIG_JSON_BASE64 — GA4 Measurement Protocol 설정(`<project_dir>/analytics.config.json`)의 base64. `godot-deploy-{ait,app-store,google-play}` 재사용 워크플로우가 Godot import 전에 복원. 미설정이면 애널리틱스 비활성 빌드(경고만). Godot Pages(웹 프리뷰)는 스트림 오염 방지를 위해 주입 제외.
 
 ## 부록 B. 액션 버전 핀 (global-versions.yaml)
 - actions/checkout@v6, actions/setup-node@v6, actions/upload-artifact@v7, docker/setup-buildx-action@v4, actions/setup-java@v5, google-github-actions/auth@v3, actions/configure-pages@v6, actions/upload-pages-artifact@v5, actions/deploy-pages@v5, actions/github-script@v9, actions/cache@v5. Node 24.16.0, Godot 4.6.3-stable.
