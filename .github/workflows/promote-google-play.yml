@@ -1,0 +1,143 @@
+# Seorilabs org 재사용 워크플로우: Google Play 트랙 승격(재빌드 없이)
+# 호출: uses: seorilabs/.github/.github/workflows/promote-google-play.yml@main
+# 러너: ubuntu-latest (WIF keyless, gradle 빌드 없음). from_track 의 최신 versionCode 를
+#       to_track 으로 복사 + 언어별 노트 반영 + commit(=심사 제출). AAB 재업로드 없음.
+# 표준 contract(템플릿이 구현):
+#   - upload_script --promote --promote-from-track <t> --promote-to-track <t>
+#       --release-status <s> [--release-notes-json <path>] [--rollout <f>]
+name: Promote Google Play (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "승격할 릴리즈 태그(노트 조회/체크아웃용). 비우면 최신 vX.Y.Z."
+        required: false
+        default: ""
+        type: string
+      from_track:
+        description: "승격 원본 트랙"
+        required: false
+        default: "internal"
+        type: string
+      to_track:
+        description: "승격 대상 트랙"
+        required: false
+        default: "production"
+        type: string
+      release_status:
+        description: "완전 출시=completed. rollout 지정 시 스크립트가 inProgress 로 전환"
+        required: false
+        default: "completed"
+        type: string
+      rollout:
+        description: "단계적 출시 비율(0,1]. 비우면 완전 출시."
+        required: false
+        default: ""
+        type: string
+      upload_script:
+        description: "promote 를 지원하는 업로드 스크립트 경로(RN/Godot 상이)"
+        required: false
+        default: "scripts/upload-google-play-internal.py"
+        type: string
+      timeout_minutes:
+        required: false
+        default: 15
+        type: number
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  promote:
+    name: Promote to ${{ inputs.to_track }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment: google-play
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.release_tag }}"
+          if [ -z "$tag" ]; then
+            tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+            [ -n "$tag" ] || { echo "release_tag 비어있고 vX.Y.Z 태그 없음." >&2; exit 1; }
+          fi
+          git -c advice.detachedHead=false checkout "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
+          create_credentials_file: true
+
+      - name: Install Google Play API client
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install google-api-python-client google-auth google-auth-httplib2 httplib2
+
+      # 태그 Release 에 첨부된 정형 출시노트(release-notes.json)를 승격 릴리즈에 반영.
+      - name: Resolve store release notes
+        id: notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/release-notes.json"
+          if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern release-notes.json --output "$out" --clobber 2>/dev/null \
+            && [ "$(jq -r '(.notes // {}) | length' "$out")" -gt 0 ]; then
+            {
+              echo "found=true"
+              echo "path=$out"
+            } >> "$GITHUB_OUTPUT"
+            echo "release-notes.json 로드: $(jq -r '.notes | keys_unsorted | join(", ")' "$out")"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "release-notes.json 없음/비어있음 → config 기본값 사용" >&2
+          fi
+
+      - name: Promote track
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          # 언어별 노트(전체 언어)는 env 파일 경로로 전달. 스크립트가 등록 언어와 교집합만 반영.
+          RELEASE_NOTES_JSON: ${{ steps.notes.outputs.found == 'true' && steps.notes.outputs.path || '' }}
+        run: |
+          set -euo pipefail
+          args=(
+            --promote
+            --promote-from-track "${{ inputs.from_track }}"
+            --promote-to-track "${{ inputs.to_track }}"
+            --release-status "${{ inputs.release_status }}"
+            --release-name "$TAG"
+          )
+          if [ -n "${{ inputs.rollout }}" ]; then
+            args+=(--rollout "${{ inputs.rollout }}")
+          fi
+          python3 ${{ inputs.upload_script }} "${args[@]}"
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Promote Google Play"; echo ""
+            echo "- tag: ${{ steps.tag.outputs.tag }}"
+            echo "- ${{ inputs.from_track }} → ${{ inputs.to_track }} / status: ${{ inputs.release_status }}"
+            echo "- rollout: ${{ inputs.rollout || '(full)' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
