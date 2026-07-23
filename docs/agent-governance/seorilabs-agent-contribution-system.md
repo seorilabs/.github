@@ -30,6 +30,7 @@ flowchart LR
 | 영역 | 역할 | 위치 |
 | --- | --- | --- |
 | 운영 계약 | agent가 따라야 하는 조직 공통 규칙 | `.github/docs/agent-governance/` |
+| 자율 이슈 루틴 계약 | autopilot 루틴이 따르는 순차 드레인 루프·리뷰·머지 절차 | `.github/docs/agent-governance/autonomous-issue-routine.md` |
 | 실행 대시보드 | issue/PR/draft item의 상태와 우선순위 | GitHub Organization Project |
 | Source of truth | 기획, 의사결정, 승인 기록 | Obsidian/Vault |
 | Repo-local spec | 코드와 같이 versioned 되는 실행 스펙 | 각 repo의 `docs/`, `specs/`, release metadata |
@@ -149,6 +150,6 @@ PR description 필수 섹션:
 ## 보류 결정
 
 - 실제 Codex skill 생성 위치: `$CODEX_HOME/skills` 또는 별도 repo mirror
-- Claude instruction 배포 방식: repo-local `CLAUDE.md`, org-level prompt, 외부 runner config 중 선택 필요
+- ~~Claude instruction 배포 방식~~ → **확정(3계층 구조)**: 간결한 루틴 프롬프트 → repo-local 가이드(예: `docs/08-ops/autopilot.md`) → org 공통 계약([autonomous-issue-routine.md](./autonomous-issue-routine.md)). 클라우드 autopilot 루틴은 대상 repo와 `.github`를 함께 체크아웃해 두 문서를 읽는다.
 - PR template을 바로 조직 공통으로 활성화할지 여부
 - Project 생성 후 기본 `Status` 재사용 또는 `Stage` custom field 사용 여부
