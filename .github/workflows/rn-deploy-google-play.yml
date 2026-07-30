@@ -51,6 +51,11 @@ on:
         required: false
         default: "24"
         type: string
+      java_version:
+        description: "Android Gradle 빌드 JDK major"
+        required: false
+        default: "17"
+        type: string
       android_dir:
         description: "Android Gradle 프로젝트 경로(비우면 자동 탐지)"
         required: false
@@ -67,6 +72,11 @@ on:
       firebase_restore_script:
         required: false
         default: "scripts/restore-mobile-firebase-config.mjs"
+        type: string
+      prepare_script:
+        description: "Gradle 빌드 전에 실행할 Node 준비 스크립트(선택, --android 전달)"
+        required: false
+        default: ""
         type: string
       timeout_minutes:
         required: false
@@ -90,7 +100,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
@@ -103,14 +113,16 @@ jobs:
           set -euo pipefail
           tag="${{ inputs.release_tag }}"
           if [ -z "$tag" ]; then
-            tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+            tag="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | head -n 1 || true)"
             [ -n "$tag" ] || { echo "release_tag 비어있고 vX.Y.Z 태그 없음." >&2; exit 1; }
           fi
+          [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+            || { echo "release_tag는 stable SemVer vX.Y.Z여야 함: $tag" >&2; exit 1; }
           git -c advice.detachedHead=false checkout "$tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node_version }}
           check-latest: false
@@ -127,7 +139,7 @@ jobs:
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: ${{ inputs.java_version }}
 
       - name: Install dependencies
         shell: bash
@@ -144,6 +156,16 @@ jobs:
         id: release
         shell: bash
         run: node ${{ inputs.version_script }} --tag "${{ steps.tag.outputs.tag }}" --github-output
+
+      - name: Prepare native project
+        if: inputs.prepare_script != ''
+        shell: bash
+        env:
+          PREPARE_SCRIPT: ${{ inputs.prepare_script }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          node "$PREPARE_SCRIPT" --android
 
       - name: Restore Android Firebase config
         shell: bash
