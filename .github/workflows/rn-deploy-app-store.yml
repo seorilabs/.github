@@ -23,7 +23,7 @@ on:
         required: true
         type: string
       ios_workspace:
-        description: "Xcode workspace 경로(.xcworkspace)"
+        description: "Xcode workspace/project 경로(.xcworkspace 또는 .xcodeproj)"
         required: true
         type: string
       ios_bundle_id:
@@ -61,6 +61,16 @@ on:
         required: false
         default: "scripts/restore-mobile-firebase-config.mjs"
         type: string
+      prepare_script:
+        description: "archive 전에 실행할 Node 준비 스크립트(선택, --ios 전달)"
+        required: false
+        default: ""
+        type: string
+      use_cocoapods:
+        description: "bundle install + pod install 실행 여부(SPM 전용 프로젝트는 false)"
+        required: false
+        default: true
+        type: boolean
       timeout_minutes:
         required: false
         default: 70
@@ -79,7 +89,7 @@ jobs:
     env:
       SHOULD_UPLOAD: ${{ inputs.upload }}
       IOS_SCHEME: ${{ inputs.ios_scheme }}
-      IOS_WORKSPACE: ${{ inputs.ios_workspace }}
+      IOS_CONTAINER: ${{ inputs.ios_workspace }}
       IOS_BUNDLE_ID: ${{ inputs.ios_bundle_id }}
       IOS_APP_NAME: ${{ inputs.ios_app_name || inputs.ios_scheme }}
       IOS_DIR: ${{ inputs.ios_dir }}
@@ -88,7 +98,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
@@ -101,9 +111,11 @@ jobs:
           set -euo pipefail
           tag="${{ inputs.release_tag }}"
           if [ -z "$tag" ]; then
-            tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+            tag="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | head -n 1 || true)"
             [ -n "$tag" ] || { echo "release_tag 비어있고 vX.Y.Z 태그 없음." >&2; exit 1; }
           fi
+          [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+            || { echo "release_tag는 stable SemVer vX.Y.Z여야 함: $tag" >&2; exit 1; }
           git -c advice.detachedHead=false checkout "$tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
@@ -127,7 +139,7 @@ jobs:
           [ "${sdk%%.*}" -ge 26 ] || { echo "App Store는 iOS 26 SDK 이상 필요. 현재: $sdk" >&2; exit 1; }
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node_version }}
           check-latest: false
@@ -169,7 +181,18 @@ jobs:
         shell: bash
         run: node ${{ inputs.version_script }} --tag "${{ steps.tag.outputs.tag }}" --github-output
 
+      - name: Prepare native project
+        if: inputs.prepare_script != ''
+        shell: bash
+        env:
+          PREPARE_SCRIPT: ${{ inputs.prepare_script }}
+          RELEASE_VERSION: ${{ steps.release.outputs.apple_marketing_version }}
+        run: |
+          set -euo pipefail
+          node "$PREPARE_SCRIPT" --ios
+
       - name: Install CocoaPods
+        if: inputs.use_cocoapods
         working-directory: ${{ inputs.ios_dir }}
         shell: bash
         run: |
@@ -258,8 +281,13 @@ jobs:
         run: |
           set -euo pipefail
           archive_path="$RUNNER_TEMP/${IOS_APP_NAME}-v${APPLE_MARKETING_VERSION}-build${APPLE_BUILD_NUMBER}.xcarchive"
+          case "$IOS_CONTAINER" in
+            *.xcworkspace) container_args=(-workspace "$IOS_CONTAINER") ;;
+            *.xcodeproj) container_args=(-project "$IOS_CONTAINER") ;;
+            *) echo "ios_workspace는 .xcworkspace 또는 .xcodeproj여야 함: $IOS_CONTAINER" >&2; exit 1 ;;
+          esac
           xcodebuild archive \
-            -workspace "$IOS_WORKSPACE" \
+            "${container_args[@]}" \
             -scheme "$IOS_SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
