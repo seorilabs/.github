@@ -33,6 +33,11 @@ on:
         required: false
         default: ""
         type: string
+      signing_properties_file:
+        description: "Android 프로젝트 기준 signing properties 파일명."
+        required: false
+        default: "key.properties"
+        type: string
       version_script:
         required: false
         default: "scripts/resolve-release-version.mjs"
@@ -198,6 +203,7 @@ jobs:
           GOOGLE_PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEY_PASSWORD }}
           GOOGLE_PLAY_UPLOAD_KEY_ALIAS: ${{ vars.GOOGLE_PLAY_UPLOAD_KEY_ALIAS }}
           ANDROID_DIR: ${{ steps.android.outputs.android_dir }}
+          SIGNING_PROPERTIES_FILE: ${{ inputs.signing_properties_file }}
         run: |
           set -euo pipefail
           signing_dir="$RUNNER_TEMP/android-build-signing"
@@ -207,13 +213,14 @@ jobs:
           mkdir -p "$signing_dir"
           printf '%s' "$GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
           chmod 600 "$keystore_path"
+          properties_path="$ANDROID_DIR/$SIGNING_PROPERTIES_FILE"
           {
             printf 'storeFile=%s\n' "$keystore_path"
             printf 'storePassword=%s\n' "$GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD"
             printf 'keyAlias=%s\n' "$key_alias"
             printf 'keyPassword=%s\n' "$key_password"
-          } > "$ANDROID_DIR/key.properties"
-          chmod 600 "$ANDROID_DIR/key.properties"
+          } > "$properties_path"
+          chmod 600 "$properties_path"
 
       - name: Build signed Android AAB
         working-directory: ${{ steps.android.outputs.android_dir }}
