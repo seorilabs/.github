@@ -16,6 +16,7 @@
 | 파일 | 용도 | 러너 |
 |---|---|---|
 | `rn-static-checks.yml` | RN/Node 정적 게이트(명령 주입) | ARC(또는 ubuntu) |
+| `rn-build-ait.yml` | RN `.ait` 후보 산출물 빌드(배포 없음) | ARC 또는 x64 Linux |
 | `godot-checks.yml` | Godot import→compile→smoke | ARC(또는 ubuntu) |
 | `godot-pages.yml` | Godot Web export + Pages 배포 | ARC(또는 ubuntu) |
 | `release-tag.yml` | 명시적 SemVer 태그 생성/push | ARC |
@@ -51,6 +52,24 @@
 - Godot iOS: `scripts/ensure_godot.sh --with-export-templates`, `scripts/export_godot_ios.sh`(→ `<ios_output>.xcodeproj`). caller는 `ios_scheme`/`ios_bundle_id` 입력 필수(App Store).
 
 ## caller 예시
+
+### RN AIT 후보 빌드 (`.github/workflows/build-ait.yml`)
+
+```yaml
+name: Build Mini-app Candidate
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag: { type: string, required: false, default: "" }
+jobs:
+  build:
+    uses: seorilabs/.github/.github/workflows/rn-build-ait.yml@<commit-sha>
+    with:
+      release_tag: ${{ inputs.release_tag }}
+```
+
+이 경로는 `.ait` artifact만 만들며 AppsInToss API를 호출하지 않는다. 실제 업로드는
+아래 `rn-deploy-ait.yml` caller와 deployment 승인을 별도로 사용한다.
 
 ### RN 정적 게이트 (`.github/workflows/static-checks.yml`)
 

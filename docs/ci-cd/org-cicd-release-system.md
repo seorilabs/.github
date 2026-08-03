@@ -110,6 +110,7 @@ flowchart LR
 | `static-checks.yml` | push/PR→main, dispatch | `rn-static-checks.yml` | ARC | lint/typecheck/test/style + 정적 게이트 |
 | `release-tag.yml` | dispatch(+ backoffice/telegram) | `release-tag.yml` | ARC | 명시적 SemVer 태그 생성 + push |
 | `deploy-apps-in-toss.yml` | dispatch, `workflow_call` | `rn-deploy-ait.yml` | ARC | .ait build + AIT deploy |
+| `build-ait.yml` | dispatch | `rn-build-ait.yml` | ARC 또는 x64 Linux | .ait 후보 artifact만 생성 |
 | `deploy-google-play.yml` | dispatch, `workflow_call` | `rn-deploy-google-play.yml` | ubuntu | 서명 AAB + Play 업로드 |
 | `deploy-app-store.yml` | dispatch, `workflow_call` | `rn-deploy-app-store.yml` | macos-26 | Xcode archive + App Store 업로드 |
 | `deploy-all.yml` | dispatch(+ backoffice/telegram) | (위 3개 `workflow_call`) | — | 한 번에 빌드·배포 |
@@ -138,6 +139,10 @@ flowchart LR
 ## 4. org 재사용 워크플로우 카탈로그 (`seorilabs/.github/.github/workflows/`)
 
 `.github`는 **public** repo라 org 전 repo에서 `uses: seorilabs/.github/.github/workflows/<x>.yml@<ref>`로 참조 가능. 로직 단일화 + 자동 전파.
+
+`rn-build-ait.yml`은 AppsInToss 콘솔 등록·정책 검토·deployment 승인 전에도 후보
+artifact를 검증할 수 있는 build-only 경로다. workflow 이름과 결과는 deploy 신호로
+취급하지 않으며 `rn-deploy-ait.yml`의 API 업로드와 명확히 분리한다.
 
 | reusable | 입력(`with`) | 시크릿 | 러너 | 비고 |
 |---|---|---|---|---|
