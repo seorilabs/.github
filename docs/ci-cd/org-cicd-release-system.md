@@ -111,6 +111,7 @@ flowchart LR
 | `release-tag.yml` | dispatch(+ backoffice/telegram) | `release-tag.yml` | ARC | 명시적 SemVer 태그 생성 + push |
 | `deploy-apps-in-toss.yml` | dispatch, `workflow_call` | `rn-deploy-ait.yml` | ARC | .ait build + AIT deploy |
 | `build-ait.yml` | dispatch | `rn-build-ait.yml` | ARC 또는 x64 Linux | .ait 후보 artifact만 생성 |
+| `build-android.yml` | dispatch | `rn-build-android.yml` | ubuntu | signed AAB 후보 artifact만 생성 |
 | `deploy-google-play.yml` | dispatch, `workflow_call` | `rn-deploy-google-play.yml` | ubuntu | 서명 AAB + Play 업로드 |
 | `deploy-app-store.yml` | dispatch, `workflow_call` | `rn-deploy-app-store.yml` | macos-26 | Xcode archive + App Store 업로드 |
 | `deploy-all.yml` | dispatch(+ backoffice/telegram) | (위 3개 `workflow_call`) | — | 한 번에 빌드·배포 |
@@ -140,13 +141,14 @@ flowchart LR
 
 `.github`는 **public** repo라 org 전 repo에서 `uses: seorilabs/.github/.github/workflows/<x>.yml@<ref>`로 참조 가능. 로직 단일화 + 자동 전파.
 
-`rn-build-ait.yml`은 AppsInToss 콘솔 등록·정책 검토·deployment 승인 전에도 후보
-artifact를 검증할 수 있는 build-only 경로다. workflow 이름과 결과는 deploy 신호로
-취급하지 않으며 `rn-deploy-ait.yml`의 API 업로드와 명확히 분리한다.
+`rn-build-ait.yml`과 `rn-build-android.yml`은 마켓 승인 전에도 후보 artifact를
+검증할 수 있는 build-only 경로다. workflow 이름과 결과는 deploy 신호로 취급하지
+않으며 AppsInToss·Google Play environment, WIF, API 업로드와 명확히 분리한다.
 
 | reusable | 입력(`with`) | 시크릿 | 러너 | 비고 |
 |---|---|---|---|---|
 | `rn-static-checks.yml` | `node_version`, `install_cmd`, `check_cmds`(줄단위) | inherit | ARC | 명령은 입력으로 주입(repo별 상이 흡수) |
+| `rn-build-android.yml` | `release_tag`, `android_dir`, Node·Java 버전 | Firebase·서명 secret | ubuntu | signed AAB artifact만 생성, 업로드 없음 |
 | `godot-checks.yml` | `godot_version`(기본 4.6.3), `smoke_scripts` | inherit | ARC | import→quality gate→smoke |
 | `rn-deploy-ait.yml` | `release_tag`, `memo`, `ait_dir`(기본 apps/ait) | inherit(`APPS_IN_TOSS_API_KEY`) | ARC | `pnpm --dir <ait_dir> run deploy --api-key --memo` |
 | `godot-deploy-ait.yml` | `release_tag`, `memo`, `wrapper_dir` | inherit | ARC | godot web export → wrapper build → deploy |
