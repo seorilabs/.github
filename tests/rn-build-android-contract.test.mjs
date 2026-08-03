@@ -13,6 +13,10 @@ test('stable tag contract builds and uploads a signed AAB artifact', () => {
   assert.match(workflow, /name: Upload signed AAB artifact/);
   assert.match(workflow, /path: \$\{\{ steps\.android\.outputs\.aab_path \}\}/);
   assert.match(workflow, /signing_properties_file:[\s\S]*?default: "key\.properties"/);
+  assert.match(
+    workflow,
+    /SIGNING_PROPERTIES_FILE: \$\{\{ inputs\.signing_properties_file \}\}/,
+  );
   assert.match(workflow, /properties_path="\$ANDROID_DIR\/\$SIGNING_PROPERTIES_FILE"/);
 });
 
