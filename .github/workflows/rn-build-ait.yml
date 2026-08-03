@@ -1,0 +1,150 @@
+# Seorilabs org reusable workflow: RN AppsInToss candidate build only.
+# This workflow creates a .ait artifact without calling the AppsInToss deploy API.
+name: RN Build Mini-app Candidate (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "Tag or ref to build. Empty uses the caller ref."
+        required: false
+        default: ""
+        type: string
+      ait_dir:
+        description: ".ait project directory"
+        required: false
+        default: "apps/ait"
+        type: string
+      package_manager:
+        description: "pnpm | npm"
+        required: false
+        default: "pnpm"
+        type: string
+      pnpm_version:
+        required: false
+        default: "11.3.0"
+        type: string
+      node_version:
+        required: false
+        default: "24"
+        type: string
+      install_command:
+        description: "Install command supplied by the trusted caller"
+        required: false
+        default: ""
+        type: string
+      build_command:
+        description: "Build command supplied by the trusted caller"
+        required: false
+        default: ""
+        type: string
+      artifact_path:
+        description: ".ait artifact path"
+        required: false
+        default: "apps/ait/*.ait"
+        type: string
+      runs_on:
+        description: "Runner label. Use ubuntu-latest for x64-only Hermes toolchains."
+        required: false
+        default: "seorilabs-rpi-arm64"
+        type: string
+      timeout_minutes:
+        required: false
+        default: 25
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build .ait artifact
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+
+    env:
+      AIT_DIR: ${{ inputs.ait_dir }}
+      PM: ${{ inputs.package_manager }}
+      RELEASE_REF: ${{ inputs.release_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Resolve build ref
+        id: ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$RELEASE_REF"
+          [ -n "$ref" ] || ref="${GITHUB_REF_NAME:-$(git rev-parse --abbrev-ref HEAD)}"
+          {
+            echo "ref=$ref"
+            echo "short_sha=$(git rev-parse --short HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version }}
+          check-latest: false
+
+      - name: Enable pnpm
+        if: inputs.package_manager == 'pnpm'
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@${{ inputs.pnpm_version }} --activate
+
+      - name: Install dependencies (custom)
+        if: inputs.install_command != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.install_command }}
+
+      - name: Install dependencies (default)
+        if: inputs.install_command == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$PM" = "npm" ]; then npm ci; else pnpm install --frozen-lockfile; fi
+
+      - name: Build .ait bundle (custom)
+        if: inputs.build_command != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.build_command }}
+
+      - name: Build .ait bundle (default)
+        if: inputs.build_command == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$PM" = "npm" ]; then npm --prefix "$AIT_DIR" run build; else pnpm --dir "$AIT_DIR" build; fi
+
+      - name: Upload .ait artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: mini-app-candidate-${{ github.event.repository.name }}-${{ steps.ref.outputs.ref }}-${{ steps.ref.outputs.short_sha }}
+          path: ${{ inputs.artifact_path }}
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "### Mini-app candidate build"
+            echo ""
+            echo "- ref: ${{ steps.ref.outputs.ref }}"
+            echo "- artifact: ${{ inputs.artifact_path }}"
+            echo "- deployment: not requested"
+          } >> "$GITHUB_STEP_SUMMARY"
