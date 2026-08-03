@@ -17,6 +17,7 @@
 |---|---|---|
 | `rn-static-checks.yml` | RN/Node 정적 게이트(명령 주입) | ARC(또는 ubuntu) |
 | `rn-build-ait.yml` | RN `.ait` 후보 산출물 빌드(배포 없음) | ARC 또는 x64 Linux |
+| `rn-build-android.yml` | RN signed AAB 후보 산출물 빌드(배포 없음) | ubuntu |
 | `godot-checks.yml` | Godot import→compile→smoke | ARC(또는 ubuntu) |
 | `godot-pages.yml` | Godot Web export + Pages 배포 | ARC(또는 ubuntu) |
 | `release-tag.yml` | 명시적 SemVer 태그 생성/push | ARC |
@@ -70,6 +71,9 @@ jobs:
 
 이 경로는 `.ait` artifact만 만들며 AppsInToss API를 호출하지 않는다. 실제 업로드는
 아래 `rn-deploy-ait.yml` caller와 deployment 승인을 별도로 사용한다.
+
+Android 후보 빌드도 `rn-build-android.yml`을 사용한다. 이 경로는 서명 AAB artifact만
+생성하고 `google-play` environment, WIF, Google Play API를 사용하지 않는다.
 
 ### RN 정적 게이트 (`.github/workflows/static-checks.yml`)
 

@@ -1,0 +1,241 @@
+# Seorilabs org reusable workflow: signed RN Android AAB artifact only.
+# No Google Play environment, WIF permission, API authentication, or market upload.
+name: RN Build Android (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "빌드할 릴리스 태그. 비우면 최신 vX.Y.Z."
+        required: false
+        default: ""
+        type: string
+      package_manager:
+        description: "npm | pnpm"
+        required: false
+        default: "npm"
+        type: string
+      pnpm_version:
+        required: false
+        default: "11.3.0"
+        type: string
+      node_version:
+        required: false
+        default: "24"
+        type: string
+      java_version:
+        description: "Android Gradle 빌드 JDK major"
+        required: false
+        default: "17"
+        type: string
+      android_dir:
+        description: "Android Gradle 프로젝트 경로. 비우면 자동 탐지."
+        required: false
+        default: ""
+        type: string
+      version_script:
+        required: false
+        default: "scripts/resolve-release-version.mjs"
+        type: string
+      firebase_restore_script:
+        required: false
+        default: "scripts/restore-mobile-firebase-config.mjs"
+        type: string
+      prepare_script:
+        description: "Gradle 빌드 전에 실행할 Node 준비 스크립트."
+        required: false
+        default: ""
+        type: string
+      timeout_minutes:
+        required: false
+        default: 35
+        type: number
+    secrets:
+      FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64:
+        required: false
+      GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64:
+        required: true
+      GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD:
+        required: true
+      GOOGLE_PLAY_UPLOAD_KEY_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-aab:
+    name: Signed Android App Bundle artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+
+    env:
+      PM: ${{ inputs.package_manager }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve build tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.release_tag }}"
+          if [ -z "$tag" ]; then
+            tag="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | head -n 1 || true)"
+            [ -n "$tag" ] || { echo "release_tag 비어있고 vX.Y.Z 태그 없음." >&2; exit 1; }
+          fi
+          [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+            || { echo "release_tag는 stable SemVer vX.Y.Z여야 함: $tag" >&2; exit 1; }
+          git -c advice.detachedHead=false checkout "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version }}
+          check-latest: false
+
+      - name: Enable pnpm
+        if: inputs.package_manager == 'pnpm'
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@${{ inputs.pnpm_version }} --activate
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java_version }}
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$PM" = "pnpm" ]; then
+            pnpm install --frozen-lockfile
+          else
+            npm ci
+            [ -f apps/mobile/package-lock.json ] && npm ci --prefix apps/mobile || true
+          fi
+
+      - name: Resolve release version
+        id: release
+        shell: bash
+        run: node ${{ inputs.version_script }} --tag "${{ steps.tag.outputs.tag }}" --github-output
+
+      - name: Prepare native project
+        if: inputs.prepare_script != ''
+        shell: bash
+        env:
+          PREPARE_SCRIPT: ${{ inputs.prepare_script }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version_name }}
+        run: node "$PREPARE_SCRIPT" --android
+
+      - name: Restore Android Firebase config
+        shell: bash
+        env:
+          FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
+          FIREBASE_RESTORE_SCRIPT: ${{ inputs.firebase_restore_script }}
+        run: |
+          set -euo pipefail
+          if [ -f "$FIREBASE_RESTORE_SCRIPT" ]; then
+            node "$FIREBASE_RESTORE_SCRIPT" --android --require
+          elif [ -n "${FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64:-}" ]; then
+            mkdir -p apps/mobile/android/app
+            printf '%s' "$FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > apps/mobile/android/app/google-services.json
+          else
+            echo "No Firebase restore script and no FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64." >&2
+            exit 1
+          fi
+
+      - name: Resolve Android project
+        id: android
+        shell: bash
+        env:
+          ANDROID_DIR_INPUT: ${{ inputs.android_dir }}
+        run: |
+          set -euo pipefail
+          if [ -n "$ANDROID_DIR_INPUT" ]; then
+            android_dir="$ANDROID_DIR_INPUT"
+          elif [ -x apps/mobile/android/gradlew ]; then
+            android_dir="apps/mobile/android"
+          elif [ -x android/gradlew ]; then
+            android_dir="android"
+          else
+            echo "Android Gradle project를 찾지 못함." >&2
+            exit 1
+          fi
+          aab_path="$android_dir/app/build/outputs/bundle/release/app-release.aab"
+          { echo "android_dir=$android_dir"; echo "aab_path=$aab_path"; } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sm="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$sm" ] || { echo "sdkmanager not found at $sm" >&2; exit 1; }
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          set +o pipefail
+          yes 2>/dev/null | "$sm" --licenses >/dev/null
+          status="${PIPESTATUS[1]}"
+          set -o pipefail
+          [ "$status" -eq 0 ] || exit "$status"
+          "$sm" "platform-tools" "platforms;android-35" "platforms;android-36" "build-tools;35.0.0" "build-tools;36.0.0" "cmdline-tools;latest"
+
+      - name: Restore upload keystore
+        shell: bash
+        env:
+          GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64 }}
+          GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD }}
+          GOOGLE_PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEY_PASSWORD }}
+          GOOGLE_PLAY_UPLOAD_KEY_ALIAS: ${{ vars.GOOGLE_PLAY_UPLOAD_KEY_ALIAS }}
+          ANDROID_DIR: ${{ steps.android.outputs.android_dir }}
+        run: |
+          set -euo pipefail
+          signing_dir="$RUNNER_TEMP/android-build-signing"
+          keystore_path="$signing_dir/upload-key.jks"
+          key_alias="${GOOGLE_PLAY_UPLOAD_KEY_ALIAS:-upload}"
+          key_password="${GOOGLE_PLAY_UPLOAD_KEY_PASSWORD:-$GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD}"
+          mkdir -p "$signing_dir"
+          printf '%s' "$GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          chmod 600 "$keystore_path"
+          {
+            printf 'storeFile=%s\n' "$keystore_path"
+            printf 'storePassword=%s\n' "$GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$key_alias"
+            printf 'keyPassword=%s\n' "$key_password"
+          } > "$ANDROID_DIR/key.properties"
+          chmod 600 "$ANDROID_DIR/key.properties"
+
+      - name: Build signed Android AAB
+        working-directory: ${{ steps.android.outputs.android_dir }}
+        env:
+          APP_VERSION_NAME: ${{ steps.release.outputs.version_name }}
+          APP_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
+        run: ./gradlew :app:bundleRelease --no-daemon -PversionNameOverride="$APP_VERSION_NAME" -PversionCodeOverride="$APP_VERSION_CODE"
+
+      - name: Upload signed AAB artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-aab-${{ steps.release.outputs.release_name || steps.tag.outputs.tag }}
+          path: ${{ steps.android.outputs.aab_path }}
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "### Build Android candidate"; echo ""
+            echo "- tag: ${{ steps.tag.outputs.tag }}"
+            echo "- artifact: signed AAB"
+            echo "- market upload: false"
+          } >> "$GITHUB_STEP_SUMMARY"
