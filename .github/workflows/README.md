@@ -10,6 +10,9 @@
 - **마켓 업로드 = 명시적 Release/Tag 기준.** merge마다 자동 태깅 금지.
 - **러너**: AIT·Godot·web·lint/test → `seorilabs-rpi-arm64`(ARC). Android AAB·Play → `ubuntu-latest`. iOS·App Store → `macos-26`. public PR job은 ARC 금지.
 - **아티팩트 retention = 3.**
+- **private GitHub Packages 소비**: caller가 `permissions.packages: read`를 선언하고
+  `npm_registry_url: https://npm.pkg.github.com`, `npm_scope: '@seorilabs'`를 전달한다.
+  재사용 워크플로우는 install 단계에 caller의 `github.token`을 `NODE_AUTH_TOKEN`으로 제공한다.
 
 ## 워크플로우 목록
 
@@ -83,6 +86,9 @@ on:
   pull_request: { branches: [main] }
   push: { branches: [main] }
   workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
 concurrency:
   group: static-checks-${{ github.ref }}
   cancel-in-progress: true
@@ -92,6 +98,9 @@ jobs:
     secrets: inherit
     with:
       runs_on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+      node_version: "24.16.0"
+      npm_registry_url: https://npm.pkg.github.com
+      npm_scope: '@seorilabs'
       check_command: |
         pnpm lint
         pnpm typecheck

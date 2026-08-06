@@ -10,7 +10,17 @@ on:
       node_version:
         description: "Node 버전"
         required: false
-        default: "24"
+        default: "24.16.0"
+        type: string
+      npm_registry_url:
+        description: "선택적 npm registry URL. GitHub Packages는 https://npm.pkg.github.com"
+        required: false
+        default: ""
+        type: string
+      npm_scope:
+        description: "선택적 npm scope. GitHub Packages는 @seorilabs"
+        required: false
+        default: ""
         type: string
       package_manager:
         description: "pnpm | npm"
@@ -49,6 +59,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   checks:
@@ -58,13 +69,23 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        if: inputs.npm_registry_url == ''
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node_version }}
           check-latest: false
+
+      - name: Setup Node with npm registry
+        if: inputs.npm_registry_url != ''
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version }}
+          check-latest: false
+          registry-url: ${{ inputs.npm_registry_url }}
+          scope: ${{ inputs.npm_scope }}
 
       - name: Enable pnpm
         if: inputs.package_manager == 'pnpm'
@@ -80,6 +101,7 @@ jobs:
         env:
           INSTALL_COMMAND: ${{ inputs.install_command }}
           PACKAGE_MANAGER: ${{ inputs.package_manager }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ -n "$INSTALL_COMMAND" ]; then
