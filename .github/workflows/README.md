@@ -51,9 +51,10 @@
 - 버전 리졸버: `scripts/resolve-release-version.mjs --tag <tag> --github-output` → `version_name`, `android_version_code`, `apple_marketing_version`, `apple_build_number`, `release_name`.
 - Android: `apps/mobile/android`(또는 `android`)/`gradlew :app:bundleRelease -PversionNameOverride -PversionCodeOverride`.
 - Google Play 업로드: `scripts/upload-google-play-internal.py`(RN) / `tools/upload_google_play_internal.py`(Godot).
+- Godot Android에서 import 전 공개 runtime config 복원이나 최종 AAB 정책 검사가 필요하면 각각 `prepare_project_script`, `post_export_validation_script`를 넘긴다. 후자에는 `AAB_PATH`, `ANDROID_VERSION_NAME`, `ANDROID_VERSION_CODE`가 전달된다.
 - Firebase 복원: `scripts/restore-mobile-firebase-config.mjs --android|--ios --require`.
 - Godot web export: `scripts/export_godot_web.sh`.
-- Godot iOS: `scripts/ensure_godot.sh --with-export-templates`, `scripts/export_godot_ios.sh`(→ `<ios_output>.xcodeproj`). caller는 `ios_scheme`/`ios_bundle_id` 입력 필수(App Store).
+- Godot iOS: `scripts/ensure_godot.sh --with-export-templates`, `scripts/export_godot_ios.sh`(→ `<ios_output>.xcodeproj`). caller는 `ios_scheme`/`ios_bundle_id` 입력 필수(App Store). 최종 archive 검증이 필요한 앱은 `post_archive_validation_script`를 넘기며, 스크립트에는 `ARCHIVE_PATH`, `IOS_BUNDLE_ID`, `APPLE_MARKETING_VERSION`, `APPLE_BUILD_NUMBER`가 전달된다.
 
 ## caller 예시
 

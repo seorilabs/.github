@@ -54,6 +54,16 @@ on:
         required: false
         default: "tools"
         type: string
+      prepare_project_script:
+        description: "Godot import 전에 실행할 repo-local 준비 스크립트"
+        required: false
+        default: ""
+        type: string
+      post_export_validation_script:
+        description: "AAB export 직후·업로드 전에 실행할 repo-local 검증 스크립트"
+        required: false
+        default: ""
+        type: string
       timeout_minutes:
         required: false
         default: 30
@@ -75,6 +85,8 @@ jobs:
       GODOT_STATUS: ${{ inputs.godot_status }}
       PROJECT_DIR: ${{ inputs.project_dir }}
       SCRIPTS_DIR: ${{ inputs.scripts_dir }}
+      PREPARE_PROJECT_SCRIPT: ${{ inputs.prepare_project_script }}
+      POST_EXPORT_VALIDATION_SCRIPT: ${{ inputs.post_export_validation_script }}
       SHOULD_UPLOAD: ${{ inputs.upload }}
       ADMOB_REQUIRE_PRODUCTION: "1"
       ADMOB_TARGET_PLATFORM: Android
@@ -120,7 +132,7 @@ jobs:
           SM="$ROOT/cmdline-tools/latest/bin/sdkmanager"
           [ -x "$SM" ] || SM="$(find "$ROOT/cmdline-tools" -path '*/bin/sdkmanager' -type f 2>/dev/null | sort | tail -n1)"
           [ -x "$SM" ] || { echo "sdkmanager not found." >&2; exit 1; }
-          echo "$(dirname "$SM")" >> "$GITHUB_PATH"
+          dirname "$SM" >> "$GITHUB_PATH"
           set +o pipefail; yes | "$SM" --licenses >/dev/null; st="${PIPESTATUS[1]}"; set -o pipefail
           [ "$st" -eq 0 ] || exit "$st"
           "$SM" "platform-tools" "platforms;android-35" "platforms;android-36" "build-tools;36.1.0" "cmdline-tools;latest"
@@ -212,6 +224,19 @@ jobs:
           mv "$tmp" "$dest"
           echo "analytics.config.json 복원 완료 → $dest"
 
+      - name: Run caller project preparation
+        if: ${{ inputs.prepare_project_script != '' }}
+        shell: bash
+        env:
+          FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          set -euo pipefail
+          [ -f "$PREPARE_PROJECT_SCRIPT" ] || {
+            echo "project preparation script not found: $PREPARE_PROJECT_SCRIPT" >&2
+            exit 1
+          }
+          bash "$PREPARE_PROJECT_SCRIPT"
+
       - name: Import Godot project
         run: godot --headless --path "$PROJECT_DIR" --import --quit-after 1
 
@@ -256,6 +281,21 @@ jobs:
           export GODOT_ANDROID_KEYSTORE_RELEASE_KEY_PASSWORD="$key_password"
           mkdir -p "$(dirname "$AAB_PATH")"
           godot --headless --path "$PROJECT_DIR" --export-release Android "$AAB_PATH"
+
+      - name: Run caller post-export validation
+        if: ${{ inputs.post_export_validation_script != '' }}
+        shell: bash
+        env:
+          AAB_PATH: ${{ steps.meta.outputs.aab_path }}
+          ANDROID_VERSION_NAME: ${{ steps.play_version.outputs.version_name }}
+          ANDROID_VERSION_CODE: ${{ steps.play_version.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          [ -f "$POST_EXPORT_VALIDATION_SCRIPT" ] || {
+            echo "post-export validation script not found: $POST_EXPORT_VALIDATION_SCRIPT" >&2
+            exit 1
+          }
+          bash "$POST_EXPORT_VALIDATION_SCRIPT"
 
       - name: Validate Google Play readiness
         if: ${{ hashFiles(format('{0}/check_google_play_readiness.py', inputs.scripts_dir)) != '' }}

@@ -73,6 +73,11 @@ on:
         required: false
         default: "scripts/resolve-release-version.mjs"
         type: string
+      post_archive_validation_script:
+        description: "archive 직후·업로드 전에 실행할 repo-local 검증 스크립트. ARCHIVE_PATH 등을 env로 전달"
+        required: false
+        default: ""
+        type: string
       node_version:
         required: false
         default: "24"
@@ -105,6 +110,7 @@ jobs:
       ENSURE_GODOT_SCRIPT: ${{ inputs.ensure_godot_script }}
       EXPORT_IOS_SCRIPT: ${{ inputs.export_ios_script }}
       VERSION_SCRIPT: ${{ inputs.version_script }}
+      POST_ARCHIVE_VALIDATION_SCRIPT: ${{ inputs.post_archive_validation_script }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID || vars.APPLE_TEAM_ID }}
 
     steps:
@@ -365,6 +371,21 @@ jobs:
             abn="$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$app_path/Info.plist" 2>/dev/null || echo "$APPLE_BUILD_NUMBER")"
           fi
           { echo "archive_path=$archive_path"; echo "marketing_version=$amv"; echo "build_number=$abn"; } >> "$GITHUB_OUTPUT"
+
+      - name: Run caller post-archive validation
+        if: ${{ inputs.post_archive_validation_script != '' }}
+        shell: bash
+        env:
+          ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
+          APPLE_MARKETING_VERSION: ${{ steps.archive.outputs.marketing_version }}
+          APPLE_BUILD_NUMBER: ${{ steps.archive.outputs.build_number }}
+        run: |
+          set -euo pipefail
+          [ -f "$POST_ARCHIVE_VALIDATION_SCRIPT" ] || {
+            echo "post-archive validation script not found: $POST_ARCHIVE_VALIDATION_SCRIPT" >&2
+            exit 1
+          }
+          bash "$POST_ARCHIVE_VALIDATION_SCRIPT"
 
       - name: Upload xcarchive artifact
         if: ${{ !inputs.upload }}
