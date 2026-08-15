@@ -73,6 +73,11 @@ on:
         required: false
         default: "scripts/resolve-release-version.mjs"
         type: string
+      prepare_project_script:
+        description: "Godot import 전에 실행할 repo-local 준비 스크립트"
+        required: false
+        default: ""
+        type: string
       post_archive_validation_script:
         description: "archive 직후·업로드 전에 실행할 repo-local 검증 스크립트. ARCHIVE_PATH 등을 env로 전달"
         required: false
@@ -110,8 +115,14 @@ jobs:
       ENSURE_GODOT_SCRIPT: ${{ inputs.ensure_godot_script }}
       EXPORT_IOS_SCRIPT: ${{ inputs.export_ios_script }}
       VERSION_SCRIPT: ${{ inputs.version_script }}
+      PREPARE_PROJECT_SCRIPT: ${{ inputs.prepare_project_script }}
       POST_ARCHIVE_VALIDATION_SCRIPT: ${{ inputs.post_archive_validation_script }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID || vars.APPLE_TEAM_ID }}
+      ADMOB_REQUIRE_PRODUCTION: "1"
+      ADMOB_TARGET_PLATFORM: iOS
+      ADMOB_APP_ID: ${{ vars.ADMOB_APP_ID }}
+      ADMOB_REWARDED_AD_UNIT_ID: ${{ vars.ADMOB_REWARDED_AD_UNIT_ID }}
+      ADMOB_INTERSTITIAL_AD_UNIT_ID: ${{ vars.ADMOB_INTERSTITIAL_AD_UNIT_ID }}
 
     steps:
       - name: Checkout
@@ -219,6 +230,17 @@ jobs:
           fi
           mv "$tmp" "$dest"
           echo "analytics.config.json 복원 완료 → $dest"
+
+      - name: Run caller project preparation
+        if: ${{ inputs.prepare_project_script != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f "$PREPARE_PROJECT_SCRIPT" ] || {
+            echo "project preparation script not found: $PREPARE_PROJECT_SCRIPT" >&2
+            exit 1
+          }
+          bash "$PREPARE_PROJECT_SCRIPT"
 
       - name: Import Godot project
         shell: bash
