@@ -77,7 +77,9 @@ jobs:
 아래 `rn-deploy-ait.yml` caller와 deployment 승인을 별도로 사용한다.
 
 Android 후보 빌드도 `rn-build-android.yml`을 사용한다. 이 경로는 서명 AAB artifact만
-생성하고 `google-play` environment, WIF, Google Play API를 사용하지 않는다.
+생성하고 `google-play` environment, WIF, Google Play API를 사용하지 않는다. Gradle
+의존성은 GitHub Actions cache로 재사용하며, caller는 `react_native_architectures`로
+release AAB에 컴파일할 ABI를 명시할 수 있다. 입력을 비우면 프로젝트 기본값을 유지한다.
 
 ### RN 정적 게이트 (`.github/workflows/static-checks.yml`)
 

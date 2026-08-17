@@ -20,6 +20,23 @@ test('stable tag contract builds and uploads a signed AAB artifact', () => {
   assert.match(workflow, /properties_path="\$ANDROID_DIR\/\$SIGNING_PROPERTIES_FILE"/);
 });
 
+test('Gradle dependencies are cached and callers can narrow release ABIs safely', () => {
+  assert.match(
+    workflow,
+    /react_native_architectures:[\s\S]*?default: ""[\s\S]*?type: string/,
+  );
+  assert.match(workflow, /uses: actions\/setup-java@v5[\s\S]*?cache: gradle/);
+  assert.match(
+    workflow,
+    /REACT_NATIVE_ARCHITECTURES: \$\{\{ inputs\.react_native_architectures \}\}/,
+  );
+  assert.match(
+    workflow,
+    /gradle_args\+=\("-PreactNativeArchitectures=\$REACT_NATIVE_ARCHITECTURES"\)/,
+  );
+  assert.match(workflow, /gradlew :app:bundleRelease "\$\{gradle_args\[@\]\}"/);
+});
+
 test('build-only workflow has no Google Play deployment authority or command', () => {
   assert.match(workflow, /permissions:\n  contents: read\n/);
   assert.doesNotMatch(workflow, /id-token:|environment:\s*google-play/);

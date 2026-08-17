@@ -33,6 +33,11 @@ on:
         required: false
         default: ""
         type: string
+      react_native_architectures:
+        description: "쉼표로 구분한 React Native Android ABI 목록. 비우면 프로젝트 기본값."
+        required: false
+        default: ""
+        type: string
       signing_properties_file:
         description: "Android 프로젝트 기준 signing properties 파일명."
         required: false
@@ -76,6 +81,7 @@ jobs:
 
     env:
       PM: ${{ inputs.package_manager }}
+      REACT_NATIVE_ARCHITECTURES: ${{ inputs.react_native_architectures }}
 
     steps:
       - name: Checkout
@@ -119,6 +125,7 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
+          cache: gradle
 
       - name: Install dependencies
         shell: bash
@@ -227,7 +234,17 @@ jobs:
         env:
           APP_VERSION_NAME: ${{ steps.release.outputs.version_name }}
           APP_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
-        run: ./gradlew :app:bundleRelease --no-daemon -PversionNameOverride="$APP_VERSION_NAME" -PversionCodeOverride="$APP_VERSION_CODE"
+        run: |
+          set -euo pipefail
+          gradle_args=(
+            --no-daemon
+            "-PversionNameOverride=$APP_VERSION_NAME"
+            "-PversionCodeOverride=$APP_VERSION_CODE"
+          )
+          if [ -n "$REACT_NATIVE_ARCHITECTURES" ]; then
+            gradle_args+=("-PreactNativeArchitectures=$REACT_NATIVE_ARCHITECTURES")
+          fi
+          ./gradlew :app:bundleRelease "${gradle_args[@]}"
 
       - name: Upload signed AAB artifact
         uses: actions/upload-artifact@v7
@@ -244,5 +261,6 @@ jobs:
             echo "### Build Android candidate"; echo ""
             echo "- tag: ${{ steps.tag.outputs.tag }}"
             echo "- artifact: signed AAB"
+            echo "- React Native architectures: ${REACT_NATIVE_ARCHITECTURES:-project default}"
             echo "- market upload: false"
           } >> "$GITHUB_STEP_SUMMARY"
