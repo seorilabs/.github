@@ -148,7 +148,7 @@ flowchart LR
 | reusable | 입력(`with`) | 시크릿 | 러너 | 비고 |
 |---|---|---|---|---|
 | `rn-static-checks.yml` | `node_version`, `install_cmd`, `check_cmds`(줄단위) | inherit | ARC | 명령은 입력으로 주입(repo별 상이 흡수) |
-| `rn-build-android.yml` | `release_tag`, `android_dir`, Node·Java 버전 | Firebase·서명 secret | ubuntu | signed AAB artifact만 생성, 업로드 없음 |
+| `rn-build-android.yml` | `release_tag`, `android_dir`, `react_native_architectures`, Node·Java 버전 | Firebase·서명 secret | ubuntu | Gradle cache를 재사용해 signed AAB artifact만 생성, 업로드 없음 |
 | `godot-checks.yml` | `godot_version`(기본 4.6.3), `smoke_scripts` | inherit | ARC | import→quality gate→smoke |
 | `rn-deploy-ait.yml` | `release_tag`, `memo`, `ait_dir`(기본 apps/ait) | inherit(`APPS_IN_TOSS_API_KEY`) | ARC | `pnpm --dir <ait_dir> run deploy --api-key --memo` |
 | `godot-deploy-ait.yml` | `release_tag`, `memo`, `wrapper_dir` | inherit | ARC | godot web export → wrapper build → deploy |
