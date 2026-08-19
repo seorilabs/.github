@@ -1,7 +1,7 @@
 # Seorilabs org 재사용 워크플로우: 명시적 SemVer 릴리즈 태그 생성
 # 호출: uses: seorilabs/.github/.github/workflows/release-tag.yml@main
 # 원칙: 태그는 사람이 의도적으로 찍는다(merge마다 자동 태깅 금지).
-# 백오피스/텔레그램 또는 각 repo의 release-tag.yml caller(workflow_dispatch)에서 호출.
+# 백오피스/Discord 또는 각 repo의 release-tag.yml caller(workflow_dispatch)에서 호출.
 name: Release Tag (reusable)
 
 on:
@@ -46,7 +46,7 @@ on:
 permissions:
   contents: write
 
-# 동시 caller(release bot/telegram/manual dispatch)가 같은 ref에 동시 bump 시 race 방지.
+# 동시 caller(release bot/discord/manual dispatch)가 같은 ref에 동시 bump 시 race 방지.
 concurrency:
   group: release-tag-${{ inputs.target_ref || 'main' }}
   cancel-in-progress: false
