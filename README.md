@@ -12,3 +12,5 @@ Seorilabs organization-wide GitHub defaults, profile content, and operating cont
 - [Agent contribution contract](docs/agent-governance/agent-contribution-contract.md)
 - [Agent skills design](docs/agent-governance/seorilabs-agent-skills-design.md)
 - [Spec and versioning policy](docs/agent-governance/spec-versioning-policy.md)
+- [Org CI/CD & release system](docs/ci-cd/org-cicd-release-system.md)
+- [Build toolchain contract](docs/ci-cd/build-toolchain-contract.md)
