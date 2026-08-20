@@ -16,10 +16,11 @@ Cloud Build 로 굽는다(amd64). Godot 은 **버전이 곧 태그**다.
 export CLOUDSDK_PYTHON="$(pyenv root)/versions/3.12.11/bin/python"
 GC=~/.config/seorilabs/scripts/gcloud-cli.sh
 
-# Godot Android — 엔진 버전을 태그와 빌드 인자 양쪽에 같은 값으로 준다
+# Godot Android — 엔진 버전이 곧 태그이자 빌드 인자다
 "$GC" builds submit builders/godot-android \
   --project=seorilabs-ci --region=asia-northeast3 \
-  --tag=asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/godot-android-builder:4.7.2
+  --config=builders/godot-android/bake.cloudbuild.yaml \
+  --substitutions=_GODOT_VERSION=4.7.2
 
 # React Native Android
 "$GC" builds submit builders/rn-android \
@@ -35,6 +36,12 @@ GC=~/.config/seorilabs/scripts/gcloud-cli.sh
 
 엔진을 올릴 때는 새 태그를 하나 더 굽고 각 repo 의 `build.env` 만 바꾼다. 기존 태그는
 지우지 않는다 — 뒤처진 repo 가 아직 그 태그를 쓴다.
+
+Godot 쪽만 `--tag` 대신 `bake.cloudbuild.yaml` 을 쓴다. `--tag` 만으로는 `--build-arg` 를
+넘길 수 없어 Dockerfile 기본값 버전으로만 구워지고, 다른 엔진 태그를 만들 수 없다.
+
+현재 살아 있는 Godot 태그는 **4.6.3** 과 **4.7.2** 다. 4.6.3 은 아직 엔진을 올리지 못한
+repo(lizard-tycoon)가 엔진 상향과 계약 전환을 분리할 수 있게 하려고 유지한다.
 
 ## 검증
 
