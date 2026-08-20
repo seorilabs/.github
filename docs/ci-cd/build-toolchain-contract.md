@@ -59,11 +59,13 @@
 
 ```
 build.env                  툴체인 버전 단일 선언
-scripts/build/android.sh   서명된 AAB 산출
-scripts/build/ait.sh       .ait 번들 산출
-scripts/build/web.sh       웹 배포물 산출
+scripts/build-android.sh   서명된 AAB 산출
+scripts/build-ait.sh       .ait 번들 산출
+scripts/build-web.sh       웹 배포물 산출
 ios/ci_scripts/            Apple 전용 — Xcode Cloud 규약
 ```
+
+**`scripts/build/` 디렉터리를 쓰지 않는다.** 대부분의 repo `.gitignore`에 `build/`가 있고 그 패턴은 `scripts/build/`까지 잡는다. 스크립트가 커밋되지 않은 채 CI만 통과하고 로컬에는 파일이 없는 상태가 된다. foam-party에서 실제로 겪었다.
 
 - **입력은 환경변수**로 받는다. 인자 파싱을 만들지 않는다.
 - **출력은 고정 경로**에 둔다. 호출부가 경로를 알아맞히지 않는다.
@@ -89,13 +91,19 @@ rn-android-builder:node24     JDK 17 + Android SDK + Node 24
 
 이미지는 Cloud Build로 굽는다(amd64). `build.env`의 `GODOT_VERSION`이 그대로 이미지 태그가 되므로, 엔진을 올릴 때 이미지 태그를 하나 더 굽고 `build.env`만 바꾸면 된다.
 
+**이 저장소에는 공개 툴체인만 넣는다.** 앱 소스, 빌드 산출물(AAB/.ait), 앱 컨테이너 이미지, 시크릿은 넣지 않는다. 앱 이미지는 각자의 비공개 레지스트리에 둔다(백오피스 `registry.vzyx.xyz`, platform `seorilabs-platform`). 산출물은 GCS나 GitHub Artifacts로 간다.
+
+읽기 권한은 각 repo가 이미 쓰는 WIF 신원에 부여한다. 저장소를 공개로 열지 않는다 — 조직 정책 `constraints/iam.allowedPolicyMemberDomains`가 `allUsers` 부여를 막으며, 그 정책이 나중에 비밀이 섞인 이미지가 실수로 공개되는 것을 막는 통제다.
+
 ### 2.3 호출부가 하는 일
 
 | 실행 위치 | 하는 일 |
 |---|---|
-| 로컬 | 빌더 이미지를 `docker run`으로 띄우고 스크립트 실행 |
-| GitHub Actions | 인증(WIF) → 시크릿 주입 → 컨테이너에서 스크립트 실행 → 아티팩트 업로드 |
+| 로컬 | `gcloud auth configure-docker` 후 빌더 이미지를 `docker run`으로 띄우고 스크립트 실행 |
+| GitHub Actions | WIF 인증 → Docker 인증 → `docker run`으로 스크립트 실행 → 아티팩트 업로드 |
 | Cloud Build | 같은 이미지를 step으로 두고 같은 스크립트 실행 |
+
+GitHub Actions에서 잡 레벨 `container:`를 쓰지 않는다. 스텝이 돌기 전에 이미지를 받으므로 WIF 토큰을 쓸 수 없고, 정적 리더 키를 만들거나 저장소를 공개해야 한다. 인증 스텝 비용(빌드당 15~30초)을 치르고 둘 다 피한다.
 
 셋이 같은 스크립트를 같은 이미지에서 부르므로, CI 실패를 로컬에서 그대로 재현할 수 있다.
 
