@@ -15,6 +15,7 @@ ARG GODOT_STATUS=stable
 ARG ANDROID_CMDLINE_TOOLS=13114758
 ARG ANDROID_BUILD_TOOLS=35.0.0
 ARG ANDROID_PLATFORM=35
+ARG NODE_VERSION=24.16.0
 
 # Godot 은 export template 을 XDG_DATA_HOME 아래에서 찾는다(기본 ~/.local/share).
 # HOME 은 실행 환경마다 다르다 — Cloud Build 는 /builder/home, 로컬 docker run 은
@@ -28,9 +29,21 @@ ENV XDG_DATA_HOME=/opt/godot-data \
 
 # Godot 헤드리스 export 가 요구하는 런타임과 압축 도구만 넣는다.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl unzip zip git python3 \
+      ca-certificates curl unzip zip git python3 xz-utils \
       libfontconfig1 libxi6 libxrandr2 libxinerama1 libxcursor1 libgl1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Node — repo 빌드 스크립트가 쓴다(lizard-tycoon 의 Firebase Analytics 주입 등).
+# Ubuntu 24.04 apt 의 nodejs 는 18.x 라 repo 들의 engines 요구(>=24)를 못 맞춘다.
+# nodejs.org 공식 빌드를 고정 버전으로 받는다.
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in amd64) narch=x64 ;; arm64) narch=arm64 ;; *) echo "지원하지 않는 아키텍처: $arch" >&2; exit 1 ;; esac; \
+    curl -fsSL -o /tmp/node.tar.xz \
+      "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${narch}.tar.xz"; \
+    tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+      --exclude=CHANGELOG.md --exclude=LICENSE --exclude=README.md; \
+    rm /tmp/node.tar.xz
 
 # Android SDK — cmdline-tools 로 platform/build-tools/platform-tools 를 받는다.
 RUN set -eux; \
@@ -69,6 +82,7 @@ RUN set -eux; \
 RUN set -eux; \
     godot --headless --version; \
     java -version; \
+    node --version; \
     test -f "${XDG_DATA_HOME}/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}/android_release.apk"; \
     aapt2 version; \
     sdkmanager --version

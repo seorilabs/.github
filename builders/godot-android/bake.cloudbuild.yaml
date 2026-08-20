@@ -1,0 +1,28 @@
+# godot-android-builder 를 굽는다. 엔진 버전이 곧 태그이자 빌드 인자다.
+#
+#   gcloud builds submit builders/godot-android \
+#     --project=seorilabs-ci --region=asia-northeast3 \
+#     --config=builders/godot-android/bake.cloudbuild.yaml \
+#     --substitutions=_GODOT_VERSION=4.7.2
+#
+# --tag 만 쓰면 build-arg 를 넘길 수 없어 Dockerfile 기본값으로만 구워진다.
+substitutions:
+  _GODOT_VERSION: "4.7.2"
+  _GODOT_STATUS: stable
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg=GODOT_VERSION=${_GODOT_VERSION}
+      - --build-arg=GODOT_STATUS=${_GODOT_STATUS}
+      - --tag=asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/godot-android-builder:${_GODOT_VERSION}
+      - .
+
+images:
+  - asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/godot-android-builder:${_GODOT_VERSION}
+
+timeout: 2400s
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
