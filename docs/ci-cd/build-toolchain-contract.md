@@ -122,6 +122,10 @@ lizard-tycoon처럼 결제 플러그인·custom build template이 필요하면 *
 ## 3. 엔진 버전 정책
 
 - org 전체 Godot은 **4.7.2-stable**로 수렴한다(2026-08-20 확정).
+- **lizard-tycoon은 4.6.3에 머문다(2026-08-21 결정).** 표류가 아니라 결정이다.
+  결제·알림·인앱리뷰 plugin 중 둘이 엔진 마이너마다 잠기고, 그 위험을 잡을 게이트가
+  이 repo에는 없다(§5의 lizard 항목). 빌더 이미지는 `4.6.3` 태그를 유지한다.
+  상향은 plugin 교체·호출부 API 대조·iOS 재검증·실기기 QA와 함께 다시 판단한다.
 - 버전 상향은 org 단위로 한 번에 한다. repo별로 앞서가거나 뒤처지지 않는다.
 - 상향 시 각 repo의 `godot-checks.yml`(compile + smoke)이 통과해야 병합한다. 이 게이트가 없는 repo는 상향 전에 추가한다.
 - `build.env`가 유일한 선언이다. 재사용 워크플로우의 `godot_version` 기본값은 계약 이행 후 제거한다.
