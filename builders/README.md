@@ -25,6 +25,12 @@ GC=~/.config/seorilabs/scripts/gcloud-cli.sh
 "$GC" builds submit builders/rn-android \
   --project=seorilabs-ci --region=asia-northeast3 \
   --tag=asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder:node24
+
+# Capacitor 8 Android — 생성 Gradle이 Java 21 source level을 요구한다
+"$GC" builds submit builders/rn-android \
+  --project=seorilabs-ci --region=asia-northeast3 \
+  --config=builders/rn-android/build.cloudbuild.yaml \
+  --substitutions=_JDK_VERSION=21,_ANDROID_PLATFORM=36,_IMAGE_TAG=node24-jdk21
 ```
 
 엔진을 올릴 때는 새 태그를 하나 더 굽고 각 repo 의 `build.env` 만 바꾼다. 기존 태그는
@@ -39,6 +45,10 @@ GC=~/.config/seorilabs/scripts/gcloud-cli.sh
 ```sh
 "$GC" builds submit --no-source --project=seorilabs-ci --region=asia-northeast3 \
   --config=builders/godot-android/verify.cloudbuild.yaml
+
+"$GC" builds submit --no-source --project=seorilabs-ci --region=asia-northeast3 \
+  --config=builders/rn-android/verify.cloudbuild.yaml \
+  --substitutions=_JDK_VERSION=21,_ANDROID_PLATFORM=36,_IMAGE_TAG=node24-jdk21
 ```
 
 ## 이미지에 넣는 것과 넣지 않는 것
