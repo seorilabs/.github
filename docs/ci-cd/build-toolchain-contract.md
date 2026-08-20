@@ -89,7 +89,7 @@ godot-android-builder:4.7.2   JDK 17 + Android SDK + Godot 4.7.2 + export templa
 rn-android-builder:node24     JDK 17 + Android SDK + Node 24
 ```
 
-이미지는 Cloud Build로 굽는다(amd64). `build.env`의 `GODOT_VERSION`이 그대로 이미지 태그가 되므로, 엔진을 올릴 때 이미지 태그를 하나 더 굽고 `build.env`만 바꾸면 된다.
+이미지는 Cloud Build로 굽는다(amd64). 레시피는 [`builders/`](../../builders/)에 있다. `build.env`의 `GODOT_VERSION`이 그대로 이미지 태그가 되므로, 엔진을 올릴 때 이미지 태그를 하나 더 굽고 `build.env`만 바꾸면 된다.
 
 **이 저장소에는 공개 툴체인만 넣는다.** 앱 소스, 빌드 산출물(AAB/.ait), 앱 컨테이너 이미지, 시크릿은 넣지 않는다. 앱 이미지는 각자의 비공개 레지스트리에 둔다(백오피스 `registry.vzyx.xyz`, platform `seorilabs-platform`). 산출물은 GCS나 GitHub Artifacts로 간다.
 
@@ -109,7 +109,7 @@ GitHub Actions에서 잡 레벨 `container:`를 쓰지 않는다. 스텝이 돌�
 
 ### 2.4 특수 요구를 처리하는 방법
 
-lizard-tycoon처럼 결제 플러그인·custom build template이 필요하면 **그 repo의 `scripts/build/android.sh` 안에서** 처리한다. 재사용 워크플로우를 복사하지 않는다. 워크플로우는 스크립트를 부를 뿐이라 무엇이 들어 있든 상관하지 않는다.
+lizard-tycoon처럼 결제 플러그인·custom build template이 필요하면 **그 repo의 `scripts/build-android.sh` 안에서** 처리한다. 재사용 워크플로우를 복사하지 않는다. 워크플로우는 스크립트를 부를 뿐이라 무엇이 들어 있든 상관하지 않는다.
 
 ---
 
@@ -126,11 +126,11 @@ lizard-tycoon처럼 결제 플러그인·custom build template이 필요하면 *
 
 ### Android (Google Play)
 
-x64 Linux가 필요하다(`aapt2`). ARC는 arm64라 쓸 수 없다. 실행 위치는 GitHub-hosted 또는 Cloud Build다. 빌드 자체는 `scripts/build/android.sh`가 소유한다.
+x64 Linux가 필요하다(`aapt2`). ARC는 arm64라 쓸 수 없다. 실행 위치는 GitHub-hosted 또는 Cloud Build다. 빌드 자체는 `scripts/build-android.sh`가 소유한다.
 
 ### AIT (AppsInToss)
 
-arm64에서 돌아가므로 ARC를 쓴다. `scripts/build/ait.sh`가 소유한다.
+arm64에서 돌아가므로 ARC를 쓴다. `scripts/build-ait.sh`가 소유한다.
 
 ### Apple (App Store)
 
@@ -143,10 +143,53 @@ Apple만 빌더 이미지를 쓰지 않는다. Xcode Cloud가 실행 환경을 �
 ## 5. 이행 순서
 
 1. 빌더 이미지 구축 — `godot-android-builder:4.7.2`, `rn-android-builder:node24`
-2. 시범 repo 1곳(foam-party) — Godot 상향 + `build.env` + `scripts/build/android.sh` + Cloud Build 경로
+2. 시범 repo — Godot 상향 + `build.env` + `scripts/build-android.sh` + Cloud Build 경로
 3. 재사용 워크플로우를 "스크립트 호출"로 축소
 4. 나머지 Godot repo 엔진 상향
 5. 인라인 caller 4곳을 계약으로 흡수
 6. `godot_version` 입력과 `global-versions.yaml`의 중복 선언 제거
 
 각 단계는 이전 단계가 실동작으로 검증된 뒤에 진행한다.
+
+### 진행 상황 (2026-08-20)
+
+| 단계 | 상태 |
+|---|---|
+| 빌더 이미지 | `godot-android-builder:4.7.2`, `rn-android-builder:node24` 구축·검증 완료. 레시피는 [`builders/`](../../builders/) |
+| 시범 repo | spiritgate-defenders 전환 완료. AAB 산출과 업로드 인증서 지문 대조까지 확인 |
+| Godot repo 전환 | jomul, matgo 완료 |
+| 인라인 caller 흡수 | lizard-tycoon 조사 완료 — 계약 전환과 엔진 상향을 분리한다(아래) |
+
+foam-party 를 첫 시범으로 잡았다가 spiritgate-defenders 로 바꿨다. foam-party 에서
+`scripts/build/` 가 `.gitignore` 의 `build/` 에 걸려 커밋되지 않는 사고를 겪었고, 그 교훈이
+§2.1 의 디렉터리 금지 조항이 됐다.
+
+### lizard-tycoon — 전환과 상향을 분리한다
+
+인라인 caller 4곳 중 가장 무거운 repo 를 먼저 조사했다. 결론은 **계약 전환(빌드 위치)과
+엔진 상향(산출물)을 같은 변경에 넣지 않는다** 다.
+
+- 이탈 사유 3개 중 2개가 이미 무효다. custom Gradle build template 과 AAB 모드는
+  spiritgate-defenders 도 쓰며 계약 안에서 돌아간다. 빌드 시점 GitHub Releases 다운로드도
+  실증됐다(AdMob 플러그인).
+- 남은 실결손은 **Node 하나**다. lizard 의 export 스크립트가 Firebase Analytics 주입에
+  `node` 를 부르는데 `godot-android-builder` 에 Node 가 없다.
+- 진짜 위험은 엔진이다. lizard 는 Godot 4.6.3 이고, 결제·알림·인앱리뷰 플러그인 중 두 종은
+  upstream 이 엔진 마이너마다 버전을 잠근다. 4.7 대응판은 addon 트리가 재구성돼 있어
+  체크섬 교체로 끝나지 않는다. 알림 플러그인은 iOS 바이너리도 함께 배포하므로 상향이
+  Xcode Cloud 까지 끌고 간다.
+- **`godot-checks.yml` 이 이 위험을 잡지 못한다.** caller 가 `godot_version` 을 넘기지 않아
+  org 기본값으로 돌고, `with_export_templates` 가 false 라 Android export 를 하지 않는다.
+  상향은 게이트를 초록으로 통과하고 마켓 배포에서 터진다. §3 이 요구하는 "상향 전 게이트"의
+  전제가 이 repo 에서는 성립하지 않는다.
+
+따라서 순서는 이렇다.
+
+1. 빌더 이미지에 Node 24 를 넣고 `godot-android-builder:4.6.3` 태그를 굽는다.
+2. **엔진을 4.6.3 에 고정한 채** 계약으로 전환한다. 산출물 대조로 검증된다.
+3. 엔진 상향은 별도 변경으로, 플러그인 버전 교체·호출부 API 대조·iOS 재검증·실기기 QA 와
+   함께 한다. `godot-checks.yml` 이 `build.env` 를 읽도록 배선하는 것도 여기 포함한다.
+
+엔진 상향이 이렇게 무거운 repo 가 있으므로, §3 의 "org 전체가 4.7.2 로 수렴한다"는
+**목표이지 일정이 아니다.** 게이트가 상향을 실제로 검증하지 못하는 repo 는 게이트를 먼저
+갖춘 뒤 올린다.

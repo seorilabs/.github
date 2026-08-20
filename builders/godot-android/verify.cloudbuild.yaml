@@ -1,0 +1,19 @@
+steps:
+  - name: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/godot-android-builder:4.7.2
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -eu
+        echo "--- godot";     godot --headless --version
+        echo "--- java";      java -version 2>&1 | head -1
+        echo "--- aapt2";     aapt2 version
+        echo "--- HOME";      echo "HOME=$$HOME XDG_DATA_HOME=$$XDG_DATA_HOME"
+        echo "--- templates"; ls "$$XDG_DATA_HOME/godot/export_templates/"
+        echo "--- android";   ls "$$ANDROID_HOME/platforms"
+        echo "--- android_release.apk"
+        test -f "$$XDG_DATA_HOME/godot/export_templates/4.7.2.stable/android_release.apk" && echo present
+        echo "--- 검증 통과"
+timeout: 300s
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -1,0 +1,18 @@
+steps:
+  - name: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder:node24
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -eu
+        echo "--- node";     node --version
+        echo "--- pnpm";     pnpm --version
+        echo "--- java";     java -version 2>&1 | head -1
+        echo "--- aapt2";    aapt2 version
+        echo "--- ndk";      basename "$$ANDROID_NDK_HOME"
+        echo "--- android";  ls "$$ANDROID_HOME/platforms"
+        echo "--- HOME";     echo "HOME=$$HOME"
+        echo "--- 검증 통과"
+timeout: 300s
+options:
+  logging: CLOUD_LOGGING_ONLY
