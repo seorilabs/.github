@@ -1,6 +1,14 @@
+substitutions:
+  _IMAGE_TAG: "node24"
+  _JDK_VERSION: "17"
+  _ANDROID_PLATFORM: "35"
+
 steps:
-  - name: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder:node24
+  - name: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder:${_IMAGE_TAG}
     entrypoint: bash
+    env:
+      - EXPECTED_JDK=${_JDK_VERSION}
+      - EXPECTED_ANDROID_PLATFORM=${_ANDROID_PLATFORM}
     args:
       - -c
       - |
@@ -8,9 +16,12 @@ steps:
         echo "--- node";     node --version
         echo "--- pnpm";     pnpm --version
         echo "--- java";     java -version 2>&1 | head -1
+        java_major="$$(java -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p')"
+        test "$$java_major" = "$$EXPECTED_JDK"
         echo "--- aapt2";    aapt2 version
         echo "--- ndk";      basename "$$ANDROID_NDK_HOME"
         echo "--- android";  ls "$$ANDROID_HOME/platforms"
+        test -d "$$ANDROID_HOME/platforms/android-$$EXPECTED_ANDROID_PLATFORM"
         echo "--- HOME";     echo "HOME=$$HOME"
         echo "--- 검증 통과"
 timeout: 300s

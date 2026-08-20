@@ -1,0 +1,26 @@
+# 같은 RN/Node Android 레시피를 JDK별 additive tag로 굽는다.
+substitutions:
+  _JDK_VERSION: "17"
+  _IMAGE_TAG: "node24"
+  _ANDROID_PLATFORM: "35"
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg
+      - JDK_VERSION=${_JDK_VERSION}
+      - --build-arg
+      - ANDROID_PLATFORM=${_ANDROID_PLATFORM}
+      - --tag
+      - asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder:${_IMAGE_TAG}
+      - .
+
+images:
+  - asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder:${_IMAGE_TAG}
+
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1800s

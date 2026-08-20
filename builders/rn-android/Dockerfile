@@ -4,7 +4,10 @@
 # 있다고 가정하고, 없으면 설치하지 않고 실패한다.
 #
 # 계약: seorilabs/.github docs/ci-cd/build-toolchain-contract.md
-FROM eclipse-temurin:17-jdk-noble
+ARG JDK_VERSION=17
+FROM eclipse-temurin:${JDK_VERSION}-jdk-noble
+
+ARG JDK_VERSION
 
 ARG NODE_VERSION=24.16.0
 ARG PNPM_VERSION=11.3.0

@@ -87,7 +87,13 @@ Artifact Registry에 둔다. Godot은 버전이 곧 태그다.
 ```
 godot-android-builder:4.7.2   JDK 17 + Android SDK + Godot 4.7.2 + export templates
 rn-android-builder:node24     JDK 17 + Android SDK + Node 24
+rn-android-builder:node24-jdk21  JDK 21 + Android platform 36 + Node 24 — Capacitor 8
 ```
+
+JDK tag는 앱 Gradle이 요구하는 source level과 맞춘다. Capacitor 8의 생성 Gradle과
+`@capacitor/android`는 Java 21 source/target compatibility를 선언하므로 JDK 17 이미지에서
+컴파일되지 않는다. 기존 RN 앱의 검증된 `node24` tag는 바꾸지 않고 `node24-jdk21`을
+additive tag로 둔다.
 
 이미지는 Cloud Build로 굽는다(amd64). 레시피는 [`builders/`](../../builders/)에 있다. `build.env`의 `GODOT_VERSION`이 그대로 이미지 태그가 되므로, 엔진을 올릴 때 이미지 태그를 하나 더 굽고 `build.env`만 바꾸면 된다.
 
