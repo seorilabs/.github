@@ -19,6 +19,11 @@ test('RN Android builder pins app-required tools through build and verification 
   assert.match(verify, /EXPECTED_ANDROID_BUILD_TOOLS=\$\{_ANDROID_BUILD_TOOLS\}/);
   assert.match(verify, /pnpm --version\)" = "\$\$EXPECTED_PNPM"/);
   assert.match(verify, /build-tools\/\$\$EXPECTED_ANDROID_BUILD_TOOLS\/aapt2/);
+  assert.ok(
+    verify.indexOf('test -x "$$ANDROID_HOME/build-tools/$$EXPECTED_ANDROID_BUILD_TOOLS/aapt2"') <
+      verify.indexOf('"$$ANDROID_HOME/build-tools/$$EXPECTED_ANDROID_BUILD_TOOLS/aapt2" version'),
+    'aapt2 must be checked before execution',
+  );
   assert.match(verify, /cmake\/\$\$EXPECTED_ANDROID_CMAKE\/bin\/cmake/);
   assert.match(
     readme,

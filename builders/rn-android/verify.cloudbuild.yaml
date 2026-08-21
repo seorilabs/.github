@@ -28,8 +28,8 @@ steps:
         echo "--- java";     java -version 2>&1 | head -1
         java_major="$$(java -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p')"
         test "$$java_major" = "$$EXPECTED_JDK"
-        echo "--- aapt2";    "$$ANDROID_HOME/build-tools/$$EXPECTED_ANDROID_BUILD_TOOLS/aapt2" version
         test -x "$$ANDROID_HOME/build-tools/$$EXPECTED_ANDROID_BUILD_TOOLS/aapt2"
+        echo "--- aapt2";    "$$ANDROID_HOME/build-tools/$$EXPECTED_ANDROID_BUILD_TOOLS/aapt2" version
         echo "--- ndk";      basename "$$ANDROID_NDK_HOME"
         echo "--- android";  ls "$$ANDROID_HOME/platforms"
         test -d "$$ANDROID_HOME/platforms/android-$$EXPECTED_ANDROID_PLATFORM"
