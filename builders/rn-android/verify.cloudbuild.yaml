@@ -4,6 +4,7 @@ substitutions:
   _JDK_VERSION: "17"
   _PNPM_VERSION: "11.3.0"
   _ANDROID_PLATFORM: "35"
+  _ANDROID_BUILD_TOOLS: "35.0.0"
   _ANDROID_CMAKE: "3.22.1"
 
 steps:
@@ -14,6 +15,7 @@ steps:
       - EXPECTED_JDK=${_JDK_VERSION}
       - EXPECTED_PNPM=${_PNPM_VERSION}
       - EXPECTED_ANDROID_PLATFORM=${_ANDROID_PLATFORM}
+      - EXPECTED_ANDROID_BUILD_TOOLS=${_ANDROID_BUILD_TOOLS}
       - EXPECTED_ANDROID_CMAKE=${_ANDROID_CMAKE}
     args:
       - -c
@@ -26,7 +28,8 @@ steps:
         echo "--- java";     java -version 2>&1 | head -1
         java_major="$$(java -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p')"
         test "$$java_major" = "$$EXPECTED_JDK"
-        echo "--- aapt2";    aapt2 version
+        echo "--- aapt2";    "$$ANDROID_HOME/build-tools/$$EXPECTED_ANDROID_BUILD_TOOLS/aapt2" version
+        test -x "$$ANDROID_HOME/build-tools/$$EXPECTED_ANDROID_BUILD_TOOLS/aapt2"
         echo "--- ndk";      basename "$$ANDROID_NDK_HOME"
         echo "--- android";  ls "$$ANDROID_HOME/platforms"
         test -d "$$ANDROID_HOME/platforms/android-$$EXPECTED_ANDROID_PLATFORM"

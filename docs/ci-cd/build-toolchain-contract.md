@@ -89,6 +89,7 @@ godot-android-builder:4.7.2   JDK 17 + Android SDK + Godot 4.7.2 + export templa
 rn-android-builder:node24     JDK 17 + Android SDK + Node 24
 rn-android-builder:node24-jdk21  JDK 21 + Android platform 36 + Node 24 — Capacitor 8
 rn-android-builder:node24-pnpm11.14-jdk21-rn085  JDK 21 + Android platform 36 + CMake 3.22.1 + Node 24.16.0 + pnpm 11.14.0 — babycare RN 0.85
+rn-android-builder:node24-jdk17-android36  JDK 17 + Android platform 36 + build-tools 36.0.0 + CMake 3.22.1 + Node 24.16.0 + pnpm 11.3.0 — Cycle Pair RN 0.84
 ```
 
 JDK tag는 앱 Gradle이 요구하는 source level과 맞춘다. Capacitor 8의 생성 Gradle과
