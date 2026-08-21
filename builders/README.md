@@ -38,7 +38,17 @@ GC=~/.config/seorilabs/scripts/gcloud-cli.sh
   --project=seorilabs-ci --region=asia-northeast3 \
   --config=builders/rn-android/build.cloudbuild.yaml \
   --substitutions=_JDK_VERSION=21,_PNPM_VERSION=11.14.0,_ANDROID_PLATFORM=36,_ANDROID_CMAKE=3.22.1,_IMAGE_TAG=node24-pnpm11.14-jdk21-rn085
+
+# Cycle Pair RN Android — Gradle daemon JDK 17과 Android 36 툴체인을 함께 고정한다
+"$GC" builds submit builders/rn-android \
+  --project=seorilabs-ci --region=asia-northeast3 \
+  --config=builders/rn-android/build.cloudbuild.yaml \
+  --substitutions=_JDK_VERSION=17,_ANDROID_PLATFORM=36,_ANDROID_BUILD_TOOLS=36.0.0,_ANDROID_CMAKE=3.22.1,_IMAGE_TAG=node24-jdk17-android36
 ```
+
+`node24-jdk17-android36`은 2026-08-21 Cloud Build
+`18467d27-8bb1-4782-9e74-9af68ccf249f`에서 생성하고
+`ea12218b-c05b-4ca1-ae80-0224b0ddd832`에서 exact toolchain 실행 검증을 통과했다.
 
 엔진을 올릴 때는 새 태그를 하나 더 굽고 각 repo 의 `build.env` 만 바꾼다. 기존 태그는
 지우지 않는다 — 뒤처진 repo 가 아직 그 태그를 쓴다.
@@ -66,6 +76,10 @@ repo(lizard-tycoon)가 엔진 상향과 계약 전환을 분리할 수 있게 �
 "$GC" builds submit --no-source --project=seorilabs-ci --region=asia-northeast3 \
   --config=builders/rn-android/verify.cloudbuild.yaml \
   --substitutions=_JDK_VERSION=21,_PNPM_VERSION=11.14.0,_ANDROID_PLATFORM=36,_ANDROID_CMAKE=3.22.1,_IMAGE_TAG=node24-pnpm11.14-jdk21-rn085
+
+"$GC" builds submit --no-source --project=seorilabs-ci --region=asia-northeast3 \
+  --config=builders/rn-android/verify.cloudbuild.yaml \
+  --substitutions=_JDK_VERSION=17,_ANDROID_PLATFORM=36,_ANDROID_BUILD_TOOLS=36.0.0,_ANDROID_CMAKE=3.22.1,_IMAGE_TAG=node24-jdk17-android36
 ```
 
 ## 이미지에 넣는 것과 넣지 않는 것

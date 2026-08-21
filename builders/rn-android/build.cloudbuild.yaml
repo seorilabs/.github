@@ -4,6 +4,7 @@ substitutions:
   _PNPM_VERSION: "11.3.0"
   _IMAGE_TAG: "node24"
   _ANDROID_PLATFORM: "35"
+  _ANDROID_BUILD_TOOLS: "35.0.0"
   _ANDROID_CMAKE: "3.22.1"
 
 steps:
@@ -17,6 +18,8 @@ steps:
       - PNPM_VERSION=${_PNPM_VERSION}
       - --build-arg
       - ANDROID_PLATFORM=${_ANDROID_PLATFORM}
+      - --build-arg
+      - ANDROID_BUILD_TOOLS=${_ANDROID_BUILD_TOOLS}
       - --build-arg
       - ANDROID_CMAKE=${_ANDROID_CMAKE}
       - --tag
