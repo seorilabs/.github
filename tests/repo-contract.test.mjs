@@ -385,6 +385,16 @@ test("활성 마켓 manifest를 실제 마켓 스키마로 검증한다", async 
     true,
   );
   assert.equal(hasCode(result, "PROFILE_MARKET_REQUIRED_FILE_MISSING"), true);
+  assert.equal(
+    result.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.document === "profiles/react-native.yaml" &&
+        diagnostic.code === "FILE_MISSING" &&
+        diagnostic.path ===
+          "$.marketRequirements.googlePlay.requiredFiles[0]",
+    ),
+    true,
+  );
 });
 
 test("스키마 오류에 실제 값 없이 JSON path를 표시한다", async () => {
@@ -947,7 +957,15 @@ test("프로필 필수 파일 경로를 디렉터리로 대체해도 거부한�
 
   assert.equal(result.ok, false);
   assert.equal(hasCode(result, "PROFILE_REQUIRED_FILE_MISSING"), true);
-  assert.equal(hasCode(result, "FILE_TYPE_MISMATCH"), true);
+  assert.equal(
+    result.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.document === "profiles/react-native.yaml" &&
+        diagnostic.code === "FILE_TYPE_MISMATCH" &&
+        diagnostic.path === "$.requiredFiles[2]",
+    ),
+    true,
+  );
 });
 
 test("운영 manifest에도 credential 값 필드를 허용하지 않는다", async () => {

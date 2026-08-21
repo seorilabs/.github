@@ -830,12 +830,13 @@ async function checkProfileRequiredFiles({
       expectedType: "file",
     });
     if (result.diagnostic) {
+      diagnostics.push(result.diagnostic);
       diagnostics.push(
         makeDiagnostic({
           code: "PROFILE_REQUIRED_FILE_MISSING",
           document: profileDocument,
           path: appendJsonPath("$.requiredFiles", index),
-          message: "선택한 프로필의 필수 파일이 없습니다.",
+          message: "선택한 프로필의 필수 파일 계약을 충족하지 않습니다.",
         }),
       );
     }
@@ -868,6 +869,7 @@ async function checkProfileRequiredFiles({
         expectedType: "file",
       });
       if (result.diagnostic) {
+        diagnostics.push(result.diagnostic);
         diagnostics.push(
           makeDiagnostic({
             code: "PROFILE_MARKET_REQUIRED_FILE_MISSING",
@@ -879,7 +881,7 @@ async function checkProfileRequiredFiles({
               ),
               index,
             ),
-            message: "활성 마켓의 프로필 필수 파일이 없습니다.",
+            message: "활성 마켓의 프로필 필수 파일 계약을 충족하지 않습니다.",
           }),
         );
       }
