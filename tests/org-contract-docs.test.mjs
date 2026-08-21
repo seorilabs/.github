@@ -85,3 +85,59 @@ test("Org Contract 정책과 프로필 YAML이 중복 key 없이 파싱된다", 
     assert.equal(typeof value.id, "string", contractPath);
   }
 });
+
+test("P0-P5 이관 단계와 P5 안전 삭제 gate를 문서 계약으로 고정한다", async () => {
+  const rollout = await readFile(
+    resolve(REPOSITORY_ROOT, "docs/migration/org-contract-v1-rollout.md"),
+    "utf8",
+  );
+  const cleanup = await readFile(
+    resolve(REPOSITORY_ROOT, "docs/migration/p5-cleanup-inventory.md"),
+    "utf8",
+  );
+
+  assert.deepEqual(
+    [...rollout.matchAll(/^### (P[0-5]) —/gmu)].map((match) => match[1]),
+    ["P0", "P1", "P2", "P3", "P4", "P5"],
+  );
+  for (const gate of [
+    "Owner",
+    "Consumer",
+    "Replacement",
+    "Required checks",
+    "Live readback",
+    "Backup/restore",
+    "Approval",
+    "Rollback",
+    "Observation",
+  ]) {
+    assert.match(cleanup, new RegExp(`\\| ${gate} \\|`, "u"), gate);
+  }
+  assert.match(cleanup, /이 문서는 삭제 승인이 아니며/u);
+  assert.match(cleanup, /사용자 명시 승인/u);
+  assert.match(cleanup, /확인되지 않은 consumer/u);
+});
+
+test("Contract Checks는 읽기 전용 중앙 정적 검증만 수행한다", async () => {
+  const workflowPath = resolve(
+    REPOSITORY_ROOT,
+    ".github/workflows/contract-checks.yml",
+  );
+  const workflowText = await readFile(workflowPath, "utf8");
+  const workflow = parseDocument(workflowText, {
+    strict: true,
+    uniqueKeys: true,
+  }).toJS();
+
+  assert.deepEqual(workflow.permissions, { contents: "read" });
+  for (const forbidden of [
+    "id-token: write",
+    "secrets.",
+    "environment: production",
+    "gcloud ",
+    "firebase ",
+    "market-submit",
+  ]) {
+    assert.equal(workflowText.includes(forbidden), false, forbidden);
+  }
+});
