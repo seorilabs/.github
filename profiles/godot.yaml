@@ -1,0 +1,65 @@
+schemaVersion: 1
+id: godot
+contract: org-v1
+runtime: godot
+
+requiredFiles:
+  - .seorilabs/app.yaml
+  - project.godot
+  - package.json
+  - pnpm-lock.yaml
+
+quality:
+  commandProvider: package-json-scripts
+  packageManager: pnpm
+  requiredScripts:
+    - test:core
+    - check:architecture
+    - check:release
+  engineGate:
+    importBeforeCompile: true
+    failOnLogErrors: true
+    commandTimeoutRequired: true
+
+sharedSdk:
+  distribution: vendored
+  provenanceFiles:
+    - SOURCE
+    - VERSION
+    - CHECKSUM
+  checksumAlgorithm: sha256
+  sourceReleasePrefix: https://github.com/seorilabs/platform/releases
+  sourceVersionMustMatch: true
+  checksumScope: vendored-tree-v1
+  checksumRules:
+    pathOrder: utf8-lexicographic
+    includeRelativePathAndContentLength: true
+    excludedRootFiles:
+      - CHECKSUM
+    boundProvenanceFiles:
+      - SOURCE
+      - VERSION
+    symlinks: forbidden
+  forbiddenDistributions:
+    - git-submodule
+
+build:
+  definitionOwner: repository-scripts
+  toolchainManifest: build.env
+
+marketRequirements:
+  googlePlay:
+    artifact: android-app-bundle
+    requiredFiles:
+      - build.env
+      - scripts/build-android.sh
+  appleAppStore:
+    executor: xcode-cloud
+    requiredFiles:
+      - ios/ci_scripts/ci_post_clone.sh
+      - ios/ci_scripts/ci_pre_xcodebuild.sh
+  appsInToss:
+    artifact: ait
+    requiredFiles:
+      - scripts/build-web.sh
+      - scripts/build-ait.sh

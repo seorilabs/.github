@@ -1,6 +1,6 @@
 # Seorilabs Contribution Guidelines
 
-Seorilabs repo에 기여하는 사람과 agent는 같은 운영 계약을 따른다. 이 문서는 조직 기본 guideline이며, repo-local 지침이 있으면 repo-local 지침을 우선한다.
+Seorilabs repo에 기여하는 사람과 agent는 같은 운영 계약을 따른다. repo-local 지침은 stack과 앱 고유 사항을 추가하지만 `contracts/`의 조직 계약을 약화하거나 다른 의미로 덮어쓰지 않는다.
 
 ## 기본 원칙
 
@@ -8,7 +8,7 @@ Seorilabs repo에 기여하는 사람과 agent는 같은 운영 계약을 따른
 - PR은 연결 티켓, scope, 검증 결과, spec/version impact를 포함한다.
 - 기획 승인 전에는 신규 app code, repo scaffold, store registration을 만들지 않는다.
 - 배포 승인 전에는 production submit, track promotion, public release를 하지 않는다.
-- source-of-truth는 Obsidian/Vault, repo docs, release metadata 중 어디인지 명시한다.
+- 제품 기획·의사결정은 Obsidian/Vault, 조직 공통 엔지니어링 계약은 이 저장소의 `contracts/`, 앱별 사실은 해당 repo의 `.seorilabs/app.yaml`과 제품 문서를 따른다.
 - `Done`은 merge가 아니라 검증, 배포, live 확인, 문서 갱신까지 끝난 상태다.
 
 ## Agent Contribution
@@ -35,7 +35,9 @@ Claude, Codex, Gemini Bot 등 automation agent가 만든 PR은 추가로 다음 
 
 ## Review And Merge
 
-- CI failure, unresolved review comment, missing approval은 merge blocker다.
+- Seori는 PR 최초 턴에 인수조건 가이드를 한 번 제공한다. 요구사항을 반영하거나 같은 thread에 근거를 답하고 Resolve한다.
+- 새 push마다 Seori AI review를 다시 요청하거나 Seori approval을 기다리지 않는다.
+- 결함 검토는 CI와 작성자 자체 검토가 끝난 최종 HEAD에서 Copilot review를 한 번 요청한다. `unable-to-review`이거나 1차 리뷰 반영이 새 함수·파일·분기를 만든 경우에만 최종 HEAD에서 한 번 더 요청하며, PR당 총 요청은 최대 2회이고 성공 리뷰는 1~2회다.
+- CI failure, unresolved Seori/Copilot thread, merge conflict, 실제로 요구되는 사람 승인은 merge blocker다.
 - release 영향이 있는 PR은 release approval 전 배포하지 않는다.
-- review bot이 보정 커밋 이후 다시 봐야 하면 re-request를 명시적으로 호출한다.
 - source-of-truth 문서가 repo 현실과 어긋나면 문서를 먼저 갱신한다.

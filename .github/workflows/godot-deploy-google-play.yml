@@ -1,5 +1,5 @@
 # Seorilabs org 재사용 워크플로우: Godot 게임 Google Play (서명 AAB + 업로드)
-# 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-google-play.yml@main
+# 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-google-play.yml@<FULL_COMMIT_SHA>
 # 러너: ubuntu-latest (x64). godot --export-release Android → 서명 AAB → WIF 업로드.
 # 표준 contract(tools/): set_google_play_version_code.py, upload_google_play_internal.py
 #   (선택) install_android_build_template.sh, build_admob_plugin.sh, check_google_play_readiness.py

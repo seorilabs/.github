@@ -1,5 +1,5 @@
 # Seorilabs org 재사용 워크플로우: Godot 게임 AIT(.ait) 빌드 + AppsInToss 배포
-# 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-ait.yml@main
+# 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-ait.yml@<FULL_COMMIT_SHA>
 # 러너: seorilabs-rpi-arm64 (ARC). Godot Web export → wrapper build → ait deploy.
 # 인증: org secret APPS_IN_TOSS_API_KEY.
 name: Godot Deploy AIT (reusable)

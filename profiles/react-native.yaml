@@ -1,0 +1,54 @@
+schemaVersion: 1
+id: react-native
+contract: org-v1
+runtime: react-native
+
+requiredFiles:
+  - .seorilabs/app.yaml
+  - package.json
+  - pnpm-lock.yaml
+
+quality:
+  commandProvider: package-json-scripts
+  packageManager: pnpm
+  requiredScripts:
+    - test:core
+    - check:architecture
+    - check:release
+
+sharedSdk:
+  distribution: package
+  registry: github-packages
+  versionRequirement: exact-semver
+  lockfile: pnpm-lock.yaml
+  dependencyLockRequired: true
+  packageResolution:
+    registryHost: npm.pkg.github.com
+    integrity: sha512
+  consumerDeclaration: sdk.consumers
+  consumerFields:
+    - packageJson
+    - lockfileImporter
+  everyConsumerUsesExactVersion: true
+  forbiddenDistributions:
+    - git-submodule
+
+build:
+  definitionOwner: repository-scripts
+  toolchainManifest: build.env
+
+marketRequirements:
+  googlePlay:
+    artifact: android-app-bundle
+    requiredFiles:
+      - build.env
+      - scripts/build-android.sh
+  appleAppStore:
+    executor: xcode-cloud
+    requiredFiles:
+      - apps/mobile/ios/ci_scripts/ci_post_clone.sh
+      - apps/mobile/ios/ci_scripts/ci_pre_xcodebuild.sh
+  appsInToss:
+    artifact: ait
+    requiredFiles:
+      - scripts/build-ait.sh

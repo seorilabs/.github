@@ -1,0 +1,43 @@
+schemaVersion: 1
+app:
+  id: sample-app
+  displayName: Sample App
+  kind: app
+  profile: react-native
+  lifecycle: prelaunch
+repository:
+  defaultBranch: main
+quality:
+  policy: org-v1
+  commands:
+    core: pnpm test:core
+    architecture: pnpm check:architecture
+    release: pnpm check:release
+release:
+  policy: org-v1
+  trigger: explicit-semver-tag
+sdk:
+  distribution: package
+  package: '@seorilabs/platform-sdk'
+  version: 1.0.0
+  lockfile: pnpm-lock.yaml
+  consumers:
+    - packageJson: apps/mobile/package.json
+      lockfileImporter: apps/mobile
+    - packageJson: apps/ait/package.json
+      lockfileImporter: apps/ait
+markets:
+  googlePlay:
+    enabled: true
+    manifest: store/google-play/manifest.yaml
+  appleAppStore:
+    enabled: true
+    manifest: store/app-store/manifest.yaml
+  appsInToss:
+    enabled: true
+    manifest: store/apps-in-toss/manifest.yaml
+  web:
+    enabled: false
+credentials:
+  consumersManifest: .seorilabs/credential-consumers.yaml
+operationsManifest: .seorilabs/backoffice.json

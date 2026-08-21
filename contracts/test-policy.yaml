@@ -1,0 +1,42 @@
+schemaVersion: 1
+id: org-v1
+scope: app-repository
+
+canonicalCommands:
+  core:
+    alias: test:core
+    invocation: pnpm test:core
+    purpose: product-domain-and-regression-tests
+  architecture:
+    alias: check:architecture
+    invocation: pnpm check:architecture
+    purpose: dependency-and-boundary-validation
+  release:
+    alias: check:release
+    invocation: pnpm check:release
+    purpose: static-release-readiness
+    forbiddenEffects:
+      - artifact-upload
+      - market-submit
+      - production-deploy
+
+pullRequestGate:
+  requiredCommands:
+    - core
+    - architecture
+    - release
+  failOnSkippedCommand: true
+  reproducibleEvidenceRequired: true
+
+evidenceClasses:
+  - source
+  - ci
+  - artifact
+  - runtime
+  - device
+  - store
+  - live
+
+claims:
+  implication: forbidden
+  rule: A passing source or CI gate does not prove artifact, upload, device, review, approval, deployment, or public availability.

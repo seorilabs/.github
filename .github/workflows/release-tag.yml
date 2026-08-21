@@ -1,5 +1,5 @@
 # Seorilabs org 재사용 워크플로우: 명시적 SemVer 릴리즈 태그 생성
-# 호출: uses: seorilabs/.github/.github/workflows/release-tag.yml@main
+# 호출: uses: seorilabs/.github/.github/workflows/release-tag.yml@<FULL_COMMIT_SHA>
 # 원칙: 태그는 사람이 의도적으로 찍는다(merge마다 자동 태깅 금지).
 # 백오피스/텔레그램 또는 각 repo의 release-tag.yml caller(workflow_dispatch)에서 호출.
 name: Release Tag (reusable)

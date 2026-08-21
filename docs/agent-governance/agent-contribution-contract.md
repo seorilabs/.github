@@ -28,8 +28,14 @@
 # 요약
 - 
 
+# 변경사항
+-
+
 # 티켓
 - Refs #
+
+# 인수조건
+- [ ] 연결 티켓의 인수조건을 그대로 옮기고 충족 여부를 표시했다.
 
 # 범위
 - 포함:
@@ -47,8 +53,11 @@
 - Runtime/browser/device:
 - Store/console/live:
 
+# 다이어그램
+- 구조나 흐름 이해에 도움이 안 되면 `생략`.
+
 # 리스크
-- 
+- 참고 -
 
 # 롤백
 - 
@@ -77,7 +86,7 @@
 - spec/version impact가 말이 된다.
 - 검증 결과가 PR description 또는 CI에 있다.
 - CI failure가 무시되지 않았다.
-- review bot comment가 resolved 또는 no-action 상태다.
+- `contracts/review-policy.yaml`에 따라 Seori·Copilot thread가 모두 resolved이고 required check가 통과했다.
 - release 영향이 있으면 deployment approval 전 배포하지 않는다.
 - source-of-truth 문서가 실제 상태와 맞다.
 

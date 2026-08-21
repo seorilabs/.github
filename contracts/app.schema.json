@@ -1,0 +1,424 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v1/app.schema.json",
+  "title": "Seorilabs application contract",
+  "description": "Repository-local contract stored at .seorilabs/app.yaml. Operational declarations remain in .seorilabs/backoffice.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "app",
+    "repository",
+    "quality",
+    "release",
+    "sdk",
+    "markets",
+    "credentials"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "kind", "profile", "lifecycle"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "kind": {
+          "enum": ["app", "game"]
+        },
+        "profile": {
+          "enum": ["react-native", "godot"]
+        },
+        "lifecycle": {
+          "description": "Stable portfolio lifecycle. This never substitutes for release, review, deployment, or public-availability gates.",
+          "enum": ["prelaunch", "launched", "archived"]
+        }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defaultBranch"],
+      "properties": {
+        "defaultBranch": {
+          "const": "main"
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "commands"],
+      "properties": {
+        "policy": {
+          "const": "org-v1"
+        },
+        "commands": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["core", "architecture", "release"],
+          "properties": {
+            "core": {
+              "const": "pnpm test:core"
+            },
+            "architecture": {
+              "const": "pnpm check:architecture"
+            },
+            "release": {
+              "const": "pnpm check:release"
+            }
+          }
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "trigger"],
+      "properties": {
+        "policy": {
+          "const": "org-v1"
+        },
+        "trigger": {
+          "const": "explicit-semver-tag"
+        }
+      }
+    },
+    "sdk": {
+      "type": "object"
+    },
+    "markets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "googlePlay": {
+          "$ref": "#/$defs/marketTarget"
+        },
+        "appleAppStore": {
+          "$ref": "#/$defs/marketTarget"
+        },
+        "appsInToss": {
+          "$ref": "#/$defs/marketTarget"
+        },
+        "web": {
+          "$ref": "#/$defs/channelTarget"
+        }
+      }
+    },
+    "credentials": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consumersManifest"],
+      "properties": {
+        "consumersManifest": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/relativePath"
+            },
+            {
+              "type": "string",
+              "pattern": "\\.ya?ml$"
+            }
+          ]
+        }
+      }
+    },
+    "operationsManifest": {
+      "description": "Optional pointer to the existing Backoffice operation manifest. Its fields are not duplicated here.",
+      "const": ".seorilabs/backoffice.json"
+    },
+    "exceptions": {
+      "description": "Approved, owned, and expiring deviations from org-v1. Omit this field for repositories that follow the standard contract.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/exception"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "const": "react-native"
+              }
+            },
+            "required": ["profile"]
+          }
+        },
+        "required": ["app"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "sdk": {
+            "$ref": "#/$defs/reactNativeSdk"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "const": "godot"
+              }
+            },
+            "required": ["profile"]
+          }
+        },
+        "required": ["app"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "sdk": {
+            "$ref": "#/$defs/godotSdk"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._@/-]+$"
+    },
+    "marketTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "manifest": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/relativePath"
+            },
+            {
+              "type": "string",
+              "pattern": "\\.ya?ml$"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": ["enabled"]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "manifest": true
+            },
+            "required": ["manifest"]
+          }
+        }
+      ]
+    },
+    "channelTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "exactSemver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "exception": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scope", "owner", "reason", "expiresOn"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+        },
+        "scope": {
+          "enum": [
+            "quality",
+            "release",
+            "sdk",
+            "market",
+            "credential",
+            "structure"
+          ]
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._@/-]+$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 500
+        },
+        "expiresOn": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
+        }
+      }
+    },
+    "reactNativeSdk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "distribution",
+        "package",
+        "version",
+        "lockfile",
+        "consumers"
+      ],
+      "properties": {
+        "distribution": {
+          "const": "package"
+        },
+        "package": {
+          "type": "string",
+          "pattern": "^@seorilabs/[a-z0-9][a-z0-9._-]*$"
+        },
+        "version": {
+          "$ref": "#/$defs/exactSemver"
+        },
+        "lockfile": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/relativePath"
+            },
+            {
+              "type": "string",
+              "pattern": "(^|/)pnpm-lock\\.yaml$"
+            }
+          ]
+        },
+        "consumers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reactNativeSdkConsumer"
+          }
+        }
+      }
+    },
+    "reactNativeSdkConsumer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packageJson", "lockfileImporter"],
+      "properties": {
+        "packageJson": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/relativePath"
+            },
+            {
+              "type": "string",
+              "pattern": "(^|/)package\\.json$"
+            }
+          ]
+        },
+        "lockfileImporter": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/relativePath"
+            },
+            {
+              "type": "string",
+              "pattern": "^(?:\\.|[A-Za-z0-9._@-]+(?:/[A-Za-z0-9._@-]+)*)$"
+            }
+          ]
+        }
+      }
+    },
+    "godotSdk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["distribution", "root", "provenance"],
+      "properties": {
+        "distribution": {
+          "const": "vendored"
+        },
+        "root": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "version", "checksum"],
+          "properties": {
+            "source": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/relativePath"
+                },
+                {
+                  "type": "string",
+                  "pattern": "(^|/)SOURCE$"
+                }
+              ]
+            },
+            "version": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/relativePath"
+                },
+                {
+                  "type": "string",
+                  "pattern": "(^|/)VERSION$"
+                }
+              ]
+            },
+            "checksum": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/relativePath"
+                },
+                {
+                  "type": "string",
+                  "pattern": "(^|/)CHECKSUM$"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

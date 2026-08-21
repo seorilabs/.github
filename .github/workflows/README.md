@@ -1,6 +1,8 @@
 # Seorilabs org 재사용 워크플로우
 
-이 디렉터리는 org 전 repo가 공유하는 **재사용 워크플로우(`workflow_call`)** 다. 로직은 여기 한 곳에만 두고, 각 repo는 얇은 caller(`.github/workflows/*.yml`)로 호출한다. 전체 설계는 [`docs/ci-cd/org-cicd-release-system.md`](../../docs/ci-cd/org-cicd-release-system.md)(이 repo = org CI/CD single source of truth) 참조. (운영 미러: `seorilabs-backoffice/docs/ci-cd/`)
+이 디렉터리는 org 전 repo가 공유하는 **재사용 워크플로우(`workflow_call`)** 다. 로직은 여기 한 곳에만 두고, 각 repo는 얇은 caller(`.github/workflows/*.yml`)로 호출한다.
+
+신규 caller의 규범 정본은 [`contracts/release-policy.yaml`](../../contracts/release-policy.yaml)이며 테스트·리뷰 계약은 각각 [`contracts/test-policy.yaml`](../../contracts/test-policy.yaml), [`contracts/review-policy.yaml`](../../contracts/review-policy.yaml)을 따른다. 기존 [`org-cicd-release-system.md`](../../docs/ci-cd/org-cicd-release-system.md)는 현행 워크플로우를 이관하기 위한 legacy 참고 문서다.
 
 `.github` repo가 **public**이라 private repo에서도 참조 가능하다.
 
@@ -8,7 +10,8 @@
 
 - **main 병합/PR = 정적 게이트만**(lint/typecheck/test/style + 정적 게이트). 무거운 빌드/배포 금지.
 - **마켓 업로드 = 명시적 Release/Tag 기준.** merge마다 자동 태깅 금지.
-- **러너**: AIT·Godot·web·lint/test → `seorilabs-rpi-arm64`(ARC). Android AAB·Play → `ubuntu-latest`. iOS·App Store → `macos-26`. public PR job은 ARC 금지.
+- **러너**: AIT·Godot·web·lint/test → `seorilabs-rpi-arm64`(ARC). Android AAB·Play → x64 Linux. Apple archive·App Store 업로드 → Xcode Cloud. public PR job은 ARC 금지.
+- **호출 계약**: reusable workflow는 검증된 full commit SHA로 고정하고, secret은 `workflow_call.secrets`에 선언한 이름만 명시적으로 전달한다.
 - **아티팩트 retention = 3.**
 - **private GitHub Packages 소비**: caller가 `permissions.packages: read`를 선언하고
   `npm_registry_url: https://npm.pkg.github.com`, `npm_scope: '@seorilabs'`를 전달한다.
@@ -28,23 +31,26 @@
 | `godot-deploy-ait.yml` | Godot web→wrapper→AppsInToss deploy | ARC |
 | `rn-deploy-google-play.yml` | RN 서명 AAB + Google Play 업로드 | ubuntu |
 | `godot-deploy-google-play.yml` | Godot 서명 AAB + Google Play 업로드 | ubuntu |
-| `rn-deploy-app-store.yml` | RN Xcode archive + App Store 업로드 | macos-26 |
-| `godot-deploy-app-store.yml` | Godot iOS export + Xcode archive + App Store 업로드 | macos-26 |
+| `rn-deploy-app-store.yml` | RN GitHub-hosted App Store 경로 — legacy migration 대상 | macos-26 |
+| `godot-deploy-app-store.yml` | Godot GitHub-hosted App Store 경로 — legacy migration 대상 | macos-26 |
 | `cleanup-actions-storage.yml` | 아티팩트/캐시 정리 | ARC |
 
 ## @ref 핀 정책
 
-- 안정화 전: `@main`.
-- 안정화 후: **태그 또는 커밋 SHA로 핀**(예: `@v1` 또는 `@<sha>`)을 권장. 보안 민감 배포 워크플로우는 SHA 핀.
+- 신규·이관 caller는 검증된 **40자리 full commit SHA**로 고정한다.
+- `@main`, branch, mutable major tag는 신규 caller에서 사용하지 않는다.
+- 중앙 workflow 변경은 새 SHA의 계약·정적·build-only 검증 후 앱별 PR로 올린다. 이전 SHA는 rollback 근거로 남긴다.
 
 ## secrets / variables 계약
 
-`secrets: inherit`로 org+repo+environment 시크릿이 전달된다.
+`secrets: inherit`는 신규·이관 caller에서 금지한다. 재사용 워크플로우는 필요한 이름을 `on.workflow_call.secrets`에 선언하고 caller는 같은 이름을 하나씩 매핑한다. 아래 목록은 현재 이관할 logical name inventory이며 값의 정본은 저장소가 아니다.
 
 - **org secrets**(공통): `APPS_IN_TOSS_API_KEY`, `APPLE_DISTRIBUTION_CERTIFICATE_BASE64`, `APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD`, `APPLE_KEYCHAIN_PASSWORD`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_PRIVATE_KEY_BASE64`, `GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64`, `GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD`, `GOOGLE_PLAY_UPLOAD_KEY_PASSWORD`.
 - **org variables**: `APPLE_TEAM_ID`, `GOOGLE_PLAY_UPLOAD_KEY_ALIAS`, `GOOGLE_WORKLOAD_IDENTITY_PROVIDER`.
 - **repo 레벨(앱 특화)**: `APPLE_PROVISIONING_PROFILE_BASE64`, `FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64`, `FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64`, (var) `GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL`.
 - **GitHub Environments**: `apps-in-toss`, `google-play`, `app-store`(보호 규칙/감사).
+
+Apple signing과 App Store Connect 인증은 Xcode Cloud 환경에서 관리한다. 아래 GitHub App Store secret과 workflow는 소비자를 확인한 뒤 Xcode Cloud로 옮길 legacy 대상이며 신규 앱의 표준이 아니다.
 
 ## caller 표준 contract (repo가 제공)
 
@@ -54,9 +60,12 @@
 - Godot Android에서 import 전 공개 runtime config 복원이나 최종 AAB 정책 검사가 필요하면 각각 `prepare_project_script`, `post_export_validation_script`를 넘긴다. 후자에는 `AAB_PATH`, `ANDROID_VERSION_NAME`, `ANDROID_VERSION_CODE`가 전달된다.
 - Firebase 복원: `scripts/restore-mobile-firebase-config.mjs --android|--ios --require`.
 - Godot web export: `scripts/export_godot_web.sh`.
-- Godot iOS: `scripts/ensure_godot.sh --with-export-templates`, `scripts/export_godot_ios.sh`(→ `<ios_output>.xcodeproj`). caller는 `ios_scheme`/`ios_bundle_id` 입력 필수(App Store). 최종 archive 검증이 필요한 앱은 `post_archive_validation_script`를 넘기며, 스크립트에는 `ARCHIVE_PATH`, `IOS_BUNDLE_ID`, `APPLE_MARKETING_VERSION`, `APPLE_BUILD_NUMBER`가 전달된다.
+- Legacy GitHub App Store 경로의 Godot iOS: `scripts/ensure_godot.sh --with-export-templates`, `scripts/export_godot_ios.sh`(→ `<ios_output>.xcodeproj`). 이 입력 계약은 Xcode Cloud 이관 전 기존 consumer 확인에만 사용한다.
 
 ## caller 예시
+
+배포 예시는 named secret 계약 이관 후의 목표 형태다. 중앙 deploy workflow가 해당
+`workflow_call.secrets`를 선언한 검증 SHA가 나오기 전에는 앱 caller에 적용하지 않는다.
 
 ### RN AIT 후보 빌드 (`.github/workflows/build-ait.yml`)
 
@@ -68,7 +77,7 @@ on:
       release_tag: { type: string, required: false, default: "" }
 jobs:
   build:
-    uses: seorilabs/.github/.github/workflows/rn-build-ait.yml@<commit-sha>
+    uses: seorilabs/.github/.github/workflows/rn-build-ait.yml@<full-commit-sha>
     with:
       release_tag: ${{ inputs.release_tag }}
 ```
@@ -97,8 +106,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   checks:
-    uses: seorilabs/.github/.github/workflows/rn-static-checks.yml@main
-    secrets: inherit
+    uses: seorilabs/.github/.github/workflows/rn-static-checks.yml@<full-commit-sha>
     with:
       runs_on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
       node_version: "24.16.0"
@@ -123,16 +131,19 @@ on:
     inputs:
       release_tag: { type: string, required: false, default: "" }
       memo: { type: string, required: false, default: "" }
+    secrets:
+      APPS_IN_TOSS_API_KEY: { required: true }
 jobs:
   ait:
-    uses: seorilabs/.github/.github/workflows/rn-deploy-ait.yml@main
-    secrets: inherit
+    uses: seorilabs/.github/.github/workflows/rn-deploy-ait.yml@<full-commit-sha>
+    secrets:
+      APPS_IN_TOSS_API_KEY: ${{ secrets.APPS_IN_TOSS_API_KEY }}
     with:
       release_tag: ${{ inputs.release_tag }}
       memo: ${{ inputs.memo }}
 ```
 
-### Deploy All 오케스트레이터 (`.github/workflows/deploy-all.yml`, repo 로컬)
+### GitHub 마켓 오케스트레이터 (`.github/workflows/deploy-all.yml`, repo 로컬)
 
 ```yaml
 name: Deploy All
@@ -142,7 +153,6 @@ on:
       release_tag: { type: string, required: false, default: "" }
       deploy_ait: { type: boolean, default: true }
       deploy_google_play: { type: boolean, default: true }
-      deploy_app_store: { type: boolean, default: true }
 permissions: { contents: read, id-token: write }
 concurrency:
   group: deploy-all-${{ inputs.release_tag || github.ref }}
@@ -151,18 +161,18 @@ jobs:
   ait:
     if: ${{ inputs.deploy_ait }}
     uses: ./.github/workflows/deploy-apps-in-toss.yml
-    secrets: inherit
+    secrets:
+      APPS_IN_TOSS_API_KEY: ${{ secrets.APPS_IN_TOSS_API_KEY }}
     with: { release_tag: ${{ inputs.release_tag }} }
   google-play:
     if: ${{ inputs.deploy_google_play }}
     uses: ./.github/workflows/deploy-google-play.yml
-    secrets: inherit
-    with: { release_tag: ${{ inputs.release_tag }} }
-  app-store:
-    if: ${{ inputs.deploy_app_store }}
-    uses: ./.github/workflows/deploy-app-store.yml
-    secrets: inherit
+    secrets:
+      FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
+      GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64 }}
+      GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD }}
+      GOOGLE_PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEY_PASSWORD }}
     with: { release_tag: ${{ inputs.release_tag }} }
 ```
 
-> Deploy All은 repo 로컬 caller들(`./.github/workflows/deploy-*.yml`)을 호출한다. 각 caller는 다시 org 재사용 워크플로우를 호출한다(2단계). 이렇게 하면 repo별 scheme/bundle 등 입력은 repo caller에 1회만 둔다.
+> 이 예시는 GitHub에서 실행하는 AIT·Google Play 경로만 묶는다. Apple archive와 App Store 업로드는 Xcode Cloud에서 별도 gate로 실행한다. repo 로컬 caller도 각 `workflow_call.secrets` 이름을 선언하고 중앙 workflow에 다시 명시적으로 매핑해야 한다.

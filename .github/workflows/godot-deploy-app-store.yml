@@ -1,6 +1,6 @@
 # Seorilabs org 재사용 워크플로우: Godot 게임 App Store (Xcode archive + 업로드)
-# 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-app-store.yml@main
-# 러너: macos-26 (Godot iOS export + Xcode 필요 → ARC 금지). 업로드: App Store Connect API key(.p8).
+# 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-app-store.yml@<FULL_COMMIT_SHA>
+# 레거시 이관 경로: 신규 App Store 표준은 Xcode Cloud이며 이 workflow는 기존 caller 이관 전까지만 유지한다.
 # 로직 출처: seorilabs/lizard-tycoon iOS 릴리즈(Godot iOS export → xcodebuild archive → exportArchive).
 #   composite action(import-codesign-certs)·altool 대신 rn-deploy-app-store.yml 와 동일한 self-contained
 #   security keychain + ASC API key exportArchive 방식으로 포팅(org 재사용 워크플로우 style 통일).

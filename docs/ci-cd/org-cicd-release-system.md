@@ -1,8 +1,20 @@
 # Seorilabs Org CI/CD & 릴리즈 시스템 (통일 설계)
 
-> 상태: 설계 확정안(v1). 적용 대상: `seorilabs` org 전체.
+> **Legacy / migration reference:** 이 문서는 2026-06-30 시점의 현행 구조와
+> 이관 배경을 보존한다. 신규·이관 저장소의 규범 정본은
+> [`contracts/release-policy.yaml`](../../contracts/release-policy.yaml),
+> [`contracts/test-policy.yaml`](../../contracts/test-policy.yaml),
+> [`contracts/review-policy.yaml`](../../contracts/review-policy.yaml)이다.
+> 이 문서에 남은 `@main`, `secrets: inherit`, GitHub-hosted macOS App Store 예시는
+> 신규 caller에 복사하지 않는다. reusable workflow는 full commit SHA와 named secret
+> mapping을 사용하고 Apple archive·App Store 업로드는 Xcode Cloud를 표준으로 한다.
+> 단계별 전환과 삭제 조건은
+> [`org-contract-v1-rollout.md`](../migration/org-contract-v1-rollout.md)와
+> [`p5-cleanup-inventory.md`](../migration/p5-cleanup-inventory.md)를 따른다.
+
+> 상태: legacy 기준선(v1), Org Contract v1 이관 참고. 기존 적용 대상: `seorilabs` org 전체.
 > 작성 근거: 2026-06-30 org 전수 점검(23개 활성 repo) + 성숙 repo(happy-farm/crossword-puzzle/lucid-chess) 실제 워크플로우 분석 + `global-versions.yaml` + org Actions secrets/variables 실측.
-> 이 문서가 org 전체 CI/CD의 single source of truth다. 변경 시 이 문서 → `seorilabs/.github` 재사용 워크플로우 → 각 repo caller 순서로 반영한다.
+> 이 문서의 현행 목록은 이관 inventory로 사용하며 신규 규범 변경은 위 machine-readable contract에서 시작한다.
 
 ---
 

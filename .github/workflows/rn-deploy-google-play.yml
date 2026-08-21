@@ -1,5 +1,5 @@
 # Seorilabs org 재사용 워크플로우: RN 앱 Google Play (서명 AAB + 업로드)
-# 호출: uses: seorilabs/.github/.github/workflows/rn-deploy-google-play.yml@main
+# 호출: uses: seorilabs/.github/.github/workflows/rn-deploy-google-play.yml@<FULL_COMMIT_SHA>
 # 러너: ubuntu-latest (Android aapt2가 x86-64 → ARC 금지). 업로드: WIF(keyless).
 # 표준 contract(템플릿이 구현):
 #   - scripts/resolve-release-version.mjs --tag <tag> --github-output

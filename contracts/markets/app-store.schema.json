@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v1/markets/app-store.schema.json",
+  "title": "Seorilabs Apple App Store registration manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "appId", "bundleId", "listing", "release"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "appId": {
+      "$ref": "#/$defs/appId"
+    },
+    "bundleId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*(?:\\.[A-Za-z0-9][A-Za-z0-9-]*)+$"
+    },
+    "sku": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "listing": {
+      "$ref": "#/$defs/listing"
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact", "executor"],
+      "properties": {
+        "artifact": {
+          "const": "xcode-archive"
+        },
+        "executor": {
+          "const": "xcode-cloud"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "appId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._@/-]+$"
+    },
+    "locale": {
+      "type": "string",
+      "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"
+    },
+    "listing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defaultLocale", "metadataDirectory", "assetsDirectory"],
+      "properties": {
+        "defaultLocale": {
+          "$ref": "#/$defs/locale"
+        },
+        "metadataDirectory": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "assetsDirectory": {
+          "$ref": "#/$defs/relativePath"
+        }
+      }
+    }
+  }
+}
