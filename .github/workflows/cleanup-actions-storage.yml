@@ -1,5 +1,5 @@
 # Seorilabs org 재사용 워크플로우: GitHub Actions 스토리지 정리
-# 호출: uses: seorilabs/.github/.github/workflows/cleanup-actions-storage.yml@main
+# 호출: uses: seorilabs/.github/.github/workflows/cleanup-actions-storage.yml@<FULL_COMMIT_SHA>
 # 아티팩트/캐시를 정리해 Actions 스토리지 쿼터를 비운다. 각 repo는 얇은 caller에서
 # workflow_dispatch(또는 cron)로 이 워크플로우를 호출한다.
 name: Cleanup Actions Storage (reusable)

@@ -1,5 +1,5 @@
 # Seorilabs org 재사용 워크플로우: Google Play 트랙 승격(재빌드 없이)
-# 호출: uses: seorilabs/.github/.github/workflows/promote-google-play.yml@main
+# 호출: uses: seorilabs/.github/.github/workflows/promote-google-play.yml@<FULL_COMMIT_SHA>
 # 러너: ubuntu-latest (WIF keyless, gradle 빌드 없음). from_track 의 최신 versionCode 를
 #       to_track 으로 복사 + 언어별 노트 반영 + commit(=심사 제출). AAB 재업로드 없음.
 # 표준 contract(템플릿이 구현):

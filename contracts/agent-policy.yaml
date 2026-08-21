@@ -1,0 +1,44 @@
+schemaVersion: 1
+id: org-v1
+
+canonicalSources:
+  organizationContract:
+    repository: seorilabs/.github
+    root: contracts
+  localAgentConfiguration:
+    root: ~/.agent
+
+distribution:
+  mode: version-lock-and-skill-routing
+  copiedOrganizationPolicy: forbidden
+  requiredContractLockFields:
+    - repository
+    - commitSha
+    - schemaVersion
+    - checksum
+
+readOrder:
+  - global-agent-guardrails
+  - organization-contract-lock
+  - repository-agents
+  - app-manifest
+  - task-skill
+
+conflictResolution:
+  machineReadableOrganizationContract: authoritative
+  repositoryInstructions: stack-and-app-specific-only
+  appManifest: repository-facts-only
+  skills: task-procedure-only
+
+installation:
+  canonicalRepository: ~/.agent
+  platformDiscoveryLinks: manifest-managed
+  preserveDirtyWorktree: true
+  backupBeforeRelink: true
+  idempotentVerifierRequired: true
+  destructiveRelinkWithoutApproval: forbidden
+
+updates:
+  contractLockChange: pull-request
+  skillChange: pull-request
+  localInstallAfterMerge: explicit-verified-step

@@ -1,0 +1,38 @@
+schemaVersion: 1
+app:
+  id: sample-game
+  displayName: Sample Game
+  kind: game
+  profile: godot
+  lifecycle: prelaunch
+repository:
+  defaultBranch: main
+quality:
+  policy: org-v1
+  commands:
+    core: pnpm test:core
+    architecture: pnpm check:architecture
+    release: pnpm check:release
+release:
+  policy: org-v1
+  trigger: explicit-semver-tag
+sdk:
+  distribution: vendored
+  root: addons/seorilabs-sdk
+  provenance:
+    source: addons/seorilabs-sdk/SOURCE
+    version: addons/seorilabs-sdk/VERSION
+    checksum: addons/seorilabs-sdk/CHECKSUM
+markets:
+  googlePlay:
+    enabled: true
+    manifest: store/google-play/manifest.yaml
+  appleAppStore:
+    enabled: false
+  appsInToss:
+    enabled: true
+    manifest: store/apps-in-toss/manifest.yaml
+  web:
+    enabled: true
+credentials:
+  consumersManifest: .seorilabs/credential-consumers.yaml

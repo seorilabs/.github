@@ -1,5 +1,5 @@
 # Seorilabs org 재사용 워크플로우: Godot Web export → GitHub Pages 배포
-# 호출: uses: seorilabs/.github/.github/workflows/godot-pages.yml@main
+# 호출: uses: seorilabs/.github/.github/workflows/godot-pages.yml@<FULL_COMMIT_SHA>
 # 러너: ARC(private) 우선. caller가 public repo면 runs_on='ubuntu-latest' 전달.
 name: Godot Pages (reusable)
 

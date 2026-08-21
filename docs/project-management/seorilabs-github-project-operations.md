@@ -1,5 +1,7 @@
 # Seorilabs GitHub Project Operations
 
+> 현재 `Verification`과 `Release` 필드는 Org Contract v1의 독립 gate를 모두 표현하지 못하는 legacy 운영 모델이다. P4에서 `contracts/release-policy.yaml`의 gate별 evidence 필드로 이관하기 전에는 단일 필드 값을 upload·review·approval·deployment·public 완료 증거로 사용하지 않는다.
+
 ## 목적
 
 Seorilabs Organization Project를 실행 티켓의 단일 대시보드로 사용한다. Obsidian/Vault는 기획서, 의사결정, 승인 기록의 source of truth로 유지하고, GitHub Project는 repo별 issue/PR/draft item의 실행 상태만 추적한다.
@@ -122,7 +124,7 @@ PR 규칙:
 - PR description에 `Closes #123` 또는 `Refs #123`로 실행 티켓을 연결한다.
 - agent PR은 [agent-contribution-contract.md](../agent-governance/agent-contribution-contract.md)를 따른다.
 - 배포/릴리즈 PR은 `Approval`을 `Release approval`로 두고 사람 승인을 받은 뒤 Release stage로 이동한다.
-- 보정 커밋 이후 Copilot review가 필요하면 명시적으로 re-request 한다.
+- Copilot review는 `contracts/review-policy.yaml`에 따라 최종 HEAD에서 최초 한 번 요청한다. `unable-to-review`이거나 수용한 리뷰 수정이 새 함수·파일·분기를 만든 경우에만 한 번 더 요청한다.
 
 ## Auto-add 운영
 

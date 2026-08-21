@@ -1,5 +1,5 @@
 # Seorilabs org 재사용 워크플로우: Godot 정적 게이트 (main)
-# 호출: uses: seorilabs/.github/.github/workflows/godot-checks.yml@main
+# 호출: uses: seorilabs/.github/.github/workflows/godot-checks.yml@<FULL_COMMIT_SHA>
 # import → compile/quality gate → headless smoke. 무거운 export/배포 금지.
 # ARC(ARM64)에서 Godot 4.6.3 실행. public repo는 ubuntu 전달.
 name: Godot Checks (reusable)

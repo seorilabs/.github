@@ -1,0 +1,17 @@
+{
+  "name": "seorilabs-org-contracts",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "packageManager": "npm@11.13.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "pack:check": "node packages/repo-contract/src/check-package.mjs",
+    "test": "node --test",
+    "test:repo-contract": "node --test tests/repo-contract*.test.mjs"
+  }
+}

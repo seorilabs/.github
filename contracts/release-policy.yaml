@@ -1,0 +1,71 @@
+schemaVersion: 1
+id: org-v1
+defaultBranch: main
+
+mainBranch:
+  allowed:
+    - static-quality-gates
+  forbidden:
+    - automatic-version-tag
+    - artifact-upload
+    - market-submit
+    - production-deploy
+
+releaseTrigger:
+  type: explicit-semver-tag
+  tagPattern: '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$'
+  automaticOnMerge: false
+  allowedInitiators:
+    - operator
+    - approved-backoffice-automation
+    - approved-telegram-automation
+
+reusableWorkflows:
+  referencePin: full-commit-sha
+  thinCallerRequired: true
+
+credentials:
+  sourceOfTruth: ~/.config/seorilabs
+  valuesInRepository: forbidden
+  secretInheritance: forbidden
+  mapping: explicit
+
+artifacts:
+  retentionDays: 3
+
+execution:
+  googlePlay:
+    buildPlatform: x64-linux
+  appleAppStore:
+    executor: xcode-cloud
+  appsInToss:
+    preferredRunner: seorilabs-rpi-arm64
+
+lifecycle:
+  portfolioField: app.lifecycle
+  portfolioValues:
+    - prelaunch
+    - launched
+    - archived
+  portfolioLifecycleIsReleaseGate: false
+  independentGates: true
+  orderedGates:
+    - implementation
+    - ci
+    - artifact
+    - upload
+    - processing
+    - deviceQa
+    - review
+    - approval
+    - deployment
+    - publicAvailability
+  states:
+    - notStarted
+    - inProgress
+    - passed
+    - failed
+    - blocked
+    - notApplicable
+  evidenceRequiredForPassed: true
+  implication: forbidden

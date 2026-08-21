@@ -1,5 +1,5 @@
 # Seorilabs org 재사용 워크플로우: RN/Node 정적 품질 게이트 (main)
-# 호출: uses: seorilabs/.github/.github/workflows/rn-static-checks.yml@main
+# 호출: uses: seorilabs/.github/.github/workflows/rn-static-checks.yml@<FULL_COMMIT_SHA>
 # 원칙: main 병합/PR 이벤트는 정적 체크만(lint/typecheck/test/style + 정적 게이트).
 # 무거운 빌드/배포 금지. ARC(private) 우선, public PR은 ubuntu.
 name: RN Static Checks (reusable)

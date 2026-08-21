@@ -1,6 +1,6 @@
 # Seorilabs org 재사용 워크플로우: RN 앱 App Store (Xcode archive + 업로드)
-# 호출: uses: seorilabs/.github/.github/workflows/rn-deploy-app-store.yml@main
-# 러너: macos-26 (Xcode 필요 → ARC 금지). 업로드: App Store Connect API key(.p8).
+# 호출: uses: seorilabs/.github/.github/workflows/rn-deploy-app-store.yml@<FULL_COMMIT_SHA>
+# 레거시 이관 경로: 신규 App Store 표준은 Xcode Cloud이며 이 workflow는 기존 caller 이관 전까지만 유지한다.
 # 서명: Apple Distribution 인증서 + App Store provisioning profile(manual).
 # 표준 contract: scripts/resolve-release-version.mjs → apple_marketing_version, apple_build_number
 name: RN Deploy App Store (reusable)

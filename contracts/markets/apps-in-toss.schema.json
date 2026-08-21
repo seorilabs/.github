@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v1/markets/apps-in-toss.schema.json",
+  "title": "Seorilabs AppsInToss registration manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "appId", "appName", "listing", "release"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "appId": {
+      "$ref": "#/$defs/appId"
+    },
+    "appName": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 30
+    },
+    "listing": {
+      "$ref": "#/$defs/listing"
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact"],
+      "properties": {
+        "artifact": {
+          "const": "ait"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "appId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._@/-]+$"
+    },
+    "locale": {
+      "type": "string",
+      "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"
+    },
+    "listing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defaultLocale", "metadataDirectory", "assetsDirectory"],
+      "properties": {
+        "defaultLocale": {
+          "$ref": "#/$defs/locale"
+        },
+        "metadataDirectory": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "assetsDirectory": {
+          "$ref": "#/$defs/relativePath"
+        }
+      }
+    }
+  }
+}

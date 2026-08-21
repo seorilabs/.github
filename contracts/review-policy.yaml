@@ -1,0 +1,51 @@
+schemaVersion: 1
+id: org-v1
+defaultBranch: main
+
+pullRequest:
+  state: ready
+  language: ko
+  mergeMethod: squash
+  linkedTicketRequired: true
+  acceptanceCriteriaRequired: true
+
+stages:
+  - id: seori-acceptance-guide
+    order: 1
+    provider: seori-review
+    mode: first-turn
+    role: acceptance-criteria-guide
+    countsAsCodeReview: false
+    countsAsApproval: false
+    threadResolutionRequired: true
+  - id: code-review
+    order: 2
+    provider: copilot
+    target: final-head
+    initialRequest:
+      maximumRequests: 1
+    additionalRequest:
+      maximumRequests: 1
+      allowedWhen:
+        - unable-to-review
+        - accepted-review-fix-introduces-new-function
+        - accepted-review-fix-introduces-new-file
+        - accepted-review-fix-introduces-new-branch
+    requiredSuccessfulReviews: 1
+    maximumSuccessfulReviews: 2
+    maximumTotalRequests: 2
+    threadResolutionRequired: true
+  - id: required-checks
+    order: 3
+    allRequired: true
+
+mergeGate:
+  seoriGuideThreadsResolved: true
+  codeReviewThreadsResolved: true
+  requiredChecksPassed: true
+  humanApproval: conditional
+  humanApprovalConditions:
+    - repository-ruleset
+    - destructive-change
+    - production-or-market-action
+    - product-decision
