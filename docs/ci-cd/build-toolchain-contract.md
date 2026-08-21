@@ -138,6 +138,11 @@ lizard-tycoon처럼 결제 플러그인·custom build template이 필요하면 *
 
 x64 Linux가 필요하다(`aapt2`). ARC는 arm64라 쓸 수 없다. 실행 위치는 GitHub-hosted 또는 Cloud Build다. 빌드 자체는 `scripts/build-android.sh`가 소유한다.
 
+**Cloud Build 로 보낼 때의 권한과 함정은 `seorilabs-cloud-build` 스킬을 따른다.**
+WIF 로 다른 프로젝트에 제출하면 권한 6종과 쿼터 프로젝트 지정이 모두 필요하고,
+gcloud 의 에러 문구가 실제 원인을 잘못 지목한다. 2026-08-21 전환에서 그 문구를 믿고
+버킷 IAM 만 두 번 손대다 시간을 버렸다.
+
 ### AIT (AppsInToss)
 
 arm64에서 돌아가므로 ARC를 쓴다. `scripts/build-ait.sh`가 소유한다.
