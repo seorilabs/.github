@@ -32,6 +32,12 @@ GC=~/.config/seorilabs/scripts/gcloud-cli.sh
   --project=seorilabs-ci --region=asia-northeast3 \
   --config=builders/rn-android/build.cloudbuild.yaml \
   --substitutions=_JDK_VERSION=21,_ANDROID_PLATFORM=36,_IMAGE_TAG=node24-jdk21
+
+# Babycare RN Android — repo packageManager와 같은 pnpm 11.14.0을 이미지에 고정한다
+"$GC" builds submit builders/rn-android \
+  --project=seorilabs-ci --region=asia-northeast3 \
+  --config=builders/rn-android/build.cloudbuild.yaml \
+  --substitutions=_JDK_VERSION=21,_PNPM_VERSION=11.14.0,_ANDROID_PLATFORM=36,_ANDROID_CMAKE=3.22.1,_IMAGE_TAG=node24-pnpm11.14-jdk21-rn085
 ```
 
 엔진을 올릴 때는 새 태그를 하나 더 굽고 각 repo 의 `build.env` 만 바꾼다. 기존 태그는
@@ -56,6 +62,10 @@ repo(lizard-tycoon)가 엔진 상향과 계약 전환을 분리할 수 있게 �
 "$GC" builds submit --no-source --project=seorilabs-ci --region=asia-northeast3 \
   --config=builders/rn-android/verify.cloudbuild.yaml \
   --substitutions=_JDK_VERSION=21,_ANDROID_PLATFORM=36,_IMAGE_TAG=node24-jdk21
+
+"$GC" builds submit --no-source --project=seorilabs-ci --region=asia-northeast3 \
+  --config=builders/rn-android/verify.cloudbuild.yaml \
+  --substitutions=_JDK_VERSION=21,_PNPM_VERSION=11.14.0,_ANDROID_PLATFORM=36,_ANDROID_CMAKE=3.22.1,_IMAGE_TAG=node24-pnpm11.14-jdk21-rn085
 ```
 
 ## 이미지에 넣는 것과 넣지 않는 것

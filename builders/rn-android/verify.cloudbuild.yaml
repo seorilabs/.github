@@ -1,20 +1,28 @@
 substitutions:
   _IMAGE_TAG: "node24"
+  _NODE_VERSION: "24.16.0"
   _JDK_VERSION: "17"
+  _PNPM_VERSION: "11.3.0"
   _ANDROID_PLATFORM: "35"
+  _ANDROID_CMAKE: "3.22.1"
 
 steps:
   - name: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder:${_IMAGE_TAG}
     entrypoint: bash
     env:
+      - EXPECTED_NODE=${_NODE_VERSION}
       - EXPECTED_JDK=${_JDK_VERSION}
+      - EXPECTED_PNPM=${_PNPM_VERSION}
       - EXPECTED_ANDROID_PLATFORM=${_ANDROID_PLATFORM}
+      - EXPECTED_ANDROID_CMAKE=${_ANDROID_CMAKE}
     args:
       - -c
       - |
         set -eu
         echo "--- node";     node --version
+        test "$$(node --version)" = "v$$EXPECTED_NODE"
         echo "--- pnpm";     pnpm --version
+        test "$$(pnpm --version)" = "$$EXPECTED_PNPM"
         echo "--- java";     java -version 2>&1 | head -1
         java_major="$$(java -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p')"
         test "$$java_major" = "$$EXPECTED_JDK"
@@ -22,6 +30,8 @@ steps:
         echo "--- ndk";      basename "$$ANDROID_NDK_HOME"
         echo "--- android";  ls "$$ANDROID_HOME/platforms"
         test -d "$$ANDROID_HOME/platforms/android-$$EXPECTED_ANDROID_PLATFORM"
+        echo "--- cmake";    "$$ANDROID_HOME/cmake/$$EXPECTED_ANDROID_CMAKE/bin/cmake" --version
+        echo "--- ninja";    "$$ANDROID_HOME/cmake/$$EXPECTED_ANDROID_CMAKE/bin/ninja" --version
         echo "--- HOME";     echo "HOME=$$HOME"
         echo "--- 검증 통과"
 timeout: 300s

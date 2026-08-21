@@ -15,6 +15,7 @@ ARG ANDROID_CMDLINE_TOOLS=13114758
 ARG ANDROID_BUILD_TOOLS=35.0.0
 ARG ANDROID_PLATFORM=35
 ARG ANDROID_NDK=27.1.12297006
+ARG ANDROID_CMAKE=3.22.1
 
 # corepack 은 준비한 패키지매니저를 COREPACK_HOME(기본 ~/.cache/node/corepack)에 캐시한다.
 # HOME 은 실행 환경마다 다르다 — 빌드는 /root, Cloud Build 는 /builder/home. 고정하지 않으면
@@ -54,7 +55,8 @@ RUN set -eux; \
       "platform-tools" \
       "platforms;android-${ANDROID_PLATFORM}" \
       "build-tools;${ANDROID_BUILD_TOOLS}" \
-      "ndk;${ANDROID_NDK}" >/dev/null
+      "ndk;${ANDROID_NDK}" \
+      "cmake;${ANDROID_CMAKE}" >/dev/null
 
 ENV ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${ANDROID_NDK}" \
     PATH="${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}:${PATH}"
@@ -69,6 +71,8 @@ RUN set -eux; \
     java -version; \
     aapt2 version; \
     sdkmanager --version; \
-    test -d "${ANDROID_NDK_HOME}"
+    test -d "${ANDROID_NDK_HOME}"; \
+    "${ANDROID_HOME}/cmake/${ANDROID_CMAKE}/bin/cmake" --version; \
+    "${ANDROID_HOME}/cmake/${ANDROID_CMAKE}/bin/ninja" --version
 
 WORKDIR /workspace

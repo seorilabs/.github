@@ -1,8 +1,10 @@
 # 같은 RN/Node Android 레시피를 JDK별 additive tag로 굽는다.
 substitutions:
   _JDK_VERSION: "17"
+  _PNPM_VERSION: "11.3.0"
   _IMAGE_TAG: "node24"
   _ANDROID_PLATFORM: "35"
+  _ANDROID_CMAKE: "3.22.1"
 
 steps:
   - id: build
@@ -12,7 +14,11 @@ steps:
       - --build-arg
       - JDK_VERSION=${_JDK_VERSION}
       - --build-arg
+      - PNPM_VERSION=${_PNPM_VERSION}
+      - --build-arg
       - ANDROID_PLATFORM=${_ANDROID_PLATFORM}
+      - --build-arg
+      - ANDROID_CMAKE=${_ANDROID_CMAKE}
       - --tag
       - asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder:${_IMAGE_TAG}
       - .
