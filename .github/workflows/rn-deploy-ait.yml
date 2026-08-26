@@ -34,6 +34,16 @@ on:
         required: false
         default: "24"
         type: string
+      npm_registry_url:
+        description: "선택적 npm registry URL. GitHub Packages는 https://npm.pkg.github.com"
+        required: false
+        default: ""
+        type: string
+      npm_scope:
+        description: "선택적 npm scope. GitHub Packages는 @seorilabs"
+        required: false
+        default: ""
+        type: string
       install_command:
         description: "설치 명령(비우면 pm 기본값)"
         required: false
@@ -56,6 +66,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   deploy:
@@ -103,10 +114,20 @@ jobs:
           { echo "ref=$ref"; echo "short_sha=$(git rev-parse --short HEAD)"; } >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
+        if: inputs.npm_registry_url == ''
         uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node_version }}
           check-latest: false
+
+      - name: Setup Node with npm registry
+        if: inputs.npm_registry_url != ''
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          check-latest: false
+          registry-url: ${{ inputs.npm_registry_url }}
+          scope: ${{ inputs.npm_scope }}
 
       - name: Enable pnpm
         if: inputs.package_manager == 'pnpm'
@@ -121,6 +142,8 @@ jobs:
       - name: Install dependencies (custom)
         if: inputs.install_command != ''
         shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           ${{ inputs.install_command }}
@@ -128,6 +151,8 @@ jobs:
       - name: Install dependencies (default)
         if: inputs.install_command == ''
         shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ "$PM" = "npm" ]; then npm ci; else pnpm install --frozen-lockfile; fi
