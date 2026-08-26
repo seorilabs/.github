@@ -116,3 +116,19 @@ test('workflow는 사용자 입력을 shell 본문에 직접 보간하지 않는
   assert.match(workflow, /checkout "refs\/tags\/\$tag"/u);
   assert.match(workflow, /\[ "\$tag_commit" = "\$head_commit" \]/u);
 });
+
+test('caller가 필요한 secret만 명시적으로 전달할 수 있다', () => {
+  for (const secret of [
+    'APPLE_DISTRIBUTION_CERTIFICATE_BASE64',
+    'APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD',
+    'APPLE_PROVISIONING_PROFILE_BASE64',
+    'APPLE_KEYCHAIN_PASSWORD',
+    'APPLE_TEAM_ID',
+    'APP_STORE_CONNECT_API_KEY_ID',
+    'APP_STORE_CONNECT_ISSUER_ID',
+    'APP_STORE_CONNECT_PRIVATE_KEY_BASE64',
+    'GODOT_ANALYTICS_CONFIG_JSON_BASE64',
+  ]) {
+    assert.match(workflow, new RegExp(`^      ${secret}:\\n        required: false$`, 'mu'));
+  }
+});
