@@ -88,7 +88,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! python3 -m venv --help >/dev/null 2>&1; then
+          if ! python3 -m ensurepip --version >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install --yes python3-venv
           fi
