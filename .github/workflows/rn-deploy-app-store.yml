@@ -53,6 +53,16 @@ on:
         required: false
         default: "24"
         type: string
+      npm_registry_url:
+        description: "선택적 npm registry URL. GitHub Packages는 https://npm.pkg.github.com"
+        required: false
+        default: ""
+        type: string
+      npm_scope:
+        description: "선택적 npm scope. GitHub Packages는 @seorilabs"
+        required: false
+        default: ""
+        type: string
       version_script:
         required: false
         default: "scripts/resolve-release-version.mjs"
@@ -78,6 +88,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   archive-upload:
@@ -139,10 +150,20 @@ jobs:
           [ "${sdk%%.*}" -ge 26 ] || { echo "App Store는 iOS 26 SDK 이상 필요. 현재: $sdk" >&2; exit 1; }
 
       - name: Setup Node
+        if: inputs.npm_registry_url == ''
         uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node_version }}
           check-latest: false
+
+      - name: Setup Node with npm registry
+        if: inputs.npm_registry_url != ''
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version }}
+          check-latest: false
+          registry-url: ${{ inputs.npm_registry_url }}
+          scope: ${{ inputs.npm_scope }}
 
       - name: Enable pnpm
         if: inputs.package_manager == 'pnpm'
@@ -154,6 +175,8 @@ jobs:
 
       - name: Install dependencies
         shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ "$PM" = "pnpm" ]; then
