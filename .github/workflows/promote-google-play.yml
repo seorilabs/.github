@@ -85,9 +85,18 @@ jobs:
           create_credentials_file: true
 
       - name: Install Google Play API client
+        shell: bash
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install google-api-python-client google-auth google-auth-httplib2 httplib2
+          set -euo pipefail
+          if ! python3 -m venv --help >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes python3-venv
+          fi
+          venv="$RUNNER_TEMP/google-play-venv"
+          python3 -m venv "$venv"
+          "$venv/bin/python" -m pip install --disable-pip-version-check \
+            google-api-python-client google-auth google-auth-httplib2 httplib2
+          echo "$venv/bin" >> "$GITHUB_PATH"
 
       # 태그 Release 에 첨부된 정형 출시노트(release-notes.json)를 승격 릴리즈에 반영.
       - name: Resolve store release notes
