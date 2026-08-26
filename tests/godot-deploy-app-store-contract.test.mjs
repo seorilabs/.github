@@ -59,7 +59,7 @@ test('동명 branch가 있어도 refs/tags의 commit을 checkout한다', () => {
   const root = createRepository();
   try {
     const tagCommit = git(root, 'rev-parse', 'HEAD');
-    git(root, 'tag', 'v1.2.3');
+    git(root, 'tag', '-a', 'v1.2.3', '-m', 'annotated stable');
     writeFileSync(join(root, 'source.txt'), 'branch source\n');
     git(root, 'add', 'source.txt');
     git(root, 'commit', '-q', '-m', 'branch source');
@@ -77,12 +77,19 @@ test('동명 branch가 있어도 refs/tags의 commit을 checkout한다', () => {
 test('빈 입력은 malformed와 prerelease를 제외한 최신 stable tag를 고른다', () => {
   const root = createRepository();
   try {
-    for (const tag of ['v1.2.9', 'v1.2.10', 'v9.0.0-rc.1', 'v10x.0y.0z', 'v01.2.3']) {
+    for (const tag of [
+      'v1.2.9',
+      'v1.2.10',
+      'v9223372036854775808.0.0',
+      'v9.0.0-rc.1',
+      'v10x.0y.0z',
+      'v01.2.3',
+    ]) {
       git(root, 'tag', tag);
     }
     const result = runResolve(root, '');
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.output, /^tag=v1\.2\.10$/mu);
+    assert.match(result.output, /^tag=v9223372036854775808\.0\.0$/mu);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -108,4 +115,20 @@ test('workflow는 사용자 입력을 shell 본문에 직접 보간하지 않는
   assert.doesNotMatch(workflow, /tag="\$\{\{ inputs\.release_tag \}\}"/u);
   assert.match(workflow, /checkout "refs\/tags\/\$tag"/u);
   assert.match(workflow, /\[ "\$tag_commit" = "\$head_commit" \]/u);
+});
+
+test('caller가 필요한 secret만 명시적으로 전달할 수 있다', () => {
+  for (const secret of [
+    'APPLE_DISTRIBUTION_CERTIFICATE_BASE64',
+    'APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD',
+    'APPLE_PROVISIONING_PROFILE_BASE64',
+    'APPLE_KEYCHAIN_PASSWORD',
+    'APPLE_TEAM_ID',
+    'APP_STORE_CONNECT_API_KEY_ID',
+    'APP_STORE_CONNECT_ISSUER_ID',
+    'APP_STORE_CONNECT_PRIVATE_KEY_BASE64',
+    'GODOT_ANALYTICS_CONFIG_JSON_BASE64',
+  ]) {
+    assert.match(workflow, new RegExp(`^      ${secret}:\\n        required: false$`, 'mu'));
+  }
 });

@@ -91,6 +91,25 @@ on:
         required: false
         default: 70
         type: number
+    secrets:
+      APPLE_DISTRIBUTION_CERTIFICATE_BASE64:
+        required: false
+      APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_PROVISIONING_PROFILE_BASE64:
+        required: false
+      APPLE_KEYCHAIN_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      APP_STORE_CONNECT_API_KEY_ID:
+        required: false
+      APP_STORE_CONNECT_ISSUER_ID:
+        required: false
+      APP_STORE_CONNECT_PRIVATE_KEY_BASE64:
+        required: false
+      GODOT_ANALYTICS_CONFIG_JSON_BASE64:
+        required: false
 
 permissions:
   contents: read
@@ -138,19 +157,44 @@ jobs:
           RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
+          component_is_greater() {
+            local left="$1"
+            local right="$2"
+            local LC_ALL=C
+            if (( ${#left} != ${#right} )); then
+              (( ${#left} > ${#right} ))
+            else
+              [[ "$left" > "$right" ]]
+            fi
+          }
+          version_is_greater() {
+            local major="$1"
+            local minor="$2"
+            local patch="$3"
+            local best_major="$4"
+            local best_minor="$5"
+            local best_patch="$6"
+            if [ "$major" != "$best_major" ]; then
+              component_is_greater "$major" "$best_major"
+            elif [ "$minor" != "$best_minor" ]; then
+              component_is_greater "$minor" "$best_minor"
+            else
+              component_is_greater "$patch" "$best_patch"
+            fi
+          }
           tag="$RELEASE_TAG_INPUT"
           if [ -z "$tag" ]; then
-            best_major=-1
-            best_minor=-1
-            best_patch=-1
+            best_major=""
+            best_minor=""
+            best_patch=""
             while IFS= read -r candidate; do
               if [[ "$candidate" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
                 major="${BASH_REMATCH[1]}"
                 minor="${BASH_REMATCH[2]}"
                 patch="${BASH_REMATCH[3]}"
-                if (( major > best_major \
-                  || (major == best_major && minor > best_minor) \
-                  || (major == best_major && minor == best_minor && patch > best_patch) )); then
+                if [ -z "$best_major" ] || version_is_greater \
+                  "$major" "$minor" "$patch" \
+                  "$best_major" "$best_minor" "$best_patch"; then
                   tag="$candidate"
                   best_major="$major"
                   best_minor="$minor"
