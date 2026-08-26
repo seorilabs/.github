@@ -16,6 +16,8 @@ test("Google Play 트랙 승격은 RPI ARC에서 재빌드 없이 실행한다",
   assert.match(workflow, /environment: google-play/);
   assert.match(workflow, /google-github-actions\/auth@v3/);
   assert.ok(installStep, "Google Play API client 설치 step이 필요합니다.");
+  assert.match(installStep, /python3 -m ensurepip --version/);
+  assert.doesNotMatch(installStep, /python3 -m venv --help/);
   assert.match(installStep, /python3 -m venv/);
   assert.match(installStep, /sudo apt-get install --yes python3-venv/);
   assert.match(installStep, /GITHUB_PATH/);
