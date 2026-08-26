@@ -128,32 +128,51 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Resolve release tag
+      - name: Resolve exact release tag
         id: tag
         shell: bash
+        env:
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          tag="${{ inputs.release_tag }}"
+          tag="$RELEASE_TAG_INPUT"
           if [ -z "$tag" ]; then
-            tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+            best_major=-1
+            best_minor=-1
+            best_patch=-1
+            while IFS= read -r candidate; do
+              if [[ "$candidate" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+                major="${BASH_REMATCH[1]}"
+                minor="${BASH_REMATCH[2]}"
+                patch="${BASH_REMATCH[3]}"
+                if (( major > best_major \
+                  || (major == best_major && minor > best_minor) \
+                  || (major == best_major && minor == best_minor && patch > best_patch) )); then
+                  tag="$candidate"
+                  best_major="$major"
+                  best_minor="$minor"
+                  best_patch="$patch"
+                fi
+              fi
+            done < <(git tag --list)
             [ -n "$tag" ] || { echo "release_tag 비어있고 vX.Y.Z 태그 없음." >&2; exit 1; }
           fi
-          git -c advice.detachedHead=false checkout "$tag"
+          [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo "release_tag는 exact stable SemVer vMAJOR.MINOR.PATCH여야 함: $tag" >&2
+            exit 1
+          }
+          git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null
+          git -c advice.detachedHead=false checkout "refs/tags/$tag"
+          tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          head_commit="$(git rev-parse 'HEAD^{commit}')"
+          [ "$tag_commit" = "$head_commit" ] || {
+            echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
+            exit 1
+          }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
-      - name: Check release ref
-        shell: bash
-        env:
-          REF: ${{ steps.tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          if [ "$SHOULD_UPLOAD" = "true" ] && ! [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "App Store 업로드는 vX.Y.Z 태그 필요. 받음: ${REF:-empty}" >&2; exit 1
-          fi
 
       - name: Verify Xcode SDK
         shell: bash
