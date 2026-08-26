@@ -59,7 +59,7 @@ test('동명 branch가 있어도 refs/tags의 commit을 checkout한다', () => {
   const root = createRepository();
   try {
     const tagCommit = git(root, 'rev-parse', 'HEAD');
-    git(root, 'tag', 'v1.2.3');
+    git(root, 'tag', '-a', 'v1.2.3', '-m', 'annotated stable');
     writeFileSync(join(root, 'source.txt'), 'branch source\n');
     git(root, 'add', 'source.txt');
     git(root, 'commit', '-q', '-m', 'branch source');
@@ -77,12 +77,19 @@ test('동명 branch가 있어도 refs/tags의 commit을 checkout한다', () => {
 test('빈 입력은 malformed와 prerelease를 제외한 최신 stable tag를 고른다', () => {
   const root = createRepository();
   try {
-    for (const tag of ['v1.2.9', 'v1.2.10', 'v9.0.0-rc.1', 'v10x.0y.0z', 'v01.2.3']) {
+    for (const tag of [
+      'v1.2.9',
+      'v1.2.10',
+      'v9223372036854775808.0.0',
+      'v9.0.0-rc.1',
+      'v10x.0y.0z',
+      'v01.2.3',
+    ]) {
       git(root, 'tag', tag);
     }
     const result = runResolve(root, '');
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.output, /^tag=v1\.2\.10$/mu);
+    assert.match(result.output, /^tag=v9223372036854775808\.0\.0$/mu);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
