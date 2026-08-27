@@ -11,6 +11,8 @@ const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const CONTRACT_ENTRYPOINTS = [
   "README.md",
   ".github/workflows/README.md",
+  "docs/fleet-control-plane.md",
+  "docs/migration/fleet-baseline-2026-08-27.md",
   "docs/migration/org-contract-v1-rollout.md",
   "docs/migration/p5-cleanup-inventory.md",
 ];
@@ -20,6 +22,7 @@ const JSON_SCHEMAS = [
   "contracts/markets/app-store.schema.json",
   "contracts/markets/apps-in-toss.schema.json",
   "contracts/markets/google-play.schema.json",
+  "contracts/workflow-bundle.schema.json",
 ];
 const YAML_CONTRACTS = [
   "contracts/agent-policy.yaml",

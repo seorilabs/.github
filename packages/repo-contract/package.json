@@ -1,13 +1,15 @@
 {
   "name": "@seorilabs/repo-contract",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Seorilabs 앱 저장소 계약 검증기",
   "type": "module",
   "bin": {
-    "repo-contract": "./src/cli.mjs"
+    "repo-contract": "./src/cli.mjs",
+    "fleet-contract": "./src/fleet-cli.mjs"
   },
   "exports": {
-    ".": "./src/index.mjs"
+    ".": "./src/index.mjs",
+    "./fleet": "./src/fleet.mjs"
   },
   "files": [
     "src",

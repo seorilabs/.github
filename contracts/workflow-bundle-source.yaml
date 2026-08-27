@@ -1,0 +1,49 @@
+schemaVersion: 1
+bundleVersion: 3.0.0
+repository: seorilabs/.github
+
+quality:
+  canonicalScripts:
+    - test:core
+    - check:architecture
+    - check:release
+  secretScan: central-high-confidence-v1
+  provenance: source-and-workflow-sha-v1
+
+reusableWorkflows:
+  react-native:
+    path: .github/workflows/rn-static-checks-v2.yml
+    requiredCheck: Org Contract / Org Contract
+  godot:
+    path: .github/workflows/godot-checks-v2.yml
+    requiredCheck: Org Contract / Org Contract
+
+actions:
+  checkout:
+    ref: v7
+    sha: 3d3c42e5aac5ba805825da76410c181273ba90b1
+  setup-node:
+    ref: v7
+    sha: 820762786026740c76f36085b0efc47a31fe5020
+  upload-artifact:
+    ref: v7
+    sha: 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+
+runners:
+  privateGeneral: seorilabs-rpi-arm64
+  publicPullRequest: ubuntu-latest
+
+toolchains:
+  node: 24.16.0
+  pnpm: 11.3.0
+  godot:
+    version: 4.7.2
+    status: stable
+    linuxArm64Sha256: 5dd0d86405cf7e8adf79fb6377b38ba682a2846cb378ffe5364f38c01ad29b9d
+    linuxX64Sha256: cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4
+
+approval:
+  state: CANDIDATE
+  requiredCanaries:
+    - react-native
+    - godot

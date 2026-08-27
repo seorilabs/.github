@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v1/workflow-bundle.schema.json",
+  "title": "Seorilabs immutable WorkflowBundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "bundleVersion",
+    "source",
+    "quality",
+    "reusableWorkflows",
+    "actions",
+    "runners",
+    "toolchains",
+    "platform",
+    "approval",
+    "integrity"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "bundleVersion": { "$ref": "#/$defs/exactSemver" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "sha"],
+      "properties": {
+        "repository": { "const": "seorilabs/.github" },
+        "sha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalScripts", "secretScan", "provenance", "contractDigests", "runtimeAssetDigests"],
+      "properties": {
+        "canonicalScripts": {
+          "const": [
+            "test:core",
+            "check:architecture",
+            "check:release"
+          ]
+        },
+        "secretScan": { "const": "central-high-confidence-v1" },
+        "provenance": { "const": "source-and-workflow-sha-v1" },
+        "contractDigests": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/sha256" },
+          "minProperties": 4
+        },
+        "runtimeAssetDigests": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/sha256" },
+          "minProperties": 5
+        }
+      }
+    },
+    "reusableWorkflows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["react-native", "godot"],
+      "properties": {
+        "react-native": { "$ref": "#/$defs/workflow" },
+        "godot": { "$ref": "#/$defs/workflow" }
+      }
+    },
+    "actions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/action" }
+    },
+    "runners": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["privateGeneral", "publicPullRequest"],
+      "properties": {
+        "privateGeneral": { "const": "seorilabs-rpi-arm64" },
+        "publicPullRequest": { "const": "ubuntu-latest" }
+      }
+    },
+    "toolchains": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "pnpm", "godot"],
+      "properties": {
+        "node": { "$ref": "#/$defs/exactSemver" },
+        "pnpm": { "$ref": "#/$defs/exactSemver" },
+        "godot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "status", "linuxArm64Sha256", "linuxX64Sha256"],
+          "properties": {
+            "version": { "$ref": "#/$defs/exactSemver" },
+            "status": { "const": "stable" },
+            "linuxArm64Sha256": { "$ref": "#/$defs/sha256Bare" },
+            "linuxX64Sha256": { "$ref": "#/$defs/sha256Bare" }
+          }
+        }
+      }
+    },
+    "platform": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state"],
+          "properties": { "state": { "const": "UNRESOLVED" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "sourceSha", "contractRevision", "typescript", "gdscript"],
+          "properties": {
+            "state": { "const": "RESOLVED" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "contractRevision": { "$ref": "#/$defs/sha256" },
+            "typescript": { "$ref": "#/$defs/sdkArtifact" },
+            "gdscript": { "$ref": "#/$defs/sdkArtifact" }
+          }
+        }
+      ]
+    },
+    "approval": {
+      "oneOf": [
+        { "$ref": "#/$defs/unsignedApproval" },
+        { "$ref": "#/$defs/signedApproval" }
+      ]
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "payloadDigest"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "payloadDigest": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  },
+  "$defs": {
+    "exactSemver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256Bare": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "requiredCheck", "sha"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^\\.github/workflows/[a-z0-9-]+\\.yml$" },
+        "requiredCheck": { "const": "Org Contract / Org Contract" },
+        "sha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "sha"],
+      "properties": {
+        "ref": { "type": "string", "pattern": "^v[1-9][0-9]*$" },
+        "sha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "unsignedApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "requiredCanaries", "evidence"],
+      "properties": {
+        "state": { "enum": ["CANDIDATE", "RETIRED"] },
+        "requiredCanaries": {
+          "type": "array",
+          "const": ["react-native", "godot"]
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/canaryEvidence" },
+          "maxItems": 2
+        }
+      }
+    },
+    "signedApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "requiredCanaries", "evidence", "registry", "signature"],
+      "properties": {
+        "state": { "const": "APPROVED" },
+        "requiredCanaries": {
+          "type": "array",
+          "const": ["react-native", "godot"]
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/canaryEvidence" },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "subject"],
+          "properties": {
+            "id": { "const": "seorilabs-workflow-bundles-v1" },
+            "subject": {
+              "type": "string",
+              "pattern": "^workflow-bundle/[0-9A-Za-z.+-]+/[0-9a-f]{40}$"
+            }
+          }
+        },
+        "signature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["algorithm", "keyId", "value"],
+          "properties": {
+            "algorithm": { "const": "Ed25519" },
+            "keyId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            },
+            "value": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{86}$"
+            }
+          }
+        }
+      }
+    },
+    "sdkArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "digest"],
+      "properties": {
+        "version": { "$ref": "#/$defs/exactSemver" },
+        "digest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "canaryEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "repositoryId", "sourceSha", "runId", "artifactSha256"],
+      "properties": {
+        "profile": { "enum": ["react-native", "godot"] },
+        "repositoryId": { "type": "integer", "minimum": 1 },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "runId": { "type": "integer", "minimum": 1 },
+        "artifactSha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}
