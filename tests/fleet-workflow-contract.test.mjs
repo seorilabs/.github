@@ -18,6 +18,26 @@ test("v2 정적 workflow는 고정 품질 명령과 stable required check를 사
     assert.match(workflow, /check:release/u);
     assert.doesNotMatch(workflow, /check_command:|install_command:|runs_on:/u);
     assert.doesNotMatch(workflow, /secrets:\s*inherit/u);
+    assert.match(workflow, /npm\) npm run test:core/u);
+    assert.match(workflow, /pnpm\) pnpm test:core/u);
+    assert.match(workflow, /npm\) npm audit --audit-level=high/u);
+    assert.match(workflow, /pnpm\) pnpm audit --audit-level high/u);
+    assert.match(workflow, /npm\) npm ci --ignore-scripts/u);
+    assert.match(workflow, /pnpm\) pnpm install --frozen-lockfile --ignore-scripts/u);
+    assert.match(workflow, /Rebuild dependencies without registry credential/u);
+    const rebuild = parse(workflow).jobs["org-contract"].steps.find(
+      (step) => step.name === "Rebuild dependencies without registry credential",
+    );
+    assert.deepEqual(rebuild.env, { PACKAGE_MANAGER: "${{ inputs.package_manager }}" });
+  }
+});
+
+test("재사용 workflow는 caller가 아니라 현재 중앙 job의 source SHA를 checkout한다", () => {
+  for (const workflow of workflows) {
+    assert.match(workflow, /JOB_CONTEXT_JSON: \$\{\{ toJSON\(job\) \}\}/u);
+    assert.match(workflow, /repository: \$\{\{ steps\.bundle-identity\.outputs\.repository \}\}/u);
+    assert.match(workflow, /ref: \$\{\{ steps\.bundle-identity\.outputs\.sha \}\}/u);
+    assert.doesNotMatch(workflow, /github\.workflow_sha/u);
   }
 });
 

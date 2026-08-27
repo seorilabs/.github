@@ -1,4 +1,9 @@
-import { createHash } from "node:crypto";
+import {
+  createHash,
+  createPublicKey,
+  sign as signEd25519,
+  verify as verifyEd25519,
+} from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,6 +37,21 @@ const CONTRACT_FILES = Object.freeze([
   "profiles/godot.yaml",
   "profiles/react-native.yaml",
 ]);
+const RUNTIME_ASSET_FILES = Object.freeze([
+  ".github/workflows/godot-checks-v2.yml",
+  ".github/workflows/rn-static-checks-v2.yml",
+  "scripts/fleet/secret-scan.mjs",
+  "scripts/fleet/static-preflight.mjs",
+  "scripts/fleet/write-provenance.mjs",
+]);
+const ACTION_REPOSITORY_BY_KEY = Object.freeze({
+  checkout: "actions/checkout",
+  "setup-node": "actions/setup-node",
+  "upload-artifact": "actions/upload-artifact",
+});
+const APPROVAL_REGISTRY_ID = "seorilabs-workflow-bundles-v1";
+const APPROVAL_KEY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+const TRUSTED_BUNDLE_BINDINGS = new WeakSet();
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const SAFE_RELATIVE_DIRECTORY = /^(?:\.|[A-Za-z0-9._@-]+(?:\/[A-Za-z0-9._@-]+)*)$/u;
@@ -99,6 +119,121 @@ async function contractDigests(repoRoot) {
   );
 }
 
+async function runtimeAssetDigests(repoRoot) {
+  return Object.fromEntries(
+    await Promise.all(
+      RUNTIME_ASSET_FILES.map(async (relativePath) => [
+        relativePath,
+        sha256(await readFile(resolve(repoRoot, relativePath))),
+      ]),
+    ),
+  );
+}
+
+function regexEscape(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+async function runtimeDeclarationsMatch(bundle, repoRoot) {
+  const workflowTextByProfile = Object.fromEntries(
+    await Promise.all(
+      Object.keys(WORKFLOW_BY_PROFILE).map(async (profile) => [
+        profile,
+        await readFile(resolve(repoRoot, WORKFLOW_BY_PROFILE[profile]), "utf8"),
+      ]),
+    ),
+  );
+  const combined = Object.values(workflowTextByProfile).join("\n");
+  const declaredActions = new Map();
+  for (const [key, action] of Object.entries(bundle?.actions ?? {})) {
+    const repository = ACTION_REPOSITORY_BY_KEY[key];
+    if (!repository || !SHA_PATTERN.test(action?.sha ?? "")) return false;
+    declaredActions.set(repository, action.sha);
+  }
+  if (declaredActions.size !== Object.keys(ACTION_REPOSITORY_BY_KEY).length) {
+    return false;
+  }
+  const observedActions = [
+    ...combined.matchAll(/uses:\s+([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)@([0-9a-f]{40})/gu),
+  ];
+  if (observedActions.length === 0) return false;
+  const seen = new Set();
+  for (const [, repository, sha] of observedActions) {
+    if (declaredActions.get(repository) !== sha) return false;
+    seen.add(repository);
+  }
+  if ([...declaredActions.keys()].some((repository) => !seen.has(repository))) {
+    return false;
+  }
+
+  const nodeVersion = regexEscape(bundle?.toolchains?.node ?? "");
+  const pnpmVersion = regexEscape(bundle?.toolchains?.pnpm ?? "");
+  if (
+    !new RegExp(`node-version: ["']?${nodeVersion}["']?`, "u").test(combined) ||
+    !new RegExp(`corepack prepare pnpm@${pnpmVersion} --activate`, "u").test(combined)
+  ) {
+    return false;
+  }
+  for (const script of bundle?.quality?.canonicalScripts ?? []) {
+    if (!combined.includes(script)) return false;
+  }
+  if (
+    !combined.includes(bundle?.runners?.privateGeneral ?? "") ||
+    !combined.includes(bundle?.runners?.publicPullRequest ?? "")
+  ) {
+    return false;
+  }
+
+  const godot = workflowTextByProfile.godot;
+  const godotToolchain = bundle?.toolchains?.godot;
+  return (
+    godot.includes(`Godot_v${godotToolchain?.version}-stable_linux.arm64.zip`) &&
+    godot.includes(`Godot_v${godotToolchain?.version}-stable_linux.x86_64.zip`) &&
+    godot.includes(godotToolchain?.linuxArm64Sha256 ?? "missing") &&
+    godot.includes(godotToolchain?.linuxX64Sha256 ?? "missing")
+  );
+}
+
+function approvalSigningPayload(bundle) {
+  const payload = bundlePayload(bundle);
+  const { signature: _signature, ...approval } = payload.approval ?? {};
+  return {
+    ...payload,
+    approval,
+  };
+}
+
+function approvalRegistrySubject(bundle) {
+  return `workflow-bundle/${bundle.bundleVersion}/${bundle.source.sha}`;
+}
+
+function trustedApprovalKey(trustedApprovalKeys, keyId) {
+  if (trustedApprovalKeys instanceof Map) {
+    return trustedApprovalKeys.get(keyId);
+  }
+  if (
+    trustedApprovalKeys !== null &&
+    typeof trustedApprovalKeys === "object" &&
+    Object.hasOwn(trustedApprovalKeys, keyId)
+  ) {
+    return trustedApprovalKeys[keyId];
+  }
+  return undefined;
+}
+
+function registryRecordMatches(record, bundle) {
+  return (
+    record !== null &&
+    typeof record === "object" &&
+    record.registryId === bundle.approval.registry.id &&
+    record.subject === bundle.approval.registry.subject &&
+    record.bundleDigest === bundle.integrity.payloadDigest &&
+    record.sourceSha === bundle.source.sha &&
+    record.bundleVersion === bundle.bundleVersion &&
+    record.state === "APPROVED"
+  );
+}
+
 function normalizePlatformRelease(platformRelease) {
   if (platformRelease === undefined || platformRelease === null) {
     return { state: "UNRESOLVED" };
@@ -159,12 +294,6 @@ export async function createWorkflowBundle({
       { ...workflow, sha: sourceSha },
     ]),
   );
-  const buildWorkflows = Object.fromEntries(
-    Object.entries(source.buildWorkflows).map(([target, workflow]) => [
-      target,
-      { ...workflow, sha: sourceSha },
-    ]),
-  );
 
   const candidate = withIntegrity({
     schemaVersion: source.schemaVersion,
@@ -176,13 +305,12 @@ export async function createWorkflowBundle({
     quality: {
       ...source.quality,
       contractDigests: await contractDigests(repoRoot),
+      runtimeAssetDigests: await runtimeAssetDigests(repoRoot),
     },
     reusableWorkflows: workflows,
-    buildWorkflows,
     actions: source.actions,
     runners: source.runners,
     toolchains: source.toolchains,
-    builders: source.builders,
     platform: normalizePlatformRelease(platformRelease),
     approval: {
       ...source.approval,
@@ -199,7 +327,11 @@ export async function createWorkflowBundle({
 
 export async function validateWorkflowBundle(
   bundle,
-  { repoRoot = WORKSPACE_ROOT } = {},
+  {
+    repoRoot = WORKSPACE_ROOT,
+    trustedApprovalKeys,
+    trustedRegistryReadback,
+  } = {},
 ) {
   const diagnostics = [];
   let schema;
@@ -239,10 +371,39 @@ export async function validateWorkflowBundle(
 
   const workflowShas = [
     ...Object.values(bundle?.reusableWorkflows ?? {}),
-    ...Object.values(bundle?.buildWorkflows ?? {}),
   ].map((workflow) => workflow.sha);
   if (workflowShas.some((sha) => sha !== bundle?.source?.sha)) {
     diagnostics.push("WORKFLOW_SOURCE_SHA_MISMATCH");
+  }
+
+  try {
+    const expectedContractDigests = await contractDigests(repoRoot);
+    if (
+      canonicalJson(bundle?.quality?.contractDigests ?? {}) !==
+      canonicalJson(expectedContractDigests)
+    ) {
+      diagnostics.push("CONTRACT_DIGEST_MISMATCH");
+    }
+  } catch {
+    diagnostics.push("CONTRACT_ASSET_UNREADABLE");
+  }
+  try {
+    const expectedRuntimeAssetDigests = await runtimeAssetDigests(repoRoot);
+    if (
+      canonicalJson(bundle?.quality?.runtimeAssetDigests ?? {}) !==
+      canonicalJson(expectedRuntimeAssetDigests)
+    ) {
+      diagnostics.push("RUNTIME_ASSET_DIGEST_MISMATCH");
+    }
+  } catch {
+    diagnostics.push("RUNTIME_ASSET_UNREADABLE");
+  }
+  try {
+    if (!(await runtimeDeclarationsMatch(bundle, repoRoot))) {
+      diagnostics.push("RUNTIME_DECLARATION_MISMATCH");
+    }
+  } catch {
+    diagnostics.push("RUNTIME_DECLARATION_UNREADABLE");
   }
 
   if (bundle?.approval?.state === "APPROVED") {
@@ -259,6 +420,52 @@ export async function validateWorkflowBundle(
     ) {
       diagnostics.push("APPROVED_CANARY_EVIDENCE_INCOMPLETE");
     }
+    if (bundle.approval.registry?.subject !== approvalRegistrySubject(bundle)) {
+      diagnostics.push("APPROVAL_REGISTRY_SUBJECT_MISMATCH");
+    }
+
+    const signature = bundle.approval.signature;
+    const trustedKey = trustedApprovalKey(
+      trustedApprovalKeys,
+      signature?.keyId,
+    );
+    let signatureVerified = false;
+    if (!trustedKey) {
+      diagnostics.push("APPROVAL_TRUSTED_KEY_REQUIRED");
+    } else {
+      try {
+        signatureVerified = verifyEd25519(
+          null,
+          Buffer.from(canonicalJson(approvalSigningPayload(bundle))),
+          trustedKey,
+          Buffer.from(signature.value, "base64url"),
+        );
+      } catch {
+        signatureVerified = false;
+      }
+      if (!signatureVerified) {
+        diagnostics.push("APPROVAL_SIGNATURE_INVALID");
+      }
+    }
+
+    if (typeof trustedRegistryReadback !== "function") {
+      diagnostics.push("APPROVAL_REGISTRY_READBACK_REQUIRED");
+    } else if (signatureVerified) {
+      try {
+        const record = await trustedRegistryReadback({
+          registryId: bundle.approval.registry.id,
+          subject: bundle.approval.registry.subject,
+          bundleDigest: bundle.integrity.payloadDigest,
+          sourceSha: bundle.source.sha,
+          bundleVersion: bundle.bundleVersion,
+        });
+        if (!registryRecordMatches(record, bundle)) {
+          diagnostics.push("APPROVAL_REGISTRY_READBACK_MISMATCH");
+        }
+      } catch {
+        diagnostics.push("APPROVAL_REGISTRY_READBACK_FAILED");
+      }
+    }
   }
 
   return {
@@ -270,7 +477,12 @@ export async function validateWorkflowBundle(
 export async function promoteWorkflowBundle(
   bundle,
   evidence,
-  { repoRoot = WORKSPACE_ROOT, evidenceVerifier } = {},
+  {
+    repoRoot = WORKSPACE_ROOT,
+    evidenceVerifier,
+    approvalSigner,
+    registryPublisher,
+  } = {},
 ) {
   const profiles = evidence.map(({ profile }) => profile).sort();
   if (
@@ -282,6 +494,12 @@ export async function promoteWorkflowBundle(
   ) {
     throw new Error("WORKFLOW_BUNDLE_NOT_PROMOTABLE");
   }
+  const candidateValidation = await validateWorkflowBundle(bundle, { repoRoot });
+  if (!candidateValidation.ok) {
+    throw new Error(
+      `WORKFLOW_BUNDLE_INVALID:${candidateValidation.diagnostics.join(",")}`,
+    );
+  }
   if (typeof evidenceVerifier !== "function") {
     throw new Error("CANARY_EVIDENCE_VERIFIER_REQUIRED");
   }
@@ -292,21 +510,116 @@ export async function promoteWorkflowBundle(
     throw new Error("CANARY_EVIDENCE_READBACK_FAILED");
   }
 
-  const promoted = withIntegrity({
+  if (
+    !APPROVAL_KEY_ID_PATTERN.test(approvalSigner?.keyId ?? "") ||
+    !approvalSigner?.privateKey
+  ) {
+    throw new Error("APPROVAL_SIGNER_REQUIRED");
+  }
+  if (typeof registryPublisher !== "function") {
+    throw new Error("APPROVAL_REGISTRY_PUBLISHER_REQUIRED");
+  }
+
+  const unsignedApproval = {
+    ...bundle.approval,
+    state: "APPROVED",
+    evidence: evidence.toSorted((left, right) =>
+      left.profile.localeCompare(right.profile),
+    ),
+    registry: {
+      id: APPROVAL_REGISTRY_ID,
+      subject: approvalRegistrySubject(bundle),
+    },
+  };
+  const unsignedPromoted = {
     ...bundlePayload(bundle),
+    approval: unsignedApproval,
+  };
+  const signatureValue = signEd25519(
+    null,
+    Buffer.from(canonicalJson(unsignedPromoted)),
+    approvalSigner.privateKey,
+  ).toString("base64url");
+  const promoted = withIntegrity({
+    ...unsignedPromoted,
     approval: {
-      ...bundle.approval,
-      state: "APPROVED",
-      evidence: evidence.toSorted((left, right) =>
-        left.profile.localeCompare(right.profile),
-      ),
+      ...unsignedApproval,
+      signature: {
+        algorithm: "Ed25519",
+        keyId: approvalSigner.keyId,
+        value: signatureValue,
+      },
     },
   });
-  const result = await validateWorkflowBundle(promoted, { repoRoot });
+  const registryRecord = {
+    registryId: promoted.approval.registry.id,
+    subject: promoted.approval.registry.subject,
+    bundleDigest: promoted.integrity.payloadDigest,
+    sourceSha: promoted.source.sha,
+    bundleVersion: promoted.bundleVersion,
+    state: "APPROVED",
+  };
+  const publishedRecord = await registryPublisher(registryRecord, promoted);
+  if (!registryRecordMatches(publishedRecord, promoted)) {
+    throw new Error("APPROVAL_REGISTRY_PUBLISH_FAILED");
+  }
+  const result = await validateWorkflowBundle(promoted, {
+    repoRoot,
+    trustedApprovalKeys: new Map([
+      [approvalSigner.keyId, createPublicKey(approvalSigner.privateKey)],
+    ]),
+    trustedRegistryReadback: async () => publishedRecord,
+  });
   if (!result.ok) {
     throw new Error(`WORKFLOW_BUNDLE_INVALID:${result.diagnostics.join(",")}`);
   }
   return promoted;
+}
+
+export async function loadApprovedWorkflowBundle(
+  bundle,
+  {
+    repoRoot = WORKSPACE_ROOT,
+    trustedApprovalKeys,
+    trustedRegistryReadback,
+  } = {},
+) {
+  if (bundle?.approval?.state !== "APPROVED") {
+    throw new Error("APPROVED_BUNDLE_REQUIRED");
+  }
+  const validation = await validateWorkflowBundle(bundle, {
+    repoRoot,
+    trustedApprovalKeys,
+    trustedRegistryReadback,
+  });
+  if (!validation.ok) {
+    throw new Error(
+      `APPROVED_BUNDLE_UNTRUSTED:${validation.diagnostics.join(",")}`,
+    );
+  }
+  const workflowByProfile = Object.freeze(
+    Object.fromEntries(
+      Object.entries(bundle.reusableWorkflows).map(([profile, workflow]) => [
+        profile,
+        Object.freeze({ path: workflow.path, sha: workflow.sha }),
+      ]),
+    ),
+  );
+  const binding = Object.freeze({
+    bundleDigest: bundle.integrity.payloadDigest,
+    sourceSha: bundle.source.sha,
+    workflowByProfile,
+  });
+  TRUSTED_BUNDLE_BINDINGS.add(binding);
+  return binding;
+}
+
+function isTrustedBundleBinding(binding) {
+  return (
+    binding !== null &&
+    typeof binding === "object" &&
+    TRUSTED_BUNDLE_BINDINGS.has(binding)
+  );
 }
 
 function parseCaller(text) {
@@ -339,13 +652,20 @@ function containsSecretInheritance(value) {
   return false;
 }
 
-export function validateOrgContractCaller(text) {
+export function validateOrgContractCaller(
+  text,
+  { approvedBundleBinding } = {},
+) {
   const parsed = parseCaller(text);
   if (parsed.diagnostic) {
     return { ok: false, diagnostics: [parsed.diagnostic] };
   }
   const caller = parsed.value;
   const diagnostics = [];
+  const trustedBinding = isTrustedBundleBinding(approvedBundleBinding);
+  if (!trustedBinding) {
+    diagnostics.push("APPROVED_BUNDLE_BINDING_REQUIRED");
+  }
 
   const allowedTopLevel = new Set([
     "name",
@@ -373,11 +693,12 @@ export function validateOrgContractCaller(text) {
     diagnostics.push("CALLER_EVENTS_INVALID");
   }
   if (
-    caller?.on?.pull_request === null ||
-    typeof caller?.on?.pull_request !== "object" ||
-    caller?.on?.workflow_dispatch === null ||
-    typeof caller?.on?.workflow_dispatch !== "object" ||
-    JSON.stringify(caller?.on?.push?.branches) !== JSON.stringify(["main"])
+    canonicalJson(caller?.on ?? {}) !==
+    canonicalJson({
+      pull_request: {},
+      push: { branches: ["main"] },
+      workflow_dispatch: {},
+    })
   ) {
     diagnostics.push("CALLER_TRIGGER_POLICY_INVALID");
   }
@@ -397,9 +718,8 @@ export function validateOrgContractCaller(text) {
 
   if (
     caller?.concurrency?.["cancel-in-progress"] !== true ||
-    typeof caller?.concurrency?.group !== "string" ||
-    !caller.concurrency.group.includes("github.repository_id") ||
-    !caller.concurrency.group.includes("github.ref")
+    caller?.concurrency?.group !==
+      "org-contract-${{ github.repository_id }}-${{ github.ref }}"
   ) {
     diagnostics.push("CALLER_CONCURRENCY_INVALID");
   }
@@ -426,7 +746,7 @@ export function validateOrgContractCaller(text) {
   }
 
   const usesPattern =
-    /^seorilabs\/\.github\/\.github\/workflows\/(rn-static-checks-v2|godot-checks-v2)\.yml@([0-9a-f]{40})$/u;
+    /^seorilabs\/\.github\/(\.github\/workflows\/[a-z0-9-]+\.yml)@([0-9a-f]{40})$/u;
   const usesMatch = usesPattern.exec(job?.uses ?? "");
   if (!usesMatch) {
     diagnostics.push("REUSABLE_WORKFLOW_FULL_SHA_REQUIRED");
@@ -446,29 +766,46 @@ export function validateOrgContractCaller(text) {
     diagnostics.push("PACKAGE_MANAGER_INVALID");
   }
 
-  const profile = usesMatch
-    ? PROFILE_BY_WORKFLOW[`.github/workflows/${usesMatch[1]}.yml`]
-    : undefined;
+  const profile = usesMatch ? PROFILE_BY_WORKFLOW[usesMatch[1]] : undefined;
+  const approvedWorkflow =
+    trustedBinding && profile
+      ? approvedBundleBinding.workflowByProfile[profile]
+      : undefined;
+  if (
+    usesMatch &&
+    (!approvedWorkflow ||
+      usesMatch[1] !== approvedWorkflow.path ||
+      usesMatch[2] !== approvedWorkflow.sha)
+  ) {
+    diagnostics.push("CALLER_APPROVED_WORKFLOW_MISMATCH");
+  }
   return {
     ok: diagnostics.length === 0,
     diagnostics: [...new Set(diagnostics)].sort(),
     profile,
-    workflowSha: usesMatch?.[2],
+    workflowSha: approvedWorkflow?.sha,
   };
 }
 
 export function generateOrgContractCaller({
   profile,
-  workflowSha,
+  approvedBundleBinding,
   workingDirectory = ".",
   packageManager = "pnpm",
 } = {}) {
-  const workflow = WORKFLOW_BY_PROFILE[profile];
-  if (!workflow) {
+  if (!WORKFLOW_BY_PROFILE[profile]) {
     throw new Error("PROFILE_NEEDS_INPUT");
   }
-  if (!SHA_PATTERN.test(workflowSha ?? "")) {
-    throw new Error("WORKFLOW_SHA_INVALID");
+  if (!isTrustedBundleBinding(approvedBundleBinding)) {
+    throw new Error("APPROVED_BUNDLE_BINDING_REQUIRED");
+  }
+  const approvedWorkflow = approvedBundleBinding.workflowByProfile[profile];
+  if (
+    !approvedWorkflow ||
+    approvedWorkflow.path !== WORKFLOW_BY_PROFILE[profile] ||
+    !SHA_PATTERN.test(approvedWorkflow.sha)
+  ) {
+    throw new Error("APPROVED_WORKFLOW_MISSING");
   }
   if (!SAFE_RELATIVE_DIRECTORY.test(workingDirectory)) {
     throw new Error("WORKING_DIRECTORY_INVALID");
@@ -496,7 +833,7 @@ export function generateOrgContractCaller({
     jobs: {
       "org-contract": {
         name: "Org Contract",
-        uses: `seorilabs/.github/${workflow}@${workflowSha}`,
+        uses: `seorilabs/.github/${approvedWorkflow.path}@${approvedWorkflow.sha}`,
         with: {
           package_manager: packageManager,
           working_directory: workingDirectory,
@@ -509,7 +846,9 @@ export function generateOrgContractCaller({
     stringify(caller, { lineWidth: 0 }).trimEnd(),
     "",
   ].join("\n");
-  const validation = validateOrgContractCaller(rendered);
+  const validation = validateOrgContractCaller(rendered, {
+    approvedBundleBinding,
+  });
   if (!validation.ok) {
     throw new Error(`GENERATED_CALLER_INVALID:${validation.diagnostics.join(",")}`);
   }

@@ -5,8 +5,6 @@ import process from "node:process";
 
 import {
   createWorkflowBundle,
-  generateOrgContractCaller,
-  validateOrgContractCaller,
   validateWorkflowBundle,
 } from "./fleet.mjs";
 
@@ -71,30 +69,6 @@ export async function runFleetCli({
       return 0;
     }
 
-    if (command === "generate-caller") {
-      const caller = generateOrgContractCaller({
-        profile: options.profile,
-        workflowSha: options["workflow-sha"],
-        workingDirectory: options["working-directory"] ?? ".",
-        packageManager: options["package-manager"] ?? "pnpm",
-      });
-      await emit(caller, options.output, stdout);
-      return 0;
-    }
-
-    if (command === "validate-caller") {
-      const result = validateOrgContractCaller(
-        await readFile(options.caller, "utf8"),
-      );
-      if (!result.ok) {
-        for (const diagnostic of result.diagnostics) {
-          stderr.write(`오류 [${diagnostic}] thin caller 검증 실패\n`);
-        }
-        return 1;
-      }
-      stdout.write("thin caller 검증 통과\n");
-      return 0;
-    }
   } catch (error) {
     const code = String(error?.message ?? "FLEET_CONTRACT_FAILED").split(":")[0];
     stderr.write(`오류 [${code}] fleet 계약 작업을 완료할 수 없습니다.\n`);
@@ -102,7 +76,7 @@ export async function runFleetCli({
   }
 
   stderr.write(
-    "사용법: fleet-contract bundle|validate-bundle|generate-caller|validate-caller [옵션]\n",
+    "사용법: fleet-contract bundle|validate-bundle [옵션]\n",
   );
   return 2;
 }

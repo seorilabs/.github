@@ -10,11 +10,9 @@
     "source",
     "quality",
     "reusableWorkflows",
-    "buildWorkflows",
     "actions",
     "runners",
     "toolchains",
-    "builders",
     "platform",
     "approval",
     "integrity"
@@ -34,13 +32,13 @@
     "quality": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["canonicalCommands", "secretScan", "provenance", "contractDigests"],
+      "required": ["canonicalScripts", "secretScan", "provenance", "contractDigests", "runtimeAssetDigests"],
       "properties": {
-        "canonicalCommands": {
+        "canonicalScripts": {
           "const": [
-            "pnpm test:core",
-            "pnpm check:architecture",
-            "pnpm check:release"
+            "test:core",
+            "check:architecture",
+            "check:release"
           ]
         },
         "secretScan": { "const": "central-high-confidence-v1" },
@@ -49,6 +47,11 @@
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/sha256" },
           "minProperties": 4
+        },
+        "runtimeAssetDigests": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/sha256" },
+          "minProperties": 5
         }
       }
     },
@@ -61,23 +64,6 @@
         "godot": { "$ref": "#/$defs/workflow" }
       }
     },
-    "buildWorkflows": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["android"],
-      "properties": {
-        "android": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["path", "executor", "sha"],
-          "properties": {
-            "path": { "const": ".github/workflows/android-build-cloud-v2.yml" },
-            "executor": { "const": "cloud-build-x64" },
-            "sha": { "$ref": "#/$defs/sha" }
-          }
-        }
-      }
-    },
     "actions": {
       "type": "object",
       "minProperties": 1,
@@ -86,23 +72,19 @@
     "runners": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["privateGeneral", "privateArm64Docker", "publicPullRequest", "androidBuild", "appleBuild"],
+      "required": ["privateGeneral", "publicPullRequest"],
       "properties": {
         "privateGeneral": { "const": "seorilabs-rpi-arm64" },
-        "privateArm64Docker": { "const": "seorilabs-rpi-arm64-dind" },
-        "publicPullRequest": { "const": "ubuntu-latest" },
-        "androidBuild": { "const": "cloud-build-x64" },
-        "appleBuild": { "const": "xcode-cloud" }
+        "publicPullRequest": { "const": "ubuntu-latest" }
       }
     },
     "toolchains": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["node", "pnpm", "gcloud", "godot"],
+      "required": ["node", "pnpm", "godot"],
       "properties": {
         "node": { "$ref": "#/$defs/exactSemver" },
         "pnpm": { "$ref": "#/$defs/exactSemver" },
-        "gcloud": { "$ref": "#/$defs/exactSemver" },
         "godot": {
           "type": "object",
           "additionalProperties": false,
@@ -114,15 +96,6 @@
             "linuxX64Sha256": { "$ref": "#/$defs/sha256Bare" }
           }
         }
-      }
-    },
-    "builders": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["reactNativeAndroid", "godotAndroid"],
-      "properties": {
-        "reactNativeAndroid": { "$ref": "#/$defs/builder" },
-        "godotAndroid": { "$ref": "#/$defs/builder" }
       }
     },
     "platform": {
@@ -148,21 +121,10 @@
       ]
     },
     "approval": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["state", "requiredCanaries", "evidence"],
-      "properties": {
-        "state": { "enum": ["CANDIDATE", "APPROVED", "RETIRED"] },
-        "requiredCanaries": {
-          "type": "array",
-          "const": ["react-native", "godot"]
-        },
-        "evidence": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/canaryEvidence" },
-          "maxItems": 2
-        }
-      }
+      "oneOf": [
+        { "$ref": "#/$defs/unsignedApproval" },
+        { "$ref": "#/$defs/signedApproval" }
+      ]
     },
     "integrity": {
       "type": "object",
@@ -201,14 +163,67 @@
         "sha": { "$ref": "#/$defs/sha" }
       }
     },
-    "builder": {
+    "unsignedApproval": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["image", "digest", "architecture"],
+      "required": ["state", "requiredCanaries", "evidence"],
       "properties": {
-        "image": { "type": "string", "pattern": "^[a-z0-9.-]+/[a-z0-9._/-]+$" },
-        "digest": { "$ref": "#/$defs/sha256" },
-        "architecture": { "const": "linux/amd64" }
+        "state": { "enum": ["CANDIDATE", "RETIRED"] },
+        "requiredCanaries": {
+          "type": "array",
+          "const": ["react-native", "godot"]
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/canaryEvidence" },
+          "maxItems": 2
+        }
+      }
+    },
+    "signedApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "requiredCanaries", "evidence", "registry", "signature"],
+      "properties": {
+        "state": { "const": "APPROVED" },
+        "requiredCanaries": {
+          "type": "array",
+          "const": ["react-native", "godot"]
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/canaryEvidence" },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "subject"],
+          "properties": {
+            "id": { "const": "seorilabs-workflow-bundles-v1" },
+            "subject": {
+              "type": "string",
+              "pattern": "^workflow-bundle/[0-9A-Za-z.+-]+/[0-9a-f]{40}$"
+            }
+          }
+        },
+        "signature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["algorithm", "keyId", "value"],
+          "properties": {
+            "algorithm": { "const": "Ed25519" },
+            "keyId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            },
+            "value": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{86}$"
+            }
+          }
+        }
       }
     },
     "sdkArtifact": {

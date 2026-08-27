@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { lstat, realpath } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 
-const MAX_SCANNED_BYTES = 2 * 1024 * 1024;
+const OVERLAP_BYTES = 512;
 const RULES = Object.freeze([
   ["PRIVATE_KEY", /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/u],
   ["GITHUB_TOKEN", /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/u],
@@ -29,6 +30,21 @@ function trackedFiles(repoRoot) {
     .sort();
 }
 
+async function scanFile(path) {
+  const matchedRules = new Set();
+  let tail = "";
+  for await (const chunk of createReadStream(path, { highWaterMark: 64 * 1024 })) {
+    const window = `${tail}${chunk.toString("latin1")}`;
+    for (const [rule, pattern] of RULES) {
+      if (!matchedRules.has(rule) && pattern.test(window)) {
+        matchedRules.add(rule);
+      }
+    }
+    tail = window.slice(-OVERLAP_BYTES);
+  }
+  return matchedRules;
+}
+
 export async function scanTrackedSecrets({ repoRoot } = {}) {
   const canonicalRoot = await realpath(repoRoot);
   const findings = [];
@@ -44,22 +60,11 @@ export async function scanTrackedSecrets({ repoRoot } = {}) {
     }
 
     const metadata = await lstat(absolutePath);
-    if (
-      metadata.isSymbolicLink() ||
-      !metadata.isFile() ||
-      metadata.size > MAX_SCANNED_BYTES
-    ) {
+    if (metadata.isSymbolicLink() || !metadata.isFile()) {
       continue;
     }
-    const buffer = await readFile(absolutePath);
-    if (buffer.includes(0)) {
-      continue;
-    }
-    const content = buffer.toString("utf8");
-    for (const [rule, pattern] of RULES) {
-      if (pattern.test(content)) {
-        findings.push({ file, rule });
-      }
+    for (const rule of await scanFile(absolutePath)) {
+      findings.push({ file, rule });
     }
   }
   return findings;

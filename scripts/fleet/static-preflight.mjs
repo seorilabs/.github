@@ -94,7 +94,9 @@ export async function runStaticPreflight({
     profile,
     packageManager,
     workingDirectory: relativeDirectory || ".",
-    commands: REQUIRED_SCRIPTS.map((script) => `${packageManager} ${script}`),
+    commands: REQUIRED_SCRIPTS.map((script) =>
+      packageManager === "npm" ? `npm run ${script}` : `pnpm ${script}`,
+    ),
   };
 }
 

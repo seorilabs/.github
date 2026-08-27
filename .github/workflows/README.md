@@ -42,9 +42,10 @@
 
 - 신규·이관 caller는 검증된 **40자리 full commit SHA**로 고정한다.
 - `@main`, branch, mutable major tag는 신규 caller에서 사용하지 않는다.
-- 중앙 workflow 변경은 새 SHA의 계약·정적·build-only 검증 후 앱별 PR로 올린다. 이전 SHA는 rollback 근거로 남긴다.
+- 중앙 workflow 변경은 새 SHA의 계약·정적 검증과 선언 마켓별 build-only canary 후 앱별 PR로 올린다. 이전 SHA는 rollback 근거로 남긴다.
 
-신규 Fleet caller는 [`fleet-contract`](../../packages/repo-contract/) generator로만 만든다.
+신규 Fleet caller는 trusted approval key와 registry readback을 가진 GitHub App reconciler가
+[`repo-contract`](../../packages/repo-contract/) library generator로만 만든다.
 v2 workflow는 caller가 runner, install 명령, check 명령을 넘길 수 없고 public repository를
 ARC에서 중앙 차단한다. 기존 명령 주입형 workflow는 consumer shadow parity가 끝날 때까지만
 유지하며 신규 caller에서 사용하지 않는다.
@@ -121,8 +122,8 @@ jobs:
       working_directory: .
 ```
 
-이 파일은 사람이 복사하지 않고 `fleet-contract generate-caller` 또는 GitHub App
-reconciler가 생성한다. stack 후보가 둘 이상이면 생성하지 않고 `needs_input`으로 멈춘다.
+이 파일은 사람이 복사하지 않고 GitHub App reconciler가 검증된 APPROVED bundle에서
+생성한다. stack 후보가 둘 이상이면 생성하지 않고 `needs_input`으로 멈춘다.
 
 ### RN AIT 배포 (`.github/workflows/deploy-apps-in-toss.yml`)
 

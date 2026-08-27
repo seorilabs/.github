@@ -42,8 +42,9 @@ public availability는 독립 gate다. 앞 gate의 성공은 뒤 gate를 증명�
 ## WorkflowBundle v2
 
 [`workflow-bundle-source.yaml`](../contracts/workflow-bundle-source.yaml)은 action full SHA,
-reusable workflow, runner route, toolchain, x64 Android builder digest를 묶는다. 생성기는 중앙
-schema·profile의 digest와 정확한 중앙 source SHA를 더해 immutable candidate를 만든다.
+reusable workflow, runner route와 toolchain을 묶는다. 생성기는 중앙 schema·profile뿐 아니라
+실제 workflow와 실행 script의 digest, 정확한 중앙 source SHA를 더해 immutable candidate를
+만든다.
 
 ```bash
 fleet-contract bundle \
@@ -52,11 +53,11 @@ fleet-contract bundle \
 fleet-contract validate-bundle --bundle workflow-bundle.json
 ```
 
-candidate는 RN과 Godot canary의 고정 source SHA, run ID, build-only artifact checksum이 모두
-없으면 `APPROVED`로 승격할 수 없다. Platform release manifest가 아직 resolve되지 않은
-candidate도 승인할 수 없다. bundle 생성 CI는 artifact를 3일만 보관하며 release나 배포를
-수행하지 않는다. 로컬 CLI에는 승인 명령이 없으며, 승격 함수도 GitHub run·artifact를
-재조회하는 trusted evidence verifier 없이는 fail-closed한다.
+candidate는 RN과 Godot canary의 고정 source SHA, run ID, artifact checksum이 모두 없으면
+`APPROVED`로 승격할 수 없다. Platform release manifest가 아직 resolve되지 않은 candidate도
+승인할 수 없다. 승인 snapshot은 trusted registry readback과 Ed25519 서명이 모두 검증돼야
+소비할 수 있다. bundle 생성 CI는 artifact를 3일만 보관하며 release나 배포를 수행하지
+않는다. 로컬 CLI에는 승인 명령이 없다.
 
 ## Zero-touch caller
 
@@ -64,15 +65,10 @@ GitHub App reconciler는 repository 생성·rename·archive·default push event�
 탐지한다. 정확히 하나의 profile이 확인되면 아래 generator 결과로 bootstrap PR을 만들고,
 여러 후보면 caller를 추측하지 않고 `needs_input`을 기록한다.
 
-```bash
-fleet-contract generate-caller \
-  --profile react-native \
-  --workflow-sha 0123456789abcdef0123456789abcdef01234567 \
-  --working-directory . \
-  --package-manager pnpm \
-  --output org-contract.yml
-fleet-contract validate-caller --caller org-contract.yml
-```
+로컬 CLI는 caller를 생성하거나 승인하지 않는다. trusted approval key와 registry readback을
+가진 GitHub App reconciler만 `loadApprovedWorkflowBundle`로 승인 binding을 만든 뒤
+`generateOrgContractCaller`와 `validateOrgContractCaller`를 호출할 수 있다. 임의의 40자리
+SHA나 candidate bundle은 caller 입력으로 사용할 수 없다.
 
 생성 caller는 다음을 강제한다.
 
@@ -83,15 +79,17 @@ fleet-contract validate-caller --caller org-contract.yml
 - `secrets: inherit`, job-local runner, step, 임의 check/install 명령 금지
 - private repo는 `seorilabs-rpi-arm64`, public repo는 `ubuntu-latest`로 중앙 라우팅
 
-v2 RN과 Godot workflow는 `test:core`, `check:architecture`, `check:release`, tracked source
-credential scan, source/workflow SHA provenance를 직접 실행한다. Godot은 4.7.2 binary를
-architecture별 공식 checksum으로 검증하고 `SCRIPT ERROR`와 `ERROR:` 로그를 실패로 처리한다.
+v2 RN과 Godot workflow는 `test:core`, `check:architecture`, `check:release`, dependency audit,
+tracked source credential scan, caller와 중앙 workflow를 분리한 provenance를 직접 실행한다.
+Godot은 4.7.2 binary를 architecture별 공식 checksum으로 검증하고 `SCRIPT ERROR`와 `ERROR:`
+로그를 실패로 처리한다.
 
-Android build-only workflow는 RPI에서 repository 숫자 ID로 파생한 keyless identity를 사용해
-x64 Cloud Build를 submit한다. source SHA, signed config snapshot digest, release candidate ID와
-builder digest가 일치해야 하며 결과는 명시적으로 unsigned artifact다. 인증 파일과 중앙
-checkout은 source upload에서 강제 제외한다. Signing, Play upload, review, production 권한은
-이 workflow에 없고 별도 Auth Broker capability 및 release gate가 필요하다.
+Android build-only 경로는 이번 candidate에 포함하지 않는다. 현재 pilot 두 저장소의 build
+script는 signing 재료를 요구하며 중앙 unsigned output 계약을 구현하지 않는다. 또한
+Backoffice ReleaseCandidate·ACTIVE snapshot을 공개키로 검증하는 attestation과 AAB signing
+부재 검사가 아직 없다. 이 조건을 해결하고 RN/Godot 실제 canary가 통과하기 전에는 Android
+workflow와 WorkflowBundle 승인을 fail-closed한다. 확인된 builder digest만 기준선 inventory로
+남기며 실행 권한으로 해석하지 않는다.
 
 ## 기존 설정의 이관과 삭제
 
@@ -113,7 +111,8 @@ snapshot으로 재현한다.
 ## 강제 전환 순서
 
 1. candidate bundle과 중앙 모델을 shadow로 배포한다.
-2. RN `happy-farm`, Godot `lizard-tycoon`에서 build-only parity를 확인한다.
+2. 공개키 ReleaseCandidate attestation과 unsigned artifact 검증을 구현한 뒤 RN
+   `happy-farm`, Godot `lizard-tycoon`에서 build-only parity를 확인한다.
 3. ruleset을 Evaluate로 두고 weak caller·stale SDK 탐지 오탐을 제거한다.
 4. repository wave별로 bundle SHA와 Platform SDK를 갱신한다.
 5. 두 번의 parity와 rollback 검증 뒤 ruleset을 Active로 바꾼다.

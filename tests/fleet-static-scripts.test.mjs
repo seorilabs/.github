@@ -59,6 +59,22 @@ test("정적 preflight는 로컬 app manifest 없이 canonical 명령만 검증�
   ]);
 });
 
+test("npm preflight는 npm run 형식의 canonical 명령을 반환한다", async () => {
+  const root = await fixture();
+  await writeFile(join(root, "package-lock.json"), "{}\n");
+  const result = await runStaticPreflight({
+    repoRoot: root,
+    profile: "react-native",
+    packageManager: "npm",
+  });
+
+  assert.deepEqual(result.commands, [
+    "npm run test:core",
+    "npm run check:architecture",
+    "npm run check:release",
+  ]);
+});
+
 test("working directory symlink로 저장소 밖을 벗어날 수 없다", async () => {
   const root = await fixture();
   const outside = await mkdtemp(join(tmpdir(), "fleet-outside-"));
@@ -86,6 +102,20 @@ test("secret scan은 값이 아니라 파일과 rule ID만 반환한다", async 
   assert.doesNotMatch(JSON.stringify(findings), new RegExp(canary, "u"));
 });
 
+test("secret scan은 대용량 또는 binary tracked file도 조용히 건너뛰지 않는다", async () => {
+  const root = await fixture();
+  const canary = ["ghp", "abcdefghijklmnopqrstuvwxyz123456"].join("_");
+  await writeFile(
+    join(root, "large.bin"),
+    Buffer.concat([Buffer.alloc(2 * 1024 * 1024 + 7), Buffer.from(canary)]),
+  );
+  await execFileAsync("git", ["-C", root, "add", "large.bin"]);
+
+  const findings = await scanTrackedSecrets({ repoRoot: root });
+  assert.deepEqual(findings, [{ file: "large.bin", rule: "GITHUB_TOKEN" }]);
+  assert.doesNotMatch(JSON.stringify(findings), new RegExp(canary, "u"));
+});
+
 test("provenance는 허용된 공개 실행 identity만 기록한다", async () => {
   const root = await mkdtemp(join(tmpdir(), "fleet-provenance-"));
   temporaryRoots.push(root);
@@ -96,13 +126,16 @@ test("provenance는 허용된 공개 실행 identity만 기록한다", async () 
     profile: "godot",
     environment: {
       GITHUB_SHA: "a".repeat(40),
-      GITHUB_WORKFLOW_SHA: "b".repeat(40),
+      GITHUB_WORKFLOW_SHA: "c".repeat(40),
       GITHUB_REPOSITORY_ID: "123",
       GITHUB_REPOSITORY: "seorilabs/example",
       GITHUB_REF: "refs/heads/main",
-      GITHUB_WORKFLOW_REF: "seorilabs/.github/.github/workflows/godot-checks-v2.yml@refs/heads/main",
+      GITHUB_WORKFLOW_REF: "seorilabs/example/.github/workflows/ci.yml@refs/heads/main",
       GITHUB_RUN_ID: "456",
       GITHUB_RUN_ATTEMPT: "1",
+      SEORI_WORKFLOW_REPOSITORY: "seorilabs/.github",
+      SEORI_WORKFLOW_REF: `seorilabs/.github/.github/workflows/godot-checks-v2.yml@${"b".repeat(40)}`,
+      SEORI_WORKFLOW_SHA: "b".repeat(40),
       RUNNER_ENVIRONMENT: "self-hosted",
       RUNNER_ARCH: "ARM64",
       RUNNER_OS: "Linux",
@@ -111,5 +144,26 @@ test("provenance는 허용된 공개 실행 identity만 기록한다", async () 
   });
 
   assert.equal(provenance.repository.id, "123");
+  assert.equal(provenance.workflow.sha, "b".repeat(40));
+  assert.equal(provenance.callerWorkflow.sha, "c".repeat(40));
   assert.doesNotMatch(JSON.stringify(provenance), new RegExp(secret, "u"));
+});
+
+test("provenance는 caller SHA를 중앙 workflow SHA로 가장할 수 없다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "fleet-provenance-invalid-"));
+  temporaryRoots.push(root);
+  await assert.rejects(
+    writeProvenance({
+      outputPath: join(root, "provenance.json"),
+      profile: "react-native",
+      environment: {
+        GITHUB_SHA: "a".repeat(40),
+        GITHUB_WORKFLOW_SHA: "c".repeat(40),
+        SEORI_WORKFLOW_REPOSITORY: "seorilabs/.github",
+        SEORI_WORKFLOW_REF: `seorilabs/.github/.github/workflows/rn-static-checks-v2.yml@${"c".repeat(40)}`,
+        SEORI_WORKFLOW_SHA: "b".repeat(40),
+      },
+    }),
+    /SEORI_WORKFLOW_REF_INVALID/u,
+  );
 });
