@@ -214,6 +214,37 @@ test("공개 integrity 재계산과 공격자 registry로 APPROVED 상태를 위
   assert.ok(result.diagnostics.includes("APPROVAL_SIGNATURE_INVALID"));
 });
 
+test("registry await 중 원본 bundle을 바꿔도 검증 snapshot과 caller SHA는 변하지 않는다", async () => {
+  const { approved, publicKey, registry } = await approvedFixture();
+  let releaseReadback;
+  const readbackGate = new Promise((resolve) => {
+    releaseReadback = resolve;
+  });
+  let readbackStarted;
+  const started = new Promise((resolve) => {
+    readbackStarted = resolve;
+  });
+  const loading = loadApprovedWorkflowBundle(approved, {
+    trustedApprovalKeys: new Map([[KEY_ID, publicKey]]),
+    trustedRegistryReadback: async ({ subject }) => {
+      readbackStarted();
+      await readbackGate;
+      return registry.get(subject);
+    },
+  });
+
+  await started;
+  approved.reusableWorkflows["react-native"].sha = STALE_SHA;
+  releaseReadback();
+  const binding = await loading;
+  const caller = generateOrgContractCaller({
+    profile: "react-native",
+    approvedBundleBinding: binding,
+  });
+  assert.match(caller, new RegExp(`@${SOURCE_SHA}`, "u"));
+  assert.doesNotMatch(caller, new RegExp(`@${STALE_SHA}`, "u"));
+});
+
 test("승격은 canary readback, Ed25519 signer, registry publisher를 모두 요구한다", async () => {
   const candidate = await createWorkflowBundle({
     sourceSha: SOURCE_SHA,

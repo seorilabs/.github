@@ -333,6 +333,11 @@ export async function validateWorkflowBundle(
     trustedRegistryReadback,
   } = {},
 ) {
+  try {
+    bundle = structuredClone(bundle);
+  } catch {
+    return { ok: false, diagnostics: ["BUNDLE_SNAPSHOT_INVALID"] };
+  }
   const diagnostics = [];
   let schema;
   try {
@@ -484,6 +489,12 @@ export async function promoteWorkflowBundle(
     registryPublisher,
   } = {},
 ) {
+  try {
+    bundle = structuredClone(bundle);
+    evidence = structuredClone(evidence);
+  } catch {
+    throw new Error("BUNDLE_SNAPSHOT_INVALID");
+  }
   const profiles = evidence.map(({ profile }) => profile).sort();
   if (
     bundle?.approval?.state !== "CANDIDATE" ||
@@ -504,7 +515,7 @@ export async function promoteWorkflowBundle(
     throw new Error("CANARY_EVIDENCE_VERIFIER_REQUIRED");
   }
   const evidenceResults = await Promise.all(
-    evidence.map((record) => evidenceVerifier(record, bundle)),
+    evidence.map((record) => evidenceVerifier(record, structuredClone(bundle))),
   );
   if (evidenceResults.some((verified) => verified !== true)) {
     throw new Error("CANARY_EVIDENCE_READBACK_FAILED");
@@ -559,7 +570,10 @@ export async function promoteWorkflowBundle(
     bundleVersion: promoted.bundleVersion,
     state: "APPROVED",
   };
-  const publishedRecord = await registryPublisher(registryRecord, promoted);
+  const publishedRecord = await registryPublisher(
+    structuredClone(registryRecord),
+    structuredClone(promoted),
+  );
   if (!registryRecordMatches(publishedRecord, promoted)) {
     throw new Error("APPROVAL_REGISTRY_PUBLISH_FAILED");
   }
@@ -584,6 +598,11 @@ export async function loadApprovedWorkflowBundle(
     trustedRegistryReadback,
   } = {},
 ) {
+  try {
+    bundle = structuredClone(bundle);
+  } catch {
+    throw new Error("BUNDLE_SNAPSHOT_INVALID");
+  }
   if (bundle?.approval?.state !== "APPROVED") {
     throw new Error("APPROVED_BUNDLE_REQUIRED");
   }
