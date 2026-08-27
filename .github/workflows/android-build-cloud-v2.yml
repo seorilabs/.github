@@ -1,0 +1,197 @@
+name: Android Build-only on Cloud Build v2
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        description: "react-native 또는 godot"
+        required: true
+        type: string
+      source_sha:
+        description: "ReleaseCandidate에 고정한 40자리 source SHA"
+        required: true
+        type: string
+      config_snapshot_sha256:
+        description: "서명된 ACTIVE ConfigRevision snapshot digest"
+        required: true
+        type: string
+      release_candidate_id:
+        description: "Backoffice ReleaseCandidate 공개 ID"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: android-build-${{ github.repository_id }}-${{ inputs.release_candidate_id }}
+  cancel-in-progress: false
+
+jobs:
+  build-only:
+    name: Android Build-only Artifact
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    timeout-minutes: 55
+
+    steps:
+      - name: Validate immutable identities
+        id: identity
+        shell: bash
+        env:
+          CONFIG_SNAPSHOT_SHA256: ${{ inputs.config_snapshot_sha256 }}
+          EXPECTED_ORG_ID: "283115031"
+          PROFILE: ${{ inputs.profile }}
+          RELEASE_CANDIDATE_ID: ${{ inputs.release_candidate_id }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          REPOSITORY_OWNER_ID: ${{ github.repository_owner_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [ "$REPOSITORY_OWNER_ID" = "$EXPECTED_ORG_ID" ] || { echo "허용된 조직 repository가 아닙니다." >&2; exit 1; }
+          [[ "$REPOSITORY_ID" =~ ^[1-9][0-9]*$ ]] || { echo "repository ID 형식 오류" >&2; exit 1; }
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "source SHA 형식 오류" >&2; exit 1; }
+          [[ "$CONFIG_SNAPSHOT_SHA256" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "config digest 형식 오류" >&2; exit 1; }
+          [[ "$RELEASE_CANDIDATE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]] || { echo "release candidate ID 형식 오류" >&2; exit 1; }
+          case "$PROFILE" in
+            react-native)
+              builder="asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:d403dabbd03e97490b0f676bc65dc2f510119480c60815298e37fb1a12a6172f"
+              ;;
+            godot)
+              builder="asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/godot-android-builder@sha256:b2a9d7a849f1193f42a40864d8487401abb6dc54472fe010b31b2e84e7be2940"
+              ;;
+            *) echo "지원하지 않는 profile" >&2; exit 1 ;;
+          esac
+          echo "builder=$builder" >> "$GITHUB_OUTPUT"
+          echo "service_account=repo-$REPOSITORY_ID@seorilabs-ci.iam.gserviceaccount.com" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
+
+      - name: Verify checked out source
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = "$EXPECTED_SHA" ]
+          test -f scripts/build-android.sh
+
+      - name: Checkout immutable org build contract
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: seorilabs/.github
+          ref: ${{ github.workflow_sha }}
+          path: .seorilabs-org
+
+      - name: Authenticate as repository-scoped keyless builder
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ steps.identity.outputs.service_account }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Setup pinned gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          version: "578.0.0"
+
+      - name: Bind gcloud quota project
+        shell: bash
+        run: gcloud config set billing/quota_project seorilabs-ci
+
+      - name: Exclude credentials and local dependencies from source upload
+        shell: bash
+        run: >-
+          node .seorilabs-org/scripts/fleet/create-cloudbuild-ignore.mjs
+          "$GITHUB_WORKSPACE/.fleet.gcloudignore"
+          "$GITHUB_WORKSPACE/.gitignore"
+
+      - name: Submit x64 build without market authority
+        id: cloud-build
+        shell: bash
+        env:
+          BUILDER_IMAGE: ${{ steps.identity.outputs.builder }}
+          CONFIG_SNAPSHOT_SHA256: ${{ inputs.config_snapshot_sha256 }}
+          PROFILE: ${{ inputs.profile }}
+          RELEASE_CANDIDATE_ID: ${{ inputs.release_candidate_id }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          build_id="$(gcloud builds submit . \
+            --async \
+            --project=seorilabs-ci \
+            --region=asia-northeast3 \
+            --service-account="projects/seorilabs-ci/serviceAccounts/${{ steps.identity.outputs.service_account }}" \
+            --config=.seorilabs-org/builders/app-android/build-only.cloudbuild.yaml \
+            --ignore-file=.fleet.gcloudignore \
+            --substitutions="_ARTIFACT_BUCKET=seorilabs-ci-build-artifacts,_BUILDER_IMAGE=$BUILDER_IMAGE,_CONFIG_SNAPSHOT_SHA256=$CONFIG_SNAPSHOT_SHA256,_PROFILE=$PROFILE,_RELEASE_CANDIDATE_ID=$RELEASE_CANDIDATE_ID,_REPOSITORY_ID=$REPOSITORY_ID,_SOURCE_SHA=$SOURCE_SHA" \
+            --format='value(id)')"
+          [[ "$build_id" =~ ^[0-9a-f-]{36}$ ]] || { echo "Cloud Build ID 형식 오류" >&2; exit 1; }
+          echo "build_id=$build_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Cloud Build readback
+        shell: bash
+        env:
+          BUILD_ID: ${{ steps.cloud-build.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 120); do
+            status="$(gcloud builds describe "$BUILD_ID" --project=seorilabs-ci --region=asia-northeast3 --format='value(status)')"
+            case "$status" in
+              SUCCESS) exit 0 ;;
+              FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED) echo "Cloud Build 실패: $status" >&2; exit 1 ;;
+            esac
+            if (( attempt % 20 == 0 )); then
+              echo "Cloud Build 상태 대기 중: $status ($attempt/120)"
+            fi
+            sleep 15
+          done
+          echo "Cloud Build readback timeout" >&2
+          exit 1
+
+      - name: Fetch build-only artifact and provenance
+        shell: bash
+        env:
+          BUILD_ID: ${{ steps.cloud-build.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/android-build"
+          base="gs://seorilabs-ci-build-artifacts/${{ github.repository_id }}/$BUILD_ID"
+          gcloud storage cp "$base/fleet-output/android-build.aab" "$RUNNER_TEMP/android-build/android-build.aab"
+          gcloud storage cp "$base/fleet-output/provenance.json" "$RUNNER_TEMP/android-build/provenance.json"
+
+      - name: Verify artifact identity and digest
+        shell: bash
+        run: >-
+          node .seorilabs-org/scripts/fleet/verify-android-build.mjs
+          "$RUNNER_TEMP/android-build/android-build.aab"
+          "$RUNNER_TEMP/android-build/provenance.json"
+          "${{ inputs.source_sha }}"
+          "${{ inputs.config_snapshot_sha256 }}"
+          "${{ inputs.release_candidate_id }}"
+          "${{ inputs.profile }}"
+
+      - name: Upload build-only evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: android-build-${{ github.repository_id }}-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/android-build
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Remove transient Cloud Build object copy
+        if: always() && steps.cloud-build.outputs.build_id != ''
+        continue-on-error: true
+        shell: bash
+        env:
+          BUILD_ID: ${{ steps.cloud-build.outputs.build_id }}
+        run: >-
+          gcloud storage rm --recursive
+          "gs://seorilabs-ci-build-artifacts/${{ github.repository_id }}/$BUILD_ID/"

@@ -1,0 +1,28 @@
+schemaVersion: 2
+id: react-native
+configurationSource: backoffice-resolved-manifest
+localOperationsConfig: forbidden
+
+discovery:
+  requiredSignals:
+    - package.json
+    - package-lock-or-pnpm-lock
+  optionalSignals:
+    - android-gradle-project
+    - ios-xcode-project
+    - granite-config
+  ambiguousResult: needs_input
+
+quality:
+  requiredScripts:
+    - test:core
+    - check:architecture
+    - check:release
+  arbitraryCommandInput: forbidden
+
+execution:
+  privateStaticRunner: seorilabs-rpi-arm64
+  publicPullRequestRunner: ubuntu-latest
+  androidBuild: cloud-build-x64
+  appleBuild: xcode-cloud
+

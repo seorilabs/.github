@@ -1,0 +1,33 @@
+schemaVersion: 2
+id: godot
+configurationSource: backoffice-resolved-manifest
+localOperationsConfig: forbidden
+
+discovery:
+  requiredSignals:
+    - project.godot
+    - package.json
+    - package-lock-or-pnpm-lock
+  optionalSignals:
+    - android-export-preset
+    - ios-export-preset
+    - web-export-preset
+  ambiguousResult: needs_input
+
+quality:
+  requiredScripts:
+    - test:core
+    - check:architecture
+    - check:release
+  godotImportRequired: true
+  failOnLogMarkers:
+    - SCRIPT ERROR
+    - "ERROR:"
+  arbitraryCommandInput: forbidden
+
+execution:
+  privateStaticRunner: seorilabs-rpi-arm64
+  publicPullRequestRunner: ubuntu-latest
+  androidBuild: cloud-build-x64
+  appleBuild: xcode-cloud
+

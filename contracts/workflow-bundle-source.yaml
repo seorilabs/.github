@@ -1,0 +1,80 @@
+schemaVersion: 1
+bundleVersion: 2.0.0
+repository: seorilabs/.github
+
+quality:
+  canonicalCommands:
+    - pnpm test:core
+    - pnpm check:architecture
+    - pnpm check:release
+  secretScan: central-high-confidence-v1
+  provenance: source-and-workflow-sha-v1
+
+reusableWorkflows:
+  react-native:
+    path: .github/workflows/rn-static-checks-v2.yml
+    requiredCheck: Org Contract
+  godot:
+    path: .github/workflows/godot-checks-v2.yml
+    requiredCheck: Org Contract
+
+buildWorkflows:
+  android:
+    path: .github/workflows/android-build-cloud-v2.yml
+    executor: cloud-build-x64
+
+actions:
+  checkout:
+    ref: v7
+    sha: 3d3c42e5aac5ba805825da76410c181273ba90b1
+  setup-node:
+    ref: v7
+    sha: 820762786026740c76f36085b0efc47a31fe5020
+  upload-artifact:
+    ref: v7
+    sha: 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+  cache:
+    ref: v5
+    sha: caa296126883cff596d87d8935842f9db880ef25
+  setup-java:
+    ref: v5
+    sha: b6effb05e454b25005698d916606bdc6ffcbf961
+  google-auth:
+    ref: v3
+    sha: 7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+  setup-gcloud:
+    ref: v3
+    sha: aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+
+runners:
+  privateGeneral: seorilabs-rpi-arm64
+  privateArm64Docker: seorilabs-rpi-arm64-dind
+  publicPullRequest: ubuntu-latest
+  androidBuild: cloud-build-x64
+  appleBuild: xcode-cloud
+
+toolchains:
+  node: 24.16.0
+  pnpm: 11.3.0
+  gcloud: 578.0.0
+  godot:
+    version: 4.7.2
+    status: stable
+    linuxArm64Sha256: 5dd0d86405cf7e8adf79fb6377b38ba682a2846cb378ffe5364f38c01ad29b9d
+    linuxX64Sha256: cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4
+
+builders:
+  reactNativeAndroid:
+    image: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder
+    digest: sha256:d403dabbd03e97490b0f676bc65dc2f510119480c60815298e37fb1a12a6172f
+    architecture: linux/amd64
+  godotAndroid:
+    image: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/godot-android-builder
+    digest: sha256:b2a9d7a849f1193f42a40864d8487401abb6dc54472fe010b31b2e84e7be2940
+    architecture: linux/amd64
+
+approval:
+  state: CANDIDATE
+  requiredCanaries:
+    - react-native
+    - godot

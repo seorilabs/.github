@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v1/workflow-bundle.schema.json",
+  "title": "Seorilabs immutable WorkflowBundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "bundleVersion",
+    "source",
+    "quality",
+    "reusableWorkflows",
+    "buildWorkflows",
+    "actions",
+    "runners",
+    "toolchains",
+    "builders",
+    "platform",
+    "approval",
+    "integrity"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "bundleVersion": { "$ref": "#/$defs/exactSemver" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "sha"],
+      "properties": {
+        "repository": { "const": "seorilabs/.github" },
+        "sha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalCommands", "secretScan", "provenance", "contractDigests"],
+      "properties": {
+        "canonicalCommands": {
+          "const": [
+            "pnpm test:core",
+            "pnpm check:architecture",
+            "pnpm check:release"
+          ]
+        },
+        "secretScan": { "const": "central-high-confidence-v1" },
+        "provenance": { "const": "source-and-workflow-sha-v1" },
+        "contractDigests": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/sha256" },
+          "minProperties": 4
+        }
+      }
+    },
+    "reusableWorkflows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["react-native", "godot"],
+      "properties": {
+        "react-native": { "$ref": "#/$defs/workflow" },
+        "godot": { "$ref": "#/$defs/workflow" }
+      }
+    },
+    "buildWorkflows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["android"],
+      "properties": {
+        "android": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "executor", "sha"],
+          "properties": {
+            "path": { "const": ".github/workflows/android-build-cloud-v2.yml" },
+            "executor": { "const": "cloud-build-x64" },
+            "sha": { "$ref": "#/$defs/sha" }
+          }
+        }
+      }
+    },
+    "actions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/action" }
+    },
+    "runners": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["privateGeneral", "privateArm64Docker", "publicPullRequest", "androidBuild", "appleBuild"],
+      "properties": {
+        "privateGeneral": { "const": "seorilabs-rpi-arm64" },
+        "privateArm64Docker": { "const": "seorilabs-rpi-arm64-dind" },
+        "publicPullRequest": { "const": "ubuntu-latest" },
+        "androidBuild": { "const": "cloud-build-x64" },
+        "appleBuild": { "const": "xcode-cloud" }
+      }
+    },
+    "toolchains": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "pnpm", "gcloud", "godot"],
+      "properties": {
+        "node": { "$ref": "#/$defs/exactSemver" },
+        "pnpm": { "$ref": "#/$defs/exactSemver" },
+        "gcloud": { "$ref": "#/$defs/exactSemver" },
+        "godot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "status", "linuxArm64Sha256", "linuxX64Sha256"],
+          "properties": {
+            "version": { "$ref": "#/$defs/exactSemver" },
+            "status": { "const": "stable" },
+            "linuxArm64Sha256": { "$ref": "#/$defs/sha256Bare" },
+            "linuxX64Sha256": { "$ref": "#/$defs/sha256Bare" }
+          }
+        }
+      }
+    },
+    "builders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reactNativeAndroid", "godotAndroid"],
+      "properties": {
+        "reactNativeAndroid": { "$ref": "#/$defs/builder" },
+        "godotAndroid": { "$ref": "#/$defs/builder" }
+      }
+    },
+    "platform": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state"],
+          "properties": { "state": { "const": "UNRESOLVED" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "sourceSha", "contractRevision", "typescript", "gdscript"],
+          "properties": {
+            "state": { "const": "RESOLVED" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "contractRevision": { "$ref": "#/$defs/sha256" },
+            "typescript": { "$ref": "#/$defs/sdkArtifact" },
+            "gdscript": { "$ref": "#/$defs/sdkArtifact" }
+          }
+        }
+      ]
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "requiredCanaries", "evidence"],
+      "properties": {
+        "state": { "enum": ["CANDIDATE", "APPROVED", "RETIRED"] },
+        "requiredCanaries": {
+          "type": "array",
+          "const": ["react-native", "godot"]
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/canaryEvidence" },
+          "maxItems": 2
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "payloadDigest"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "payloadDigest": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  },
+  "$defs": {
+    "exactSemver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256Bare": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "requiredCheck", "sha"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^\\.github/workflows/[a-z0-9-]+\\.yml$" },
+        "requiredCheck": { "const": "Org Contract" },
+        "sha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "sha"],
+      "properties": {
+        "ref": { "type": "string", "pattern": "^v[1-9][0-9]*$" },
+        "sha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "builder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image", "digest", "architecture"],
+      "properties": {
+        "image": { "type": "string", "pattern": "^[a-z0-9.-]+/[a-z0-9._/-]+$" },
+        "digest": { "$ref": "#/$defs/sha256" },
+        "architecture": { "const": "linux/amd64" }
+      }
+    },
+    "sdkArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "digest"],
+      "properties": {
+        "version": { "$ref": "#/$defs/exactSemver" },
+        "digest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "canaryEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "repositoryId", "sourceSha", "runId", "artifactSha256"],
+      "properties": {
+        "profile": { "enum": ["react-native", "godot"] },
+        "repositoryId": { "type": "integer", "minimum": 1 },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "runId": { "type": "integer", "minimum": 1 },
+        "artifactSha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}
