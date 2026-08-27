@@ -30,4 +30,3 @@ execution:
   publicPullRequestRunner: ubuntu-latest
   androidBuild: cloud-build-x64
   appleBuild: xcode-cloud
-
