@@ -2,6 +2,7 @@
 
 import { writeFile } from "node:fs/promises";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const WORKFLOW_PATH_BY_PROFILE = Object.freeze({
@@ -79,7 +80,7 @@ export async function writeProvenance({
   return provenance;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [outputPath, profile] = process.argv.slice(2);
   try {
     await writeProvenance({ outputPath, profile });

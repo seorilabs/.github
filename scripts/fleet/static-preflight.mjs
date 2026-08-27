@@ -3,6 +3,7 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 const REQUIRED_SCRIPTS = Object.freeze([
   "test:core",
@@ -52,9 +53,19 @@ export async function runStaticPreflight({
     throw new Error("PROFILE_INVALID");
   }
 
-  const canonicalRoot = await realpath(repoRoot);
+  let canonicalRoot;
+  try {
+    canonicalRoot = await realpath(repoRoot);
+  } catch {
+    throw new Error("REPO_ROOT_INVALID");
+  }
   const requestedDirectory = resolve(canonicalRoot, workingDirectory);
-  const canonicalWorkingDirectory = await realpath(requestedDirectory);
+  let canonicalWorkingDirectory;
+  try {
+    canonicalWorkingDirectory = await realpath(requestedDirectory);
+  } catch {
+    throw new Error("WORKING_DIRECTORY_MISSING");
+  }
   const relativeDirectory = relative(canonicalRoot, canonicalWorkingDirectory);
   if (
     relativeDirectory === ".." ||
@@ -122,6 +133,6 @@ export async function runStaticPreflightCli({
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exitCode = await runStaticPreflightCli();
 }

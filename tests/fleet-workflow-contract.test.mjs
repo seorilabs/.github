@@ -142,3 +142,17 @@ test("candidate workflow는 테스트 뒤 불변 bundle을 만들고 3일만 보
   assert.match(candidate, /retention-days: 3/u);
   assert.doesNotMatch(candidate, /permissions:[\s\S]*?contents: write/u);
 });
+
+test("직접 실행되는 ESM entrypoint는 portable file URL 비교를 사용한다", async () => {
+  const entrypoints = [
+    "packages/repo-contract/src/fleet-cli.mjs",
+    "scripts/fleet/static-preflight.mjs",
+    "scripts/fleet/secret-scan.mjs",
+    "scripts/fleet/write-provenance.mjs",
+  ];
+  for (const entrypoint of entrypoints) {
+    const source = await readFile(entrypoint, "utf8");
+    assert.match(source, /pathToFileURL\(process\.argv\[1\]\)\.href/u);
+    assert.doesNotMatch(source, /`file:\/\/\$\{process\.argv\[1\]\}`/u);
+  }
+});

@@ -2,6 +2,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 import {
   createWorkflowBundle,
@@ -81,6 +82,6 @@ export async function runFleetCli({
   return 2;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exitCode = await runFleetCli();
 }

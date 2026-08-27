@@ -91,6 +91,25 @@ test("working directory symlink로 저장소 밖을 벗어날 수 없다", async
   );
 });
 
+test("preflight는 존재하지 않는 root와 working directory를 안정된 code로 거부한다", async () => {
+  const root = await fixture();
+  await assert.rejects(
+    runStaticPreflight({
+      repoRoot: join(root, "missing-root"),
+      profile: "react-native",
+    }),
+    /REPO_ROOT_INVALID/u,
+  );
+  await assert.rejects(
+    runStaticPreflight({
+      repoRoot: root,
+      workingDirectory: "missing-directory",
+      profile: "react-native",
+    }),
+    /WORKING_DIRECTORY_MISSING/u,
+  );
+});
+
 test("secret scan은 값이 아니라 파일과 rule ID만 반환한다", async () => {
   const root = await fixture();
   const canary = ["ghp", "abcdefghijklmnopqrstuvwxyz123456"].join("_");
@@ -100,6 +119,14 @@ test("secret scan은 값이 아니라 파일과 rule ID만 반환한다", async 
   const findings = await scanTrackedSecrets({ repoRoot: root });
   assert.deepEqual(findings, [{ file: "unsafe.txt", rule: "GITHUB_TOKEN" }]);
   assert.doesNotMatch(JSON.stringify(findings), new RegExp(canary, "u"));
+});
+
+test("secret scan은 존재하지 않는 root를 안정된 code로 거부한다", async () => {
+  const root = await fixture();
+  await assert.rejects(
+    scanTrackedSecrets({ repoRoot: join(root, "missing-root") }),
+    /REPO_ROOT_INVALID/u,
+  );
 });
 
 test("secret scan은 대용량 또는 binary tracked file도 조용히 건너뛰지 않는다", async () => {

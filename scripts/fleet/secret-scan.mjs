@@ -5,6 +5,7 @@ import { lstat, realpath } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const OVERLAP_BYTES = 512;
 const RULES = Object.freeze([
@@ -46,7 +47,12 @@ async function scanFile(path) {
 }
 
 export async function scanTrackedSecrets({ repoRoot } = {}) {
-  const canonicalRoot = await realpath(repoRoot);
+  let canonicalRoot;
+  try {
+    canonicalRoot = await realpath(repoRoot);
+  } catch {
+    throw new Error("REPO_ROOT_INVALID");
+  }
   const findings = [];
   for (const file of trackedFiles(canonicalRoot)) {
     const absolutePath = resolve(canonicalRoot, file);
@@ -97,6 +103,6 @@ export async function runSecretScanCli({
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exitCode = await runSecretScanCli();
 }
