@@ -1,34 +1,13 @@
+# NON-DEPLOYABLE REFERENCE. See README deployment gates; do not apply directly.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: seori-auth-broker-default-deny
-  namespace: seori-auth-system
+  namespace: seori-auth-workloads
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: seori-auth-broker
+      app.kubernetes.io/name: seori-auth-local-example
   policyTypes: ["Ingress", "Egress"]
   ingress: []
   egress: []
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: seori-auth-broker-worker-ingress
-  namespace: seori-auth-system
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: seori-auth-broker
-  policyTypes: ["Ingress"]
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: seori-auth-workloads
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: seori-auth-worker
-      ports:
-        - protocol: TCP
-          port: 8443

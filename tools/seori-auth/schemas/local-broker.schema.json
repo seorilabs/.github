@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/seorilabs/.github/tools/seori-auth/schemas/local-broker.schema.json",
+  "title": "Seori Auth Unix socket broker non-secret contracts",
+  "oneOf": [
+    { "$ref": "#/$defs/leaseCreateRequest" },
+    { "$ref": "#/$defs/leaseExecuteRequest" },
+    { "$ref": "#/$defs/browserCheckoutRequest" },
+    { "$ref": "#/$defs/browserCompleteRequest" },
+    { "$ref": "#/$defs/reauthCreateRequest" }
+  ],
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$"
+    },
+    "publicId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$"
+    },
+    "executionBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "runId", "repository", "workerId"],
+      "properties": {
+        "subject": { "$ref": "#/$defs/publicId" },
+        "runId": { "$ref": "#/$defs/publicId" },
+        "repository": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "workerId": { "$ref": "#/$defs/publicId" }
+      }
+    },
+    "publicIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "accountId", "teamId", "workspaceId", "appId"],
+      "properties": {
+        "provider": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "accountId": { "$ref": "#/$defs/publicId" },
+        "teamId": { "oneOf": [{ "$ref": "#/$defs/publicId" }, { "type": "null" }] },
+        "workspaceId": { "oneOf": [{ "$ref": "#/$defs/publicId" }, { "type": "null" }] },
+        "appId": { "oneOf": [{ "$ref": "#/$defs/publicId" }, { "type": "null" }] }
+      }
+    },
+    "leaseCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workerId", "request"],
+      "properties": {
+        "workerId": { "$ref": "#/$defs/publicId" },
+        "request": { "$ref": "lease-request.schema.json" }
+      }
+    },
+    "leaseExecuteRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expectedGeneration", "workerId", "context"],
+      "properties": {
+        "expectedGeneration": { "type": "integer", "minimum": 1 },
+        "workerId": { "$ref": "#/$defs/publicId" },
+        "context": { "$ref": "lease-request.schema.json" }
+      }
+    },
+    "browserCheckoutRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expectedGeneration", "executionBinding", "expectedIdentity"],
+      "properties": {
+        "expectedGeneration": { "type": "integer", "minimum": 1 },
+        "executionBinding": { "$ref": "#/$defs/executionBinding" },
+        "expectedIdentity": { "$ref": "#/$defs/publicIdentity" }
+      }
+    },
+    "browserCompleteRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capabilityId", "expectedGeneration", "executionBinding"],
+      "properties": {
+        "capabilityId": { "$ref": "#/$defs/opaqueId" },
+        "expectedGeneration": { "type": "integer", "minimum": 1 },
+        "executionBinding": { "$ref": "#/$defs/executionBinding" }
+      }
+    },
+    "reauthCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "executionBinding", "publicIdentity"],
+      "properties": {
+        "reason": {
+          "enum": [
+            "session_expired",
+            "credential_rejected",
+            "mfa_required",
+            "trusted_device_required",
+            "captcha_required",
+            "passkey_required",
+            "sms_required",
+            "push_required",
+            "sso_required",
+            "account_recovery_required",
+            "terms_acceptance_required",
+            "policy_blocked"
+          ]
+        },
+        "executionBinding": { "$ref": "#/$defs/executionBinding" },
+        "publicIdentity": { "$ref": "#/$defs/publicIdentity" }
+      }
+    },
+    "credentialCheckout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "generation", "state", "issuedAt", "expiresAt", "maxUses", "useCount",
+        "ruleId", "executionBinding", "provider", "capability", "secretExportable"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/opaqueId" },
+        "generation": { "type": "integer", "minimum": 1 },
+        "state": { "enum": ["ISSUED", "CONSUMED"] },
+        "issuedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "maxUses": { "const": 1 },
+        "useCount": { "enum": [0, 1] },
+        "ruleId": { "$ref": "#/$defs/publicId" },
+        "executionBinding": { "$ref": "#/$defs/executionBinding" },
+        "provider": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "capability": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
+        "secretExportable": { "const": false }
+      }
+    },
+    "browserSessionBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "generation", "state", "maxUses", "useCount", "publicIdentity"],
+      "properties": {
+        "id": { "$ref": "#/$defs/opaqueId" },
+        "generation": { "type": "integer", "minimum": 1 },
+        "state": { "enum": ["AVAILABLE", "CHECKED_OUT", "COMPLETED"] },
+        "maxUses": { "const": 1 },
+        "useCount": { "enum": [0, 1] },
+        "publicIdentity": { "$ref": "#/$defs/publicIdentity" }
+      }
+    },
+    "browserCheckout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capabilityId", "publicIdentity"],
+      "properties": {
+        "capabilityId": { "$ref": "#/$defs/opaqueId" },
+        "publicIdentity": { "$ref": "#/$defs/publicIdentity" }
+      }
+    },
+    "reauthRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "generation", "state", "reason", "requestedAt", "executionBinding", "publicIdentity"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/opaqueId" },
+        "generation": { "const": 1 },
+        "state": { "const": "HUMAN_REAUTH_REQUIRED" },
+        "reason": { "$ref": "#/$defs/reauthCreateRequest/properties/reason" },
+        "requestedAt": { "type": "string", "format": "date-time" },
+        "executionBinding": { "$ref": "#/$defs/executionBinding" },
+        "publicIdentity": { "$ref": "#/$defs/publicIdentity" }
+      }
+    },
+    "leaseCreateResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["credentialCheckout"],
+      "properties": {
+        "credentialCheckout": { "$ref": "#/$defs/credentialCheckout" }
+      }
+    },
+    "leaseExecuteResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["execution"],
+      "properties": {
+        "execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["generation", "outcome", "exitCode", "signal"],
+          "properties": {
+            "generation": { "type": "integer", "minimum": 2 },
+            "outcome": { "enum": ["SUCCESS", "ADAPTER_FAILED"] },
+            "exitCode": { "type": ["integer", "null"] },
+            "signal": { "type": ["string", "null"] }
+          }
+        }
+      }
+    },
+    "browserCheckoutResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["browserSession"],
+      "properties": {
+        "browserSession": { "$ref": "#/$defs/browserCheckout" }
+      }
+    },
+    "browserCompleteResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["browserSession"],
+      "properties": {
+        "browserSession": { "$ref": "#/$defs/browserSessionBinding" }
+      }
+    },
+    "reauthCreateResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reauthRequest"],
+      "properties": {
+        "reauthRequest": { "$ref": "#/$defs/reauthRequest" }
+      }
+    },
+    "authAuditEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "eventType", "outcome", "entityType", "entityId", "generation", "recordedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/opaqueId" },
+        "eventType": { "$ref": "#/$defs/publicId" },
+        "outcome": { "$ref": "#/$defs/publicId" },
+        "entityType": { "enum": ["CredentialCheckout", "BrowserSessionBinding", "ReauthRequest"] },
+        "entityId": { "$ref": "#/$defs/opaqueId" },
+        "generation": { "type": "integer", "minimum": 1 },
+        "recordedAt": { "type": "string", "format": "date-time" },
+        "executionBinding": { "$ref": "#/$defs/executionBinding" },
+        "credentialRef": {
+          "type": "string",
+          "pattern": "^(shared|app)/[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)+$"
+        },
+        "publicIdentity": { "$ref": "#/$defs/publicIdentity" },
+        "reason": { "$ref": "#/$defs/reauthCreateRequest/properties/reason" },
+        "exitCode": { "type": "integer" },
+        "signal": { "type": "string" }
+      }
+    }
+  }
+}

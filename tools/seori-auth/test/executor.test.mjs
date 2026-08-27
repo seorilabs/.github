@@ -20,7 +20,7 @@ function testAdapter(overrides = {}) {
   };
 }
 
-test('secret is injected through fd3 and removed from returned outputs and audit', async () => {
+test('secret is injected through fd3 while all child output channels are discarded', async () => {
   const canary = 'canary-password-value';
   const secretBuffer = Buffer.from(canary);
   const auditEvents = [];
@@ -40,9 +40,9 @@ test('secret is injected through fd3 and removed from returned outputs and audit
   });
 
   assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /\[REDACTED\]/);
-  assert.doesNotMatch(result.stdout, new RegExp(canary));
-  assert.doesNotMatch(result.stderr, new RegExp(canary));
+  assert.deepEqual(Object.keys(result).sort(), ['exitCode', 'signal']);
+  assert.doesNotMatch(JSON.stringify(result), new RegExp(canary));
+  assert.doesNotMatch(JSON.stringify(result), new RegExp(Buffer.from(canary).toString('base64')));
   assert.doesNotMatch(JSON.stringify(auditEvents), new RegExp(canary));
   assert.ok(secretBuffer.every((byte) => byte === 0), 'secret buffer must be zeroed after execution');
 });
@@ -77,6 +77,25 @@ test('secret loader error details are not returned and consumed lease cannot ret
       currentCredentialGeneration: request.credentialGeneration,
     }),
     (error) => error instanceof SeoriAuthError && error.code === 'lease_already_used',
+  );
+});
+
+test('invalid secret loader output preserves the intended non-secret error', async () => {
+  const request = makeRequest();
+  const broker = new SeoriAuthBroker({
+    policy: makePolicy(),
+    adapters: [testAdapter()],
+    loadSecret: async () => undefined,
+  });
+  const lease = broker.issueLease(request);
+
+  await assert.rejects(
+    broker.execute({
+      leaseId: lease.leaseId,
+      context: request,
+      currentCredentialGeneration: request.credentialGeneration,
+    }),
+    (error) => error instanceof SeoriAuthError && error.code === 'secret_load_failed',
   );
 });
 
