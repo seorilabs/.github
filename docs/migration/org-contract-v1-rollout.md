@@ -1,10 +1,14 @@
 # Seorilabs Org Contract v1 롤아웃
 
-> 상태: 실행 시작안
+> 상태: Fleet Control Plane 이관을 위한 legacy shadow 참고 문서
 > 기준일: 2026-08-21
 > 중앙 정책 ID: `org-v1`
 > 적용 범위: `seorilabs` 조직의 active 앱·게임 저장소, `.github`, `platform`, Backoffice, 로컬 agent 설정
 > 비범위: 프로덕션 마켓 업로드, 심사 제출, 공개 배포, 자격증명 회전·폐기
+
+신규 정본과 P0-P7 전환 기준은 [Fleet Control Plane](../fleet-control-plane.md)을 따른다.
+이 문서의 `.seorilabs/app.yaml` 및 단방향 mirror 설계는 기존 consumer의 shadow parity와
+안전 삭제를 설명하기 위해서만 남아 있으며 신규 repository에 적용하지 않는다.
 
 ## 1. 목표와 불변식
 
@@ -13,19 +17,20 @@ Org Contract v1은 앱마다 복사된 정책을 줄이고 다음 책임 경계�
 | 영역 | 정본 | 소비 방식 |
 | --- | --- | --- |
 | 조직 개발·테스트·리뷰·릴리스 계약 | `seorilabs/.github/contracts/` | schema/CLI/CI로 검증 |
-| 앱의 식별자·stack·market·명령 선언 | 각 repo의 `.seorilabs/app.yaml` | 계약 검증기와 Backoffice가 읽음 |
+| 앱의 식별자·stack·market·정책 desired state | Backoffice `ConfigRevision` | signed resolved manifest와 공통 validator |
 | 공통 RN/TS 기능 | `platform`의 버전된 package | 정확한 버전 + lockfile |
 | 공통 Godot 기능 | `platform`의 버전된 release asset | vendor + source/version/checksum |
 | 자격증명 | `~/.config/seorilabs` catalog | logical ID와 명시적 consumer 연결 |
 | agent 실행 절차 | `~/.agent` | 전역 원칙 + 작업별 skill + 조직 contract lock·routing. 조직 정책 전문은 복사하지 않음 |
-| 운영 상태 | GitHub 원본, Backoffice mirror | GitHub webhook/reconcile을 통한 단방향 반영 |
+| 실행 작업 | 대상 repo Issue와 GitHub 실행 | Backoffice durable queue와 webhook readback |
+| provider 실제 상태 | `ProviderObservation` | 공식 API 또는 격리 adapter readback |
 
 다음 원칙은 단계와 무관하게 유지한다.
 
 - 공통 라이브러리는 기본적으로 Git submodule로 배포하지 않는다.
-- 앱 repo에는 조직 정책 전문을 복사하지 않고 앱 고유 선언·명령·예외만 둔다.
+- 앱 repo에는 조직 정책 전문이나 운영 JSON을 복사하지 않고 build source와 생성 caller만 둔다.
 - reusable workflow는 immutable commit SHA로 고정하고 secret은 필요한 이름만 전달한다.
-- Backoffice DB는 GitHub 상태의 mirror다. mirror 직접 입력이나 mirror에서 GitHub로의 역기록을 만들지 않는다.
+- Backoffice DB는 desired state와 durable 실행 큐의 정본이다. GitHub 작업·provider 상태는 observation으로 분리한다.
 - 구현, CI, artifact, upload, processing, device QA, review, approval, deployment, public availability를 서로 다른 gate로 기록한다.
 - 이 롤아웃에서 production upload, 심사 제출, 공개 배포를 실행하지 않는다. 그러한 작업은 고정된 release candidate와 별도 사용자 승인으로 시작하는 release 작업이다.
 
@@ -78,23 +83,22 @@ Org Contract v1 이관의 자동 검증 상한은 기본적으로 `Artifact`다.
 
 ## 4. GitHub와 Backoffice 경계
 
-Backoffice의 유일한 쓰기 경로는 다음과 같다.
+Backoffice는 desired state를 immutable revision으로 관리하고, 실제 코드 작업은 대상 repo
+Issue와 PR에 남긴다.
 
 ```text
-운영자 또는 agent
-  -> GitHub API write
-  -> GitHub event 또는 workflow
-  -> webhook
-  -> Backoffice mirror upsert
-  -> GitHub/API와 mirror readback 비교
+운영자 또는 허용된 agent -> ConfigRevision draft와 activation
+source SHA -> DiscoveryObservation
+대상 repo Issue -> AgentLease -> PR 또는 provider adapter
+GitHub와 provider readback -> ProviderObservation과 ReleaseGateObservation
 ```
 
-- GitHub Issue, PR, Release, workflow가 원본이다.
-- Backoffice는 lifecycle과 계약 준수 상태를 표시하되 GitHub 원본을 덮어쓰지 않는다.
-- webhook 누락은 reconcile로 복구한다. mirror DB 직접 INSERT/UPDATE로 성공 상태를 만들지 않는다.
+- GitHub Issue는 작업 정본이고 Backoffice DB는 실행 큐 정본이다.
+- GitHub Project field는 포트폴리오 보기이며 실행 claim으로 사용하지 않는다.
+- webhook 누락은 idempotent reconcile로 복구한다. observation 직접 수정으로 성공 상태를 만들지 않는다.
 - workflow 성공은 CI 또는 upload 경로의 증거일 뿐, review·approval·public 상태는 각 provider readback으로만 올린다.
-- 새 `.seorilabs/app.yaml`을 반영할 때는 GitHub 기본 브랜치의 고정 SHA를 읽고 schema 검증 후 mirror한다.
-- 기존 parser를 제거하기 전, 새 contract 기반 registry 값과 기존 값의 shadow 비교 및 production readback을 통과해야 한다.
+- discovery는 GitHub 기본 브랜치의 고정 SHA를 읽고 observation으로 저장한다.
+- 기존 parser를 제거하기 전, signed resolved manifest와 기존 값의 두 번 연속 shadow 비교 및 production readback을 통과해야 한다.
 
 ## 5. 파일럿 프로필
 
@@ -251,12 +255,12 @@ Backoffice의 유일한 쓰기 경로는 다음과 같다.
 
 Org Contract v1 롤아웃은 다음 조건이 모두 성립할 때 완료다.
 
-- 모든 active repo에 유효한 v1 manifest와 owner가 있다.
+- 모든 active repo에 owner, 유효한 중앙 ACTIVE revision, signed resolved manifest가 있다.
 - 표준 test alias, CODEOWNERS, PR template, required contract check가 적용됐다.
 - org reusable caller는 immutable SHA와 explicit secret mapping을 사용한다.
 - RN package와 Godot vendor의 source/version/checksum을 추적할 수 있다.
-- market metadata가 중앙 schema를 통과하되 앱 고유 자산은 앱 repo에 남는다.
-- Backoffice는 GitHub에서 단방향으로 mirror하고 모든 release gate를 분리 표시한다.
+- market metadata와 앱 고유 자산이 중앙 schema와 object storage revision을 통과한다.
+- Backoffice는 desired state, 실행 큐, observation을 분리하고 모든 release gate를 독립 표시한다.
 - agent 설치 상태와 contract lock을 자동 검증할 수 있다.
 - P5 후보는 검증 후 제거됐거나 owner·사유·만료일이 있는 보류 상태다.
 - production upload, submission, approval, deployment, public 상태는 별도 release 작업의 증거로만 변경된다.

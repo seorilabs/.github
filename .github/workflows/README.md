@@ -13,14 +13,17 @@
 - **러너**: AIT·Godot·web·lint/test → `seorilabs-rpi-arm64`(ARC). Android AAB·Play → x64 Linux. Apple archive·App Store 업로드 → Xcode Cloud. public PR job은 ARC 금지.
 - **호출 계약**: reusable workflow는 검증된 full commit SHA로 고정하고, secret은 `workflow_call.secrets`에 선언한 이름만 명시적으로 전달한다.
 - **아티팩트 retention = 3.**
-- **private GitHub Packages 소비**: caller가 `permissions.packages: read`를 선언하고
-  `npm_registry_url: https://npm.pkg.github.com`, `npm_scope: '@seorilabs'`를 전달한다.
-  재사용 워크플로우는 install 단계에 caller의 `github.token`을 `NODE_AUTH_TOKEN`으로 제공한다.
+- **private GitHub Packages 소비**: caller는 `permissions.packages: read`만 선언한다. v2
+  재사용 워크플로우가 고정 registry와 scope를 설정하고 install child process에만
+  `github.token`을 제공한다.
 
 ## 워크플로우 목록
 
 | 파일 | 용도 | 러너 |
 |---|---|---|
+| `rn-static-checks-v2.yml` | Fleet RN 고정 품질 게이트와 provenance | private ARC, public ubuntu |
+| `godot-checks-v2.yml` | Fleet Godot 고정 품질·import 게이트와 provenance | private ARC, public ubuntu |
+| `workflow-bundle-candidate.yml` | 불변 WorkflowBundle candidate 생성·검증 | private ARC, public ubuntu |
 | `rn-static-checks.yml` | RN/Node 정적 게이트(명령 주입) | ARC(또는 ubuntu) |
 | `rn-build-ait.yml` | RN `.ait` 후보 산출물 빌드(배포 없음) | ARC 또는 x64 Linux |
 | `rn-build-android.yml` | RN signed AAB 후보 산출물 빌드(배포 없음) | ubuntu |
@@ -39,7 +42,18 @@
 
 - 신규·이관 caller는 검증된 **40자리 full commit SHA**로 고정한다.
 - `@main`, branch, mutable major tag는 신규 caller에서 사용하지 않는다.
-- 중앙 workflow 변경은 새 SHA의 계약·정적·build-only 검증 후 앱별 PR로 올린다. 이전 SHA는 rollback 근거로 남긴다.
+- 중앙 workflow 변경은 새 SHA의 계약·정적 검증과 선언 마켓별 build-only canary 후 앱별 PR로 올린다. 이전 SHA는 rollback 근거로 남긴다.
+
+신규 Fleet caller는 trusted approval key와 registry readback을 가진 GitHub App reconciler가
+[`repo-contract`](../../packages/repo-contract/) library generator로만 만든다.
+v2 workflow는 caller가 runner, install 명령, check 명령을 넘길 수 없고 public repository를
+ARC에서 중앙 차단한다. 기존 명령 주입형 workflow는 consumer shadow parity가 끝날 때까지만
+유지하며 신규 caller에서 사용하지 않는다.
+
+GitHub Jobs API의 물리 check 이름은 reusable workflow 특성상 `<caller job> / <called job>`이다.
+따라서 Fleet ruleset이 요구할 final evidence check는 `Org Contract / Org Contract`이며,
+`Fleet Quality` 실패·취소도 이 final job이 fail-closed로 반영한다. 단독 `Org Contract`는
+workflow/caller의 표시 이름일 뿐 required status check 이름으로 사용하지 않는다.
 
 ## secrets / variables 계약
 
@@ -90,33 +104,32 @@ Android 후보 빌드도 `rn-build-android.yml`을 사용한다. 이 경로는 �
 의존성은 GitHub Actions cache로 재사용하며, caller는 `react_native_architectures`로
 release AAB에 컴파일할 ABI를 명시할 수 있다. 입력을 비우면 프로젝트 기본값을 유지한다.
 
-### RN 정적 게이트 (`.github/workflows/static-checks.yml`)
+### RN 정적 게이트 (`.github/workflows/org-contract.yml`)
 
 ```yaml
-name: Static Checks
+name: Org Contract
 on:
-  pull_request: { branches: [main] }
+  pull_request:
   push: { branches: [main] }
   workflow_dispatch:
 permissions:
   contents: read
   packages: read
 concurrency:
-  group: static-checks-${{ github.ref }}
+  group: org-contract-${{ github.repository_id }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  checks:
-    uses: seorilabs/.github/.github/workflows/rn-static-checks.yml@<full-commit-sha>
+  org-contract:
+    name: Org Contract
+    uses: seorilabs/.github/.github/workflows/rn-static-checks-v2.yml@<full-commit-sha>
     with:
-      runs_on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
-      node_version: "24.16.0"
-      npm_registry_url: https://npm.pkg.github.com
-      npm_scope: '@seorilabs'
-      check_command: |
-        pnpm lint
-        pnpm typecheck
-        pnpm test
+      package_manager: pnpm
+      working_directory: .
 ```
+
+이 파일은 사람이 복사하지 않고 GitHub App reconciler가 검증된 APPROVED bundle에서
+생성한다. stack 후보가 둘 이상이거나 exact `refs/heads/main` observation이 없으면 생성하지
+않고 `needs_input`으로 멈춘다.
 
 ### RN AIT 배포 (`.github/workflows/deploy-apps-in-toss.yml`)
 

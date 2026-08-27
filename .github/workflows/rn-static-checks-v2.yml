@@ -1,0 +1,227 @@
+# Fleet-approved candidate: fixed commands, fixed toolchain, fixed runner policy.
+name: RN Static Checks v2
+
+on:
+  workflow_call:
+    inputs:
+      package_manager:
+        description: "탐지된 package manager. npm 또는 pnpm."
+        required: false
+        default: pnpm
+        type: string
+      working_directory:
+        description: "중앙 discovery가 확정한 저장소 내부 작업 경로."
+        required: false
+        default: .
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  quality:
+    name: Fleet Quality
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.16.0
+          check-latest: false
+          registry-url: https://npm.pkg.github.com
+          scope: "@seorilabs"
+
+      - name: Resolve called workflow identity
+        id: bundle-identity
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const repository = identity.workflow_repository;
+            const sha = identity.workflow_sha;
+            const ref = identity.workflow_ref;
+            const expectedRef = "seorilabs/.github/.github/workflows/rn-static-checks-v2.yml@" + sha;
+            if (repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(sha ?? "") || ref !== expectedRef) {
+              process.stderr.write("중앙 reusable workflow identity를 검증할 수 없습니다.\n");
+              process.exit(1);
+            }
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + repository, "sha=" + sha, "ref=" + ref].join("\n") + "\n");
+          '
+
+      - name: Checkout immutable org bundle source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ steps.bundle-identity.outputs.repository }}
+          ref: ${{ steps.bundle-identity.outputs.sha }}
+          path: .seorilabs-org
+
+      - name: Validate discovered inputs and canonical commands
+        shell: bash
+        env:
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          node .seorilabs-org/scripts/fleet/static-preflight.mjs \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --working-directory "$WORKING_DIRECTORY" \
+            --package-manager "$PACKAGE_MANAGER" \
+            --profile react-native
+
+      - name: Scan tracked source for high-confidence credentials
+        shell: bash
+        run: node .seorilabs-org/scripts/fleet/secret-scan.mjs "$GITHUB_WORKSPACE"
+
+      - name: Enable pinned pnpm
+        if: inputs.package_manager == 'pnpm'
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@11.3.0 --activate
+
+      - name: Fetch locked dependencies without lifecycle scripts
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          set -euo pipefail
+          case "$PACKAGE_MANAGER" in
+            npm) npm ci --ignore-scripts ;;
+            pnpm) pnpm install --frozen-lockfile --ignore-scripts ;;
+            *) echo "지원하지 않는 package manager" >&2; exit 1 ;;
+          esac
+
+      - name: Rebuild dependencies without registry credential
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          set -euo pipefail
+          case "$PACKAGE_MANAGER" in
+            npm) npm rebuild ;;
+            pnpm) pnpm rebuild ;;
+          esac
+
+      - name: Reject high severity dependency advisories
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          case "$PACKAGE_MANAGER" in
+            npm) npm audit --audit-level=high ;;
+            pnpm) pnpm audit --audit-level high ;;
+          esac
+
+      - name: Run canonical product tests
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          case "$PACKAGE_MANAGER" in
+            npm) npm run test:core ;;
+            pnpm) pnpm test:core ;;
+          esac
+
+      - name: Run canonical architecture checks
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          case "$PACKAGE_MANAGER" in
+            npm) npm run check:architecture ;;
+            pnpm) pnpm check:architecture ;;
+          esac
+
+      - name: Run canonical release checks
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          case "$PACKAGE_MANAGER" in
+            npm) npm run check:release ;;
+            pnpm) pnpm check:release ;;
+          esac
+
+  org-contract:
+    name: Org Contract
+    needs: quality
+    if: ${{ always() }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    timeout-minutes: 10
+
+    steps:
+      - name: Reject failed or cancelled quality job
+        shell: bash
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+        run: test "$QUALITY_RESULT" = success
+
+      - name: Setup pinned Node in isolated evidence job
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.16.0
+          check-latest: false
+
+      - name: Resolve called workflow identity in isolated evidence job
+        id: evidence-bundle-identity
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const repository = identity.workflow_repository;
+            const sha = identity.workflow_sha;
+            const ref = identity.workflow_ref;
+            const expectedRef = "seorilabs/.github/.github/workflows/rn-static-checks-v2.yml@" + sha;
+            if (repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(sha ?? "") || ref !== expectedRef) {
+              process.stderr.write("중앙 reusable workflow identity를 검증할 수 없습니다.\n");
+              process.exit(1);
+            }
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + repository, "sha=" + sha, "ref=" + ref].join("\n") + "\n");
+          '
+
+      - name: Checkout immutable org evidence writer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ steps.evidence-bundle-identity.outputs.repository }}
+          ref: ${{ steps.evidence-bundle-identity.outputs.sha }}
+          path: .seorilabs-org-evidence
+
+      - name: Record non-secret CI provenance
+        shell: bash
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          SEORI_WORKFLOW_REF: ${{ steps.evidence-bundle-identity.outputs.ref }}
+          SEORI_WORKFLOW_REPOSITORY: ${{ steps.evidence-bundle-identity.outputs.repository }}
+          SEORI_WORKFLOW_SHA: ${{ steps.evidence-bundle-identity.outputs.sha }}
+        run: >-
+          node .seorilabs-org-evidence/scripts/fleet/write-provenance.mjs
+          "$RUNNER_TEMP/org-contract-provenance.json" react-native
+
+      - name: Upload isolated CI provenance
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: org-contract-${{ github.repository_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/org-contract-provenance.json
+          if-no-files-found: error
+          retention-days: 3

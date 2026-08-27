@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://seorilabs.github.io/contracts/v1/app.schema.json",
   "title": "Seorilabs application contract",
-  "description": "Repository-local contract stored at .seorilabs/app.yaml. Operational declarations remain in .seorilabs/backoffice.json.",
+  "description": "Legacy shadow contract stored at .seorilabs/app.yaml during Fleet Control Plane migration. New desired state is stored as a Backoffice ConfigRevision.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -134,7 +134,7 @@
       }
     },
     "operationsManifest": {
-      "description": "Optional pointer to the existing Backoffice operation manifest. Its fields are not duplicated here.",
+      "description": "Deprecated shadow pointer retained only until central resolved-manifest parity and cleanup gates pass.",
       "const": ".seorilabs/backoffice.json"
     },
     "exceptions": {
