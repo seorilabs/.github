@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
+import { realpathSync } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const REQUIRED_SCRIPTS = Object.freeze([
   "test:core",
@@ -133,6 +134,15 @@ export async function runStaticPreflightCli({
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+let isEntrypoint = false;
+try {
+  isEntrypoint =
+    Boolean(process.argv[1]) &&
+    realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url);
+} catch {
+  isEntrypoint = false;
+}
+
+if (isEntrypoint) {
   process.exitCode = await runStaticPreflightCli();
 }

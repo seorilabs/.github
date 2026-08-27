@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -143,7 +144,7 @@ test("candidate workflow는 테스트 뒤 불변 bundle을 만들고 3일만 보
   assert.doesNotMatch(candidate, /permissions:[\s\S]*?contents: write/u);
 });
 
-test("직접 실행되는 ESM entrypoint는 portable file URL 비교를 사용한다", async () => {
+test("직접 실행되는 ESM entrypoint는 resolve와 realpath를 사용한다", async () => {
   const entrypoints = [
     "packages/repo-contract/src/fleet-cli.mjs",
     "scripts/fleet/static-preflight.mjs",
@@ -152,7 +153,27 @@ test("직접 실행되는 ESM entrypoint는 portable file URL 비교를 사용�
   ];
   for (const entrypoint of entrypoints) {
     const source = await readFile(entrypoint, "utf8");
-    assert.match(source, /pathToFileURL\(process\.argv\[1\]\)\.href/u);
+    assert.match(source, /realpathSync\(resolve\(process\.argv\[1\]\)\)/u);
+    assert.match(source, /fileURLToPath\(import\.meta\.url\)/u);
+    assert.match(source, /catch \{/u);
+    assert.doesNotMatch(source, /pathToFileURL/u);
     assert.doesNotMatch(source, /`file:\/\/\$\{process\.argv\[1\]\}`/u);
+  }
+});
+
+test("직접 실행되는 ESM entrypoint는 상대 경로 호출에서도 실행된다", () => {
+  const entrypoints = [
+    "packages/repo-contract/src/fleet-cli.mjs",
+    "scripts/fleet/static-preflight.mjs",
+    "scripts/fleet/secret-scan.mjs",
+    "scripts/fleet/write-provenance.mjs",
+  ];
+  for (const entrypoint of entrypoints) {
+    const result = spawnSync(process.execPath, [`./${entrypoint}`], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+    assert.notEqual(result.status, 0, entrypoint);
+    assert.match(result.stderr, /오류|사용법/u, entrypoint);
   }
 });

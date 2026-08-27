@@ -39,7 +39,7 @@ public availability는 독립 gate다. 앞 gate의 성공은 뒤 gate를 증명�
 확인 범위 및 남은 권한 blocker는 [P0 기준선 스냅샷](migration/fleet-baseline-2026-08-27.md)에
 고정했다.
 
-## WorkflowBundle v2
+## WorkflowBundle v3
 
 [`workflow-bundle-source.yaml`](../contracts/workflow-bundle-source.yaml)은 action full SHA,
 reusable workflow, runner route와 toolchain을 묶는다. 생성기는 중앙 schema·profile뿐 아니라

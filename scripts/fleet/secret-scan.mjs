@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
-import { createReadStream } from "node:fs";
+import { createReadStream, realpathSync } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const OVERLAP_BYTES = 512;
 const RULES = Object.freeze([
@@ -103,6 +103,15 @@ export async function runSecretScanCli({
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+let isEntrypoint = false;
+try {
+  isEntrypoint =
+    Boolean(process.argv[1]) &&
+    realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url);
+} catch {
+  isEntrypoint = false;
+}
+
+if (isEntrypoint) {
   process.exitCode = await runSecretScanCli();
 }
