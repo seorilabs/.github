@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/seorilabs/.github/tools/seori-auth/schemas/lease-request.schema.json",
+  "title": "Seori Auth lease request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "credentialRef",
+    "credentialGeneration",
+    "policyGeneration",
+    "subject",
+    "runId",
+    "repository",
+    "commitSha",
+    "provider",
+    "origin",
+    "redirectOrigins",
+    "capability",
+    "resource",
+    "adapterId",
+    "accountKind",
+    "authFactors"
+  ],
+  "properties": {
+    "credentialRef": {
+      "type": "string",
+      "pattern": "^(shared|app)/[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)+$"
+    },
+    "credentialGeneration": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "policyGeneration": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "subject": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$"
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$"
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "commitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "origin": {
+      "type": "string",
+      "format": "uri"
+    },
+    "redirectOrigins": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "format": "uri"
+      }
+    },
+    "capability": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]*$"
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "environment"],
+      "properties": {
+        "kind": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$" },
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$" },
+        "environment": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256"],
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "adapterId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "accountKind": {
+      "enum": ["dedicated_bot", "human"]
+    },
+    "authFactors": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["api_key", "certificate", "oidc", "password", "session", "totp"]
+      }
+    }
+  }
+}

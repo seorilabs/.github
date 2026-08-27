@@ -1,0 +1,51 @@
+{
+  "$schema": "../schemas/policy.schema.json",
+  "schemaVersion": 1,
+  "generation": 1,
+  "rules": [
+    {
+      "id": "apps-in-toss-private-bundle-upload",
+      "enabled": true,
+      "subjects": [
+        "k8s:release-workers:seori-release-worker"
+      ],
+      "repositories": [
+        "seorilabs/example-app"
+      ],
+      "runIds": [
+        "github:123456789"
+      ],
+      "commitShas": [
+        "1111111111111111111111111111111111111111"
+      ],
+      "providers": [
+        "apps-in-toss"
+      ],
+      "origins": [
+        "https://apps-in-toss-api.toss.im"
+      ],
+      "redirectOrigins": [],
+      "capabilities": [
+        "ait.bundle.upload.private"
+      ],
+      "resources": [
+        {
+          "kind": "miniapp",
+          "id": "example-app",
+          "environment": "private"
+        }
+      ],
+      "adapters": [
+        "ait-cli-v1"
+      ],
+      "accountKinds": [
+        "dedicated_bot"
+      ],
+      "requiresArtifact": true,
+      "artifactSha256s": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "allowTotp": false
+    }
+  ]
+}
