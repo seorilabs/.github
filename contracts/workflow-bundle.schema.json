@@ -150,7 +150,7 @@
       "required": ["path", "requiredCheck", "sha"],
       "properties": {
         "path": { "type": "string", "pattern": "^\\.github/workflows/[a-z0-9-]+\\.yml$" },
-        "requiredCheck": { "const": "Org Contract" },
+        "requiredCheck": { "const": "Org Contract / Org Contract" },
         "sha": { "$ref": "#/$defs/sha" }
       }
     },

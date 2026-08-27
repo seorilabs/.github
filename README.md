@@ -31,7 +31,8 @@ legacy input이다. 신규 설정 정본으로 사용하지 않으며 저장소�
 
 이 저장소의 계약 검증은 `npm test`로 실행한다. 로컬 Fleet CLI는 candidate용
 `fleet-contract bundle|validate-bundle`만 제공한다. caller 생성·검증은 trusted approval
-key와 registry readback을 가진 GitHub App reconciler만 library API로 수행한다.
+key, exact GitHub source readback, Backoffice ACTIVE resolved-manifest readback을 가진 GitHub App
+reconciler만 library API로 수행한다.
 `repo-contract [저장소 경로]`는 legacy shadow 비교 기간 동안 유지한다.
 
 ## Docs

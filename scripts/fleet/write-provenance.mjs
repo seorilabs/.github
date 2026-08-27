@@ -18,6 +18,9 @@ export async function writeProvenance({
   if (!outputPath || !expectedWorkflowPath) {
     throw new Error("ARGUMENT_INVALID");
   }
+  if (environment.QUALITY_RESULT !== "success") {
+    throw new Error("QUALITY_RESULT_INVALID");
+  }
   for (const name of ["GITHUB_SHA", "SEORI_WORKFLOW_SHA"]) {
     if (!SHA_PATTERN.test(environment[name] ?? "")) {
       throw new Error(`${name}_INVALID`);
@@ -60,6 +63,9 @@ export async function writeProvenance({
       os: environment.RUNNER_OS ?? null,
     },
     profile,
+    qualityJob: {
+      result: environment.QUALITY_RESULT,
+    },
     qualityCommands: [
       "test:core",
       "check:architecture",

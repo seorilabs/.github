@@ -13,10 +13,10 @@ quality:
 reusableWorkflows:
   react-native:
     path: .github/workflows/rn-static-checks-v2.yml
-    requiredCheck: Org Contract
+    requiredCheck: Org Contract / Org Contract
   godot:
     path: .github/workflows/godot-checks-v2.yml
-    requiredCheck: Org Contract
+    requiredCheck: Org Contract / Org Contract
 
 actions:
   checkout:

@@ -12,7 +12,9 @@ const workflows = await Promise.all(paths.map((path) => readFile(path, "utf8")))
 
 test("v2 정적 workflow는 고정 품질 명령과 stable required check를 사용한다", () => {
   for (const workflow of workflows) {
+    const parsed = parse(workflow);
     assert.match(workflow, /name: Org Contract/u);
+    assert.match(workflow, /name: Fleet Quality/u);
     assert.match(workflow, /test:core/u);
     assert.match(workflow, /check:architecture/u);
     assert.match(workflow, /check:release/u);
@@ -25,19 +27,67 @@ test("v2 정적 workflow는 고정 품질 명령과 stable required check를 사
     assert.match(workflow, /npm\) npm ci --ignore-scripts/u);
     assert.match(workflow, /pnpm\) pnpm install --frozen-lockfile --ignore-scripts/u);
     assert.match(workflow, /Rebuild dependencies without registry credential/u);
-    const rebuild = parse(workflow).jobs["org-contract"].steps.find(
+    const rebuild = parsed.jobs.quality.steps.find(
       (step) => step.name === "Rebuild dependencies without registry credential",
     );
     assert.deepEqual(rebuild.env, { PACKAGE_MANAGER: "${{ inputs.package_manager }}" });
   }
 });
 
-test("재사용 workflow는 caller가 아니라 현재 중앙 job의 source SHA를 checkout한다", () => {
+test("WorkflowBundle은 reusable workflow의 실제 final check 이름을 고정한다", async () => {
+  const source = await readFile("contracts/workflow-bundle-source.yaml", "utf8");
+  const parsed = parse(source);
+  for (const workflow of Object.values(parsed.reusableWorkflows)) {
+    assert.equal(workflow.requiredCheck, "Org Contract / Org Contract");
+  }
+});
+
+test("재사용 workflow는 caller가 아니라 각 중앙 job의 source SHA를 checkout한다", () => {
   for (const workflow of workflows) {
-    assert.match(workflow, /JOB_CONTEXT_JSON: \$\{\{ toJSON\(job\) \}\}/u);
+    assert.equal(
+      [...workflow.matchAll(/JOB_CONTEXT_JSON: \$\{\{ toJSON\(job\) \}\}/gu)].length,
+      2,
+    );
     assert.match(workflow, /repository: \$\{\{ steps\.bundle-identity\.outputs\.repository \}\}/u);
     assert.match(workflow, /ref: \$\{\{ steps\.bundle-identity\.outputs\.sha \}\}/u);
+    assert.match(
+      workflow,
+      /repository: \$\{\{ steps\.evidence-bundle-identity\.outputs\.repository \}\}/u,
+    );
+    assert.match(
+      workflow,
+      /ref: \$\{\{ steps\.evidence-bundle-identity\.outputs\.sha \}\}/u,
+    );
     assert.doesNotMatch(workflow, /github\.workflow_sha/u);
+  }
+});
+
+test("Org Contract 증명 job은 앱 실행면과 격리되고 quality 성공에 fail-closed된다", () => {
+  for (const workflow of workflows) {
+    const parsed = parse(workflow);
+    assert.deepEqual(Object.keys(parsed.jobs), ["quality", "org-contract"]);
+
+    const quality = parsed.jobs.quality;
+    const evidence = parsed.jobs["org-contract"];
+    assert.equal(quality.name, "Fleet Quality");
+    assert.equal(evidence.name, "Org Contract");
+    assert.equal(evidence.needs, "quality");
+    assert.equal(evidence.if, "${{ always() }}");
+    assert.equal(
+      evidence.steps[0].name,
+      "Reject failed or cancelled quality job",
+    );
+    assert.equal(evidence.steps[0].env.QUALITY_RESULT, "${{ needs.quality.result }}");
+    assert.equal(evidence.steps[0].run, 'test "$QUALITY_RESULT" = success');
+
+    const qualityText = JSON.stringify(quality);
+    const evidenceText = JSON.stringify(evidence);
+    assert.doesNotMatch(qualityText, /write-provenance|upload-artifact/u);
+    assert.doesNotMatch(evidenceText, /Checkout application source|test:core|check:architecture|check:release/u);
+    assert.match(evidenceText, /\.seorilabs-org-evidence/u);
+    assert.match(evidenceText, /write-provenance/u);
+    assert.match(evidenceText, /upload-artifact/u);
+    assert.match(evidenceText, /QUALITY_RESULT/u);
   }
 });
 

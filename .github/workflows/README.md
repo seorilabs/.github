@@ -50,6 +50,11 @@ v2 workflow는 caller가 runner, install 명령, check 명령을 넘길 수 없�
 ARC에서 중앙 차단한다. 기존 명령 주입형 workflow는 consumer shadow parity가 끝날 때까지만
 유지하며 신규 caller에서 사용하지 않는다.
 
+GitHub Jobs API의 물리 check 이름은 reusable workflow 특성상 `<caller job> / <called job>`이다.
+따라서 Fleet ruleset이 요구할 final evidence check는 `Org Contract / Org Contract`이며,
+`Fleet Quality` 실패·취소도 이 final job이 fail-closed로 반영한다. 단독 `Org Contract`는
+workflow/caller의 표시 이름일 뿐 required status check 이름으로 사용하지 않는다.
+
 ## secrets / variables 계약
 
 `secrets: inherit`는 신규·이관 caller에서 금지한다. 재사용 워크플로우는 필요한 이름을 `on.workflow_call.secrets`에 선언하고 caller는 같은 이름을 하나씩 매핑한다. 아래 목록은 현재 이관할 logical name inventory이며 값의 정본은 저장소가 아니다.
@@ -123,7 +128,8 @@ jobs:
 ```
 
 이 파일은 사람이 복사하지 않고 GitHub App reconciler가 검증된 APPROVED bundle에서
-생성한다. stack 후보가 둘 이상이면 생성하지 않고 `needs_input`으로 멈춘다.
+생성한다. stack 후보가 둘 이상이거나 exact `refs/heads/main` observation이 없으면 생성하지
+않고 `needs_input`으로 멈춘다.
 
 ### RN AIT 배포 (`.github/workflows/deploy-apps-in-toss.yml`)
 

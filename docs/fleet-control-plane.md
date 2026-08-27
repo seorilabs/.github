@@ -70,17 +70,31 @@ GitHub App reconciler는 repository 생성·rename·archive·default push event�
 `generateOrgContractCaller`와 `validateOrgContractCaller`를 호출할 수 있다. 임의의 40자리
 SHA나 candidate bundle은 caller 입력으로 사용할 수 없다.
 
+caller binding은 repository numeric ID, full name, exact source SHA, discovery observation,
+signed ACTIVE config revision을 함께 고정하고 5분 안에도 매 사용 시 Backoffice를 다시 읽는다.
+현재 Fleet static gate branch는 `main`이므로 observation ref도 `refs/heads/main`이어야 한다.
+`develop` 등 다른 default branch는 caller를 잘못 만들지 않고 `needs_input`으로 남겨 branch
+이관 또는 명시적 조직 정책 변경을 요구한다.
+
 생성 caller는 다음을 강제한다.
 
 - 중앙 reusable workflow를 40자리 commit SHA로 참조
-- required check 이름 `Org Contract`
+- caller job과 reusable workflow의 final evidence job을 결합한 실제 GitHub check 이름
+  `Org Contract / Org Contract`
 - `contents: read`, `packages: read` 최소 권한
 - repository ID와 ref에 결합된 concurrency cancel
 - `secrets: inherit`, job-local runner, step, 임의 check/install 명령 금지
 - private repo는 `seorilabs-rpi-arm64`, public repo는 `ubuntu-latest`로 중앙 라우팅
 
+GitHub은 reusable workflow check를 `<caller job> / <called job>`으로 기록한다. 실제 기존
+caller run의 Jobs API readback에서도 `checks / Static checks` 형식을 확인했으므로 ruleset은
+표시용 workflow 이름이 아니라 위의 물리 check 이름을 요구한다. final evidence job은
+`Fleet Quality`에 `needs`로 결합되고 upstream 실패·취소 시 스스로 실패하므로 이 check 하나로
+두 job을 fail-closed한다.
+
 v2 RN과 Godot workflow는 `test:core`, `check:architecture`, `check:release`, dependency audit,
-tracked source credential scan, caller와 중앙 workflow를 분리한 provenance를 직접 실행한다.
+tracked source credential scan을 quality job에서 수행한다. provenance는 앱 실행면과 다른
+runner job이 중앙 workflow source를 exact SHA로 다시 checkout한 뒤에만 생성한다.
 Godot은 4.7.2 binary를 architecture별 공식 checksum으로 검증하고 `SCRIPT ERROR`와 `ERROR:`
 로그를 실패로 처리한다.
 

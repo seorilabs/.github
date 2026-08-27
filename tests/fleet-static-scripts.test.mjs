@@ -125,6 +125,7 @@ test("provenance는 허용된 공개 실행 identity만 기록한다", async () 
     outputPath,
     profile: "godot",
     environment: {
+      QUALITY_RESULT: "success",
       GITHUB_SHA: "a".repeat(40),
       GITHUB_WORKFLOW_SHA: "c".repeat(40),
       GITHUB_REPOSITORY_ID: "123",
@@ -146,7 +147,27 @@ test("provenance는 허용된 공개 실행 identity만 기록한다", async () 
   assert.equal(provenance.repository.id, "123");
   assert.equal(provenance.workflow.sha, "b".repeat(40));
   assert.equal(provenance.callerWorkflow.sha, "c".repeat(40));
+  assert.equal(provenance.qualityJob.result, "success");
   assert.doesNotMatch(JSON.stringify(provenance), new RegExp(secret, "u"));
+});
+
+test("provenance는 분리된 quality job 성공 없이는 생성되지 않는다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "fleet-provenance-quality-"));
+  temporaryRoots.push(root);
+  await assert.rejects(
+    writeProvenance({
+      outputPath: join(root, "provenance.json"),
+      profile: "react-native",
+      environment: {
+        QUALITY_RESULT: "failure",
+        GITHUB_SHA: "a".repeat(40),
+        SEORI_WORKFLOW_REPOSITORY: "seorilabs/.github",
+        SEORI_WORKFLOW_REF: `seorilabs/.github/.github/workflows/rn-static-checks-v2.yml@${"b".repeat(40)}`,
+        SEORI_WORKFLOW_SHA: "b".repeat(40),
+      },
+    }),
+    /QUALITY_RESULT_INVALID/u,
+  );
 });
 
 test("provenance는 caller SHA를 중앙 workflow SHA로 가장할 수 없다", async () => {
@@ -157,6 +178,7 @@ test("provenance는 caller SHA를 중앙 workflow SHA로 가장할 수 없다", 
       outputPath: join(root, "provenance.json"),
       profile: "react-native",
       environment: {
+        QUALITY_RESULT: "success",
         GITHUB_SHA: "a".repeat(40),
         GITHUB_WORKFLOW_SHA: "c".repeat(40),
         SEORI_WORKFLOW_REPOSITORY: "seorilabs/.github",
@@ -176,6 +198,7 @@ test("provenance profile은 exact reusable workflow path와 일치해야 한다"
       outputPath: join(root, "provenance.json"),
       profile: "godot",
       environment: {
+        QUALITY_RESULT: "success",
         GITHUB_SHA: "a".repeat(40),
         SEORI_WORKFLOW_REPOSITORY: "seorilabs/.github",
         SEORI_WORKFLOW_REF: `seorilabs/.github/.github/workflows/rn-static-checks-v2.yml@${"b".repeat(40)}`,

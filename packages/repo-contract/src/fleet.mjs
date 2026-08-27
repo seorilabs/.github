@@ -4,6 +4,7 @@ import {
   sign as signEd25519,
   verify as verifyEd25519,
 } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,9 +54,16 @@ const APPROVAL_REGISTRY_ID = "seorilabs-workflow-bundles-v1";
 const APPROVAL_KEY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const APPROVED_BINDING_TTL_MS = 5 * 60 * 1000;
 const TRUSTED_BUNDLE_BINDINGS = new WeakMap();
+const TRUSTED_CALLER_BINDINGS = new WeakMap();
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const SAFE_RELATIVE_DIRECTORY = /^(?:\.|[A-Za-z0-9._@-]+(?:\/[A-Za-z0-9._@-]+)*)$/u;
+const REPOSITORY_FULL_NAME_PATTERN = /^seorilabs\/[A-Za-z0-9._-]+$/u;
+const REPOSITORY_ID_PATTERN = /^[1-9][0-9]{0,31}$/u;
+const CONFIG_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{9,127}$/u;
+const SNAPSHOT_DIGEST_PATTERN = /^[0-9a-f]{64}$/u;
+const SOURCE_REF_PATTERN = /^[^\u0000-\u001F\u007F]{1,512}$/u;
+const FLEET_DEFAULT_REF = "refs/heads/main";
 
 function canonicalize(value) {
   if (Array.isArray(value)) {
@@ -131,19 +139,177 @@ async function runtimeAssetDigests(repoRoot) {
   );
 }
 
+function sourceSnapshotMatches(snapshot, bundle) {
+  if (!(
+    snapshot !== null &&
+    typeof snapshot === "object" &&
+    snapshot.repository === "seorilabs/.github" &&
+    snapshot.sourceSha === bundle?.source?.sha &&
+    canonicalJson(snapshot.contractDigests ?? {}) ===
+      canonicalJson(bundle?.quality?.contractDigests ?? {}) &&
+    canonicalJson(snapshot.runtimeAssetDigests ?? {}) ===
+      canonicalJson(bundle?.quality?.runtimeAssetDigests ?? {}) &&
+    typeof snapshot.workflowBundleSchemaText === "string" &&
+    sha256(Buffer.from(snapshot.workflowBundleSchemaText, "utf8")) ===
+      bundle?.quality?.contractDigests?.[SCHEMA_PATH]
+  )) {
+    return false;
+  }
+  const runtimeContents = snapshot.runtimeAssetContents;
+  return (
+    runtimeContents !== null &&
+    typeof runtimeContents === "object" &&
+    canonicalJson(Object.keys(runtimeContents).sort()) ===
+      canonicalJson([...RUNTIME_ASSET_FILES].sort()) &&
+    RUNTIME_ASSET_FILES.every(
+      (path) =>
+        typeof runtimeContents[path] === "string" &&
+        sha256(Buffer.from(runtimeContents[path], "utf8")) ===
+          bundle.quality.runtimeAssetDigests[path],
+    )
+  );
+}
+
+async function verifyWorkflowSourceReadback(bundle, trustedWorkflowSourceReadback) {
+  if (typeof trustedWorkflowSourceReadback !== "function") {
+    return { diagnostic: "WORKFLOW_SOURCE_READBACK_REQUIRED" };
+  }
+  try {
+    const observed = await trustedWorkflowSourceReadback({
+      repository: "seorilabs/.github",
+      sourceSha: bundle.source.sha,
+      contractPaths: [...CONTRACT_FILES],
+      runtimeAssetPaths: [...RUNTIME_ASSET_FILES],
+    });
+    const snapshot = structuredClone(observed);
+    if (!sourceSnapshotMatches(snapshot, bundle)) {
+      return { diagnostic: "WORKFLOW_SOURCE_READBACK_MISMATCH" };
+    }
+    return { snapshot };
+  } catch {
+    return { diagnostic: "WORKFLOW_SOURCE_READBACK_FAILED" };
+  }
+}
+
+function fixedGitHubApiUrl(path, query = {}) {
+  const url = new URL(`https://api.github.com${path}`);
+  for (const [key, value] of Object.entries(query)) {
+    url.searchParams.set(key, value);
+  }
+  return url;
+}
+
+async function githubJson(fetchImpl, url) {
+  const response = await fetchImpl(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    redirect: "error",
+  });
+  if (!response?.ok) {
+    throw new Error(`GITHUB_READBACK_HTTP_${response?.status ?? "UNKNOWN"}`);
+  }
+  return response.json();
+}
+
+function decodeGitHubContents(value) {
+  const normalized = value.replace(/\s/gu, "");
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(normalized)) {
+    throw new Error("GITHUB_CONTENT_INVALID");
+  }
+  return Buffer.from(normalized, "base64");
+}
+
+export function createGitHubWorkflowSourceReadback({ fetchImpl = globalThis.fetch } = {}) {
+  if (typeof fetchImpl !== "function") {
+    throw new Error("GITHUB_FETCH_REQUIRED");
+  }
+  const snapshotPromises = new Map();
+  return async ({ repository, sourceSha, contractPaths, runtimeAssetPaths }) => {
+    if (
+      repository !== "seorilabs/.github" ||
+      !SHA_PATTERN.test(sourceSha ?? "") ||
+      canonicalJson(contractPaths) !== canonicalJson([...CONTRACT_FILES]) ||
+      canonicalJson(runtimeAssetPaths) !== canonicalJson([...RUNTIME_ASSET_FILES])
+    ) {
+      throw new Error("GITHUB_SOURCE_REQUEST_INVALID");
+    }
+    if (!snapshotPromises.has(sourceSha)) {
+      snapshotPromises.set(
+        sourceSha,
+        (async () => {
+          const commit = await githubJson(
+            fetchImpl,
+            fixedGitHubApiUrl(`/repos/seorilabs/.github/commits/${sourceSha}`),
+          );
+          if (commit?.sha !== sourceSha) {
+            throw new Error("GITHUB_COMMIT_MISMATCH");
+          }
+
+          const fileEntries = await Promise.all(
+            [...CONTRACT_FILES, ...RUNTIME_ASSET_FILES].map(
+              async (relativePath) => {
+                const encodedPath = relativePath
+                  .split("/")
+                  .map((segment) => encodeURIComponent(segment))
+                  .join("/");
+                const contents = await githubJson(
+                  fetchImpl,
+                  fixedGitHubApiUrl(
+                    `/repos/seorilabs/.github/contents/${encodedPath}`,
+                    { ref: sourceSha },
+                  ),
+                );
+                if (
+                  contents?.type !== "file" ||
+                  contents?.encoding !== "base64" ||
+                  typeof contents.content !== "string"
+                ) {
+                  throw new Error("GITHUB_CONTENT_INVALID");
+                }
+                const content = decodeGitHubContents(contents.content);
+                return [relativePath, { content, digest: sha256(content) }];
+              },
+            ),
+          );
+          const fileByPath = Object.fromEntries(fileEntries);
+          return {
+            repository,
+            sourceSha,
+            contractDigests: Object.fromEntries(
+              CONTRACT_FILES.map((path) => [path, fileByPath[path].digest]),
+            ),
+            runtimeAssetDigests: Object.fromEntries(
+              RUNTIME_ASSET_FILES.map((path) => [path, fileByPath[path].digest]),
+            ),
+            workflowBundleSchemaText:
+              fileByPath[SCHEMA_PATH].content.toString("utf8"),
+            runtimeAssetContents: Object.fromEntries(
+              RUNTIME_ASSET_FILES.map((path) => [
+                path,
+                fileByPath[path].content.toString("utf8"),
+              ]),
+            ),
+          };
+        })(),
+      );
+    }
+    try {
+      return structuredClone(await snapshotPromises.get(sourceSha));
+    } catch (error) {
+      snapshotPromises.delete(sourceSha);
+      throw error;
+    }
+  };
+}
+
 function regexEscape(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
-async function runtimeDeclarationsMatch(bundle, repoRoot) {
-  const workflowTextByProfile = Object.fromEntries(
-    await Promise.all(
-      Object.keys(WORKFLOW_BY_PROFILE).map(async (profile) => [
-        profile,
-        await readFile(resolve(repoRoot, WORKFLOW_BY_PROFILE[profile]), "utf8"),
-      ]),
-    ),
-  );
+function runtimeDeclarationsMatchTexts(bundle, workflowTextByProfile) {
   const combined = Object.values(workflowTextByProfile).join("\n");
   const declaredActions = new Map();
   for (const [key, action] of Object.entries(bundle?.actions ?? {})) {
@@ -193,6 +359,28 @@ async function runtimeDeclarationsMatch(bundle, repoRoot) {
     godot.includes(godotToolchain?.linuxArm64Sha256 ?? "missing") &&
     godot.includes(godotToolchain?.linuxX64Sha256 ?? "missing")
   );
+}
+
+async function runtimeDeclarationsMatch(bundle, repoRoot) {
+  const workflowTextByProfile = Object.fromEntries(
+    await Promise.all(
+      Object.keys(WORKFLOW_BY_PROFILE).map(async (profile) => [
+        profile,
+        await readFile(resolve(repoRoot, WORKFLOW_BY_PROFILE[profile]), "utf8"),
+      ]),
+    ),
+  );
+  return runtimeDeclarationsMatchTexts(bundle, workflowTextByProfile);
+}
+
+function sourceRuntimeDeclarationsMatch(bundle, snapshot) {
+  const workflowTextByProfile = Object.fromEntries(
+    Object.entries(WORKFLOW_BY_PROFILE).map(([profile, path]) => [
+      profile,
+      snapshot.runtimeAssetContents[path],
+    ]),
+  );
+  return runtimeDeclarationsMatchTexts(bundle, workflowTextByProfile);
 }
 
 function approvalSigningPayload(bundle) {
@@ -332,6 +520,7 @@ export async function validateWorkflowBundle(
     repoRoot = WORKSPACE_ROOT,
     trustedApprovalKeys,
     trustedRegistryReadback,
+    trustedWorkflowSourceReadback,
   } = {},
 ) {
   try {
@@ -340,13 +529,25 @@ export async function validateWorkflowBundle(
     return { ok: false, diagnostics: ["BUNDLE_SNAPSHOT_INVALID"] };
   }
   const diagnostics = [];
+  const approvedSourceReadback =
+    bundle?.approval?.state === "APPROVED"
+      ? await verifyWorkflowSourceReadback(
+          bundle,
+          trustedWorkflowSourceReadback,
+        )
+      : undefined;
+  if (approvedSourceReadback?.diagnostic) {
+    diagnostics.push(approvedSourceReadback.diagnostic);
+  }
   let schema;
   try {
-    schema = JSON.parse(
-      await readFile(resolve(repoRoot, SCHEMA_PATH), "utf8"),
-    );
+    const schemaText = approvedSourceReadback?.snapshot
+      ?.workflowBundleSchemaText ??
+      (await readFile(resolve(repoRoot, SCHEMA_PATH), "utf8"));
+    schema = JSON.parse(schemaText);
   } catch {
-    return { ok: false, diagnostics: ["SCHEMA_UNREADABLE"] };
+    diagnostics.push("SCHEMA_UNREADABLE");
+    return { ok: false, diagnostics: [...new Set(diagnostics)].sort() };
   }
 
   let validate;
@@ -358,7 +559,8 @@ export async function validateWorkflowBundle(
       validateFormats: false,
     }).compile(schema);
   } catch {
-    return { ok: false, diagnostics: ["SCHEMA_INVALID"] };
+    diagnostics.push("SCHEMA_INVALID");
+    return { ok: false, diagnostics: [...new Set(diagnostics)].sort() };
   }
 
   if (!validate(bundle)) {
@@ -382,34 +584,41 @@ export async function validateWorkflowBundle(
     diagnostics.push("WORKFLOW_SOURCE_SHA_MISMATCH");
   }
 
-  try {
-    const expectedContractDigests = await contractDigests(repoRoot);
-    if (
-      canonicalJson(bundle?.quality?.contractDigests ?? {}) !==
-      canonicalJson(expectedContractDigests)
-    ) {
-      diagnostics.push("CONTRACT_DIGEST_MISMATCH");
+  if (bundle?.approval?.state !== "APPROVED") {
+    try {
+      const expectedContractDigests = await contractDigests(repoRoot);
+      if (
+        canonicalJson(bundle?.quality?.contractDigests ?? {}) !==
+        canonicalJson(expectedContractDigests)
+      ) {
+        diagnostics.push("CONTRACT_DIGEST_MISMATCH");
+      }
+    } catch {
+      diagnostics.push("CONTRACT_ASSET_UNREADABLE");
     }
-  } catch {
-    diagnostics.push("CONTRACT_ASSET_UNREADABLE");
-  }
-  try {
-    const expectedRuntimeAssetDigests = await runtimeAssetDigests(repoRoot);
-    if (
-      canonicalJson(bundle?.quality?.runtimeAssetDigests ?? {}) !==
-      canonicalJson(expectedRuntimeAssetDigests)
-    ) {
-      diagnostics.push("RUNTIME_ASSET_DIGEST_MISMATCH");
+    try {
+      const expectedRuntimeAssetDigests = await runtimeAssetDigests(repoRoot);
+      if (
+        canonicalJson(bundle?.quality?.runtimeAssetDigests ?? {}) !==
+        canonicalJson(expectedRuntimeAssetDigests)
+      ) {
+        diagnostics.push("RUNTIME_ASSET_DIGEST_MISMATCH");
+      }
+    } catch {
+      diagnostics.push("RUNTIME_ASSET_UNREADABLE");
     }
-  } catch {
-    diagnostics.push("RUNTIME_ASSET_UNREADABLE");
-  }
-  try {
-    if (!(await runtimeDeclarationsMatch(bundle, repoRoot))) {
-      diagnostics.push("RUNTIME_DECLARATION_MISMATCH");
+    try {
+      if (!(await runtimeDeclarationsMatch(bundle, repoRoot))) {
+        diagnostics.push("RUNTIME_DECLARATION_MISMATCH");
+      }
+    } catch {
+      diagnostics.push("RUNTIME_DECLARATION_UNREADABLE");
     }
-  } catch {
-    diagnostics.push("RUNTIME_DECLARATION_UNREADABLE");
+  } else if (
+    approvedSourceReadback?.snapshot &&
+    !sourceRuntimeDeclarationsMatch(bundle, approvedSourceReadback.snapshot)
+  ) {
+    diagnostics.push("RUNTIME_DECLARATION_MISMATCH");
   }
 
   if (bundle?.approval?.state === "APPROVED") {
@@ -488,6 +697,7 @@ export async function promoteWorkflowBundle(
     evidenceVerifier,
     approvalSigner,
     registryPublisher,
+    trustedWorkflowSourceReadback,
   } = {},
 ) {
   try {
@@ -512,11 +722,20 @@ export async function promoteWorkflowBundle(
       `WORKFLOW_BUNDLE_INVALID:${candidateValidation.diagnostics.join(",")}`,
     );
   }
+  const sourceReadback = await verifyWorkflowSourceReadback(
+    bundle,
+    trustedWorkflowSourceReadback,
+  );
+  if (sourceReadback.diagnostic) {
+    throw new Error(sourceReadback.diagnostic);
+  }
   if (typeof evidenceVerifier !== "function") {
     throw new Error("CANARY_EVIDENCE_VERIFIER_REQUIRED");
   }
   const evidenceResults = await Promise.all(
-    evidence.map((record) => evidenceVerifier(record, structuredClone(bundle))),
+    evidence.map((record) =>
+      evidenceVerifier(structuredClone(record), structuredClone(bundle)),
+    ),
   );
   if (evidenceResults.some((verified) => verified !== true)) {
     throw new Error("CANARY_EVIDENCE_READBACK_FAILED");
@@ -584,6 +803,7 @@ export async function promoteWorkflowBundle(
       [approvalSigner.keyId, createPublicKey(approvalSigner.privateKey)],
     ]),
     trustedRegistryReadback: async () => publishedRecord,
+    trustedWorkflowSourceReadback,
   });
   if (!result.ok) {
     throw new Error(`WORKFLOW_BUNDLE_INVALID:${result.diagnostics.join(",")}`);
@@ -597,6 +817,7 @@ export async function loadApprovedWorkflowBundle(
     repoRoot = WORKSPACE_ROOT,
     trustedApprovalKeys,
     trustedRegistryReadback,
+    trustedWorkflowSourceReadback,
   } = {},
 ) {
   try {
@@ -611,6 +832,7 @@ export async function loadApprovedWorkflowBundle(
     repoRoot,
     trustedApprovalKeys,
     trustedRegistryReadback,
+    trustedWorkflowSourceReadback,
   });
   if (!validation.ok) {
     throw new Error(
@@ -665,8 +887,254 @@ async function verifyBundleBinding(binding) {
     if (!registryRecordMatches(record, state.bundle)) {
       return { diagnostic: "APPROVED_BUNDLE_REGISTRY_REVOKED" };
     }
+    if (Date.now() >= state.expiresAtMs) {
+      return { diagnostic: "APPROVED_BUNDLE_BINDING_EXPIRED" };
+    }
   } catch {
     return { diagnostic: "APPROVED_BUNDLE_REGISTRY_READBACK_FAILED" };
+  }
+  return { state };
+}
+
+export function createBackofficeResolvedManifestReadback({
+  origin,
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  let fixedOrigin;
+  try {
+    const parsed = new URL(origin);
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new Error("BACKOFFICE_ORIGIN_INVALID");
+    }
+    fixedOrigin = parsed.origin;
+  } catch {
+    throw new Error("BACKOFFICE_ORIGIN_INVALID");
+  }
+  if (typeof fetchImpl !== "function") {
+    throw new Error("BACKOFFICE_FETCH_REQUIRED");
+  }
+
+  return async ({ repositoryId, fullName, sourceSha }) => {
+    if (
+      !REPOSITORY_ID_PATTERN.test(repositoryId ?? "") ||
+      !REPOSITORY_FULL_NAME_PATTERN.test(fullName ?? "") ||
+      !SHA_PATTERN.test(sourceSha ?? "")
+    ) {
+      throw new Error("BACKOFFICE_MANIFEST_REQUEST_INVALID");
+    }
+    const url = new URL(
+      `/control-plane/apps/${encodeURIComponent(repositoryId)}/resolved-manifest`,
+      fixedOrigin,
+    );
+    url.searchParams.set("ref", sourceSha);
+    const response = await fetchImpl(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      redirect: "error",
+    });
+    if (!response?.ok) {
+      throw new Error(
+        `BACKOFFICE_MANIFEST_HTTP_${response?.status ?? "UNKNOWN"}`,
+      );
+    }
+    const payload = await response.json();
+    const { app, config, source, workflowCaller } = payload ?? {};
+    if (
+      app?.repoId !== repositoryId ||
+      app?.repoFullName !== fullName ||
+      source?.sha !== sourceSha ||
+      !SOURCE_REF_PATTERN.test(source?.ref ?? "") ||
+      source.ref !== FLEET_DEFAULT_REF ||
+      !CONFIG_ID_PATTERN.test(source?.observationId ?? "") ||
+      source?.payload === null ||
+      typeof source?.payload !== "object" ||
+      Array.isArray(source.payload) ||
+      config?.status !== "ACTIVE" ||
+      !CONFIG_ID_PATTERN.test(config?.id ?? "") ||
+      !Number.isSafeInteger(config?.revision) ||
+      config.revision < 1 ||
+      !SNAPSHOT_DIGEST_PATTERN.test(config?.digest ?? "") ||
+      config.signature === undefined ||
+      config.signature === null ||
+      workflowCaller === null ||
+      typeof workflowCaller !== "object" ||
+      canonicalJson(Object.keys(workflowCaller).sort()) !==
+        canonicalJson(["packageManager", "profile", "workingDirectory"]) ||
+      !Object.hasOwn(WORKFLOW_BY_PROFILE, workflowCaller.profile) ||
+      !["npm", "pnpm"].includes(workflowCaller.packageManager) ||
+      !SAFE_RELATIVE_DIRECTORY.test(workflowCaller.workingDirectory ?? "")
+    ) {
+      throw new Error("BACKOFFICE_MANIFEST_RESPONSE_INVALID");
+    }
+    return {
+      state: "ACTIVE",
+      repositoryId,
+      fullName,
+      sourceSha,
+      sourceRef: source.ref,
+      observationId: source.observationId,
+      sourcePayloadDigest: sha256(canonicalJson(source.payload)),
+      profile: workflowCaller.profile,
+      packageManager: workflowCaller.packageManager,
+      workingDirectory: workflowCaller.workingDirectory,
+      configId: config.id,
+      configRevision: config.revision,
+      snapshotDigest: config.digest,
+      configSignatureDigest: sha256(canonicalJson(config.signature)),
+    };
+  };
+}
+
+function normalizeCallerManifest(value) {
+  let manifest;
+  try {
+    manifest = structuredClone(value);
+  } catch {
+    return undefined;
+  }
+  const expectedKeys = [
+    "configId",
+    "configRevision",
+    "configSignatureDigest",
+    "fullName",
+    "observationId",
+    "packageManager",
+    "profile",
+    "repositoryId",
+    "snapshotDigest",
+    "sourcePayloadDigest",
+    "sourceRef",
+    "sourceSha",
+    "state",
+    "workingDirectory",
+  ];
+  if (
+    manifest === null ||
+    typeof manifest !== "object" ||
+    canonicalJson(Object.keys(manifest).sort()) !== canonicalJson(expectedKeys) ||
+    manifest.state !== "ACTIVE" ||
+    !REPOSITORY_ID_PATTERN.test(manifest.repositoryId ?? "") ||
+    !REPOSITORY_FULL_NAME_PATTERN.test(manifest.fullName ?? "") ||
+    !SHA_PATTERN.test(manifest.sourceSha ?? "") ||
+    !SOURCE_REF_PATTERN.test(manifest.sourceRef ?? "") ||
+    !CONFIG_ID_PATTERN.test(manifest.observationId ?? "") ||
+    !SHA256_PATTERN.test(manifest.sourcePayloadDigest ?? "") ||
+    !Object.hasOwn(WORKFLOW_BY_PROFILE, manifest.profile) ||
+    !["npm", "pnpm"].includes(manifest.packageManager) ||
+    !SAFE_RELATIVE_DIRECTORY.test(manifest.workingDirectory ?? "") ||
+    !CONFIG_ID_PATTERN.test(manifest.configId ?? "") ||
+    !Number.isSafeInteger(manifest.configRevision) ||
+    manifest.configRevision < 1 ||
+    !SNAPSHOT_DIGEST_PATTERN.test(manifest.snapshotDigest ?? "") ||
+    !SHA256_PATTERN.test(manifest.configSignatureDigest ?? "")
+  ) {
+    return undefined;
+  }
+  return Object.freeze(manifest);
+}
+
+function repositoryContextMatches(context, manifest) {
+  return (
+    context !== null &&
+    typeof context === "object" &&
+    REPOSITORY_ID_PATTERN.test(context.repositoryId ?? "") &&
+    context.repositoryId === manifest.repositoryId &&
+    context.fullName === manifest.fullName &&
+    context.sourceSha === manifest.sourceSha
+  );
+}
+
+export async function loadResolvedCallerBinding(
+  repositoryContext,
+  { trustedResolvedManifestReadback } = {},
+) {
+  if (
+    typeof trustedResolvedManifestReadback !== "function" ||
+    repositoryContext === null ||
+    typeof repositoryContext !== "object" ||
+    !REPOSITORY_ID_PATTERN.test(repositoryContext.repositoryId ?? "") ||
+    !REPOSITORY_FULL_NAME_PATTERN.test(repositoryContext.fullName ?? "") ||
+    !SHA_PATTERN.test(repositoryContext.sourceSha ?? "")
+  ) {
+    throw new Error("CALLER_MANIFEST_READBACK_REQUIRED");
+  }
+  let manifest;
+  try {
+    manifest = normalizeCallerManifest(
+      await trustedResolvedManifestReadback({
+        repositoryId: repositoryContext.repositoryId,
+        fullName: repositoryContext.fullName,
+        sourceSha: repositoryContext.sourceSha,
+      }),
+    );
+  } catch {
+    throw new Error("CALLER_MANIFEST_READBACK_FAILED");
+  }
+  if (!manifest || !repositoryContextMatches(repositoryContext, manifest)) {
+    throw new Error("CALLER_MANIFEST_MISMATCH");
+  }
+  const expiresAtMs = Date.now() + APPROVED_BINDING_TTL_MS;
+  const binding = Object.freeze({
+    repositoryId: manifest.repositoryId,
+    fullName: manifest.fullName,
+    sourceSha: manifest.sourceSha,
+    sourceRef: manifest.sourceRef,
+    observationId: manifest.observationId,
+    sourcePayloadDigest: manifest.sourcePayloadDigest,
+    configId: manifest.configId,
+    configRevision: manifest.configRevision,
+    snapshotDigest: manifest.snapshotDigest,
+    expiresAt: new Date(expiresAtMs).toISOString(),
+  });
+  TRUSTED_CALLER_BINDINGS.set(
+    binding,
+    Object.freeze({
+      expiresAtMs,
+      manifest,
+      trustedResolvedManifestReadback,
+    }),
+  );
+  return binding;
+}
+
+async function verifyCallerBinding(binding, repositoryContext) {
+  const state =
+    binding !== null && typeof binding === "object"
+      ? TRUSTED_CALLER_BINDINGS.get(binding)
+      : undefined;
+  if (!state) return { diagnostic: "CALLER_BINDING_REQUIRED" };
+  if (Date.now() >= state.expiresAtMs) {
+    return { diagnostic: "CALLER_BINDING_EXPIRED" };
+  }
+  if (!repositoryContextMatches(repositoryContext, state.manifest)) {
+    return { diagnostic: "CALLER_REPOSITORY_CONTEXT_MISMATCH" };
+  }
+  try {
+    const observed = normalizeCallerManifest(
+      await state.trustedResolvedManifestReadback({
+        repositoryId: state.manifest.repositoryId,
+        fullName: state.manifest.fullName,
+        sourceSha: state.manifest.sourceSha,
+      }),
+    );
+    if (!observed) {
+      return { diagnostic: "CALLER_MANIFEST_REVOKED" };
+    }
+    if (canonicalJson(observed) !== canonicalJson(state.manifest)) {
+      return { diagnostic: "CALLER_MANIFEST_CHANGED" };
+    }
+    if (Date.now() >= state.expiresAtMs) {
+      return { diagnostic: "CALLER_BINDING_EXPIRED" };
+    }
+  } catch {
+    return { diagnostic: "CALLER_MANIFEST_READBACK_FAILED" };
   }
   return { state };
 }
@@ -703,7 +1171,7 @@ function containsSecretInheritance(value) {
 
 export async function validateOrgContractCaller(
   text,
-  { approvedBundleBinding } = {},
+  { approvedBundleBinding, callerBinding, repositoryContext } = {},
 ) {
   const parsed = parseCaller(text);
   if (parsed.diagnostic) {
@@ -714,6 +1182,14 @@ export async function validateOrgContractCaller(
   const bindingVerification = await verifyBundleBinding(approvedBundleBinding);
   const trustedBinding = bindingVerification.state;
   if (!trustedBinding) diagnostics.push(bindingVerification.diagnostic);
+  const callerBindingVerification = await verifyCallerBinding(
+    callerBinding,
+    repositoryContext,
+  );
+  const trustedCallerBinding = callerBindingVerification.state;
+  if (!trustedCallerBinding) {
+    diagnostics.push(callerBindingVerification.diagnostic);
+  }
 
   const allowedTopLevel = new Set([
     "name",
@@ -815,17 +1291,26 @@ export async function validateOrgContractCaller(
   }
 
   const profile = usesMatch ? PROFILE_BY_WORKFLOW[usesMatch[1]] : undefined;
+  const expectedCaller = trustedCallerBinding?.manifest;
   const approvedWorkflow =
-    trustedBinding && profile
-      ? trustedBinding.workflowByProfile[profile]
+    trustedBinding && expectedCaller
+      ? trustedBinding.workflowByProfile[expectedCaller.profile]
       : undefined;
   if (
     usesMatch &&
     (!approvedWorkflow ||
+      profile !== expectedCaller?.profile ||
       usesMatch[1] !== approvedWorkflow.path ||
       usesMatch[2] !== approvedWorkflow.sha)
   ) {
     diagnostics.push("CALLER_APPROVED_WORKFLOW_MISMATCH");
+  }
+  if (
+    expectedCaller &&
+    (withInputs.package_manager !== expectedCaller.packageManager ||
+      withInputs.working_directory !== expectedCaller.workingDirectory)
+  ) {
+    diagnostics.push("CALLER_RESOLVED_INPUT_MISMATCH");
   }
   return {
     ok: diagnostics.length === 0,
@@ -835,32 +1320,49 @@ export async function validateOrgContractCaller(
   };
 }
 
-export async function generateOrgContractCaller({
-  profile,
-  approvedBundleBinding,
-  workingDirectory = ".",
-  packageManager = "pnpm",
-} = {}) {
-  if (!WORKFLOW_BY_PROFILE[profile]) {
-    throw new Error("PROFILE_NEEDS_INPUT");
+export async function generateOrgContractCaller(options = {}) {
+  const allowedKeys = ["approvedBundleBinding", "callerBinding"];
+  if (
+    options === null ||
+    typeof options !== "object" ||
+    Object.keys(options).some((key) => !allowedKeys.includes(key))
+  ) {
+    throw new Error("CALLER_GENERATION_INPUT_FORBIDDEN");
   }
-  const bindingState = bundleBindingState(approvedBundleBinding);
-  if (!bindingState) {
-    throw new Error("APPROVED_BUNDLE_BINDING_REQUIRED");
+  const { approvedBundleBinding, callerBinding } = options;
+  const bundleVerification = await verifyBundleBinding(approvedBundleBinding);
+  if (!bundleVerification.state) {
+    throw new Error(bundleVerification.diagnostic);
   }
-  const approvedWorkflow = bindingState.workflowByProfile[profile];
+  const callerState =
+    callerBinding !== null && typeof callerBinding === "object"
+      ? TRUSTED_CALLER_BINDINGS.get(callerBinding)
+      : undefined;
+  if (!callerState) {
+    throw new Error("CALLER_BINDING_REQUIRED");
+  }
+  const repositoryContext = {
+    repositoryId: callerState.manifest.repositoryId,
+    fullName: callerState.manifest.fullName,
+    sourceSha: callerState.manifest.sourceSha,
+  };
+  const callerVerification = await verifyCallerBinding(
+    callerBinding,
+    repositoryContext,
+  );
+  if (!callerVerification.state) {
+    throw new Error(callerVerification.diagnostic);
+  }
+  const { profile, packageManager, workingDirectory } =
+    callerVerification.state.manifest;
+  const approvedWorkflow =
+    bundleVerification.state.workflowByProfile[profile];
   if (
     !approvedWorkflow ||
     approvedWorkflow.path !== WORKFLOW_BY_PROFILE[profile] ||
     !SHA_PATTERN.test(approvedWorkflow.sha)
   ) {
     throw new Error("APPROVED_WORKFLOW_MISSING");
-  }
-  if (!SAFE_RELATIVE_DIRECTORY.test(workingDirectory)) {
-    throw new Error("WORKING_DIRECTORY_INVALID");
-  }
-  if (!["npm", "pnpm"].includes(packageManager)) {
-    throw new Error("PACKAGE_MANAGER_INVALID");
   }
 
   const caller = {
@@ -897,6 +1399,8 @@ export async function generateOrgContractCaller({
   ].join("\n");
   const validation = await validateOrgContractCaller(rendered, {
     approvedBundleBinding,
+    callerBinding,
+    repositoryContext,
   });
   if (!validation.ok) {
     throw new Error(`GENERATED_CALLER_INVALID:${validation.diagnostics.join(",")}`);
