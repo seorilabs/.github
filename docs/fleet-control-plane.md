@@ -65,6 +65,10 @@ GitHub App reconciler는 repository 생성·rename·archive·default push event�
 탐지한다. 정확히 하나의 profile이 확인되면 아래 generator 결과로 bootstrap PR을 만들고,
 여러 후보면 caller를 추측하지 않고 `needs_input`을 기록한다.
 
+webhook 검증, durable delivery, operation별 최소 권한과 운영 전 gate는
+[Fleet zero-touch repository bootstrap](ci-cd/fleet-zero-touch-bootstrap.md)에 고정한다.
+현재 구현은 secret-free 계획 코어이며 trusted mutation adapter를 배포한 상태가 아니다.
+
 로컬 CLI는 caller를 생성하거나 승인하지 않는다. trusted approval key와 registry readback을
 가진 GitHub App reconciler만 `loadApprovedWorkflowBundle`로 승인 binding을 만든 뒤
 `generateOrgContractCaller`와 `validateOrgContractCaller`를 호출할 수 있다. 임의의 40자리

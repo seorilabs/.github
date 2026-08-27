@@ -254,7 +254,7 @@ test("GitHub source adapter는 fixed public origin의 exact commit Contents만 d
     cached.runtimeAssetContents[".github/workflows/rn-static-checks-v2.yml"],
     /name: RN Static Checks v2/u,
   );
-  assert.equal(requested.length, 1 + 9 + 5);
+  assert.equal(requested.length, 1 + 10 + 5);
 });
 
 test("존재하지 않는 GitHub source SHA는 APPROVED 승격 전에 거부한다", async () => {
