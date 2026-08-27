@@ -1,7 +1,9 @@
 export { TrustedAdapterRegistry } from './adapters.mjs';
 export { SeoriAuthError } from './errors.mjs';
-export { executeLease } from './executor.mjs';
+export { DurableAuthState, HUMAN_REAUTH_REQUIRED, normalizeExecutionBinding, normalizePublicIdentity } from './durable-state.mjs';
+export { executeConsumedLease, executeLease } from './executor.mjs';
 export { LEASE_TTL_MS, LeaseStore } from './lease-store.mjs';
+export { LocalAuthDaemon } from './local-daemon.mjs';
 export { PolicyEngine } from './policy.mjs';
 export { classifyReauth, REAUTH_CLASSIFICATIONS } from './reauth.mjs';
 export { normalizeHttpsOrigin, normalizeLeaseRequest } from './validation.mjs';

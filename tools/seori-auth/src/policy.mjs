@@ -5,6 +5,7 @@ const POLICY_KEYS = new Set(['$schema', 'schemaVersion', 'generation', 'rules'])
 const RULE_KEYS = new Set([
   'id',
   'enabled',
+  'credentialRefs',
   'subjects',
   'repositories',
   'runIds',
@@ -85,6 +86,7 @@ function normalizeRule(rule, index) {
   return Object.freeze({
     id: rule.id,
     enabled: rule.enabled,
+    credentialRefs: stringList(rule.credentialRefs, `rules[${index}].credentialRefs`),
     subjects: stringList(rule.subjects, `rules[${index}].subjects`),
     repositories: stringList(rule.repositories, `rules[${index}].repositories`),
     runIds: stringList(rule.runIds, `rules[${index}].runIds`),
@@ -121,6 +123,7 @@ function matchesRule(rule, request) {
 
   return (
     rule.enabled &&
+    rule.credentialRefs.includes(request.credentialRef) &&
     rule.subjects.includes(request.subject) &&
     rule.repositories.includes(request.repository) &&
     rule.runIds.includes(request.runId) &&

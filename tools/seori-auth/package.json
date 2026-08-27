@@ -2,7 +2,7 @@
   "name": "@seorilabs/seori-auth",
   "version": "0.1.0",
   "private": true,
-  "description": "Secret-nonexporting capability lease broker primitives for Seorilabs automation",
+  "description": "Secret-nonexporting capability broker core and Unix socket reference daemon for Seorilabs automation",
   "type": "module",
   "engines": {
     "node": "24.x"

@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 
 import { fail, SeoriAuthError } from './errors.mjs';
-import { redactOutput } from './redaction.mjs';
 
 function auditSafely(onAudit, event) {
   try {
@@ -28,23 +27,24 @@ async function runChild({ adapter, secretBuffer }) {
     windowsHide: true,
   });
 
-  const stdoutChunks = [];
-  const stderrChunks = [];
   let outputBytes = 0;
   let exceeded = false;
 
-  const capture = (chunks) => (chunk) => {
+  const discardBounded = (chunk) => {
     outputBytes += chunk.length;
     if (outputBytes > adapter.maxOutputBytes) {
       exceeded = true;
       child.kill('SIGKILL');
-      return;
     }
-    chunks.push(Buffer.from(chunk));
+    if (Buffer.isBuffer(chunk)) {
+      chunk.fill(0);
+    }
   };
 
-  child.stdout.on('data', capture(stdoutChunks));
-  child.stderr.on('data', capture(stderrChunks));
+  // Adapter output is untrusted and may contain transformed credential data.
+  // Count it for a hard bound, but never retain or return either channel.
+  child.stdout.on('data', discardBounded);
+  child.stderr.on('data', discardBounded);
   child.stdio[3].on('error', () => {
     // Early child exit can close fd3 before the write completes; process exit remains authoritative.
   });
@@ -71,12 +71,7 @@ async function runChild({ adapter, secretBuffer }) {
     fail('adapter_output_limit', 'trusted adapter exceeded its output limit');
   }
 
-  const secret = secretBuffer.toString('utf8');
-  return Object.freeze({
-    ...result,
-    stdout: redactOutput(Buffer.concat(stdoutChunks).toString('utf8'), secret),
-    stderr: redactOutput(Buffer.concat(stderrChunks).toString('utf8'), secret),
-  });
+  return Object.freeze(result);
 }
 
 export async function executeLease({
@@ -95,6 +90,15 @@ export async function executeLease({
     currentCredentialGeneration,
     currentPolicyGeneration,
   });
+  return executeConsumedLease({ consumed, registry, loadSecret, onAudit });
+}
+
+export async function executeConsumedLease({
+  consumed,
+  registry,
+  loadSecret,
+  onAudit = () => {},
+}) {
   const adapter = registry.require(consumed.binding.adapterId, consumed.binding);
   const auditBase = {
     event: 'lease_execution',

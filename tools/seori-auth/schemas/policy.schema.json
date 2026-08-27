@@ -18,6 +18,7 @@
         "required": [
           "id",
           "enabled",
+          "credentialRefs",
           "subjects",
           "repositories",
           "runIds",
@@ -36,6 +37,15 @@
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
           "enabled": { "type": "boolean" },
+          "credentialRefs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^(shared|app)/[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)+$"
+            }
+          },
           "subjects": { "$ref": "#/$defs/nonEmptyStrings" },
           "repositories": { "$ref": "#/$defs/nonEmptyStrings" },
           "runIds": { "$ref": "#/$defs/nonEmptyStrings" },

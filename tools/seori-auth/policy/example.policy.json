@@ -6,6 +6,9 @@
     {
       "id": "apps-in-toss-private-bundle-upload",
       "enabled": true,
+      "credentialRefs": [
+        "shared/apps-in-toss/operator"
+      ],
       "subjects": [
         "k8s:release-workers:seori-release-worker"
       ],

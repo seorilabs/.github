@@ -20,7 +20,7 @@ function testAdapter(overrides = {}) {
   };
 }
 
-test('secret is injected through fd3 and removed from returned outputs and audit', async () => {
+test('secret is injected through fd3 while all child output channels are discarded', async () => {
   const canary = 'canary-password-value';
   const secretBuffer = Buffer.from(canary);
   const auditEvents = [];
@@ -40,9 +40,9 @@ test('secret is injected through fd3 and removed from returned outputs and audit
   });
 
   assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /\[REDACTED\]/);
-  assert.doesNotMatch(result.stdout, new RegExp(canary));
-  assert.doesNotMatch(result.stderr, new RegExp(canary));
+  assert.deepEqual(Object.keys(result).sort(), ['exitCode', 'signal']);
+  assert.doesNotMatch(JSON.stringify(result), new RegExp(canary));
+  assert.doesNotMatch(JSON.stringify(result), new RegExp(Buffer.from(canary).toString('base64')));
   assert.doesNotMatch(JSON.stringify(auditEvents), new RegExp(canary));
   assert.ok(secretBuffer.every((byte) => byte === 0), 'secret buffer must be zeroed after execution');
 });

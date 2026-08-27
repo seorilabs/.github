@@ -1,0 +1,66 @@
+# NON-DEPLOYABLE REFERENCE. Do not apply this manifest. It intentionally lacks the
+# production peer attestor, broker-held journal integrity, and RLIMIT_CORE=0 gate.
+# Image digests and the pre-provisioned PVC are placeholders; CI never applies it.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: seori-auth-local-example
+  namespace: seori-auth-workloads
+  labels:
+    app.kubernetes.io/name: seori-auth-local-example
+  annotations:
+    seorilabs.io/deployable: "false"
+    seorilabs.io/blocker: "peer-attestor-journal-integrity-core-dump-limit"
+spec:
+  serviceAccountName: seori-auth-local-pod
+  automountServiceAccountToken: false
+  enableServiceLinks: false
+  shareProcessNamespace: false
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: broker
+      image: example.invalid/seori-auth-broker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      args: ["--socket", "/run/seori-auth/private/broker.sock", "--state", "/var/lib/seori-auth/private"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+      volumeMounts:
+        - name: broker-socket
+          mountPath: /run/seori-auth
+        - name: broker-state
+          mountPath: /var/lib/seori-auth
+        - name: broker-api-token
+          mountPath: /var/run/secrets/seori-auth
+          readOnly: true
+    - name: worker
+      image: example.invalid/seori-auth-worker@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+      volumeMounts:
+        - name: broker-socket
+          mountPath: /run/seori-auth
+          readOnly: true
+  volumes:
+    - name: broker-socket
+      emptyDir:
+        medium: Memory
+    - name: broker-state
+      persistentVolumeClaim:
+        claimName: seori-auth-state
+    - name: broker-api-token
+      projected:
+        defaultMode: 0400
+        sources:
+          - serviceAccountToken:
+              audience: https://kubernetes.default.svc
+              expirationSeconds: 600
+              path: token
