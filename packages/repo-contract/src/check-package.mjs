@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
-import { pathToFileURL } from "node:url";
 
 import {
   clean,
@@ -218,20 +217,26 @@ try {
   if (!installedCheck.stdout.includes("계약 검증 통과")) {
     throw new Error("설치된 repo-contract CLI가 fixture를 검증하지 못했습니다.");
   }
-  const installedBootstrap = await import(
-    pathToFileURL(
-      resolve(
-        consumerRoot,
-        "node_modules/@seorilabs/repo-contract/src/bootstrap.mjs",
-      ),
-    ).href
+  const installedBootstrapCheck = await execFileAsync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'const installed = await import("@seorilabs/repo-contract/bootstrap");',
+        'if (typeof installed.createFleetWebhookHandler !== "function") process.exit(1);',
+        'if (typeof installed.validateFleetBootstrapPlan !== "function") process.exit(1);',
+        'if (installed.fleetBootstrapContract?.webhookCredentialId !== "shared/github/fleet-app-webhook") process.exit(1);',
+        'process.stdout.write("Fleet bootstrap public export 검증 통과\\n");',
+      ].join("\n"),
+    ],
+    {
+      cwd: consumerRoot,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    },
   );
-  if (
-    typeof installedBootstrap.createFleetWebhookHandler !== "function" ||
-    typeof installedBootstrap.validateFleetBootstrapPlan !== "function" ||
-    installedBootstrap.fleetBootstrapContract?.webhookCredentialId !==
-      "shared/github/fleet-app-webhook"
-  ) {
+  if (!installedBootstrapCheck.stdout.includes("public export 검증 통과")) {
     throw new Error("배포된 repo-contract에 Fleet bootstrap API가 없습니다.");
   }
 } catch (error) {

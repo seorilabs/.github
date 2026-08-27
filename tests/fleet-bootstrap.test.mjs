@@ -232,9 +232,9 @@ async function harness({
       readRepository ??
       (async () =>
         readback ?? {
-          repositoryId: REPOSITORY_ID,
+          repositoryId: Number(REPOSITORY_ID),
           fullName: payload.repository.full_name,
-          organizationId: ORGANIZATION_ID,
+          organizationId: Number(ORGANIZATION_ID),
           private: payload.repository.private,
           archived: payload.repository.archived,
           defaultBranch: payload.repository.default_branch,
@@ -265,6 +265,7 @@ test("서명된 신규 private repo는 중앙 caller bootstrap 계획을 만든�
   const result = await handler(signedRequest(payload));
 
   assert.equal(result.outcome, "READY");
+  assert.equal(result.repository.id, REPOSITORY_ID);
   assert.deepEqual(
     result.operations.map(({ kind }) => kind),
     [

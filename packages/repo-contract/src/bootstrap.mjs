@@ -118,8 +118,13 @@ function exactKeys(value, keys) {
 }
 
 function safeIntegerString(value) {
-  if (!Number.isSafeInteger(value) || value < 1) return undefined;
-  const stringValue = String(value);
+  const stringValue =
+    typeof value === "string"
+      ? value
+      : Number.isSafeInteger(value) && value > 0
+        ? String(value)
+        : undefined;
+  if (stringValue === undefined) return undefined;
   return REPOSITORY_ID_PATTERN.test(stringValue) ? stringValue : undefined;
 }
 
@@ -185,6 +190,8 @@ function normalizeEvent(eventName, payload, configuration) {
 }
 
 function validateReadback(readback, expected, pushedSha) {
+  const repositoryId = safeIntegerString(readback?.repositoryId);
+  const organizationId = safeIntegerString(readback?.organizationId);
   if (
     !exactKeys(readback, [
       "archived",
@@ -195,9 +202,9 @@ function validateReadback(readback, expected, pushedSha) {
       "repositoryId",
       "sourceSha",
     ]) ||
-    readback.repositoryId !== expected.id ||
+    repositoryId !== expected.id ||
     readback.fullName !== expected.fullName ||
-    readback.organizationId === undefined ||
+    !organizationId ||
     readback.private !== expected.private ||
     readback.archived !== expected.archived ||
     readback.defaultBranch !== expected.defaultBranch ||
@@ -206,7 +213,11 @@ function validateReadback(readback, expected, pushedSha) {
   ) {
     throw new Error("REPOSITORY_READBACK_MISMATCH");
   }
-  return Object.freeze(structuredClone(readback));
+  return deepFreeze({
+    ...structuredClone(readback),
+    repositoryId,
+    organizationId,
+  });
 }
 
 function validateObservedState(value) {
