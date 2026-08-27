@@ -7,8 +7,11 @@ export const REAUTH_CLASSIFICATIONS = Object.freeze({
   trusted_device_required: Object.freeze({ humanRequired: true, retryAutomatically: false }),
   captcha_required: Object.freeze({ humanRequired: true, retryAutomatically: false }),
   passkey_required: Object.freeze({ humanRequired: true, retryAutomatically: false }),
+  sms_required: Object.freeze({ humanRequired: true, retryAutomatically: false }),
+  push_required: Object.freeze({ humanRequired: true, retryAutomatically: false }),
   sso_required: Object.freeze({ humanRequired: true, retryAutomatically: false }),
   account_recovery_required: Object.freeze({ humanRequired: true, retryAutomatically: false }),
+  terms_acceptance_required: Object.freeze({ humanRequired: true, retryAutomatically: false }),
   policy_blocked: Object.freeze({ humanRequired: true, retryAutomatically: false }),
 });
 

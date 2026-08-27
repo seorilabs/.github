@@ -9,6 +9,7 @@ export function makePolicy(ruleOverrides = {}, policyOverrides = {}) {
       {
         id: 'private-upload',
         enabled: true,
+        credentialRefs: ['shared/apps-in-toss/operator'],
         subjects: ['k8s:release-workers:worker-a'],
         repositories: ['seorilabs/example-app'],
         runIds: ['github:123'],

@@ -12,6 +12,21 @@ test('logical credential references are required', () => {
   );
 });
 
+test('logical credential reference is an exact policy binding', () => {
+  const engine = new PolicyEngine(makePolicy());
+  assert.throws(
+    () => engine.authorize(makeRequest({ credentialRef: 'shared/apps-in-toss/other-operator' })),
+    (error) => error instanceof SeoriAuthError && error.code === 'capability_forbidden',
+  );
+});
+
+test('invalid logical credential references fail policy validation explicitly', () => {
+  assert.throws(
+    () => new PolicyEngine(makePolicy({ credentialRefs: ['Shared/apps-in-toss/operator'] })),
+    (error) => error instanceof SeoriAuthError && error.code === 'invalid_policy',
+  );
+});
+
 test('audit-bound identifiers reject control characters', () => {
   const engine = new PolicyEngine(makePolicy());
   assert.throws(

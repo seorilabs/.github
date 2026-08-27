@@ -1,3 +1,4 @@
+# NON-DEPLOYABLE REFERENCE. See README deployment gates; do not apply directly.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -39,9 +40,9 @@ subjects:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: seori-auth-broker
-  namespace: seori-auth-system
-automountServiceAccountToken: true
+  name: seori-auth-local-pod
+  namespace: seori-auth-workloads
+automountServiceAccountToken: false
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -65,5 +66,5 @@ roleRef:
   name: seori-auth-execution-copy-reader
 subjects:
   - kind: ServiceAccount
-    name: seori-auth-broker
-    namespace: seori-auth-system
+    name: seori-auth-local-pod
+    namespace: seori-auth-workloads
