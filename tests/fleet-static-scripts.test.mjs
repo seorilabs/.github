@@ -167,3 +167,21 @@ test("provenance는 caller SHA를 중앙 workflow SHA로 가장할 수 없다", 
     /SEORI_WORKFLOW_REF_INVALID/u,
   );
 });
+
+test("provenance profile은 exact reusable workflow path와 일치해야 한다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "fleet-provenance-profile-"));
+  temporaryRoots.push(root);
+  await assert.rejects(
+    writeProvenance({
+      outputPath: join(root, "provenance.json"),
+      profile: "godot",
+      environment: {
+        GITHUB_SHA: "a".repeat(40),
+        SEORI_WORKFLOW_REPOSITORY: "seorilabs/.github",
+        SEORI_WORKFLOW_REF: `seorilabs/.github/.github/workflows/rn-static-checks-v2.yml@${"b".repeat(40)}`,
+        SEORI_WORKFLOW_SHA: "b".repeat(40),
+      },
+    }),
+    /SEORI_WORKFLOW_REF_INVALID/u,
+  );
+});

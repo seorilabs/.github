@@ -51,7 +51,8 @@ const ACTION_REPOSITORY_BY_KEY = Object.freeze({
 });
 const APPROVAL_REGISTRY_ID = "seorilabs-workflow-bundles-v1";
 const APPROVAL_KEY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
-const TRUSTED_BUNDLE_BINDINGS = new WeakSet();
+const APPROVED_BINDING_TTL_MS = 5 * 60 * 1000;
+const TRUSTED_BUNDLE_BINDINGS = new WeakMap();
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const SAFE_RELATIVE_DIRECTORY = /^(?:\.|[A-Za-z0-9._@-]+(?:\/[A-Za-z0-9._@-]+)*)$/u;
@@ -628,17 +629,46 @@ export async function loadApprovedWorkflowBundle(
     bundleDigest: bundle.integrity.payloadDigest,
     sourceSha: bundle.source.sha,
     workflowByProfile,
+    expiresAt: new Date(Date.now() + APPROVED_BINDING_TTL_MS).toISOString(),
   });
-  TRUSTED_BUNDLE_BINDINGS.add(binding);
+  TRUSTED_BUNDLE_BINDINGS.set(
+    binding,
+    Object.freeze({
+      expiresAtMs: Date.parse(binding.expiresAt),
+      bundle,
+      workflowByProfile,
+      trustedRegistryReadback,
+    }),
+  );
   return binding;
 }
 
-function isTrustedBundleBinding(binding) {
-  return (
-    binding !== null &&
-    typeof binding === "object" &&
-    TRUSTED_BUNDLE_BINDINGS.has(binding)
-  );
+function bundleBindingState(binding) {
+  if (binding === null || typeof binding !== "object") return undefined;
+  return TRUSTED_BUNDLE_BINDINGS.get(binding);
+}
+
+async function verifyBundleBinding(binding) {
+  const state = bundleBindingState(binding);
+  if (!state) return { diagnostic: "APPROVED_BUNDLE_BINDING_REQUIRED" };
+  if (Date.now() >= state.expiresAtMs) {
+    return { diagnostic: "APPROVED_BUNDLE_BINDING_EXPIRED" };
+  }
+  try {
+    const record = await state.trustedRegistryReadback({
+      registryId: state.bundle.approval.registry.id,
+      subject: state.bundle.approval.registry.subject,
+      bundleDigest: state.bundle.integrity.payloadDigest,
+      sourceSha: state.bundle.source.sha,
+      bundleVersion: state.bundle.bundleVersion,
+    });
+    if (!registryRecordMatches(record, state.bundle)) {
+      return { diagnostic: "APPROVED_BUNDLE_REGISTRY_REVOKED" };
+    }
+  } catch {
+    return { diagnostic: "APPROVED_BUNDLE_REGISTRY_READBACK_FAILED" };
+  }
+  return { state };
 }
 
 function parseCaller(text) {
@@ -671,7 +701,7 @@ function containsSecretInheritance(value) {
   return false;
 }
 
-export function validateOrgContractCaller(
+export async function validateOrgContractCaller(
   text,
   { approvedBundleBinding } = {},
 ) {
@@ -681,10 +711,9 @@ export function validateOrgContractCaller(
   }
   const caller = parsed.value;
   const diagnostics = [];
-  const trustedBinding = isTrustedBundleBinding(approvedBundleBinding);
-  if (!trustedBinding) {
-    diagnostics.push("APPROVED_BUNDLE_BINDING_REQUIRED");
-  }
+  const bindingVerification = await verifyBundleBinding(approvedBundleBinding);
+  const trustedBinding = bindingVerification.state;
+  if (!trustedBinding) diagnostics.push(bindingVerification.diagnostic);
 
   const allowedTopLevel = new Set([
     "name",
@@ -788,7 +817,7 @@ export function validateOrgContractCaller(
   const profile = usesMatch ? PROFILE_BY_WORKFLOW[usesMatch[1]] : undefined;
   const approvedWorkflow =
     trustedBinding && profile
-      ? approvedBundleBinding.workflowByProfile[profile]
+      ? trustedBinding.workflowByProfile[profile]
       : undefined;
   if (
     usesMatch &&
@@ -806,7 +835,7 @@ export function validateOrgContractCaller(
   };
 }
 
-export function generateOrgContractCaller({
+export async function generateOrgContractCaller({
   profile,
   approvedBundleBinding,
   workingDirectory = ".",
@@ -815,10 +844,11 @@ export function generateOrgContractCaller({
   if (!WORKFLOW_BY_PROFILE[profile]) {
     throw new Error("PROFILE_NEEDS_INPUT");
   }
-  if (!isTrustedBundleBinding(approvedBundleBinding)) {
+  const bindingState = bundleBindingState(approvedBundleBinding);
+  if (!bindingState) {
     throw new Error("APPROVED_BUNDLE_BINDING_REQUIRED");
   }
-  const approvedWorkflow = approvedBundleBinding.workflowByProfile[profile];
+  const approvedWorkflow = bindingState.workflowByProfile[profile];
   if (
     !approvedWorkflow ||
     approvedWorkflow.path !== WORKFLOW_BY_PROFILE[profile] ||
@@ -865,7 +895,7 @@ export function generateOrgContractCaller({
     stringify(caller, { lineWidth: 0 }).trimEnd(),
     "",
   ].join("\n");
-  const validation = validateOrgContractCaller(rendered, {
+  const validation = await validateOrgContractCaller(rendered, {
     approvedBundleBinding,
   });
   if (!validation.ok) {

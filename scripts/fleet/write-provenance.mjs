@@ -4,10 +4,18 @@ import { writeFile } from "node:fs/promises";
 import process from "node:process";
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
-const WORKFLOW_REF_PATTERN = /^seorilabs\/\.github\/\.github\/workflows\/(?:rn-static-checks-v2|godot-checks-v2)\.yml@[0-9a-f]{40}$/u;
+const WORKFLOW_PATH_BY_PROFILE = Object.freeze({
+  "react-native": ".github/workflows/rn-static-checks-v2.yml",
+  godot: ".github/workflows/godot-checks-v2.yml",
+});
 
-export async function writeProvenance({ outputPath, profile, environment = process.env }) {
-  if (!outputPath || !["react-native", "godot"].includes(profile)) {
+export async function writeProvenance({
+  outputPath,
+  profile,
+  environment = process.env,
+}) {
+  const expectedWorkflowPath = WORKFLOW_PATH_BY_PROFILE[profile];
+  if (!outputPath || !expectedWorkflowPath) {
     throw new Error("ARGUMENT_INVALID");
   }
   for (const name of ["GITHUB_SHA", "SEORI_WORKFLOW_SHA"]) {
@@ -18,9 +26,10 @@ export async function writeProvenance({ outputPath, profile, environment = proce
   if (environment.SEORI_WORKFLOW_REPOSITORY !== "seorilabs/.github") {
     throw new Error("SEORI_WORKFLOW_REPOSITORY_INVALID");
   }
+  const expectedWorkflowRef =
+    `seorilabs/.github/${expectedWorkflowPath}@${environment.SEORI_WORKFLOW_SHA}`;
   if (
-    !WORKFLOW_REF_PATTERN.test(environment.SEORI_WORKFLOW_REF ?? "") ||
-    !environment.SEORI_WORKFLOW_REF.endsWith(`@${environment.SEORI_WORKFLOW_SHA}`)
+    environment.SEORI_WORKFLOW_REF !== expectedWorkflowRef
   ) {
     throw new Error("SEORI_WORKFLOW_REF_INVALID");
   }

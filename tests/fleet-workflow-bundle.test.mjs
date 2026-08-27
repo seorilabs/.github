@@ -237,7 +237,7 @@ test("registry await 중 원본 bundle을 바꿔도 검증 snapshot과 caller SH
   approved.reusableWorkflows["react-native"].sha = STALE_SHA;
   releaseReadback();
   const binding = await loading;
-  const caller = generateOrgContractCaller({
+  const caller = await generateOrgContractCaller({
     profile: "react-native",
     approvedBundleBinding: binding,
   });
@@ -274,13 +274,13 @@ test("승격은 canary readback, Ed25519 signer, registry publisher를 모두 �
 test("generator와 validator는 trusted APPROVED bundle의 exact path와 SHA만 허용한다", async () => {
   const { binding } = await approvedFixture();
   for (const profile of ["react-native", "godot"]) {
-    const caller = generateOrgContractCaller({
+    const caller = await generateOrgContractCaller({
       profile,
       approvedBundleBinding: binding,
       workingDirectory: "apps/mobile",
       packageManager: "pnpm",
     });
-    const result = validateOrgContractCaller(caller, {
+    const result = await validateOrgContractCaller(caller, {
       approvedBundleBinding: binding,
     });
     assert.equal(result.ok, true, `${profile}: ${result.diagnostics}`);
@@ -289,7 +289,7 @@ test("generator와 validator는 trusted APPROVED bundle의 exact path와 SHA만 
     assert.doesNotMatch(caller, /secrets:|runs-on:/u);
 
     const stale = caller.replace(`@${SOURCE_SHA}`, `@${STALE_SHA}`);
-    const staleResult = validateOrgContractCaller(stale, {
+    const staleResult = await validateOrgContractCaller(stale, {
       approvedBundleBinding: binding,
     });
     assert.equal(staleResult.ok, false);
@@ -298,13 +298,37 @@ test("generator와 validator는 trusted APPROVED bundle의 exact path와 SHA만 
     );
   }
 
-  assert.throws(
-    () =>
+  await assert.rejects(
+    async () =>
       generateOrgContractCaller({
         profile: "react-native",
         workflowSha: SOURCE_SHA,
       }),
     /APPROVED_BUNDLE_BINDING_REQUIRED/u,
+  );
+});
+
+test("registry 승인 철회와 5분 binding 만료 뒤 caller 생성을 거부한다", async (t) => {
+  let now = 1_000_000;
+  t.mock.method(Date, "now", () => now);
+  const first = await approvedFixture();
+  first.registry.clear();
+  await assert.rejects(
+    generateOrgContractCaller({
+      profile: "react-native",
+      approvedBundleBinding: first.binding,
+    }),
+    /APPROVED_BUNDLE_REGISTRY_REVOKED/u,
+  );
+
+  const second = await approvedFixture();
+  now += 5 * 60 * 1000;
+  await assert.rejects(
+    generateOrgContractCaller({
+      profile: "godot",
+      approvedBundleBinding: second.binding,
+    }),
+    /APPROVED_BUNDLE_BINDING_EXPIRED/u,
   );
 });
 
@@ -314,8 +338,8 @@ test("candidate 또는 구조만 흉내 낸 객체로 caller binding을 만들 �
     loadApprovedWorkflowBundle(candidate),
     /APPROVED_BUNDLE_REQUIRED/u,
   );
-  assert.throws(
-    () =>
+  await assert.rejects(
+    async () =>
       generateOrgContractCaller({
         profile: "react-native",
         approvedBundleBinding: {
@@ -329,7 +353,7 @@ test("candidate 또는 구조만 흉내 낸 객체로 caller binding을 만들 �
 
 test("weak caller, secrets inherit, wrong runner와 weak trigger를 차단한다", async () => {
   const { binding } = await approvedFixture();
-  const valid = generateOrgContractCaller({
+  const valid = await generateOrgContractCaller({
     profile: "react-native",
     approvedBundleBinding: binding,
   });
@@ -349,19 +373,19 @@ test("weak caller, secrets inherit, wrong runner와 weak trigger를 차단한다
     "  pull_request: {}\n",
     "  schedule:\n    - cron: 0 0 * * *\n",
   );
-  const check = (caller) =>
+  const check = async (caller) =>
     validateOrgContractCaller(caller, { approvedBundleBinding: binding });
 
-  assert.ok(check(inherited).diagnostics.includes("SECRET_INHERITANCE_FORBIDDEN"));
-  assert.ok(check(arbitraryRunner).diagnostics.includes("THIN_CALLER_REQUIRED"));
-  assert.ok(check(skipped).diagnostics.includes("CALLER_JOB_POLICY_INVALID"));
-  assert.ok(check(weakTrigger).diagnostics.includes("CALLER_EVENTS_INVALID"));
+  assert.ok((await check(inherited)).diagnostics.includes("SECRET_INHERITANCE_FORBIDDEN"));
+  assert.ok((await check(arbitraryRunner)).diagnostics.includes("THIN_CALLER_REQUIRED"));
+  assert.ok((await check(skipped)).diagnostics.includes("CALLER_JOB_POLICY_INVALID"));
+  assert.ok((await check(weakTrigger)).diagnostics.includes("CALLER_EVENTS_INVALID"));
 });
 
 test("profile이 모호하면 caller를 추측 생성하지 않는다", async () => {
   const { binding } = await approvedFixture();
-  assert.throws(
-    () =>
+  await assert.rejects(
+    async () =>
       generateOrgContractCaller({
         profile: "unknown",
         approvedBundleBinding: binding,
