@@ -55,15 +55,14 @@
       "pattern": "^[a-z0-9][a-z0-9-]*$"
     },
     "origin": {
-      "type": "string",
-      "format": "uri"
+      "$ref": "#/$defs/exactHttpsOrigin"
     },
     "redirectOrigins": {
       "type": "array",
       "maxItems": 8,
+      "uniqueItems": true,
       "items": {
-        "type": "string",
-        "format": "uri"
+        "$ref": "#/$defs/exactHttpsOrigin"
       }
     },
     "capability": {
@@ -108,6 +107,13 @@
       "items": {
         "enum": ["api_key", "certificate", "oidc", "password", "session", "totp"]
       }
+    }
+  },
+  "$defs": {
+    "exactHttpsOrigin": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[^/?#@\\s]+$"
     }
   }
 }

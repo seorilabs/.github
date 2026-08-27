@@ -18,6 +18,7 @@ test('example policy and JSON schemas are parseable', async () => {
   assert.equal(new PolicyEngine(policy).generation, 1);
   assert.equal(policySchema.additionalProperties, false);
   assert.equal(leaseSchema.additionalProperties, false);
+  assert.equal(leaseSchema.properties.redirectOrigins.uniqueItems, true);
   assert.ok(
     [
       'subject',
@@ -31,6 +32,15 @@ test('example policy and JSON schemas are parseable', async () => {
       'artifact',
     ].every((field) => field === 'artifact' || leaseSchema.required.includes(field)),
   );
+
+  for (const schema of [policySchema, leaseSchema]) {
+    const exactOrigin = new RegExp(schema.$defs.exactHttpsOrigin.pattern);
+    assert.equal(exactOrigin.test('https://console.example.com'), true);
+    assert.equal(exactOrigin.test('http://console.example.com'), false);
+    assert.equal(exactOrigin.test('https://console.example.com/'), false);
+    assert.equal(exactOrigin.test('https://console.example.com/login'), false);
+    assert.equal(exactOrigin.test('https://console.example.com.evil.test/path'), false);
+  }
 });
 
 test('Kubernetes examples contain no secret value and grant workers no API rules', async () => {

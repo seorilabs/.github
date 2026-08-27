@@ -140,8 +140,12 @@ export function normalizeLeaseRequest(request) {
   if (!['dedicated_bot', 'human'].includes(request.accountKind)) {
     fail('invalid_request', 'accountKind must be dedicated_bot or human');
   }
-  if (!Array.isArray(request.redirectOrigins) || request.redirectOrigins.length > 8) {
-    fail('invalid_request', 'redirectOrigins must be an array with at most 8 entries');
+  if (
+    !Array.isArray(request.redirectOrigins) ||
+    request.redirectOrigins.length > 8 ||
+    new Set(request.redirectOrigins).size !== request.redirectOrigins.length
+  ) {
+    fail('invalid_request', 'redirectOrigins must be a unique array with at most 8 entries');
   }
   if (!Array.isArray(request.authFactors) || new Set(request.authFactors).size !== request.authFactors.length) {
     fail('invalid_request', 'authFactors must be a unique array');

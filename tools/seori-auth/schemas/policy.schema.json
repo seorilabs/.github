@@ -46,11 +46,16 @@
             "items": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
           },
           "providers": { "$ref": "#/$defs/nonEmptyStrings" },
-          "origins": { "$ref": "#/$defs/nonEmptyStrings" },
+          "origins": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/exactHttpsOrigin" }
+          },
           "redirectOrigins": {
             "type": "array",
             "uniqueItems": true,
-            "items": { "type": "string", "minLength": 1 }
+            "items": { "$ref": "#/$defs/exactHttpsOrigin" }
           },
           "capabilities": { "$ref": "#/$defs/nonEmptyStrings" },
           "resources": {
@@ -91,6 +96,11 @@
       "minItems": 1,
       "uniqueItems": true,
       "items": { "type": "string", "minLength": 1 }
+    },
+    "exactHttpsOrigin": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[^/?#@\\s]+$"
     }
   }
 }

@@ -67,6 +67,16 @@ test('every redirect origin must be explicitly allowlisted', () => {
   );
 });
 
+test('duplicate redirect origins are rejected before policy matching', () => {
+  const engine = new PolicyEngine(makePolicy());
+  assert.throws(
+    () => engine.authorize(makeRequest({
+      redirectOrigins: ['https://business.toss.im', 'https://business.toss.im'],
+    })),
+    (error) => error instanceof SeoriAuthError && error.code === 'invalid_request',
+  );
+});
+
 test('policy generation is exact', () => {
   const engine = new PolicyEngine(makePolicy());
   assert.throws(
