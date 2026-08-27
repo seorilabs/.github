@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 
 import {
   clean,
@@ -19,6 +20,7 @@ const requiredPackageFiles = [
   ".generated/contracts/agent-policy.yaml",
   ".generated/contracts/app.schema.json",
   ".generated/contracts/credential-consumer.schema.json",
+  ".generated/contracts/fleet-bootstrap-plan.schema.json",
   ".generated/contracts/markets/app-store.schema.json",
   ".generated/contracts/markets/apps-in-toss.schema.json",
   ".generated/contracts/markets/google-play.schema.json",
@@ -29,6 +31,7 @@ const requiredPackageFiles = [
   ".generated/profiles/react-native.yaml",
   "README.md",
   "src/cli.mjs",
+  "src/bootstrap.mjs",
 ];
 
 const cacheRoot = await mkdtemp(join(tmpdir(), "repo-contract-pack-cache-"));
@@ -214,6 +217,22 @@ try {
   });
   if (!installedCheck.stdout.includes("계약 검증 통과")) {
     throw new Error("설치된 repo-contract CLI가 fixture를 검증하지 못했습니다.");
+  }
+  const installedBootstrap = await import(
+    pathToFileURL(
+      resolve(
+        consumerRoot,
+        "node_modules/@seorilabs/repo-contract/src/bootstrap.mjs",
+      ),
+    ).href
+  );
+  if (
+    typeof installedBootstrap.createFleetWebhookHandler !== "function" ||
+    typeof installedBootstrap.validateFleetBootstrapPlan !== "function" ||
+    installedBootstrap.fleetBootstrapContract?.webhookCredentialId !==
+      "shared/github/fleet-app-webhook"
+  ) {
+    throw new Error("배포된 repo-contract에 Fleet bootstrap API가 없습니다.");
   }
 } catch (error) {
   checkError = error;

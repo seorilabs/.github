@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.com/contracts/fleet-bootstrap-plan.schema.json",
+  "title": "Seorilabs Fleet repository bootstrap plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "deliveryId",
+    "action",
+    "outcome",
+    "reason",
+    "repository",
+    "operations"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "deliveryId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+    },
+    "action": {
+      "enum": [
+        "created",
+        "renamed",
+        "archived",
+        "unarchived",
+        "default_push",
+        "repository",
+        "push"
+      ]
+    },
+    "outcome": {
+      "enum": [
+        "READY",
+        "BOOTSTRAP_PR_OPEN",
+        "WAITING_FOR_PR_SLOT",
+        "NEEDS_INPUT",
+        "ARCHIVED",
+        "IGNORED",
+        "DUPLICATE"
+      ]
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "AUTONOMOUS_PR_LIMIT_REACHED",
+        "CONFIG_INACTIVE",
+        "DEFAULT_BRANCH_NOT_MAIN",
+        "DELIVERY_ALREADY_APPLIED",
+        "EMPTY_REPOSITORY",
+        "MULTIPLE_CANDIDATES",
+        "NON_DEFAULT_PUSH_IGNORED",
+        "NO_CANDIDATE",
+        "PUBLIC_REPOSITORY_REQUIRES_POLICY",
+        "REPOSITORY_ACTION_IGNORED"
+      ]
+    },
+    "repository": { "$ref": "#/$defs/repository" },
+    "operations": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/observeOperation" },
+          { "$ref": "#/$defs/archiveOperation" },
+          { "$ref": "#/$defs/customPropertiesOperation" },
+          { "$ref": "#/$defs/environmentOperation" },
+          { "$ref": "#/$defs/ensurePullRequestOperation" },
+          { "$ref": "#/$defs/updatePullRequestOperation" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "fullName", "sourceSha"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
+        "fullName": {
+          "type": "string",
+          "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+        },
+        "sourceSha": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "observeOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "idempotencyKey", "payload"],
+      "properties": {
+        "kind": { "const": "control-plane.repository.observe" },
+        "idempotencyKey": { "$ref": "#/$defs/idempotencyKey" },
+        "payload": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["repository", "state", "profile"],
+              "properties": {
+                "repository": { "$ref": "#/$defs/repository" },
+                "state": { "const": "active" },
+                "profile": { "enum": ["react-native", "godot"] }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["repository", "state", "reason"],
+              "properties": {
+                "repository": { "$ref": "#/$defs/repository" },
+                "state": { "const": "needs_input" },
+                "reason": {
+                  "enum": [
+                    "CONFIG_INACTIVE",
+                    "DEFAULT_BRANCH_NOT_MAIN",
+                    "EMPTY_REPOSITORY",
+                    "MULTIPLE_CANDIDATES",
+                    "NO_CANDIDATE",
+                    "PUBLIC_REPOSITORY_REQUIRES_POLICY"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "archiveOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "idempotencyKey", "payload"],
+      "properties": {
+        "kind": { "const": "control-plane.repository.archive" },
+        "idempotencyKey": { "$ref": "#/$defs/idempotencyKey" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository"],
+          "properties": {
+            "repository": { "$ref": "#/$defs/repository" }
+          }
+        }
+      }
+    },
+    "customPropertiesOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "idempotencyKey", "payload"],
+      "properties": {
+        "kind": { "const": "github.custom-properties.ensure" },
+        "idempotencyKey": { "$ref": "#/$defs/idempotencyKey" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repositoryId", "repositoryFullName", "properties"],
+          "properties": {
+            "repositoryId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,31}$"
+            },
+            "repositoryFullName": {
+              "type": "string",
+              "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+            },
+            "properties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "fleet-managed",
+                "fleet-ruleset",
+                "fleet-profile",
+                "fleet-state"
+              ],
+              "properties": {
+                "fleet-managed": { "const": "true" },
+                "fleet-ruleset": { "const": "evaluate" },
+                "fleet-profile": { "enum": ["react-native", "godot"] },
+                "fleet-state": { "const": "active" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "environmentOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "idempotencyKey", "payload"],
+      "properties": {
+        "kind": { "const": "github.environment.ensure" },
+        "idempotencyKey": { "$ref": "#/$defs/idempotencyKey" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repositoryId",
+            "repositoryFullName",
+            "name",
+            "protectedBranches"
+          ],
+          "properties": {
+            "repositoryId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,31}$"
+            },
+            "repositoryFullName": {
+              "type": "string",
+              "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+            },
+            "name": { "const": "internal" },
+            "protectedBranches": { "const": true }
+          }
+        }
+      }
+    },
+    "pullRequestBase": {
+      "type": "object",
+      "required": [
+        "headRef",
+        "baseRef",
+        "sourceSha",
+        "path",
+        "content",
+        "contentDigest"
+      ],
+      "properties": {
+        "headRef": {
+          "type": "string",
+          "pattern": "^seori/fleet-bootstrap/[1-9][0-9]{0,31}$"
+        },
+        "baseRef": { "const": "main" },
+        "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "path": { "const": ".github/workflows/org-contract.yml" },
+        "content": { "type": "string", "minLength": 1, "maxLength": 65536 },
+        "contentDigest": { "$ref": "#/$defs/idempotencyKey" }
+      }
+    },
+    "ensurePullRequestOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "idempotencyKey", "payload"],
+      "properties": {
+        "kind": { "const": "github.bootstrap-pull-request.ensure" },
+        "idempotencyKey": { "$ref": "#/$defs/idempotencyKey" },
+        "payload": {
+          "type": "object",
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/pullRequestBase" },
+            {
+              "type": "object",
+              "required": ["title", "maximumOpenAutonomousPullRequests"],
+              "properties": {
+                "title": { "const": "Fleet 중앙 CI 호출자를 등록한다" },
+                "maximumOpenAutonomousPullRequests": { "const": 1 }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "updatePullRequestOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "idempotencyKey", "payload"],
+      "properties": {
+        "kind": { "const": "github.bootstrap-pull-request.update" },
+        "idempotencyKey": { "$ref": "#/$defs/idempotencyKey" },
+        "payload": {
+          "type": "object",
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/pullRequestBase" },
+            {
+              "type": "object",
+              "required": ["number"],
+              "properties": {
+                "number": { "type": "integer", "minimum": 1 }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -29,6 +29,7 @@ const WORKFLOW_BY_PROFILE = Object.freeze(
 );
 const CONTRACT_FILES = Object.freeze([
   "contracts/app.schema.json",
+  "contracts/fleet-bootstrap-plan.schema.json",
   "contracts/release-policy.yaml",
   "contracts/test-policy.yaml",
   "contracts/workflow-bundle.schema.json",

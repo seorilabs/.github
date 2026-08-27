@@ -14,6 +14,8 @@ repo-contract [저장소 경로]
 
 진단은 문서명, JSON path, 고정 오류 코드만 표시하며 자격증명 값을 출력하지 않습니다.
 
+`@seorilabs/repo-contract/bootstrap`은 GitHub App의 repository·기본 브랜치 push webhook을 검증하고 zero-touch 등록 계획을 만듭니다. webhook secret은 `shared/github/fleet-app-webhook` logical ID를 통해 trusted loader에만 요청하며 반환값에는 포함하지 않습니다. 생성 계획은 `contracts/fleet-bootstrap-plan.schema.json`을 따르고 durable delivery 저장이 성공한 뒤에만 완료됩니다. 실제 GitHub·Backoffice 변경은 idempotency key를 검증하는 별도 trusted executor의 책임입니다.
+
 React Native monorepo는 `sdk.consumers`에 실제 SDK를 import하는 각 `package.json`과 대응하는 pnpm lockfile importer를 선언합니다. 검증기는 모든 consumer의 정확한 package 버전과 lockfile resolution, GitHub Packages tarball, SHA-512 integrity를 확인합니다.
 
 Godot `SOURCE`는 `VERSION`과 같은 tag의 `seorilabs/platform` GitHub release URL이어야 합니다. `CHECKSUM`은 `profiles/godot.yaml`의 `vendored-tree-v1` 규칙으로 계산합니다. SDK 루트의 `CHECKSUM`만 제외하고 `SOURCE`, `VERSION`, 일반 파일의 상대 경로와 내용을 순서대로 해시하며 symlink는 허용하지 않습니다.

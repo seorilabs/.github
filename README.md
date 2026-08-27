@@ -18,6 +18,8 @@ legacy input이다. 신규 설정 정본으로 사용하지 않으며 저장소�
 
 - [Fleet Control Plane](docs/fleet-control-plane.md)
 - [WorkflowBundle schema](contracts/workflow-bundle.schema.json)
+- [Fleet bootstrap plan schema](contracts/fleet-bootstrap-plan.schema.json)
+- [Fleet zero-touch bootstrap](docs/ci-cd/fleet-zero-touch-bootstrap.md)
 - [App contract schema](contracts/app.schema.json)
 - [Test policy](contracts/test-policy.yaml)
 - [Review policy](contracts/review-policy.yaml)

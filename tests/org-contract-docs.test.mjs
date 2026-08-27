@@ -12,6 +12,7 @@ const CONTRACT_ENTRYPOINTS = [
   "README.md",
   ".github/workflows/README.md",
   "docs/fleet-control-plane.md",
+  "docs/ci-cd/fleet-zero-touch-bootstrap.md",
   "docs/migration/fleet-baseline-2026-08-27.md",
   "docs/migration/org-contract-v1-rollout.md",
   "docs/migration/p5-cleanup-inventory.md",
@@ -19,6 +20,7 @@ const CONTRACT_ENTRYPOINTS = [
 const JSON_SCHEMAS = [
   "contracts/app.schema.json",
   "contracts/credential-consumer.schema.json",
+  "contracts/fleet-bootstrap-plan.schema.json",
   "contracts/markets/app-store.schema.json",
   "contracts/markets/apps-in-toss.schema.json",
   "contracts/markets/google-play.schema.json",
