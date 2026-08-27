@@ -313,7 +313,7 @@ export class LocalAuthDaemon {
         await this.#state.recordCredentialExecution({
           consumed,
           outcome,
-          exitCode: result.exitCode,
+          ...(Number.isInteger(result.exitCode) ? { exitCode: result.exitCode } : {}),
           signal: result.signal,
         });
         sendJson(response, 200, {

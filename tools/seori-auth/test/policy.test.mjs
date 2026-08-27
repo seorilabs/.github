@@ -20,6 +20,13 @@ test('logical credential reference is an exact policy binding', () => {
   );
 });
 
+test('invalid logical credential references fail policy validation explicitly', () => {
+  assert.throws(
+    () => new PolicyEngine(makePolicy({ credentialRefs: ['Shared/apps-in-toss/operator'] })),
+    (error) => error instanceof SeoriAuthError && error.code === 'invalid_policy',
+  );
+});
+
 test('audit-bound identifiers reject control characters', () => {
   const engine = new PolicyEngine(makePolicy());
   assert.throws(

@@ -112,6 +112,14 @@ test('CredentialCheckout uses generation CAS, exact run/repo/worker binding, fiv
       currentPolicyGeneration: 7,
     });
     assert.equal(consumed.generation, 2);
+    await state.recordCredentialExecution({
+      consumed,
+      outcome: 'ADAPTER_FAILED',
+      signal: 'SIGTERM',
+    });
+    const signalAudit = state.snapshot().auditEvents.at(-1);
+    assert.equal(signalAudit.signal, 'SIGTERM');
+    assert.equal('exitCode' in signalAudit, false);
 
     await assert.rejects(
       state.consumeCredentialCheckout({

@@ -80,6 +80,25 @@ test('secret loader error details are not returned and consumed lease cannot ret
   );
 });
 
+test('invalid secret loader output preserves the intended non-secret error', async () => {
+  const request = makeRequest();
+  const broker = new SeoriAuthBroker({
+    policy: makePolicy(),
+    adapters: [testAdapter()],
+    loadSecret: async () => undefined,
+  });
+  const lease = broker.issueLease(request);
+
+  await assert.rejects(
+    broker.execute({
+      leaseId: lease.leaseId,
+      context: request,
+      currentCredentialGeneration: request.credentialGeneration,
+    }),
+    (error) => error instanceof SeoriAuthError && error.code === 'secret_load_failed',
+  );
+});
+
 test('registry rejects relative executables and secret-shaped environment fields', () => {
   assert.throws(
     () => new TrustedAdapterRegistry([testAdapter({ executable: 'node' })]),

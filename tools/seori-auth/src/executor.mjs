@@ -151,6 +151,8 @@ export async function executeConsumedLease({
     }
     fail('adapter_failed', 'trusted adapter execution failed');
   } finally {
-    secretBuffer.fill(0);
+    if (Buffer.isBuffer(secretBuffer)) {
+      secretBuffer.fill(0);
+    }
   }
 }

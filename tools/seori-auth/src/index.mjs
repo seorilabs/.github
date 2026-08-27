@@ -6,7 +6,7 @@ export { LEASE_TTL_MS, LeaseStore } from './lease-store.mjs';
 export { LocalAuthDaemon } from './local-daemon.mjs';
 export { PolicyEngine } from './policy.mjs';
 export { classifyReauth, REAUTH_CLASSIFICATIONS } from './reauth.mjs';
-export { normalizeHttpsOrigin, normalizeLeaseRequest } from './validation.mjs';
+export { isLogicalCredentialRef, normalizeHttpsOrigin, normalizeLeaseRequest } from './validation.mjs';
 
 import { TrustedAdapterRegistry } from './adapters.mjs';
 import { executeLease } from './executor.mjs';

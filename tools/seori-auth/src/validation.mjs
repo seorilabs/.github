@@ -185,3 +185,7 @@ export function equalBinding(left, right) {
 export function isSha256(value) {
   return SHA256.test(value);
 }
+
+export function isLogicalCredentialRef(value) {
+  return typeof value === 'string' && CREDENTIAL_REF.test(value);
+}

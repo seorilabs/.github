@@ -1,5 +1,5 @@
 import { fail } from './errors.mjs';
-import { isSha256, normalizeHttpsOrigin, normalizeLeaseRequest } from './validation.mjs';
+import { isLogicalCredentialRef, isSha256, normalizeHttpsOrigin, normalizeLeaseRequest } from './validation.mjs';
 
 const POLICY_KEYS = new Set(['$schema', 'schemaVersion', 'generation', 'rules']);
 const RULE_KEYS = new Set([
@@ -82,11 +82,15 @@ function normalizeRule(rule, index) {
   if (artifactSha256s.some((sha) => !isSha256(sha))) {
     fail('invalid_policy', `rules[${index}].artifactSha256s contains an invalid SHA-256 digest`);
   }
+  const credentialRefs = stringList(rule.credentialRefs, `rules[${index}].credentialRefs`);
+  if (credentialRefs.some((credentialRef) => !isLogicalCredentialRef(credentialRef))) {
+    fail('invalid_policy', `rules[${index}].credentialRefs contains an invalid logical reference`);
+  }
 
   return Object.freeze({
     id: rule.id,
     enabled: rule.enabled,
-    credentialRefs: stringList(rule.credentialRefs, `rules[${index}].credentialRefs`),
+    credentialRefs,
     subjects: stringList(rule.subjects, `rules[${index}].subjects`),
     repositories: stringList(rule.repositories, `rules[${index}].repositories`),
     runIds: stringList(rule.runIds, `rules[${index}].runIds`),
