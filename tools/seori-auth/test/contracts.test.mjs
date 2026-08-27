@@ -26,6 +26,22 @@ test('example policy and JSON schemas are parseable', async () => {
     brokerSchema.$defs.publicIdentity.required,
     ['provider', 'accountId', 'teamId', 'workspaceId', 'appId'],
   );
+  const opaqueId = new RegExp(brokerSchema.$defs.opaqueId.pattern);
+  const publicId = new RegExp(brokerSchema.$defs.publicId.pattern);
+  assert.equal(opaqueId.test('capability-id_1'), true);
+  assert.equal(opaqueId.test('capability/id'), false);
+  assert.equal(publicId.test('accounts/user@example.com'), true);
+  for (const [definition, property] of [
+    ['browserCompleteRequest', 'capabilityId'],
+    ['credentialCheckout', 'id'],
+    ['browserSessionBinding', 'id'],
+    ['browserCheckout', 'capabilityId'],
+    ['reauthRequest', 'id'],
+    ['authAuditEvent', 'id'],
+    ['authAuditEvent', 'entityId'],
+  ]) {
+    assert.equal(brokerSchema.$defs[definition].properties[property].$ref, '#/$defs/opaqueId');
+  }
   assert.deepEqual(brokerSchema.$defs.browserCheckout.required, ['capabilityId', 'publicIdentity']);
   assert.equal('identityReadback' in brokerSchema.$defs.browserCompleteRequest.properties, false);
   assert.deepEqual(

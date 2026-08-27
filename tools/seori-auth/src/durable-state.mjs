@@ -121,7 +121,7 @@ function auditFrom({ idFactory, now, eventType, outcome, entityType, entity, det
   }
   const binding = entity.executionBinding;
   return freezeRecord({
-    id: publicId(idFactory(), 'audit id'),
+    id: opaqueId(idFactory(), 'audit id'),
     eventType: publicId(eventType, 'audit event type'),
     outcome: publicId(outcome, 'audit outcome'),
     entityType,
