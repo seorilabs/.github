@@ -38,6 +38,9 @@ const PROVIDER_NAMESPACE_SELECTOR = Object.freeze({
 const PROVIDER_POD_SELECTOR = Object.freeze({
   'app.kubernetes.io/component': 'provider-execution-signer',
 });
+const AUTH_BROKER_NODE_SELECTOR = Object.freeze({
+  'kubernetes.io/hostname': 'rpi5',
+});
 
 function fail(message) {
   process.stderr.write(`${JSON.stringify({ valid: false, code: 'invalid_deployment_config', message })}\n`);
@@ -153,11 +156,15 @@ function validate(config) {
     !sameLabels(providerNamespaceSelector, PROVIDER_NAMESPACE_SELECTOR) ||
     !sameLabels(providerPodSelector, PROVIDER_POD_SELECTOR)
   ) fail('provider control-plane network identity is invalid');
+  const nodeSelector = labels(config.nodeSelector, 'nodeSelector');
+  if (!sameLabels(nodeSelector, AUTH_BROKER_NODE_SELECTOR)) {
+    fail('nodeSelector must select rpi5 exactly');
+  }
   return Object.freeze({
     ...config,
     imageProvenance,
     registry,
-    nodeSelector: labels(config.nodeSelector, 'nodeSelector'),
+    nodeSelector,
     stateClaimName: dns(config.stateClaimName, 'stateClaimName'),
     trustedWorkers: Object.freeze({
       namespaceSelector: labels(config.trustedWorkers.namespaceSelector, 'trustedWorkers.namespaceSelector'),

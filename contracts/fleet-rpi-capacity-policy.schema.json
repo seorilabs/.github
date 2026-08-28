@@ -1,0 +1,267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/seorilabs/.github/contracts/fleet-rpi-capacity-policy.schema.json",
+  "title": "Seorilabs RPI fleet capacity policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "cluster", "workloads", "observation", "rollback"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "cluster": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context", "nodes"],
+      "properties": {
+        "context": { "const": "vzyx-cluster" },
+        "nodes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["quarantined", "workload"],
+          "properties": {
+            "quarantined": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["hostname", "unschedulable", "requiredTaint", "preserveExistingPods", "requiredConditions"],
+              "properties": {
+                "hostname": { "const": "rpi4001" },
+                "unschedulable": { "const": true },
+                "requiredTaint": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["key", "effect"],
+                  "properties": {
+                    "key": { "const": "node.kubernetes.io/unschedulable" },
+                    "effect": { "const": "NoSchedule" }
+                  }
+                },
+                "preserveExistingPods": { "const": true },
+                "requiredConditions": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["ready", "memoryPressure"],
+                  "properties": {
+                    "ready": { "const": "True" },
+                    "memoryPressure": { "const": "False" }
+                  }
+                }
+              }
+            },
+            "workload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["hostname", "schedulable", "nodeSelector", "requiredConditions"],
+              "properties": {
+                "hostname": { "const": "rpi5" },
+                "schedulable": { "const": true },
+                "nodeSelector": { "$ref": "#/$defs/rpi5Selector" },
+                "requiredConditions": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["ready", "memoryPressure"],
+                  "properties": {
+                    "ready": { "const": "True" },
+                    "memoryPressure": { "const": "False" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "workloads": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheduler", "arc", "authBroker"],
+      "properties": {
+        "scheduler": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["namespace", "kind", "name", "nodeSelector"],
+          "properties": {
+            "namespace": { "const": "platform" },
+            "kind": { "const": "CronJob" },
+            "name": { "const": "backoffice-automation-scheduler" },
+            "nodeSelector": { "$ref": "#/$defs/rpi5Selector" }
+          }
+        },
+        "arc": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["configRoot", "controller", "runnerNamespace", "scaleSets"],
+          "properties": {
+            "configRoot": { "const": "github-actions-runners" },
+            "controller": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["namespace", "kind", "name", "valuesFile", "nodeSelector"],
+              "properties": {
+                "namespace": { "const": "arc-system" },
+                "kind": { "const": "Deployment" },
+                "name": { "const": "arc-gha-rs-controller" },
+                "valuesFile": { "const": "arc-controller-values.yaml" },
+                "nodeSelector": { "$ref": "#/$defs/rpi5ArcSelector" }
+              }
+            },
+            "runnerNamespace": { "const": "arc-runners" },
+            "scaleSets": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                { "$ref": "#/$defs/generalScaleSet" },
+                { "$ref": "#/$defs/dindScaleSet" }
+              ],
+              "items": false
+            }
+          }
+        },
+        "authBroker": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["namespace", "workloadNames", "nodeSelector"],
+          "properties": {
+            "namespace": { "const": "auth-broker" },
+            "workloadNames": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "prefixItems": [
+                { "const": "seori-auth-broker" },
+                { "const": "seori-password-loader" },
+                { "const": "seori-totp-signer" }
+              ],
+              "items": false
+            },
+            "nodeSelector": { "$ref": "#/$defs/rpi5Selector" }
+          }
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimumHours", "requiredSignals", "successConditions"],
+      "properties": {
+        "minimumHours": { "const": 24 },
+        "requiredSignals": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "prefixItems": [
+            { "const": "node_conditions" },
+            { "const": "node_working_set" },
+            { "const": "running_pod_working_set" },
+            { "const": "pod_oom_killed_last_state" },
+            { "const": "oom_eviction_events" },
+            { "const": "arc_current_pending_running" }
+          ],
+          "items": false
+        },
+        "successConditions": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "prefixItems": [
+            { "const": "rpi4001_ready_without_pressure" },
+            { "const": "rpi4001_has_no_new_oom_or_eviction" },
+            { "const": "rpi5_ready_schedulable_without_pressure" },
+            { "const": "new_active_non_daemon_workloads_absent_from_rpi4001" },
+            { "const": "restricted_workloads_absent_from_rpi4001" },
+            { "const": "arc_capacity_and_placement_exact" }
+          ],
+          "items": false
+        }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate", "keepRpi5Bindings", "uncordonPreconditions", "reCordonConditions"],
+      "properties": {
+        "gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "operation", "automaticRetry"],
+          "properties": {
+            "state": { "const": "HUMAN_APPROVAL_REQUIRED" },
+            "operation": { "const": "RPI4001_UNCORDON_OR_CAPACITY_POLICY_CHANGE" },
+            "automaticRetry": { "const": false }
+          }
+        },
+        "keepRpi5Bindings": { "const": true },
+        "uncordonPreconditions": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "prefixItems": [
+            { "const": "observation_window_complete" },
+            { "const": "no_memory_pressure_oom_or_eviction" },
+            { "const": "host_memavailable_confirms_no_exhaustion" },
+            { "const": "rpi5_bindings_and_arc_capacity_exact" },
+            { "const": "current_workload_impact_readback" }
+          ],
+          "items": false
+        },
+        "reCordonConditions": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "prefixItems": [
+            { "const": "memory_pressure_true" },
+            { "const": "new_oom_or_eviction" },
+            { "const": "restricted_workload_on_rpi4001" },
+            { "const": "rpi5_binding_or_arc_capacity_drift" }
+          ],
+          "items": false
+        }
+      }
+    }
+  },
+  "$defs": {
+    "rpi5Selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kubernetes.io/hostname"],
+      "properties": {
+        "kubernetes.io/hostname": { "const": "rpi5" }
+      }
+    },
+    "rpi5ArcSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kubernetes.io/hostname", "kubernetes.io/os", "kubernetes.io/arch"],
+      "properties": {
+        "kubernetes.io/hostname": { "const": "rpi5" },
+        "kubernetes.io/os": { "const": "linux" },
+        "kubernetes.io/arch": { "const": "arm64" }
+      }
+    },
+    "generalScaleSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class", "valuesFile", "minRunners", "maxRunners", "nodeSelector"],
+      "properties": {
+        "name": { "const": "seorilabs-rpi-arm64" },
+        "class": { "const": "general" },
+        "valuesFile": { "const": "rpi-arm64-values.yaml" },
+        "minRunners": { "const": 1 },
+        "maxRunners": { "const": 3 },
+        "nodeSelector": { "$ref": "#/$defs/rpi5ArcSelector" }
+      }
+    },
+    "dindScaleSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class", "valuesFile", "minRunners", "maxRunners", "nodeSelector"],
+      "properties": {
+        "name": { "const": "seorilabs-rpi-arm64-dind" },
+        "class": { "const": "dind" },
+        "valuesFile": { "const": "rpi-arm64-dind-values.yaml" },
+        "minRunners": { "const": 0 },
+        "maxRunners": { "const": 1 },
+        "nodeSelector": { "$ref": "#/$defs/rpi5ArcSelector" }
+      }
+    }
+  }
+}

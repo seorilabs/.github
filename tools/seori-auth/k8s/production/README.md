@@ -18,7 +18,7 @@ renderer는 secret 값을 읽거나 출력하지 않고 하나의 JSON `List`만
 | `imageProvenance` | `seorilabs/.github` source SHA, image workflow/run, `linux/arm64`, `imageDigest`의 exact binding |
 | `imagePullPolicy` | `Always` 또는 `IfNotPresent` |
 | `registry` | 명시적 `PUBLIC` 또는 `PACKAGES_READER`; mode가 없거나 readback 상태가 미검증이면 중단 |
-| `nodeSelector` | 검증된 RPI5를 고르는 label 한 개 |
+| `nodeSelector` | 고정값 `kubernetes.io/hostname: rpi5`. 다른 label이나 RPI4는 거부 |
 | `stateClaimName` | 사전에 검증된 encrypted PVC 이름 |
 | `trustedWorkers` | namespace/pod exact match label을 각각 한 개씩 가진 selector |
 | `providerControlPlane` | signer ServiceAccount의 exact `backofficeClientSpiffeId`, 고정 `/internal/control-plane/provider-grants` scope, Backoffice signer Pod 전용 namespace/pod exact selector |

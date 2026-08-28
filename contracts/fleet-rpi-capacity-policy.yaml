@@ -1,0 +1,105 @@
+schemaVersion: 1
+
+cluster:
+  context: vzyx-cluster
+  nodes:
+    quarantined:
+      hostname: rpi4001
+      unschedulable: true
+      requiredTaint:
+        key: node.kubernetes.io/unschedulable
+        effect: NoSchedule
+      preserveExistingPods: true
+      requiredConditions:
+        ready: "True"
+        memoryPressure: "False"
+    workload:
+      hostname: rpi5
+      schedulable: true
+      nodeSelector:
+        kubernetes.io/hostname: rpi5
+      requiredConditions:
+        ready: "True"
+        memoryPressure: "False"
+
+workloads:
+  scheduler:
+    namespace: platform
+    kind: CronJob
+    name: backoffice-automation-scheduler
+    nodeSelector:
+      kubernetes.io/hostname: rpi5
+  arc:
+    configRoot: github-actions-runners
+    controller:
+      namespace: arc-system
+      kind: Deployment
+      name: arc-gha-rs-controller
+      valuesFile: arc-controller-values.yaml
+      nodeSelector:
+        kubernetes.io/hostname: rpi5
+        kubernetes.io/os: linux
+        kubernetes.io/arch: arm64
+    runnerNamespace: arc-runners
+    scaleSets:
+      - name: seorilabs-rpi-arm64
+        class: general
+        valuesFile: rpi-arm64-values.yaml
+        minRunners: 1
+        maxRunners: 3
+        nodeSelector:
+          kubernetes.io/hostname: rpi5
+          kubernetes.io/os: linux
+          kubernetes.io/arch: arm64
+      - name: seorilabs-rpi-arm64-dind
+        class: dind
+        valuesFile: rpi-arm64-dind-values.yaml
+        minRunners: 0
+        maxRunners: 1
+        nodeSelector:
+          kubernetes.io/hostname: rpi5
+          kubernetes.io/os: linux
+          kubernetes.io/arch: arm64
+  authBroker:
+    namespace: auth-broker
+    workloadNames:
+      - seori-auth-broker
+      - seori-password-loader
+      - seori-totp-signer
+    nodeSelector:
+      kubernetes.io/hostname: rpi5
+
+observation:
+  minimumHours: 24
+  requiredSignals:
+    - node_conditions
+    - node_working_set
+    - running_pod_working_set
+    - pod_oom_killed_last_state
+    - oom_eviction_events
+    - arc_current_pending_running
+  successConditions:
+    - rpi4001_ready_without_pressure
+    - rpi4001_has_no_new_oom_or_eviction
+    - rpi5_ready_schedulable_without_pressure
+    - new_active_non_daemon_workloads_absent_from_rpi4001
+    - restricted_workloads_absent_from_rpi4001
+    - arc_capacity_and_placement_exact
+
+rollback:
+  gate:
+    state: HUMAN_APPROVAL_REQUIRED
+    operation: RPI4001_UNCORDON_OR_CAPACITY_POLICY_CHANGE
+    automaticRetry: false
+  keepRpi5Bindings: true
+  uncordonPreconditions:
+    - observation_window_complete
+    - no_memory_pressure_oom_or_eviction
+    - host_memavailable_confirms_no_exhaustion
+    - rpi5_bindings_and_arc_capacity_exact
+    - current_workload_impact_readback
+  reCordonConditions:
+    - memory_pressure_true
+    - new_oom_or_eviction
+    - restricted_workload_on_rpi4001
+    - rpi5_binding_or_arc_capacity_drift

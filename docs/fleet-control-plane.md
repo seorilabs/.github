@@ -160,6 +160,11 @@ builder digest와 AAB checksum을 provenance에 고정한다. pilot 저장소의
 Cloud Build canary와 WorkflowBundle `APPROVED` 승격은 fail-closed한다. 자세한 현재 계약과
 전환 조건은 [WorkflowBundle v4 shadow rollout](ci-cd/workflow-bundle-v4-shadow.md)에 고정한다.
 
+MicroK8S 실행면은 [RPI4 capacity 정책](ci-cd/rpi4-capacity-policy.md)을 따른다. RPI4는 기존
+Pod를 보존한 cordon 상태로 새 workload를 받지 않고, scheduler·ARC·Auth Broker는 exact RPI5
+selector를 사용한다. 일반 ARC `1/3`, DIND `0/1`과 live Pod placement가 중앙 계약에서
+벗어나면 새 Fleet 실행은 fail-closed한다.
+
 ## 기존 설정의 이관과 삭제
 
 `.seorilabs/app.yaml`, `.seorilabs/backoffice.json`, 마켓 JSON, `market-launch-state.json`,
