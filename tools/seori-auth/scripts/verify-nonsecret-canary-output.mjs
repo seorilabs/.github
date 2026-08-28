@@ -19,21 +19,20 @@ if (process.argv.length !== 2) fail();
 
 const chunks = [];
 let size = 0;
-let overflow = false;
 for await (const value of process.stdin) {
   const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
   size += chunk.length;
   if (size > 128) {
-    overflow = true;
     chunk.fill(0);
-    continue;
+    for (const buffered of chunks) buffered.fill(0);
+    fail();
   }
   chunks.push(chunk);
 }
 
 const actual = Buffer.concat(chunks);
 const expected = Buffer.from(EXPECTED_CANARY_OUTPUT);
-const valid = !overflow && actual.length === expected.length && timingSafeEqual(actual, expected);
+const valid = actual.length === expected.length && timingSafeEqual(actual, expected);
 for (const chunk of chunks) chunk.fill(0);
 actual.fill(0);
 expected.fill(0);

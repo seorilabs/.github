@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -249,4 +249,49 @@ test('canary output verifier rejects extra, empty, oversized, and argv input wit
       return true;
     },
   );
+});
+
+test('canary output verifier exits at byte 129 without waiting for stdin EOF', {
+  timeout: 5_000,
+}, async () => {
+  const child = spawn(process.execPath, [outputVerifier], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (value) => { stdout += value; });
+  child.stderr.on('data', (value) => { stderr += value; });
+  child.stdin.on('error', () => {});
+
+  const closed = new Promise((resolvePromise, reject) => {
+    child.once('error', reject);
+    child.once('close', (code, signal) => resolvePromise({ code, signal }));
+  });
+  child.stdin.write('x'.repeat(129));
+
+  let timeoutId;
+  try {
+    const { code, signal } = await Promise.race([
+      closed,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error('verifier waited for stdin EOF after byte 129')),
+          2_000,
+        );
+      }),
+    ]);
+    assert.equal(code, 1);
+    assert.equal(signal, null);
+    assert.equal(stdout, '');
+    assert.deepEqual(JSON.parse(stderr), {
+      valid: false,
+      code: 'canary_output_not_allowlisted',
+    });
+  } finally {
+    clearTimeout(timeoutId);
+    child.stdin.destroy();
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  }
 });
