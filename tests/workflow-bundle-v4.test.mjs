@@ -200,7 +200,7 @@ async function approvedContext(profile = "react-native") {
 
 test("v4 bundle은 고정 action, Android Cloud Build, Xcode Cloud와 shadow 경계를 묶는다", async () => {
   const bundle = await createWorkflowBundle({ sourceSha: BUNDLE_SHA });
-  assert.equal(bundle.bundleVersion, "4.0.0");
+  assert.equal(bundle.bundleVersion, "4.1.0");
   assert.deepEqual(bundle.quality.requiredCanaryGates, ["static", "build-only"]);
   assert.deepEqual(Object.keys(bundle.actions).sort(), [
     "checkout",
@@ -221,6 +221,14 @@ test("v4 bundle은 고정 action, Android Cloud Build, Xcode Cloud와 shadow 경
   assert.equal(bundle.delivery.ios.executor, "xcode-cloud");
   assert.equal(bundle.delivery.ios.githubMacosAllowed, false);
   assert.deepEqual(bundle.callerPolicies.androidBuild.namedSecrets, []);
+  assert.deepEqual(bundle.callerPolicies.androidBuild.permissions, {
+    "react-native": {
+      contents: "read",
+      "id-token": "write",
+      packages: "read",
+    },
+    godot: { contents: "read", "id-token": "write" },
+  });
   assert.equal(
     bundle.callerPolicies.androidBuild.sourceBinding,
     "backoffice-resolved-manifest",
@@ -590,6 +598,11 @@ test("Android caller generator는 full SHA, 최소 권한, 고정 concurrency와
     /rn-build-android-cloud-v1\.yml@a{40}/u,
   );
   assert.match(caller, new RegExp(`source_sha: ${SOURCE_SHA}`, "u"));
+  assert.deepEqual(parse(caller).permissions, {
+    contents: "read",
+    "id-token": "write",
+    packages: "read",
+  });
   assert.doesNotMatch(caller, /secrets:|runs-on:|@main|inputs\.source_sha/u);
 
   const mutations = [
@@ -620,6 +633,24 @@ test("Android caller generator는 full SHA, 최소 권한, 고정 concurrency와
   }
 });
 
+test("Godot Android caller에는 사용하지 않는 package 권한을 부여하지 않는다", async () => {
+  const context = await approvedContext("godot");
+  const caller = await generateAndroidBuildCaller({
+    approvedBundleBinding: context.bundleBinding,
+    callerBinding: context.callerBinding,
+  });
+  assert.deepEqual(parse(caller).permissions, {
+    contents: "read",
+    "id-token": "write",
+  });
+  const validation = await validateAndroidBuildCaller(caller, {
+    approvedBundleBinding: context.bundleBinding,
+    callerBinding: context.callerBinding,
+    repositoryContext: context.repositoryContext,
+  });
+  assert.equal(validation.ok, true, validation.diagnostics.join(","));
+});
+
 test("Android reusable workflow는 RPI submit/fetch만 하고 x64 Cloud Build에 exact source를 보낸다", async () => {
   for (const profile of ["rn", "godot"]) {
     const workflow = await readFile(
@@ -631,7 +662,12 @@ test("Android reusable workflow는 RPI submit/fetch만 하고 x64 Cloud Build에
     assert.equal(job["runs-on"], "seorilabs-rpi-arm64");
     assert.equal(job.environment, "internal");
     assert.equal(job.if, "${{ github.event.repository.private }}");
-    assert.deepEqual(parsed.permissions, { contents: "read", "id-token": "write" });
+    assert.deepEqual(
+      parsed.permissions,
+      profile === "rn"
+        ? { contents: "read", "id-token": "write", packages: "read" }
+        : { contents: "read", "id-token": "write" },
+    );
     assert.equal(parsed.on.workflow_call.secrets, undefined);
     assert.deepEqual(Object.keys(parsed.on.workflow_call.inputs).sort(), [
       "source_sha",
@@ -658,6 +694,13 @@ test("Android reusable workflow는 RPI submit/fetch만 하고 x64 Cloud Build에
       workflow,
       /\.github\/workflows\/android-build-only\.yml@refs\/heads\/main/u,
     );
+    if (profile === "rn") {
+      assert.match(workflow, /stage-private-pnpm-store\.mjs/u);
+      assert.match(workflow, /NODE_AUTH_TOKEN: \$\{\{ github\.token \}\}/u);
+      assert.match(workflow, /ulimit -c 0/u);
+    } else {
+      assert.doesNotMatch(workflow, /stage-private-pnpm-store\.mjs/u);
+    }
     assert.ok(
       workflow.indexOf("test \"$CALLER_WORKFLOW_REF\"") <
         workflow.indexOf("Authenticate keylessly for Cloud Build"),
@@ -703,6 +746,14 @@ test("Cloud Build config는 digest-pinned builder와 build-only artifact만 허�
     assert.match(config, /working_directory="\$\(realpath/u);
     assert.match(config, /"\$workspace_root"\/\*/u);
     assert.match(config, /SEORI_ANDROID_AAB_OUTPUT=\/workspace\/app-release\.aab/u);
+    if (profile === "rn") {
+      assert.match(config, /pnpm_config_store_dir/u);
+      assert.match(config, /pnpm_config_enable_global_virtual_store=false/u);
+      assert.match(config, /npm_config_userconfig=\/dev\/null/u);
+      assert.match(config, /\$private_store\/v11/u);
+    } else {
+      assert.doesNotMatch(config, /pnpm_config_store_dir/u);
+    }
     assert.deepEqual(parsed.artifacts.objects.paths, ["app-release.aab"]);
     assert.equal(parsed.options.logging, "CLOUD_LOGGING_ONLY");
     assert.doesNotMatch(config, /google.?play|androidpublisher|tracks\/|edits\//iu);

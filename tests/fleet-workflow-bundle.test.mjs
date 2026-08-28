@@ -237,6 +237,7 @@ test("candidate bundle은 static, build-only workflow와 실행 asset의 실제 
     "fixtures/workflow-bundle/react-native/fixture.json",
     "scripts/fleet/fixture-canary.mjs",
     "scripts/fleet/secret-scan.mjs",
+    "scripts/fleet/stage-private-pnpm-store.mjs",
     "scripts/fleet/static-preflight.mjs",
     "scripts/fleet/write-provenance.mjs",
   ]);

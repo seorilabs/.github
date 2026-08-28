@@ -1,6 +1,6 @@
 steps:
   - id: build-only
-    name: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:d403dabbd03e97490b0f676bc65dc2f510119480c60815298e37fb1a12a6172f
+    name: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:ed73c852159547ce3b7e36ef7759a8db25e1b4ac08f1fee4f5eebf7ce2cd2100
     entrypoint: bash
     args:
       - -ceu
@@ -14,6 +14,12 @@ steps:
         cd "$working_directory"
         test -f build.env
         test -f scripts/build-android.sh
+        private_store="$(realpath /workspace/.seorilabs-pnpm-store)"
+        test "$private_store" = /workspace/.seorilabs-pnpm-store
+        test -d "$private_store/v11"
+        export pnpm_config_store_dir="$private_store"
+        export pnpm_config_enable_global_virtual_store=false
+        export npm_config_userconfig=/dev/null
         export SEORI_ANDROID_AAB_OUTPUT=/workspace/app-release.aab
         export SEORI_BUILD_MODE=build-only
         export SEORI_SOURCE_SHA=${_SEORI_SOURCE_SHA}

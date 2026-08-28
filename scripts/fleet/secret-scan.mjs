@@ -12,7 +12,6 @@ const RULES = Object.freeze([
   ["PRIVATE_KEY", /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/u],
   ["GITHUB_TOKEN", /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/u],
   ["AWS_ACCESS_KEY", /\bAKIA[0-9A-Z]{16}\b/u],
-  ["GOOGLE_API_KEY", /\bAIza[0-9A-Za-z_-]{35}\b/u],
   ["SERVICE_ACCOUNT_PRIVATE_KEY", /["']private_key["']\s*:\s*["'][^"']{20,}/u],
 ]);
 

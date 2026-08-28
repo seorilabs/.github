@@ -60,10 +60,23 @@ managed caller path를 보호하는 ruleset과 Backoffice exact-source parity를
 
 1. exact source SHA checkout과 tracked credential scan
 2. full SHA로 호출된 중앙 workflow identity 확인
-3. WIF 인증과 `billing/quota_project=seorilabs-ci` 설정
-4. auth credential file과 중앙 checkout을 제외한 source archive 제출
-5. digest-pinned x64 builder가 repo-owned `scripts/build-android.sh` 실행
-6. 단일 AAB를 GCS에서 회수하고 3일 GitHub artifact로 보관
+3. RN이면 `packages: read` job token으로 exact `@seorilabs/platform-sdk`만 격리 store에 staging하고 token 비포함 확인
+4. WIF 인증과 `billing/quota_project=seorilabs-ci` 설정
+5. auth credential file과 중앙 checkout을 제외한 source archive 제출
+6. digest-pinned x64 builder가 repo-owned `scripts/build-android.sh` 실행
+7. 단일 AAB를 GCS에서 회수하고 3일 GitHub artifact로 보관
+
+tracked credential scan은 개인키, GitHub token, AWS access key처럼 소스에 없어야 하는
+high-confidence secret만 차단한다. Firebase 웹·모바일 클라이언트 API key는 공개 앱 설정에
+포함되는 값이므로 secret으로 오탐하지 않는다. 대신 Backoffice ProviderObservation이
+[Firebase API key 권고](https://firebase.google.com/docs/projects/api-keys)에 따라 허용 API,
+앱 제한, IAM·Security Rules·App Check 상태를 provider readback으로 검증한다.
+
+private package token은 RPI의 staging child process에만 존재한다. argv, stdout, source archive,
+Cloud Build environment에는 전달하지 않는다. Cloud Build는 사전 검증한 content-addressed
+store에서 private SDK를 재사용하고 공개 package만 registry에서 내려받는다. pnpm global
+virtual store는 끄고 `/workspace/.seorilabs-pnpm-store`를 exact store로 강제해 빌더의 기존
+cache나 사용자 npm 설정이 검증 결과에 섞이지 않게 한다.
 
 Cloud Build 실행 SA에는 앱별 build/signing secret 단위 접근만 부여하고 market publisher,
 review, role/key 변경 권한을 부여하지 않는다. 따라서 build script가 마켓 작업을 요청해도

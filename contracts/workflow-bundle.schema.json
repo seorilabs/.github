@@ -24,7 +24,7 @@
   ],
   "properties": {
     "schemaVersion": { "const": 1 },
-    "bundleVersion": { "const": "4.0.0" },
+    "bundleVersion": { "const": "4.1.0" },
     "source": {
       "type": "object",
       "additionalProperties": false,
@@ -160,7 +160,17 @@
             "managedCallerPath": { "const": ".github/workflows/android-build-only.yml" },
             "requiredRef": { "const": "refs/heads/main" },
             "permissions": {
-              "const": { "contents": "read", "id-token": "write" }
+              "const": {
+                "react-native": {
+                  "contents": "read",
+                  "id-token": "write",
+                  "packages": "read"
+                },
+                "godot": {
+                  "contents": "read",
+                  "id-token": "write"
+                }
+              }
             },
             "namedSecrets": { "const": [] },
             "concurrency": { "const": "android-build-${{ github.repository_id }}-<resolved-source-sha>" }
