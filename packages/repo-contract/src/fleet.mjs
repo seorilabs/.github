@@ -1508,24 +1508,25 @@ export async function loadApprovedWorkflowBundle(
   if (bundle?.approval?.state !== "APPROVED") {
     throw new Error("APPROVED_BUNDLE_REQUIRED");
   }
-  const validation = await validateWorkflowBundle(bundle, {
-    repoRoot,
-    trustedApprovalKeys,
-    trustedRegistryReadback,
-    trustedWorkflowSourceReadback,
-    trustedRunnerImageReadback,
-  });
-  if (!validation.ok) {
-    throw new Error(
-      `APPROVED_BUNDLE_UNTRUSTED:${validation.diagnostics.join(",")}`,
-    );
-  }
   const sourceReadback = await verifyWorkflowSourceReadback(
     bundle,
     trustedWorkflowSourceReadback,
   );
   if (sourceReadback.diagnostic) {
     throw new Error(sourceReadback.diagnostic);
+  }
+  const validation = await validateWorkflowBundle(bundle, {
+    repoRoot,
+    trustedApprovalKeys,
+    trustedRegistryReadback,
+    trustedWorkflowSourceReadback: async () =>
+      structuredClone(sourceReadback.snapshot),
+    trustedRunnerImageReadback,
+  });
+  if (!validation.ok) {
+    throw new Error(
+      `APPROVED_BUNDLE_UNTRUSTED:${validation.diagnostics.join(",")}`,
+    );
   }
   const workflowByProfile = Object.freeze(
     Object.fromEntries(
@@ -2481,7 +2482,8 @@ export async function validateXcodeCloudRunContract(
   }
   if (
     trustedBundle &&
-    sha256(Buffer.from(schemaText ?? "", "utf8")) !==
+    typeof schemaText === "string" &&
+    sha256(Buffer.from(schemaText, "utf8")) !==
       trustedBundle.bundle.quality.contractDigests[
         "contracts/xcode-cloud-run.schema.json"
       ]

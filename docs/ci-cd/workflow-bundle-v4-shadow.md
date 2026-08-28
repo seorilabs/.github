@@ -5,7 +5,7 @@
 WorkflowBundle v4는 중앙 static 계약에 Android build-only와 Xcode Cloud build-only 계약을
 추가한다. 기존 `@main`, `secrets: inherit`, GitHub-hosted Android/macOS consumer는 즉시
 삭제하거나 실패시키지 않는다. `evaluateLegacyWorkflow`가 먼저 observation을 만들고,
-ruleset은 `Evaluate`에 머문다.
+ruleset은 계약 상수 `EVALUATE`에 머문다.
 
 이 단계에서 하지 않는 일:
 

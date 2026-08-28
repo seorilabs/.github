@@ -769,6 +769,22 @@ test("exact remote source의 runtime digest 또는 bytes가 다르면 load를 �
   );
 });
 
+test("APPROVED bundle load는 exact remote source를 한 번만 읽는다", async () => {
+  const { approved, trust } = await approvedFixture();
+  let sourceReadbackCount = 0;
+  const trustedWorkflowSourceReadback = async (request) => {
+    sourceReadbackCount += 1;
+    return trust.trustedWorkflowSourceReadback(request);
+  };
+
+  await loadApprovedWorkflowBundle(approved, {
+    ...trust,
+    trustedWorkflowSourceReadback,
+  });
+
+  assert.equal(sourceReadbackCount, 1);
+});
+
 test("공개 integrity 재계산과 공격자 registry로 APPROVED 상태를 위조할 수 없다", async () => {
   const { approved, trust } = await approvedFixture();
   const forged = structuredClone(approved);
