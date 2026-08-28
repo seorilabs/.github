@@ -2441,7 +2441,6 @@ export async function validateXcodeCloudRunContract(
     approvedBundleBinding,
     callerBinding,
     repositoryContext,
-    repoRoot = WORKSPACE_ROOT,
     trustedXcodeCloudTargetReadback,
   } = {},
 ) {
