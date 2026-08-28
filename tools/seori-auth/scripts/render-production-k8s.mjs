@@ -30,7 +30,7 @@ function labels(value, label) {
     fail(`${label} must contain exactly one label`);
   }
   const [[key, content]] = Object.entries(value);
-  if (!/^[A-Za-z0-9./_-]+$/.test(key) || !DNS_LABEL.test(content)) fail(`${label} is invalid`);
+  if (!/^[A-Za-z0-9./_-]+$/.test(key) || content.length > 63 || !DNS_LABEL.test(content)) fail(`${label} is invalid`);
   return Object.freeze({ [key]: content });
 }
 

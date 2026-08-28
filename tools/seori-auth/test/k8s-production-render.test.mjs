@@ -153,4 +153,12 @@ test('production renderer rejects mutable images and shared factor identities', 
     assert.match(error.stderr, /must be distinct/);
     return true;
   });
+
+  const longLabel = deploymentConfig();
+  longLabel.nodeSelector = { 'seorilabs.io/node-role': 'a'.repeat(64) };
+  await assert.rejects(render(longLabel), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /nodeSelector is invalid/);
+    return true;
+  });
 });

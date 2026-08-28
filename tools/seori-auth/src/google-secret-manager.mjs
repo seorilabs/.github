@@ -31,7 +31,7 @@ async function readProjectedToken(path) {
   const target = await stat(canonical);
   if (
     !entry.isFile() || entry.isSymbolicLink() || canonical !== path || !target.isFile() ||
-    target.size < 32 || target.size > 32 * 1024 || (target.mode & 0o007) !== 0
+    target.size < 32 || target.size > 32 * 1024 || (target.mode & 0o037) !== 0
   ) {
     fail('workload_identity_unavailable', 'projected workload token file is not private and canonical');
   }
@@ -56,7 +56,7 @@ async function readProxyTlsFile(path, { privateMaterial = false } = {}) {
   if (!entry.isFile() || entry.isSymbolicLink() || canonical !== path || !target.isFile()) {
     fail('invalid_egress_proxy', 'egress proxy TLS material must be a canonical regular file');
   }
-  if (privateMaterial && ((target.mode & 0o007) !== 0 || (target.mode & 0o022) !== 0)) {
+  if (privateMaterial && (target.mode & 0o037) !== 0) {
     fail('invalid_egress_proxy', 'egress proxy private key permissions are unsafe');
   }
   return readFile(path);
@@ -114,10 +114,13 @@ export async function createMtlsEgressProxy({ uri, caPath, certificatePath, priv
     async close() {
       if (closed) return;
       closed = true;
-      await dispatcher.close();
-      ca.fill(0);
-      cert.fill(0);
-      key.fill(0);
+      try {
+        await dispatcher.close();
+      } finally {
+        ca.fill(0);
+        cert.fill(0);
+        key.fill(0);
+      }
     },
   });
 }

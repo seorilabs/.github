@@ -170,6 +170,25 @@ test('Google workload identity store pins numeric versions and verifies CRC32C',
   secret.fill(0);
 });
 
+test('projected workload token rejects group write or execute while allowing group read policy', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'seori-auth-wif-permissions-'));
+  const tokenPath = join(root, 'token');
+  await writeFile(tokenPath, 'headerheader.payloadpayload.signaturesignature\n', { mode: 0o400 });
+  const canonicalTokenPath = await realpath(tokenPath);
+  const provider = () => new GoogleWorkloadIdentityTokenProvider({
+    subjectTokenFile: canonicalTokenPath,
+    audience: '//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seorilabs/providers/microk8s',
+    fetchImpl: async () => assert.fail('unsafe projected token must fail before network access'),
+  });
+  for (const mode of [0o460, 0o450]) {
+    await chmod(tokenPath, mode);
+    await assert.rejects(
+      provider().accessToken(),
+      (error) => error instanceof SeoriAuthError && error.code === 'workload_identity_unavailable',
+    );
+  }
+});
+
 test('native Secret Manager store accepts only its pre-bound logical id and numeric resource', async () => {
   const calls = [];
   const store = new NativeSecretManagerExecutionStore({

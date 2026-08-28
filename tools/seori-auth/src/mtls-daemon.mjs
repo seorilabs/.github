@@ -12,8 +12,8 @@ async function readTlsFile(path, { privateMaterial = false } = {}) {
   if (!stat.isFile() || stat.isSymbolicLink() || canonical !== path) {
     fail('invalid_tls_configuration', 'TLS material must be a canonical regular file');
   }
-  if (privateMaterial && ((stat.mode & 0o007) !== 0 || (stat.mode & 0o022) !== 0)) {
-    fail('invalid_tls_configuration', 'TLS private key must not be writable or readable by other users');
+  if (privateMaterial && (stat.mode & 0o037) !== 0) {
+    fail('invalid_tls_configuration', 'TLS private key may be group-readable but not group-writable, executable, or world-accessible');
   }
   return readFile(path);
 }
