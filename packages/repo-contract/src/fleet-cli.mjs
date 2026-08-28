@@ -77,11 +77,14 @@ export async function runFleetCli({
     }
 
     if (command === "plan-migration") {
+      if (options.output !== undefined) {
+        throw new Error("MIGRATION_STDOUT_ONLY");
+      }
       const inventory = JSON.parse(
         await readFile(options.inventory, "utf8"),
       );
       const plan = createFleetMigrationPlan(inventory);
-      await emit(`${JSON.stringify(plan, null, 2)}\n`, options.output, stdout);
+      stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
       return 0;
     }
 

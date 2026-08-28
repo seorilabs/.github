@@ -24,7 +24,7 @@ repo-contract [저장소 경로]
 
 `@seorilabs/repo-contract/trusted-publisher`는 WorkflowBundle signer와 registry publish/readback을 GitHub executor에서 분리합니다. worker는 `shared/workflow-bundle/approval-signing` logical ID만 알고 private key를 받지 않습니다.
 
-`@seorilabs/repo-contract/fleet-migration`은 P7 legacy 운영 JSON, `secrets: inherit`, floating 중앙 workflow ref를 exact repository ID/ref/SHA와 blob digest에 묶어 분류합니다. 출력은 항상 `PLAN_ONLY`이며 repository write, PR 생성, 파일 삭제·rewrite API를 제공하지 않습니다. exact source readback, 두 번 연속 parity, 선언 target build-only, rollback 복원 검증, Backoffice readback이 모두 일치해도 결과는 `READY_FOR_REVIEW`까지만 올라갑니다.
+`@seorilabs/repo-contract/fleet-migration`은 P7 legacy 운영 JSON, `secrets: inherit`, floating 중앙 workflow ref를 서명된 전체 pagination inventory와 exact repository ID/ref/SHA/git blob에 묶어 분류합니다. 출력은 항상 `PLAN_ONLY`·stdout 전용이며 repository write, PR 생성, 파일 삭제·rewrite API를 제공하지 않습니다. ACTIVE config/market readback, latest contiguous parity 2회, 승인된 WorkflowBundle build-only, Git 및 Backoffice 장애 복구, owner/control-plane readback이 모두 일치해도 결과는 `READY_FOR_REVIEW`까지만 올라갑니다. `planDigest`는 권한이 아니므로 READY 검증에는 외부 신뢰키로 검증한 원본 inventory binding이 다시 필요합니다.
 
 `@seorilabs/repo-contract/fleet`의 WorkflowBundle v4 API는 static caller 외에 다음 shadow
 계약을 제공합니다.
