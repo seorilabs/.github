@@ -78,6 +78,24 @@ async function runChild({ adapter, secretBuffer }) {
   return Object.freeze(result);
 }
 
+export async function executeSecretAdapter({ registry, adapterId, binding, secretBuffer }) {
+  if (!registry || typeof registry.require !== 'function') {
+    throw new TypeError('registry must be a trusted adapter registry');
+  }
+  if (!Buffer.isBuffer(secretBuffer) || secretBuffer.length === 0) {
+    fail('secret_load_failed', 'factor execution copy must be a non-empty Buffer');
+  }
+  try {
+    const adapter = registry.require(adapterId, binding);
+    return await runChild({ adapter, secretBuffer });
+  } catch (error) {
+    if (error instanceof SeoriAuthError) throw error;
+    fail('adapter_failed', 'trusted factor adapter execution failed');
+  } finally {
+    secretBuffer.fill(0);
+  }
+}
+
 export async function executeLease({
   leaseStore,
   registry,

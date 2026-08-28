@@ -17,6 +17,7 @@
   Vault key를 관리하는 broker process
 - 검토된 native helper binary와 UID/GID/PID를 scheduler principal로 해석하는 resolver
 - 서로 다른 workload identity의 password loader와 TOTP signer
+- Kubernetes mTLS CA, exact SPIFFE URI SAN, scheduler Ed25519 run-attestation signer
 
 에이전트 prompt, 웹페이지 텍스트, repository 입력, artifact 이름, child process 출력은
 신뢰하지 않습니다. 특히 웹페이지의 prompt injection은 policy나 secret export 기능을
@@ -53,6 +54,8 @@
   exact match하고 capture/export/clipboard/network control이 하나라도 열리면 주입 전 중단
 - Linux `SO_PEERCRED`, macOS `getpeereid`와 `LOCAL_PEERPID`로 HTTP body 밖의 peer를 증명
 - native launcher가 adapter에 `RLIMIT_CORE=0`과 OS non-dumpable 정책을 적용
+- projected WIF token은 read-only mount root 아래 고정 leaf만 `openat2`로 열어, digest가
+  고정된 Secret Manager child의 FD4로 한 번 전달하고 child가 읽은 즉시 descriptor를 닫음
 - native advisory lock 하나가 durable journal writer를 process 단위로 직렬화하며 crash 뒤
   stale lock inode는 OS lock ownership 없이 writer 권한을 만들지 못함
 - browser timeout은 AbortSignal, native kill acknowledgement, adapter promise settlement를
@@ -85,6 +88,11 @@ image에서는 broker identity가 수정할 수 없는 root 소유 read-only lay
 이를 끄는 runtime option을 제공하지 않습니다. browser adapter도
 `NativeSecurityBoundary.browserAdapter`가 발급한 abort/terminate 계약이 없으면 daemon
 생성 단계에서 거부합니다.
+
+Kubernetes runtime은 TLS 1.3 mutual authentication을 사용하며 certificate의 URI SAN을
+exact SPIFFE allowlist와 비교합니다. broker 요청은 여기에 scheduler가 서명한 5분 이하
+run/repo/worker attestation을 추가로 요구하고 nonce를 한 번 소비합니다. password loader와
+TOTP signer는 broker SPIFFE ID만 받으며 secret 조회·export route가 없습니다.
 
 ## 중단 조건
 

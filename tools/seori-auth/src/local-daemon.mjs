@@ -329,16 +329,7 @@ export class LocalAuthDaemon {
     }
     await assertSocketPathAvailable(this.#socketPath);
 
-    const server = createServer((request, response) => {
-      this.#handle(request, response).catch((error) => {
-        const code = error instanceof SeoriAuthError ? error.code : 'internal_error';
-        if (!response.headersSent) {
-          sendJson(response, errorStatus(code), { error: { code } });
-        } else {
-          response.destroy();
-        }
-      });
-    });
+    const server = createServer((request, response) => this.dispatch(request, response));
     server.requestTimeout = 10_000;
     server.headersTimeout = 5_000;
     server.keepAliveTimeout = 1_000;
@@ -367,6 +358,19 @@ export class LocalAuthDaemon {
       throw error;
     }
     return Object.freeze({ transport: 'unix', socketPath: this.#socketPath });
+  }
+
+  async dispatch(request, response) {
+    try {
+      await this.#handle(request, response);
+    } catch (error) {
+      const code = error instanceof SeoriAuthError ? error.code : 'internal_error';
+      if (!response.headersSent) {
+        sendJson(response, errorStatus(code), { error: { code } });
+      } else {
+        response.destroy();
+      }
+    }
   }
 
   async stop() {
@@ -401,7 +405,7 @@ export class LocalAuthDaemon {
     if (url.search !== '') {
       fail('invalid_request', 'query parameters are not supported');
     }
-    const principal = await this.#attestPrincipal(request.socket);
+    const principal = await this.#attestPrincipal(request);
     const body = await readJson(request);
 
     if (url.pathname === '/auth/leases') {
@@ -790,16 +794,18 @@ export class LocalAuthDaemon {
     return generation;
   }
 
-  async #attestPrincipal(socket) {
+  async #attestPrincipal(request) {
     let principal;
     try {
-      // The attestor receives only the accepted Unix socket, never HTTP headers or body.
-      // A production embedding must combine peer credentials with a scheduler-issued
-      // connection capability or inherited descriptor outside agent-controlled input.
-      principal = await this.#authenticatePrincipal(socket);
+      // Unix deployments attest the accepted socket. Kubernetes mTLS deployments may
+      // additionally verify a scheduler-signed, short-lived run attestation header.
+      // Neither mode trusts claims in the JSON body as the principal source.
+      principal = await this.#authenticatePrincipal(request.socket, Object.freeze({
+        runAttestation: request.headers['seori-run-attestation'],
+      }));
       return normalizeExecutionBinding(principal);
     } catch {
-      fail('principal_unauthenticated', 'Unix peer principal could not be attested');
+      fail('principal_unauthenticated', 'transport peer principal could not be attested');
     }
   }
 }
