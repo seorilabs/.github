@@ -1,6 +1,6 @@
 # Seorilabs Fleet Control Plane
 
-> 상태: P0 credential 기준선 확인, repository·provider 기준선과 P1-P4 additive shadow 구현 중
+> 상태: P0 기준선과 P1·P4·P5·P6 Backoffice 제어면 배포, P2 broker·P3 pilot·P7 cutover gate 검증 중
 > 비범위: 실제 provider 계정 생성, TOTP 등록, secret 회전·폐기, 마켓 업로드, 심사 제출, 공개 배포
 
 Fleet Control Plane은 앱 저장소마다 운영 설정과 CI를 복제하는 구조를 없애기 위한 조직
@@ -34,12 +34,12 @@ flowchart LR
 구현, CI, artifact, upload, processing, device QA, review, approval, deployment,
 public availability는 독립 gate다. 앞 gate의 성공은 뒤 gate를 증명하지 않는다.
 
-2026-08-27 catalog preflight는 95개 항목, 오류 0건, 경고 9건이다. 경고는 정리 완료가
-아니며 credential 이동·회전·삭제의 승인 근거로 사용하지 않는다. repository와 workflow의
-확인 범위 및 남은 권한 blocker는 [P0 기준선 스냅샷](migration/fleet-baseline-2026-08-27.md)에
-고정했다.
+2026-08-28 live catalog preflight는 99개 항목, 오류 0건, 경고 2건이다. 이는 2026-08-27
+기준선 이후 catalog 수치만 다시 읽은 결과이며, 경고는 정리 완료나 credential 이동·회전·삭제의
+승인 근거로 사용하지 않는다. 당시 repository·workflow 확인 범위와 남은 권한 blocker는 날짜가
+고정된 [P0 기준선 스냅샷](migration/fleet-baseline-2026-08-27.md)에 보존한다.
 
-## WorkflowBundle v3
+## WorkflowBundle v4
 
 [`workflow-bundle-source.yaml`](../contracts/workflow-bundle-source.yaml)은 action full SHA,
 reusable workflow, runner route와 toolchain을 묶는다. 생성기는 중앙 schema·profile뿐 아니라
@@ -96,18 +96,17 @@ caller run의 Jobs API readback에서도 `checks / Static checks` 형식을 확�
 `Fleet Quality`에 `needs`로 결합되고 upstream 실패·취소 시 스스로 실패하므로 이 check 하나로
 두 job을 fail-closed한다.
 
-v2 RN과 Godot workflow는 `test:core`, `check:architecture`, `check:release`, dependency audit,
+v4 RN과 Godot workflow는 `test:core`, `check:architecture`, `check:release`, dependency audit,
 tracked source credential scan을 quality job에서 수행한다. provenance는 앱 실행면과 다른
 runner job이 중앙 workflow source를 exact SHA로 다시 checkout한 뒤에만 생성한다.
 Godot은 4.7.2 binary를 architecture별 공식 checksum으로 검증하고 `SCRIPT ERROR`와 `ERROR:`
 로그를 실패로 처리한다.
 
-Android build-only 경로는 이번 candidate에 포함하지 않는다. 현재 pilot 두 저장소의 build
-script는 signing 재료를 요구하며 중앙 unsigned output 계약을 구현하지 않는다. 또한
-Backoffice ReleaseCandidate·ACTIVE snapshot을 공개키로 검증하는 attestation과 AAB signing
-부재 검사가 아직 없다. 이 조건을 해결하고 RN/Godot 실제 canary가 통과하기 전에는 Android
-workflow와 WorkflowBundle 승인을 fail-closed한다. 확인된 builder digest만 기준선 inventory로
-남기며 실행 권한으로 해석하지 않는다.
+Android build-only는 RPI5 submit/fetch와 x64 Cloud Build를 분리하고, exact source·bundle SHA,
+builder digest와 AAB checksum을 provenance에 고정한다. pilot 저장소의 static 계약과 로컬
+2 GiB 조건 검증은 통과했지만 조직 WIF submitter/executor binding이 승인·적용되기 전까지 실제
+Cloud Build canary와 WorkflowBundle `APPROVED` 승격은 fail-closed한다. 자세한 현재 계약과
+전환 조건은 [WorkflowBundle v4 shadow rollout](ci-cd/workflow-bundle-v4-shadow.md)에 고정한다.
 
 ## 기존 설정의 이관과 삭제
 
