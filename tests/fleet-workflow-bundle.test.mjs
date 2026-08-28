@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync } from "node:crypto";
+import {
+  createHash,
+  generateKeyPairSync,
+  sign as signEd25519,
+} from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +22,10 @@ import {
   validateOrgContractCaller,
   validateWorkflowBundle,
 } from "../packages/repo-contract/src/fleet.mjs";
+import {
+  createTrustedWorkflowBundlePublisher,
+  trustedWorkflowBundlePublisherContract,
+} from "../packages/repo-contract/src/trusted-publisher.mjs";
 import { CANARY_BUILD_BY_PROFILE } from "./helpers/workflow-bundle-fixtures.mjs";
 
 const SOURCE_SHA = "a".repeat(40);
@@ -138,6 +146,17 @@ function verifiedEvidence(record, bundle) {
   };
 }
 
+function trustedSignerOptions(privateKey, publicKey, keyId = KEY_ID) {
+  return {
+    trustedApprovalKeys: new Map([[keyId, publicKey]]),
+    trustedApprovalSigner: async ({ payload }) => ({
+      algorithm: "Ed25519",
+      keyId,
+      value: signEd25519(null, payload, privateKey).toString("base64url"),
+    }),
+  };
+}
+
 async function callerFixture({
   profile = "react-native",
   packageManager = "pnpm",
@@ -186,7 +205,7 @@ async function approvedFixture() {
   const trustedWorkflowSourceReadback = trustedSourceReadbackFor(candidate);
   const approved = await promoteWorkflowBundle(candidate, EVIDENCE, {
     evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
-    approvalSigner: { keyId: KEY_ID, privateKey },
+    ...trustedSignerOptions(privateKey, publicKey),
     trustedWorkflowSourceReadback,
     trustedRunnerImageReadback,
     registryPublisher: async (record) => {
@@ -368,7 +387,7 @@ test("존재하지 않는 GitHub source SHA는 APPROVED 승격 전에 거부한�
     sourceSha: SOURCE_SHA,
     platformRelease: PLATFORM_RELEASE,
   });
-  const { privateKey } = generateKeyPairSync("ed25519");
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const missingReadback = createGitHubWorkflowSourceReadback({
     fetchImpl: async (input) => {
       assert.equal(new URL(input).origin, "https://api.github.com");
@@ -379,7 +398,7 @@ test("존재하지 않는 GitHub source SHA는 APPROVED 승격 전에 거부한�
   await assert.rejects(
     promoteWorkflowBundle(candidate, EVIDENCE, {
       evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
-      approvalSigner: { keyId: KEY_ID, privateKey },
+      ...trustedSignerOptions(privateKey, publicKey),
       registryPublisher: async (record) => record,
       trustedWorkflowSourceReadback: missingReadback,
     }),
@@ -744,6 +763,34 @@ test("APPROVED bundle은 source, Ed25519 key와 registry readback이 모두 있�
   assert.equal(result.ok, true, result.diagnostics.join(","));
 });
 
+test("primitive trusted approval keys는 정규화된 오류로 거부한다", async () => {
+  const candidate = await createWorkflowBundle({
+    sourceSha: SOURCE_SHA,
+    platformRelease: PLATFORM_RELEASE,
+  });
+  const validation = await validateWorkflowBundle(candidate, {
+    trustedApprovalKeys: "not-an-object",
+  });
+  assert.equal(validation.ok, false);
+  assert.ok(validation.diagnostics.includes("APPROVAL_TRUSTED_KEYS_INVALID"));
+
+  await assert.rejects(
+    promoteWorkflowBundle(candidate, EVIDENCE, {
+      trustedApprovalKeys: 42,
+    }),
+    /APPROVAL_TRUSTED_KEYS_INVALID/u,
+  );
+
+  const { approved, trust } = await approvedFixture();
+  await assert.rejects(
+    loadApprovedWorkflowBundle(approved, {
+      ...trust,
+      trustedApprovalKeys: true,
+    }),
+    /APPROVAL_TRUSTED_KEYS_INVALID/u,
+  );
+});
+
 test("과거 APPROVED bundle은 current repoRoot runtime asset과 비교하지 않는다", async () => {
   const { approved, trust } = await approvedFixture();
   const root = await mkdtemp(join(tmpdir(), "fleet-old-approved-"));
@@ -864,7 +911,7 @@ test("승격은 canary readback, Ed25519 signer, registry publisher를 모두 �
     sourceSha: SOURCE_SHA,
     platformRelease: PLATFORM_RELEASE,
   });
-  const { privateKey } = generateKeyPairSync("ed25519");
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const trustedWorkflowSourceReadback = trustedSourceReadbackFor(candidate);
 
   await assert.rejects(
@@ -889,11 +936,144 @@ test("승격은 canary readback, Ed25519 signer, registry publisher를 모두 �
   await assert.rejects(
     promoteWorkflowBundle(candidate, EVIDENCE, {
       evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
-      approvalSigner: { keyId: KEY_ID, privateKey },
+      ...trustedSignerOptions(privateKey, publicKey),
       trustedWorkflowSourceReadback,
       trustedRunnerImageReadback,
     }),
     /APPROVAL_REGISTRY_PUBLISHER_REQUIRED/u,
+  );
+});
+
+test("trusted publisher는 signing key 없이 signer와 registry readback 경계만 노출한다", async () => {
+  const candidate = await createWorkflowBundle({
+    sourceSha: SOURCE_SHA,
+    platformRelease: PLATFORM_RELEASE,
+  });
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const registry = new Map();
+  let signerPayload;
+  let registryPublishCount = 0;
+  const publisher = createTrustedWorkflowBundlePublisher({
+    approvalKeyId: KEY_ID,
+    trustedApprovalKeys: new Map([[KEY_ID, publicKey]]),
+    trustedWorkflowSourceReadback: trustedSourceReadbackFor(candidate),
+    trustedRunnerImageReadback,
+    evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
+    signApprovalPayload: async (request) => {
+      assert.equal(
+        request.credentialId,
+        trustedWorkflowBundlePublisherContract.signingCredentialId,
+      );
+      assert.equal(request.keyId, KEY_ID);
+      assert.equal(request.algorithm, "Ed25519");
+      signerPayload = request.payload;
+      return {
+        algorithm: "Ed25519",
+        keyId: KEY_ID,
+        value: signEd25519(null, request.payload, privateKey).toString("base64url"),
+      };
+    },
+    publishRegistryRecord: async ({ precondition, promoted, record }) => {
+      registryPublishCount += 1;
+      assert.equal(precondition.expectedState, "ABSENT");
+      assert.equal(
+        precondition.recordDigest,
+        `sha256:${createHash("sha256")
+          .update(JSON.stringify(canonicalize(record)))
+          .digest("hex")}`,
+      );
+      assert.equal(promoted.integrity.payloadDigest, record.bundleDigest);
+      registry.set(record.subject, structuredClone(record));
+      return {
+        recordDigest: precondition.recordDigest,
+        state: "CREATED",
+        subject: record.subject,
+      };
+    },
+    readRegistryRecord: async ({ subject }) => registry.get(subject) ?? null,
+  });
+
+  const approved = await publisher.promote(candidate, EVIDENCE);
+  const replay = await publisher.promote(candidate, EVIDENCE);
+  assert.equal(approved.approval.state, "APPROVED");
+  assert.equal(replay.approval.state, "APPROVED");
+  assert.equal(registryPublishCount, 1);
+  assert.equal(approved.approval.signature.keyId, KEY_ID);
+  assert.ok(signerPayload.every((value) => value === 0));
+  assert.deepEqual(Object.keys(publisher), ["promote"]);
+  assert.equal(
+    Object.hasOwn(trustedWorkflowBundlePublisherContract, "privateKey"),
+    false,
+  );
+});
+
+test("trusted publisher는 signer와 registry 오류 상세를 정규화한다", async () => {
+  const candidate = await createWorkflowBundle({
+    sourceSha: SOURCE_SHA,
+    platformRelease: PLATFORM_RELEASE,
+  });
+  const { publicKey } = generateKeyPairSync("ed25519");
+  const sensitive = `private-key-detail-${"x".repeat(32)}`;
+  const publisher = createTrustedWorkflowBundlePublisher({
+    approvalKeyId: KEY_ID,
+    trustedApprovalKeys: new Map([[KEY_ID, publicKey]]),
+    trustedWorkflowSourceReadback: trustedSourceReadbackFor(candidate),
+    trustedRunnerImageReadback,
+    evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
+    signApprovalPayload: async () => {
+      throw new Error(sensitive);
+    },
+    publishRegistryRecord: async () => {},
+    readRegistryRecord: async () => undefined,
+  });
+
+  await assert.rejects(
+    publisher.promote(candidate, EVIDENCE),
+    (error) =>
+      error.message === "APPROVAL_SIGNATURE_FAILED" &&
+      !error.message.includes(sensitive),
+  );
+});
+
+test("저수준 승격도 registry publish 오류 상세를 노출하지 않는다", async () => {
+  const candidate = await createWorkflowBundle({
+    sourceSha: SOURCE_SHA,
+    platformRelease: PLATFORM_RELEASE,
+  });
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const sensitive = `registry-token-detail-${"x".repeat(32)}`;
+
+  await assert.rejects(
+    promoteWorkflowBundle(candidate, EVIDENCE, {
+      trustedWorkflowSourceReadback: trustedSourceReadbackFor(candidate),
+      evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
+      trustedRunnerImageReadback,
+      ...trustedSignerOptions(privateKey, publicKey),
+      registryPublisher: async () => {
+        throw new Error(sensitive);
+      },
+    }),
+    (error) =>
+      error.message === "APPROVAL_REGISTRY_PUBLISH_FAILED" &&
+      !error.message.includes(sensitive),
+  );
+});
+
+test("trusted publisher는 private signing key를 trust configuration으로 받지 않는다", () => {
+  const { privateKey } = generateKeyPairSync("ed25519");
+  assert.throws(
+    () =>
+      createTrustedWorkflowBundlePublisher({
+        approvalKeyId: KEY_ID,
+        trustedApprovalKeys: new Map([[KEY_ID, privateKey]]),
+        trustedWorkflowSourceReadback: async () => {},
+        trustedRunnerImageReadback: async () => {},
+        evidenceVerifier: async () => {},
+        signApprovalPayload: async () => {},
+        publishRegistryRecord: async () => {},
+        readRegistryRecord: async () => null,
+      }),
+    /TRUSTED_BUNDLE_PUBLISHER_CONFIGURATION_INVALID/u,
   );
 });
 
@@ -902,7 +1082,7 @@ test("evidence verifier가 입력을 바꿔도 검증 전 snapshot만 서명한�
     sourceSha: SOURCE_SHA,
     platformRelease: PLATFORM_RELEASE,
   });
-  const { privateKey } = generateKeyPairSync("ed25519");
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const approved = await promoteWorkflowBundle(candidate, EVIDENCE, {
     trustedWorkflowSourceReadback: trustedSourceReadbackFor(candidate),
     evidenceVerifier: async (record, bundle) => {
@@ -911,7 +1091,7 @@ test("evidence verifier가 입력을 바꿔도 검증 전 snapshot만 서명한�
       return verifiedEvidence(original, bundle);
     },
     trustedRunnerImageReadback,
-    approvalSigner: { keyId: KEY_ID, privateKey },
+    ...trustedSignerOptions(privateKey, publicKey),
     registryPublisher: async (record) => record,
   });
 

@@ -32,12 +32,30 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_sha }}
           WORKING_DIRECTORY: ${{ inputs.working_directory }}
           CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          EVENT_NAME: ${{ github.event_name }}
           EVENT_REF: ${{ github.ref }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY_ID: ${{ github.repository_id }}
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          test "$EVENT_REF" = "refs/heads/main"
-          test "$CALLER_WORKFLOW_REF" = "${GITHUB_REPOSITORY}/.github/workflows/android-build-only.yml@refs/heads/main"
+          if [[ "$EVENT_NAME" = "pull_request" ]]; then
+            test "$REPOSITORY_ID" = "1265192029" || exit 1
+            test "$PR_BASE_REF" = "main" || exit 1
+            test "$PR_BASE_SHA" = "$SOURCE_SHA" || exit 1
+            test "$PR_HEAD_REPOSITORY" = "$GITHUB_REPOSITORY" || exit 1
+            [[ "$PR_HEAD_REF" =~ ^seori/workflow-bundle-canary/1265192029/[0-9a-f]{12}$ ]] || exit 1
+            [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 1
+            test "$EVENT_REF" = "refs/pull/${PR_NUMBER}/merge" || exit 1
+            test "$CALLER_WORKFLOW_REF" = "${GITHUB_REPOSITORY}/.github/workflows/android-build-only.yml@refs/pull/${PR_NUMBER}/merge" || exit 1
+          else
+            test "$EVENT_REF" = "refs/heads/main" || exit 1
+            test "$CALLER_WORKFLOW_REF" = "${GITHUB_REPOSITORY}/.github/workflows/android-build-only.yml@refs/heads/main" || exit 1
+          fi
           [[ "$WORKING_DIRECTORY" =~ ^(\.|[A-Za-z0-9._@-]+(/[A-Za-z0-9._@-]+)*)$ ]]
           if [[ "$WORKING_DIRECTORY" != "." ]]; then
             IFS='/' read -ra path_segments <<< "$WORKING_DIRECTORY"
@@ -57,6 +75,8 @@ jobs:
         id: bundle-identity
         shell: bash
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           JOB_CONTEXT_JSON: ${{ toJSON(job) }}
         run: |
           node --input-type=module -e '
@@ -67,6 +87,7 @@ jobs:
             const ref = identity.workflow_ref;
             const expected = "seorilabs/.github/.github/workflows/godot-build-android-cloud-v1.yml@" + sha;
             if (repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(sha ?? "") || ref !== expected) process.exit(1);
+            if (process.env.EVENT_NAME === "pull_request" && process.env.PR_HEAD_REF !== "seori/workflow-bundle-canary/1265192029/" + sha.slice(0, 12)) process.exit(1);
             appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + repository, "sha=" + sha].join("\n") + "\n");
           '
 

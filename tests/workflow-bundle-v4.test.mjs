@@ -141,6 +141,17 @@ function verifiedEvidence(record, bundle) {
   };
 }
 
+function trustedSignerOptions(privateKey, publicKey, keyId) {
+  return {
+    trustedApprovalKeys: new Map([[keyId, publicKey]]),
+    trustedApprovalSigner: async ({ payload }) => ({
+      algorithm: "Ed25519",
+      keyId,
+      value: signEd25519(null, payload, privateKey).toString("base64url"),
+    }),
+  };
+}
+
 async function approvedContext(profile = "react-native") {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const candidate = await createWorkflowBundle({
@@ -151,7 +162,11 @@ async function approvedContext(profile = "react-native") {
   const registry = new Map();
   const approved = await promoteWorkflowBundle(candidate, EVIDENCE, {
     evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
-    approvalSigner: { keyId: "workflow-bundle-v4-test", privateKey },
+    ...trustedSignerOptions(
+      privateKey,
+      publicKey,
+      "workflow-bundle-v4-test",
+    ),
     trustedWorkflowSourceReadback: readback,
     trustedRunnerImageReadback,
     registryPublisher: async (record) => {

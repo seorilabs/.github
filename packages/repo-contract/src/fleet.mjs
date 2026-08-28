@@ -1,7 +1,6 @@
 import {
-  createHash,
   createPublicKey,
-  sign as signEd25519,
+  createHash,
   verify as verifyEd25519,
 } from "node:crypto";
 import { Buffer } from "node:buffer";
@@ -50,9 +49,9 @@ const V4_RUNTIME_AST_DIGEST_BY_PATH = Object.freeze({
   ".github/workflows/godot-checks-v2.yml":
     "sha256:0c703a8afde943bab0489c6c9566fe1b351c69d9923b65cf93cca502cea20a80",
   ".github/workflows/rn-build-android-cloud-v1.yml":
-    "sha256:43bb1f3f1cc6af3af96b03b1de07970e7f21c9a2ee406238f9dfa5ad217f428a",
+    "sha256:20f146537adbe4cff9fdbc591fe472eb2429363c18e7a4c6ae486b74496f2083",
   ".github/workflows/godot-build-android-cloud-v1.yml":
-    "sha256:628265802160400628a247776c2353c9d8d5a766c045afa59945eae36da5eb42",
+    "sha256:13bdb5701f9936b634012f20e61602ee67b4abf1031fe7caf3e8c1761698b4e1",
   ".github/cloud-build/rn-android-build-only.yaml":
     "sha256:1dd60b78d45f701fb66f04d773ffdd73ec327ad82472db432f4828f6c2617d0c",
   ".github/cloud-build/godot-android-build-only.yaml":
@@ -857,6 +856,49 @@ function trustedApprovalKey(trustedApprovalKeys, keyId) {
   return undefined;
 }
 
+function snapshotTrustedApprovalKeys(trustedApprovalKeys) {
+  if (trustedApprovalKeys === undefined || trustedApprovalKeys === null) {
+    return Object.freeze({});
+  }
+  if (
+    !(trustedApprovalKeys instanceof Map) &&
+    (typeof trustedApprovalKeys !== "object" ||
+      Object.getPrototypeOf(trustedApprovalKeys) !== Object.prototype)
+  ) {
+    throw new Error("APPROVAL_TRUSTED_KEYS_INVALID");
+  }
+  const entries =
+    trustedApprovalKeys instanceof Map
+      ? [...trustedApprovalKeys.entries()]
+      : Object.entries(trustedApprovalKeys);
+  if (
+    !entries ||
+    entries.some(
+      ([keyId, key]) =>
+        !APPROVAL_KEY_ID_PATTERN.test(keyId ?? "") ||
+        key?.type !== "public" ||
+        key?.asymmetricKeyType !== "ed25519",
+    )
+  ) {
+    throw new Error("APPROVAL_TRUSTED_KEYS_INVALID");
+  }
+  return Object.freeze(
+    Object.fromEntries(
+      entries.map(([keyId, key]) => [
+        keyId,
+        createPublicKey({
+          key: key.export({
+            format: "der",
+            type: "spki",
+          }),
+          format: "der",
+          type: "spki",
+        }),
+      ]),
+    ),
+  );
+}
+
 function registryRecordMatches(record, bundle) {
   return (
     record !== null &&
@@ -1176,6 +1218,13 @@ export async function validateWorkflowBundle(
     return { ok: false, diagnostics: ["BUNDLE_SNAPSHOT_INVALID"] };
   }
   const diagnostics = [];
+  let trustedApprovalKeySnapshot;
+  try {
+    trustedApprovalKeySnapshot = snapshotTrustedApprovalKeys(trustedApprovalKeys);
+  } catch {
+    trustedApprovalKeySnapshot = Object.freeze({});
+    diagnostics.push("APPROVAL_TRUSTED_KEYS_INVALID");
+  }
   if (
     bundle?.approval?.state !== "APPROVED" &&
     bundle?.bundleVersion !== CURRENT_BUNDLE_VERSION
@@ -1331,7 +1380,7 @@ export async function validateWorkflowBundle(
 
     const signature = bundle.approval.signature;
     const trustedKey = trustedApprovalKey(
-      trustedApprovalKeys,
+      trustedApprovalKeySnapshot,
       signature?.keyId,
     );
     let signatureVerified = false;
@@ -1385,7 +1434,8 @@ export async function promoteWorkflowBundle(
   {
     repoRoot = WORKSPACE_ROOT,
     evidenceVerifier,
-    approvalSigner,
+    trustedApprovalSigner,
+    trustedApprovalKeys,
     registryPublisher,
     trustedWorkflowSourceReadback,
     trustedRunnerImageReadback,
@@ -1397,6 +1447,9 @@ export async function promoteWorkflowBundle(
   } catch {
     throw new Error("BUNDLE_SNAPSHOT_INVALID");
   }
+  const trustedApprovalKeySnapshot = snapshotTrustedApprovalKeys(
+    trustedApprovalKeys,
+  );
   const requiredGates = bundle?.quality?.requiredCanaryGates;
   const canaries = bundle?.quality?.canaries;
   if (
@@ -1441,16 +1494,21 @@ export async function promoteWorkflowBundle(
   if (typeof evidenceVerifier !== "function") {
     throw new Error("CANARY_EVIDENCE_VERIFIER_REQUIRED");
   }
-  const evidenceResults = await Promise.all(
-    evidence.map(async (record) =>
-      structuredClone(
-        await evidenceVerifier(
-          structuredClone(record),
-          structuredClone(bundle),
+  let evidenceResults;
+  try {
+    evidenceResults = await Promise.all(
+      evidence.map(async (record) =>
+        structuredClone(
+          await evidenceVerifier(
+            structuredClone(record),
+            structuredClone(bundle),
+          ),
         ),
       ),
-    ),
-  );
+    );
+  } catch {
+    throw new Error("CANARY_EVIDENCE_READBACK_FAILED");
+  }
   if (
     evidenceResults.some(
       (verified, index) =>
@@ -1473,10 +1531,7 @@ export async function promoteWorkflowBundle(
     throw new Error(runnerReadback.diagnostic);
   }
 
-  if (
-    !APPROVAL_KEY_ID_PATTERN.test(approvalSigner?.keyId ?? "") ||
-    !approvalSigner?.privateKey
-  ) {
+  if (typeof trustedApprovalSigner !== "function") {
     throw new Error("APPROVAL_SIGNER_REQUIRED");
   }
   if (typeof registryPublisher !== "function") {
@@ -1499,20 +1554,64 @@ export async function promoteWorkflowBundle(
     ...bundlePayload(bundle),
     approval: unsignedApproval,
   };
-  const signatureValue = signEd25519(
-    null,
-    Buffer.from(canonicalJson(unsignedPromoted)),
-    approvalSigner.privateKey,
-  ).toString("base64url");
+  const signingPayload = Buffer.from(canonicalJson(unsignedPromoted));
+  let signature;
+  let signerPayload;
+  try {
+    signerPayload = Buffer.from(signingPayload);
+    signature = structuredClone(
+      await trustedApprovalSigner({
+        algorithm: "Ed25519",
+        keyPurpose: "workflow-bundle-approval",
+        payload: signerPayload,
+        payloadDigest: sha256(signingPayload),
+        registryId: APPROVAL_REGISTRY_ID,
+        subject: unsignedApproval.registry.subject,
+      }),
+    );
+  } catch {
+    throw new Error("APPROVAL_SIGNATURE_FAILED");
+  } finally {
+    if (Buffer.isBuffer(signerPayload)) signerPayload.fill(0);
+  }
+  if (
+    signature === null ||
+    typeof signature !== "object" ||
+    canonicalJson(Object.keys(signature).sort()) !==
+      canonicalJson(["algorithm", "keyId", "value"]) ||
+    signature.algorithm !== "Ed25519" ||
+    !APPROVAL_KEY_ID_PATTERN.test(signature.keyId ?? "") ||
+    !/^[A-Za-z0-9_-]{86}$/u.test(signature.value ?? "")
+  ) {
+    throw new Error("APPROVAL_SIGNATURE_INVALID");
+  }
+  const trustedKey = trustedApprovalKey(
+    trustedApprovalKeySnapshot,
+    signature.keyId,
+  );
+  if (!trustedKey) {
+    throw new Error("APPROVAL_TRUSTED_KEY_REQUIRED");
+  }
+  let signatureVerified = false;
+  try {
+    signatureVerified = verifyEd25519(
+      null,
+      signingPayload,
+      trustedKey,
+      Buffer.from(signature.value, "base64url"),
+    );
+  } catch {
+    signatureVerified = false;
+  }
+  if (!signatureVerified) {
+    throw new Error("APPROVAL_SIGNATURE_INVALID");
+  }
+  signingPayload.fill(0);
   const promoted = withIntegrity({
     ...unsignedPromoted,
     approval: {
       ...unsignedApproval,
-      signature: {
-        algorithm: "Ed25519",
-        keyId: approvalSigner.keyId,
-        value: signatureValue,
-      },
+      signature,
     },
   });
   const registryRecord = {
@@ -1523,18 +1622,33 @@ export async function promoteWorkflowBundle(
     bundleVersion: promoted.bundleVersion,
     state: "APPROVED",
   };
-  const publishedRecord = await registryPublisher(
-    structuredClone(registryRecord),
-    structuredClone(promoted),
-  );
+  const prePublishValidation = await validateWorkflowBundle(promoted, {
+    repoRoot,
+    trustedApprovalKeys: trustedApprovalKeySnapshot,
+    trustedRegistryReadback: async () => structuredClone(registryRecord),
+    trustedWorkflowSourceReadback,
+    trustedRunnerImageReadback,
+  });
+  if (!prePublishValidation.ok) {
+    throw new Error(
+      `WORKFLOW_BUNDLE_INVALID:${prePublishValidation.diagnostics.join(",")}`,
+    );
+  }
+  let publishedRecord;
+  try {
+    publishedRecord = await registryPublisher(
+      structuredClone(registryRecord),
+      structuredClone(promoted),
+    );
+  } catch {
+    throw new Error("APPROVAL_REGISTRY_PUBLISH_FAILED");
+  }
   if (!registryRecordMatches(publishedRecord, promoted)) {
     throw new Error("APPROVAL_REGISTRY_PUBLISH_FAILED");
   }
   const result = await validateWorkflowBundle(promoted, {
     repoRoot,
-    trustedApprovalKeys: new Map([
-      [approvalSigner.keyId, createPublicKey(approvalSigner.privateKey)],
-    ]),
+    trustedApprovalKeys: trustedApprovalKeySnapshot,
     trustedRegistryReadback: async () => publishedRecord,
     trustedWorkflowSourceReadback,
     trustedRunnerImageReadback,
@@ -1560,6 +1674,9 @@ export async function loadApprovedWorkflowBundle(
   } catch {
     throw new Error("BUNDLE_SNAPSHOT_INVALID");
   }
+  const trustedApprovalKeySnapshot = snapshotTrustedApprovalKeys(
+    trustedApprovalKeys,
+  );
   if (bundle?.approval?.state !== "APPROVED") {
     throw new Error("APPROVED_BUNDLE_REQUIRED");
   }
@@ -1572,7 +1689,7 @@ export async function loadApprovedWorkflowBundle(
   }
   const validation = await validateWorkflowBundle(bundle, {
     repoRoot,
-    trustedApprovalKeys,
+    trustedApprovalKeys: trustedApprovalKeySnapshot,
     trustedRegistryReadback,
     trustedWorkflowSourceReadback: async () =>
       structuredClone(sourceReadback.snapshot),
@@ -1659,6 +1776,27 @@ async function verifyBundleBinding(binding) {
     return { diagnostic: "APPROVED_BUNDLE_REGISTRY_READBACK_FAILED" };
   }
   return { state };
+}
+
+export async function resolveApprovedBuildWorkflowBinding(binding, profile) {
+  const verification = await verifyBundleBinding(binding);
+  if (!verification.state) {
+    throw new Error(verification.diagnostic);
+  }
+  const workflow = verification.state.buildWorkflowByProfile[profile];
+  if (
+    !workflow ||
+    !BUILD_WORKFLOW_BY_PROFILE[profile] ||
+    workflow.path !== BUILD_WORKFLOW_BY_PROFILE[profile] ||
+    !SHA_PATTERN.test(workflow.sha ?? "")
+  ) {
+    throw new Error("APPROVED_BUILD_WORKFLOW_BINDING_REQUIRED");
+  }
+  return Object.freeze({
+    bundleDigest: verification.state.bundle.integrity.payloadDigest,
+    path: workflow.path,
+    sha: workflow.sha,
+  });
 }
 
 export function createBackofficeResolvedManifestReadback({

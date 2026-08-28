@@ -13,6 +13,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 
 import {
   generateOrgContractCaller,
+  resolveApprovedBuildWorkflowBinding,
   validateOrgContractCaller,
 } from "./fleet.mjs";
 
@@ -35,6 +36,11 @@ const SIGNATURE_PATTERN = /^sha256=([0-9a-f]{64})$/u;
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const REPOSITORY_ID_PATTERN = /^[1-9][0-9]{0,31}$/u;
 const FULL_NAME_PATTERN = /^seorilabs\/[A-Za-z0-9._-]+$/u;
+const LOGICAL_CREDENTIAL_ID_PATTERN =
+  /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){2,7}$/u;
+const SECRET_NAME_PATTERN = /^[A-Z][A-Z0-9_]{1,99}$/u;
+const JOB_WORKFLOW_REF_PATTERN =
+  /^seorilabs\/\.github\/\.github\/workflows\/[a-z0-9-]+\.yml@[0-9a-f]{40}$/u;
 const BRANCH_PATTERN = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._\/-]{1,255}$/u;
 const ORGANIZATION_LOGIN = "seorilabs";
 const DEFAULT_BRANCH = "main";
@@ -45,7 +51,6 @@ const PROFILE_BY_WORKFLOW = Object.freeze({
 });
 const MANAGED_PROPERTIES = Object.freeze({
   "fleet-managed": "true",
-  "fleet-ruleset": "evaluate",
 });
 let planValidatorPromise;
 
@@ -273,6 +278,276 @@ function operation(kind, repositoryId, payload) {
   });
 }
 
+function validateProtectionPolicy(value) {
+  return (
+    exactKeys(value, [
+      "approvalReceiptId",
+      "checkAppIds",
+      "providerMode",
+      "rolloutMode",
+    ]) &&
+    exactKeys(value.checkAppIds, ["orgContract", "seoriReview"]) &&
+    REPOSITORY_ID_PATTERN.test(value.checkAppIds.orgContract ?? "") &&
+    REPOSITORY_ID_PATTERN.test(value.checkAppIds.seoriReview ?? "") &&
+    ["ORG_RULESET", "REPO_BRANCH_PROTECTION"].includes(value.providerMode) &&
+    ["SHADOW", "ACTIVE"].includes(value.rolloutMode) &&
+    (value.rolloutMode === "SHADOW"
+      ? value.approvalReceiptId === null
+      : /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u.test(
+          value.approvalReceiptId ?? "",
+        ))
+  );
+}
+
+function protectionPayload(repository, sourceSha, policy) {
+  return {
+    approvalReceiptId: policy.approvalReceiptId,
+    defaultBranch: "main",
+    providerMode: policy.providerMode,
+    repositoryFullName: repository.fullName,
+    repositoryId: repository.id,
+    requiredStatusChecks: {
+      checks: [
+        {
+          appId: policy.checkAppIds.orgContract,
+          context: "Org Contract / Org Contract",
+        },
+        {
+          appId: policy.checkAppIds.seoriReview,
+          context: "Seori Review",
+        },
+      ],
+      strict: true,
+    },
+    reviewPolicy: {
+      dismissStaleReviews: true,
+      requiredApprovingReviewCount: 1,
+      requireLastPushApproval: true,
+    },
+    rolloutMode: policy.rolloutMode,
+    sourceSha,
+  };
+}
+
+function protectionDesiredDigest(payload) {
+  return sha256(
+    canonicalJson({
+      defaultBranch: payload.defaultBranch,
+      providerMode: payload.providerMode,
+      requiredStatusChecks: payload.requiredStatusChecks,
+      reviewPolicy: payload.reviewPolicy,
+    }),
+  );
+}
+
+function validateProvisioningGate(value, repository, protectionOperation) {
+  const commonMatches =
+    value?.approvalReceiptId === protectionOperation.payload.approvalReceiptId &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u.test(
+      value?.credentialApprovalReceiptId ?? "",
+    ) &&
+    value.credentialApprovalReceiptId !== value.approvalReceiptId &&
+    /^sha256:[0-9a-f]{64}$/u.test(value?.callerContentDigest ?? "") &&
+    value?.callerPath === ".github/workflows/org-contract.yml" &&
+    value?.callerSourceSha === repository.sourceSha;
+  if (!commonMatches) return false;
+  if (protectionOperation.payload.providerMode === "ORG_RULESET") {
+    return (
+      exactKeys(value, [
+        "approvalReceiptId",
+        "callerContentDigest",
+        "callerPath",
+        "callerSourceSha",
+        "credentialApprovalReceiptId",
+        "requiredChecks",
+        "rulesetEnforcement",
+        "rulesetId",
+      ]) &&
+      canonicalJson(value.requiredChecks) ===
+        canonicalJson(["Org Contract", "Seori Review"]) &&
+      value.rulesetEnforcement === "ACTIVE" &&
+      REPOSITORY_ID_PATTERN.test(value.rulesetId ?? "")
+    );
+  }
+  return (
+    exactKeys(value, [
+      "approvalReceiptId",
+      "callerContentDigest",
+      "callerPath",
+      "callerSourceSha",
+      "credentialApprovalReceiptId",
+      "protectionDigest",
+      "providerMode",
+      "rolloutMode",
+    ]) &&
+    value.protectionDigest ===
+      protectionDesiredDigest(protectionOperation.payload) &&
+    value.providerMode === "REPO_BRANCH_PROTECTION" &&
+    value.rolloutMode === "ACTIVE"
+  );
+}
+
+function validateProvisioningBindings(secretBindings, wifBindings) {
+  if (
+    !Array.isArray(secretBindings) ||
+    !Array.isArray(wifBindings) ||
+    secretBindings.some(
+      (binding) =>
+        !exactKeys(binding, [
+          "bindingRevision",
+          "logicalCredentialId",
+          "secretName",
+        ]) ||
+        !Number.isSafeInteger(binding.bindingRevision) ||
+        binding.bindingRevision < 1 ||
+        !LOGICAL_CREDENTIAL_ID_PATTERN.test(binding.logicalCredentialId ?? "") ||
+        !SECRET_NAME_PATTERN.test(binding.secretName ?? ""),
+    ) ||
+    wifBindings.some(
+      (binding) =>
+        !exactKeys(binding, [
+          "bindingRevision",
+          "environment",
+          "logicalCredentialId",
+        ]) ||
+        !Number.isSafeInteger(binding.bindingRevision) ||
+        binding.bindingRevision < 1 ||
+        !LOGICAL_CREDENTIAL_ID_PATTERN.test(binding.logicalCredentialId ?? "") ||
+        binding.environment !== "internal",
+    )
+  ) {
+    throw new Error("FLEET_PROVISIONING_BINDING_INVALID");
+  }
+  const bindingKeys = [
+    ...secretBindings.map(
+      ({ secretName }) => `github.org-secret-visibility.ensure:${secretName}`,
+    ),
+    ...wifBindings.map(
+      ({ logicalCredentialId }) =>
+        `gcp.wif-binding.ensure:${logicalCredentialId}`,
+    ),
+  ];
+  if (new Set(bindingKeys).size !== bindingKeys.length) {
+    throw new Error("FLEET_PROVISIONING_BINDING_DUPLICATE");
+  }
+}
+
+export async function attachFleetProvisioningOperations(
+  plan,
+  {
+    approvedBundleBinding,
+    organizationId,
+    provisioningGate,
+    secretBindings = [],
+    wifBindings = [],
+  } = {},
+) {
+  let snapshot;
+  try {
+    snapshot = structuredClone(plan);
+    provisioningGate = structuredClone(provisioningGate);
+    secretBindings = structuredClone(secretBindings);
+    wifBindings = structuredClone(wifBindings);
+  } catch {
+    throw new Error("FLEET_PROVISIONING_SNAPSHOT_INVALID");
+  }
+  const validation = await validateFleetBootstrapPlan(snapshot);
+  if (!validation.ok) {
+    throw new Error("FLEET_PROVISIONING_PLAN_INVALID");
+  }
+  const repository = snapshot.repository;
+  const appendProvisioningOperation = (next, conflictsWith) => {
+    const existing = snapshot.operations.find((item) => conflictsWith(item));
+    if (existing?.idempotencyKey === next.idempotencyKey) return;
+    if (existing) throw new Error("FLEET_PROVISIONING_BINDING_CONFLICT");
+    snapshot.operations.push(next);
+  };
+  const activeObservation = snapshot.operations.find(
+    (item) => item.kind === "control-plane.repository.observe",
+  );
+  const protectionOperation = snapshot.operations.find(
+    (item) => item.kind === "github.protection.reconcile",
+  );
+  const profile = activeObservation?.payload?.profile;
+  if (
+    snapshot.outcome !== "READY" ||
+    snapshot.reason !== null ||
+    repository.sourceSha === null ||
+    snapshot.operations.length !== 2 ||
+    activeObservation?.payload?.state !== "active" ||
+    !["react-native", "godot"].includes(profile) ||
+    !REPOSITORY_ID_PATTERN.test(organizationId ?? "") ||
+    protectionOperation?.payload?.rolloutMode !== "ACTIVE" ||
+    !validateProvisioningGate(
+      provisioningGate,
+      repository,
+      protectionOperation,
+    )
+  ) {
+    throw new Error("FLEET_PROVISIONING_PLAN_INVALID");
+  }
+  validateProvisioningBindings(secretBindings, wifBindings);
+  if (secretBindings.length === 0 && wifBindings.length === 0) {
+    throw new Error("FLEET_PROVISIONING_BINDING_REQUIRED");
+  }
+  const buildWorkflow = await resolveApprovedBuildWorkflowBinding(
+    approvedBundleBinding,
+    profile,
+  );
+  const jobWorkflowRef = `seorilabs/.github/${buildWorkflow.path}@${buildWorkflow.sha}`;
+  if (!JOB_WORKFLOW_REF_PATTERN.test(jobWorkflowRef)) {
+    throw new Error("FLEET_PROVISIONING_BINDING_INVALID");
+  }
+  snapshot.operations = [activeObservation];
+  snapshot.outcome = "PROVISIONING_READY";
+  for (const binding of secretBindings.toSorted((left, right) =>
+    left.secretName.localeCompare(right.secretName),
+  )) {
+    const next = operation("github.org-secret-visibility.ensure", repository.id, {
+      repositoryId: repository.id,
+      repositoryFullName: repository.fullName,
+      approvedBundleDigest: buildWorkflow.bundleDigest,
+      bindingRevision: binding.bindingRevision,
+      logicalCredentialId: binding.logicalCredentialId,
+      secretName: binding.secretName,
+      visibility: "selected",
+      provisioningGate,
+    });
+    appendProvisioningOperation(
+      next,
+      (item) =>
+        item.kind === next.kind &&
+        item.payload?.secretName === binding.secretName,
+    );
+  }
+  for (const binding of wifBindings.toSorted((left, right) =>
+    left.logicalCredentialId.localeCompare(right.logicalCredentialId),
+  )) {
+    const next = operation("gcp.wif-binding.ensure", repository.id, {
+      repositoryId: repository.id,
+      repositoryFullName: repository.fullName,
+      approvedBundleDigest: buildWorkflow.bundleDigest,
+      bindingRevision: binding.bindingRevision,
+      logicalCredentialId: binding.logicalCredentialId,
+      organizationId,
+      jobWorkflowRef,
+      environment: binding.environment,
+      provisioningGate,
+    });
+    appendProvisioningOperation(
+      next,
+      (item) =>
+        item.kind === next.kind &&
+        item.payload?.logicalCredentialId === binding.logicalCredentialId,
+    );
+  }
+  const completedValidation = await validateFleetBootstrapPlan(snapshot);
+  if (!completedValidation.ok) {
+    throw new Error("FLEET_PROVISIONING_PLAN_INVALID");
+  }
+  return deepFreeze(snapshot);
+}
+
 function baseResult({ deliveryId, repository, sourceSha, action, outcome, reason }) {
   return {
     schemaVersion: 1,
@@ -300,10 +575,11 @@ function needsInputOperations(result, reason) {
   return deepFreeze(result);
 }
 
-function expectedProperties(profile, state) {
+function expectedProperties(profile, state, protectionPolicy) {
   return {
     ...MANAGED_PROPERTIES,
     "fleet-profile": profile,
+    "fleet-ruleset": protectionPolicy.rolloutMode.toLowerCase(),
     "fleet-state": state,
   };
 }
@@ -326,6 +602,7 @@ async function readyPlan({
   sourceSha,
   approvedBundleBinding,
   callerBinding,
+  protectionPolicy,
   readObservedState,
 }) {
   const repositoryContext = {
@@ -369,7 +646,7 @@ async function readyPlan({
     }),
   );
 
-  const properties = expectedProperties(profile, "active");
+  const properties = expectedProperties(profile, "active", protectionPolicy);
   if (!propertiesMatch(observed.customProperties, properties)) {
     result.operations.push(
       operation("github.custom-properties.ensure", repository.id, {
@@ -389,7 +666,17 @@ async function readyPlan({
       }),
     );
   }
+  const appendProtectionOperation = () => {
+    result.operations.push(
+      operation(
+        "github.protection.reconcile",
+        repository.id,
+        protectionPayload(repository, sourceSha, protectionPolicy),
+      ),
+    );
+  };
   if (observed.callerDigest === callerDigest) {
+    appendProtectionOperation();
     return result;
   }
 
@@ -412,11 +699,13 @@ async function readyPlan({
       );
     }
     result.outcome = "BOOTSTRAP_PR_OPEN";
+    appendProtectionOperation();
     return result;
   }
   if (observed.autonomousOpenPullRequestCount > 0) {
     result.outcome = "WAITING_FOR_PR_SLOT";
     result.reason = "AUTONOMOUS_PR_LIMIT_REACHED";
+    appendProtectionOperation();
     return result;
   }
   result.operations.push(
@@ -431,6 +720,7 @@ async function readyPlan({
       maximumOpenAutonomousPullRequests: 1,
     }),
   );
+  appendProtectionOperation();
   return result;
 }
 
@@ -443,10 +733,12 @@ export function createFleetWebhookHandler({
   readRepository,
   resolveCallerBinding,
   readObservedState,
+  protectionPolicy,
 } = {}) {
   if (
     !REPOSITORY_ID_PATTERN.test(organizationId ?? "") ||
     !REPOSITORY_ID_PATTERN.test(installationId ?? "") ||
+    !validateProtectionPolicy(protectionPolicy) ||
     ![
       loadWebhookSecret,
       claimDelivery,
@@ -701,6 +993,7 @@ export function createFleetWebhookHandler({
       sourceSha: readback.sourceSha,
       approvedBundleBinding,
       callerBinding: resolution.binding,
+      protectionPolicy,
       readObservedState,
     });
     return persistPlan(plan);

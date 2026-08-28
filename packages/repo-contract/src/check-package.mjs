@@ -228,6 +228,7 @@ try {
       [
         'const installed = await import("@seorilabs/repo-contract/bootstrap");',
         'if (typeof installed.createFleetWebhookHandler !== "function") process.exit(1);',
+        'if (typeof installed.attachFleetProvisioningOperations !== "function") process.exit(1);',
         'if (typeof installed.validateFleetBootstrapPlan !== "function") process.exit(1);',
         'if (installed.fleetBootstrapContract?.webhookCredentialId !== "shared/github/fleet-app-webhook") process.exit(1);',
         'process.stdout.write("Fleet bootstrap public export 검증 통과\\n");',
@@ -241,6 +242,74 @@ try {
   );
   if (!installedBootstrapCheck.stdout.includes("public export 검증 통과")) {
     throw new Error("배포된 repo-contract에 Fleet bootstrap API가 없습니다.");
+  }
+  const installedExecutorCheck = await execFileAsync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'const installed = await import("@seorilabs/repo-contract/trusted-executor");',
+        'if (typeof installed.createGitHubAppTrustedAdapter !== "function") process.exit(1);',
+        'if (typeof installed.createTrustedFleetExecutor !== "function") process.exit(1);',
+        'if (installed.trustedFleetExecutorContract?.githubAppCredentialId !== "shared/github/fleet-app") process.exit(1);',
+        'process.stdout.write("Fleet trusted executor public export 검증 통과\\n");',
+      ].join("\n"),
+    ],
+    {
+      cwd: consumerRoot,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    },
+  );
+  if (!installedExecutorCheck.stdout.includes("public export 검증 통과")) {
+    throw new Error("배포된 repo-contract에 Fleet trusted executor API가 없습니다.");
+  }
+  const installedCandidateCanaryCheck = await execFileAsync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'const installed = await import("@seorilabs/repo-contract/trusted-candidate-canary");',
+        'if (typeof installed.loadTrustedCandidateBundle !== "function") process.exit(1);',
+        'if (typeof installed.createTrustedCandidateCanaryPlan !== "function") process.exit(1);',
+        'if (typeof installed.createTrustedCandidateCanaryExecutor !== "function") process.exit(1);',
+        'if (installed.trustedCandidateCanaryContract?.operationKind !== "github.candidate-canary-pull-request.ensure") process.exit(1);',
+        'if (installed.trustedCandidateCanaryContract?.wifApprovalPurpose !== "CANDIDATE_WIF_PREBIND") process.exit(1);',
+        'if (installed.trustedCandidateCanaryContract?.wifLogicalCredentialId !== "shared/gcp/cloud-build") process.exit(1);',
+        'process.stdout.write("WorkflowBundle candidate canary public export 검증 통과\\n");',
+      ].join("\n"),
+    ],
+    {
+      cwd: consumerRoot,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    },
+  );
+  if (!installedCandidateCanaryCheck.stdout.includes("public export 검증 통과")) {
+    throw new Error("배포된 repo-contract에 candidate canary API가 없습니다.");
+  }
+  const installedPublisherCheck = await execFileAsync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'const installed = await import("@seorilabs/repo-contract/trusted-publisher");',
+        'if (typeof installed.createTrustedWorkflowBundlePublisher !== "function") process.exit(1);',
+        'if (installed.trustedWorkflowBundlePublisherContract?.signingCredentialId !== "shared/workflow-bundle/approval-signing") process.exit(1);',
+        'process.stdout.write("WorkflowBundle trusted publisher public export 검증 통과\\n");',
+      ].join("\n"),
+    ],
+    {
+      cwd: consumerRoot,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    },
+  );
+  if (!installedPublisherCheck.stdout.includes("public export 검증 통과")) {
+    throw new Error("배포된 repo-contract에 WorkflowBundle trusted publisher API가 없습니다.");
   }
 } catch (error) {
   checkError = error;

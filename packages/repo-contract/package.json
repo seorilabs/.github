@@ -1,6 +1,6 @@
 {
   "name": "@seorilabs/repo-contract",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Seorilabs 앱 저장소 계약 검증기",
   "type": "module",
   "bin": {
@@ -10,7 +10,10 @@
   "exports": {
     ".": "./src/index.mjs",
     "./bootstrap": "./src/bootstrap.mjs",
-    "./fleet": "./src/fleet.mjs"
+    "./fleet": "./src/fleet.mjs",
+    "./trusted-candidate-canary": "./src/trusted-candidate-canary.mjs",
+    "./trusted-executor": "./src/trusted-executor.mjs",
+    "./trusted-publisher": "./src/trusted-publisher.mjs"
   },
   "files": [
     "src",

@@ -33,6 +33,7 @@
     "outcome": {
       "enum": [
         "READY",
+        "PROVISIONING_READY",
         "BOOTSTRAP_PR_OPEN",
         "WAITING_FOR_PR_SLOT",
         "NEEDS_INPUT",
@@ -60,7 +61,7 @@
     "repository": { "$ref": "#/$defs/repository" },
     "operations": {
       "type": "array",
-      "maxItems": 4,
+      "maxItems": 32,
       "items": {
         "oneOf": [
           { "$ref": "#/$defs/observeOperation" },
@@ -68,7 +69,10 @@
           { "$ref": "#/$defs/customPropertiesOperation" },
           { "$ref": "#/$defs/environmentOperation" },
           { "$ref": "#/$defs/ensurePullRequestOperation" },
-          { "$ref": "#/$defs/updatePullRequestOperation" }
+          { "$ref": "#/$defs/updatePullRequestOperation" },
+          { "$ref": "#/$defs/protectionOperation" },
+          { "$ref": "#/$defs/secretVisibilityOperation" },
+          { "$ref": "#/$defs/wifBindingOperation" }
         ]
       }
     }
@@ -184,7 +188,7 @@
               ],
               "properties": {
                 "fleet-managed": { "const": "true" },
-                "fleet-ruleset": { "const": "evaluate" },
+                "fleet-ruleset": { "enum": ["shadow", "active"] },
                 "fleet-profile": { "enum": ["react-native", "godot"] },
                 "fleet-state": { "const": "active" }
               }
@@ -290,6 +294,443 @@
               }
             }
           ]
+        }
+      }
+    },
+    "protectionOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "idempotencyKey", "payload"],
+      "properties": {
+        "kind": { "const": "github.protection.reconcile" },
+        "idempotencyKey": { "$ref": "#/$defs/idempotencyKey" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "approvalReceiptId",
+            "defaultBranch",
+            "providerMode",
+            "repositoryFullName",
+            "repositoryId",
+            "requiredStatusChecks",
+            "reviewPolicy",
+            "rolloutMode",
+            "sourceSha"
+          ],
+          "properties": {
+            "approvalReceiptId": {
+              "type": ["string", "null"],
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+            },
+            "defaultBranch": { "const": "main" },
+            "providerMode": {
+              "enum": ["ORG_RULESET", "REPO_BRANCH_PROTECTION"]
+            },
+            "repositoryFullName": {
+              "type": "string",
+              "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+            },
+            "repositoryId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,31}$"
+            },
+            "requiredStatusChecks": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["checks", "strict"],
+              "properties": {
+                "checks": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["appId", "context"],
+                      "properties": {
+                        "appId": {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]{0,31}$"
+                        },
+                        "context": { "const": "Org Contract / Org Contract" }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["appId", "context"],
+                      "properties": {
+                        "appId": {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]{0,31}$"
+                        },
+                        "context": { "const": "Seori Review" }
+                      }
+                    }
+                  ],
+                  "items": false,
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "strict": { "const": true }
+              }
+            },
+            "reviewPolicy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "dismissStaleReviews",
+                "requiredApprovingReviewCount",
+                "requireLastPushApproval"
+              ],
+              "properties": {
+                "dismissStaleReviews": { "const": true },
+                "requiredApprovingReviewCount": { "const": 1 },
+                "requireLastPushApproval": { "const": true }
+              }
+            },
+            "rolloutMode": { "enum": ["SHADOW", "ACTIVE"] },
+            "sourceSha": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "rolloutMode": { "const": "SHADOW" } }
+              },
+              "then": {
+                "properties": { "approvalReceiptId": { "const": null } }
+              },
+              "else": {
+                "properties": { "approvalReceiptId": { "type": "string" } }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "secretVisibilityOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "idempotencyKey", "payload"],
+      "properties": {
+        "kind": { "const": "github.org-secret-visibility.ensure" },
+        "idempotencyKey": { "$ref": "#/$defs/idempotencyKey" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repositoryId",
+            "repositoryFullName",
+            "approvedBundleDigest",
+            "bindingRevision",
+            "logicalCredentialId",
+            "secretName",
+            "visibility",
+            "provisioningGate"
+          ],
+          "properties": {
+            "repositoryId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,31}$"
+            },
+            "repositoryFullName": {
+              "type": "string",
+              "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+            },
+            "approvedBundleDigest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "bindingRevision": { "type": "integer", "minimum": 1 },
+            "logicalCredentialId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+){2,7}$"
+            },
+            "secretName": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{1,99}$"
+            },
+            "visibility": { "const": "selected" },
+            "provisioningGate": {
+              "$ref": "#/$defs/provisioningAuthorizationGate"
+            }
+          }
+        }
+      }
+    },
+    "wifBindingOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "idempotencyKey", "payload"],
+      "properties": {
+        "kind": { "const": "gcp.wif-binding.ensure" },
+        "idempotencyKey": { "$ref": "#/$defs/idempotencyKey" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repositoryId",
+            "repositoryFullName",
+            "approvedBundleDigest",
+            "bindingRevision",
+            "logicalCredentialId",
+            "organizationId",
+            "jobWorkflowRef",
+            "environment",
+            "provisioningGate"
+          ],
+          "properties": {
+            "repositoryId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,31}$"
+            },
+            "repositoryFullName": {
+              "type": "string",
+              "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+            },
+            "approvedBundleDigest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "bindingRevision": { "type": "integer", "minimum": 1 },
+            "logicalCredentialId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+){2,7}$"
+            },
+            "organizationId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,31}$"
+            },
+            "jobWorkflowRef": {
+              "type": "string",
+              "pattern": "^seorilabs/\\.github/\\.github/workflows/[a-z0-9-]+\\.yml@[0-9a-f]{40}$"
+            },
+            "environment": { "const": "internal" },
+            "provisioningGate": {
+              "$ref": "#/$defs/provisioningAuthorizationGate"
+            }
+          }
+        }
+      }
+    },
+    "provisioningAuthorizationGate": {
+      "oneOf": [
+        { "$ref": "#/$defs/provisioningGate" },
+        { "$ref": "#/$defs/teamProtectionProvisioningGate" },
+        { "$ref": "#/$defs/rulesetProvisioningGateV2" },
+        { "$ref": "#/$defs/teamProtectionProvisioningGateV2" }
+      ]
+    },
+    "teamProtectionProvisioningGateV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approvalReceiptId",
+        "callerContentDigest",
+        "callerPath",
+        "callerSourceSha",
+        "credentialApprovalReceiptId",
+        "protectionDigest",
+        "providerMode",
+        "rolloutMode"
+      ],
+      "properties": {
+        "approvalReceiptId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+        },
+        "callerContentDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "callerPath": { "const": ".github/workflows/org-contract.yml" },
+        "callerSourceSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "credentialApprovalReceiptId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+        },
+        "protectionDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "providerMode": { "const": "REPO_BRANCH_PROTECTION" },
+        "rolloutMode": { "const": "ACTIVE" }
+      }
+    },
+    "teamProtectionProvisioningGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approvalReceiptId",
+        "callerContentDigest",
+        "callerPath",
+        "callerSourceSha",
+        "protectionDigest",
+        "providerMode",
+        "rolloutMode"
+      ],
+      "properties": {
+        "approvalReceiptId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+        },
+        "callerContentDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "callerPath": { "const": ".github/workflows/org-contract.yml" },
+        "callerSourceSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "protectionDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "providerMode": { "const": "REPO_BRANCH_PROTECTION" },
+        "rolloutMode": { "const": "ACTIVE" }
+      }
+    },
+    "provisioningGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approvalReceiptId",
+        "callerContentDigest",
+        "callerPath",
+        "callerSourceSha",
+        "requiredChecks",
+        "rulesetEnforcement",
+        "rulesetId"
+      ],
+      "properties": {
+        "approvalReceiptId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+        },
+        "callerContentDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "callerPath": { "const": ".github/workflows/org-contract.yml" },
+        "callerSourceSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "requiredChecks": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "Org Contract" },
+            { "const": "Seori Review" }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "rulesetEnforcement": { "const": "ACTIVE" },
+        "rulesetId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,31}$"
+        }
+      }
+    },
+    "rulesetProvisioningGateV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approvalReceiptId",
+        "callerContentDigest",
+        "callerPath",
+        "callerSourceSha",
+        "credentialApprovalReceiptId",
+        "requiredChecks",
+        "rulesetEnforcement",
+        "rulesetId"
+      ],
+      "properties": {
+        "approvalReceiptId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+        },
+        "callerContentDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "callerPath": { "const": ".github/workflows/org-contract.yml" },
+        "callerSourceSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "credentialApprovalReceiptId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+        },
+        "requiredChecks": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "Org Contract" },
+            { "const": "Seori Review" }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "rulesetEnforcement": { "const": "ACTIVE" },
+        "rulesetId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,31}$"
+        }
+      }
+    },
+    "rulesetDecisionOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "idempotencyKey", "payload"],
+      "properties": {
+        "kind": { "const": "github.ruleset-mode-decision.require" },
+        "idempotencyKey": { "$ref": "#/$defs/idempotencyKey" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repositoryId",
+            "repositoryFullName",
+            "organizationLogin",
+            "accountPlan",
+            "requestedMode",
+            "decision",
+            "requiredChecks"
+          ],
+          "properties": {
+            "repositoryId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,31}$"
+            },
+            "repositoryFullName": {
+              "type": "string",
+              "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+            },
+            "organizationLogin": { "const": "seorilabs" },
+            "accountPlan": { "const": "TEAM" },
+            "requestedMode": { "const": "EVALUATE" },
+            "decision": { "const": "REQUIRED" },
+            "requiredChecks": {
+              "type": "array",
+              "prefixItems": [
+                { "const": "Org Contract" },
+                { "const": "Seori Review" }
+              ],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
         }
       }
     }
