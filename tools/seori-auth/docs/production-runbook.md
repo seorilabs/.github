@@ -1,0 +1,130 @@
+# Seori Auth Broker 운영 활성화·복구 Runbook
+
+이 문서는 실제 secret 값을 다루지 않습니다. 모든 확인은 logical credential ID,
+공개 workload identity, fingerprint, generation과 checksum만 사용합니다. 실제 provider
+계정 등록, TOTP enrollment, key 생성·회전, Kubernetes apply는 각각 별도 승인 작업입니다.
+
+## 1. 변경 불가능한 입력 고정
+
+다음을 하나의 배포 revision에 고정합니다.
+
+- repository source SHA와 `package-lock.json`
+- native helper SHA-256, broker/factor image digest
+- signed policy generation과 adapter digest
+- 공개 provider/account/team/workspace/app ID
+- exact primary origin, 순서가 고정된 redirect origin, egress-proxy hostname allowlist
+- journal MAC logical ID/generation과 직전 trusted head MAC
+- Browser Vault key logical ID/generation과 encrypted PVC snapshot ID
+
+값이 빠졌거나 `REPLACE_*`, `example.invalid`, `seorilabs.io/deployable: "false"`가 하나라도
+남으면 배포를 중단합니다.
+
+## 2. Native 경계 빌드와 검증
+
+지원 대상은 Node 24의 Linux와 macOS입니다.
+
+```sh
+npm ci
+npm run build:native
+./.build/seori-auth-native self-test
+npm run lint
+npm test
+```
+
+`self-test`는 core soft/hard limit가 모두 0이고 Linux `dumpable=0` 또는 macOS
+`denyAttach=true`여야 합니다. production image에서는 helper를 root 소유 read-only
+layer에 두고 승인된 SHA-256과 `NativeSecurityBoundary.open`의 checksum이 같아야 합니다.
+broker process와 모든 credential adapter/factor service entrypoint를
+`seori-auth-native launch -- /absolute/executable ...`로 시작합니다.
+
+Unix socket의 UID/GID/PID만으로 run 권한을 만들지 않습니다. scheduler가 agent input
+밖에 보관하는 run capability를 조회해 subject/run/repository/worker를 반환하고, HTTP
+body와 exact match해야 합니다. 알 수 없는 PID, 종료된 run, 다른 repo/SHA는 거부합니다.
+
+## 3. Journal과 Browser Vault
+
+production state는 다음 조건으로만 엽니다.
+
+```js
+await DurableAuthState.open({
+  directory: '/var/lib/seori-auth/state',
+  journalMacKey,
+  requireIntegrity: true,
+  expectedJournalHeadMac,
+});
+```
+
+MAC/Vault key는 broker 전용 workload identity가 Secret Manager API로 읽어 process
+memory에만 유지합니다. argv, env, 일반 파일, Kubernetes Secret, log로 전달하지 않습니다.
+각 성공 append 후 `integrityCheckpoint()`의 public sequence/head MAC을 control plane에
+CAS로 보관합니다. startup 시 wrong key, MAC chain 오류, incomplete line, head mismatch는
+새 lease를 발급하지 않고 incident로 전환합니다.
+
+Browser Vault 원본은 encrypted PVC, clone은 `emptyDir.medium: Memory`에 둡니다.
+provider/account/role별 원본 하나와 provider/account별 checkout 하나만 허용합니다.
+trusted browser adapter만 `withClone` callback 안에서 path를 받고, agent 응답·trace·HAR·
+screenshot·artifact에는 path나 storage state를 넣지 않습니다. 종료·TTL·identity mismatch
+시 clone을 폐기하며 expected identity가 모두 맞을 때만 encrypted 원본을 갱신합니다.
+
+## 4. Password/TOTP 분리
+
+- password loader와 TOTP signer는 다른 ServiceAccount, workload identity, Secret Manager
+  secret IAM을 사용합니다.
+- password loader에는 TOTP seed 권한이 없고 signer에는 password 권한이 없습니다.
+- signer API에는 seed read/export/list가 없고, exact origin/account 확인 뒤 30초 이내
+  만료하는 코드만 trusted browser injector에 전달합니다.
+- 개인 계정, passkey, SMS, push, trusted-device, CAPTCHA, recovery, 약관 화면은
+  `HUMAN_REAUTH_REQUIRED`로 한 번만 기록하고 자동 retry하지 않습니다.
+
+## 5. Kubernetes render gate
+
+`k8s/production`을 별도 overlay에서 render한 뒤 schema/admission dry-run과 실제 binding을
+read-only로 확인합니다. RPI4에는 신규 workload를 배치하지 않고 검증된 RPI5 node
+selector/taint toleration을 overlay에서 지정합니다.
+
+```sh
+kubectl apply --dry-run=server -f rendered-auth-broker.yaml
+for sa in auth-broker password-loader totp-signer; do
+  kubectl auth can-i get secrets \
+    --as "system:serviceaccount:auth-broker:${sa}" -n auth-broker
+  kubectl auth can-i list secrets \
+    --as "system:serviceaccount:auth-broker:${sa}" -n auth-broker
+  kubectl auth can-i watch secrets \
+    --as "system:serviceaccount:auth-broker:${sa}" -n auth-broker
+done
+```
+
+아홉 RBAC 결과는 모두 `no`여야 합니다. 추가로 확인합니다.
+
+- namespace Pod Security `restricted` enforce/audit/warn
+- 모든 container non-root, read-only root, RuntimeDefault seccomp, capabilities ALL drop
+- automount token false, explicit short-lived WIF audience만 mount
+- default deny 후 trusted worker ingress, factor-service 내부 통신, DNS와 egress proxy만 허용
+- egress proxy가 exact provider hostname/TLS identity를 검증하고 direct Internet은 차단
+- state/Vault PVC는 worker와 factor service에 mount되지 않고 storage encryption이 활성
+
+## 6. Fake-account canary와 활성화
+
+먼저 canary logical IDs와 가짜 browser profile만 연결합니다. `npm test`의 deterministic
+canary는 raw/base64/hex representation이 다음 표면에 없음을 검사합니다.
+
+- agent prompt와 tool output
+- child argv/environment, broker audit/log와 MAC journal
+- browser trace/capture policy와 encrypted Vault artifact
+- release artifact metadata
+
+look-alike origin, redirect 변경, wrong account/workspace/app ID, cross-repo capability reuse,
+TTL expiry, second checkout, wrong MAC key, journal tamper와 session revoke가 모두 fail-closed인
+뒤 provider별 read-only canary를 하나씩 활성화합니다. upload/submit/public release/role/key
+변경은 로그인 성공과 별개의 approval policy가 있어야 합니다.
+
+## 7. 중단과 rollback
+
+이상 상태에서는 새 lease를 멈추고 기존 browser clone/session capability를 폐기합니다.
+배포 rollback은 이전 승인 image digest와 **그 image가 기록한 trusted journal head**가
+일치할 때만 수행합니다. encrypted PVC snapshot과 control-plane checkpoint를 함께
+복원하며 journal만 잘라내거나 head MAC을 임의로 낮추지 않습니다.
+
+credential/key 회전·폐기는 이 rollback이 아닙니다. backup과 임시 복원 검증, provider
+session revoke 영향 확인, 별도 사용자 승인을 거쳐 진행합니다. 사람 재인증 뒤에는 기존
+lease/capability를 재사용하지 않고 새 policy/credential generation으로 발급합니다.

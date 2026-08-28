@@ -235,6 +235,9 @@
           "type": "string",
           "pattern": "^(shared|app)/[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)+$"
         },
+        "commitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "capability": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
+        "capabilityId": { "$ref": "#/$defs/opaqueId" },
         "publicIdentity": { "$ref": "#/$defs/publicIdentity" },
         "reason": { "$ref": "#/$defs/reauthCreateRequest/properties/reason" },
         "exitCode": { "type": "integer" },

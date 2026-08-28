@@ -1,9 +1,17 @@
 export { TrustedAdapterRegistry } from './adapters.mjs';
+export { EncryptedBrowserVault } from './browser-vault.mjs';
+export { BrowserLoginBoundary } from './browser-login.mjs';
 export { SeoriAuthError } from './errors.mjs';
 export { DurableAuthState, HUMAN_REAUTH_REQUIRED, normalizeExecutionBinding, normalizePublicIdentity } from './durable-state.mjs';
 export { executeConsumedLease, executeLease } from './executor.mjs';
+export {
+  MacOSKeychainPasswordLoader,
+  RemoteTotpSignerClient,
+  SecretManagerPasswordLoader,
+} from './factor-services.mjs';
 export { LEASE_TTL_MS, LeaseStore } from './lease-store.mjs';
 export { LocalAuthDaemon } from './local-daemon.mjs';
+export { NativeSecurityBoundary } from './native-boundary.mjs';
 export { PolicyEngine } from './policy.mjs';
 export { classifyReauth, REAUTH_CLASSIFICATIONS } from './reauth.mjs';
 export { isLogicalCredentialRef, normalizeHttpsOrigin, normalizeLeaseRequest } from './validation.mjs';
@@ -20,12 +28,12 @@ export class SeoriAuthBroker {
   #loadSecret;
   #onAudit;
 
-  constructor({ policy, adapters, loadSecret, clock, onAudit }) {
+  constructor({ policy, adapters, loadSecret, clock, onAudit, requireNativeLauncher = false }) {
     if (typeof loadSecret !== 'function') {
       throw new TypeError('loadSecret must be a trusted in-process function');
     }
     this.#policy = new PolicyEngine(policy);
-    this.#registry = new TrustedAdapterRegistry(adapters);
+    this.#registry = new TrustedAdapterRegistry(adapters, { requireNativeLauncher });
     this.#leaseStore = new LeaseStore({ clock });
     this.#loadSecret = loadSecret;
     this.#onAudit = onAudit;

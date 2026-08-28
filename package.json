@@ -11,6 +11,7 @@
   ],
   "scripts": {
     "pack:check": "node packages/repo-contract/src/check-package.mjs",
+    "pretest": "npm --prefix tools/seori-auth run build:native",
     "test": "node --test",
     "test:repo-contract": "node --test tests/repo-contract*.test.mjs"
   }

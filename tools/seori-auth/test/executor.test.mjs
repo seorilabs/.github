@@ -108,6 +108,16 @@ test('registry rejects relative executables and secret-shaped environment fields
     () => new TrustedAdapterRegistry([testAdapter({ environment: { API_TOKEN: 'not-even-a-real-secret' } })]),
     (error) => error instanceof SeoriAuthError && error.code === 'invalid_adapter',
   );
+  assert.throws(
+    () => new TrustedAdapterRegistry([testAdapter()], { requireNativeLauncher: true }),
+    (error) => error instanceof SeoriAuthError && error.code === 'native_launcher_required',
+  );
+  assert.throws(
+    () => new TrustedAdapterRegistry([testAdapter({
+      launcher: { executable: '/tmp/forged-launcher', mode: 'non-dumpable-v1' },
+    })]),
+    (error) => error instanceof SeoriAuthError && error.code === 'invalid_adapter',
+  );
 });
 
 test('public API has no secret getter or exporter', () => {

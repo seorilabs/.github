@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { mkdir, open, readFile, lstat } from 'node:fs/promises';
+import { mkdir, open, readFile, lstat, realpath } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -12,9 +12,13 @@ import { normalizeLeaseRequest } from './validation.mjs';
 const AUDIT_SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/;
 const OPAQUE_ID = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$/;
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const COMMIT_SHA = /^[0-9a-f]{40}$/;
+const CAPABILITY = /^[a-z0-9][a-z0-9.-]*$/;
 const PROVIDER = /^[a-z0-9][a-z0-9-]*$/;
 const CREDENTIAL_REF = /^(shared|app)\/[a-z0-9][a-z0-9-]*(\/[a-z0-9][a-z0-9-]*)+$/;
 const JOURNAL_FILE = 'auth-journal.jsonl';
+const JOURNAL_GENESIS_MAC = '0'.repeat(64);
+const JOURNAL_MAC = /^[0-9a-f]{64}$/;
 const EXECUTION_OUTCOMES = new Set([
   'SUCCESS',
   'ADAPTER_FAILED',
@@ -131,6 +135,11 @@ function auditFrom({ idFactory, now, eventType, outcome, entityType, entity, det
     ...(binding ? { executionBinding: binding } : {}),
     ...(entity.credentialRef ? { credentialRef: entity.credentialRef } : {}),
     ...(entity.publicIdentity ? { publicIdentity: entity.publicIdentity } : {}),
+    ...(entity.request ? {
+      commitSha: entity.request.commitSha,
+      capability: entity.request.capability,
+    } : {}),
+    ...(entity.capabilityId ? { capabilityId: entity.capabilityId } : {}),
     ...details,
   });
 }
@@ -212,6 +221,7 @@ function validateReplayedAudit(audit) {
   const allowed = [
     'id', 'eventType', 'outcome', 'entityType', 'entityId', 'generation', 'recordedAt',
     'executionBinding', 'credentialRef', 'publicIdentity', 'reason', 'exitCode', 'signal',
+    'commitSha', 'capability', 'capabilityId',
   ];
   if (
     !Object.keys(audit).every((key) => allowed.includes(key)) ||
@@ -231,20 +241,57 @@ function validateReplayedAudit(audit) {
   if (audit.reason !== undefined) publicId(audit.reason, 'audit reason');
   if (audit.exitCode !== undefined && !Number.isInteger(audit.exitCode)) throw new Error('invalid exit code');
   if (audit.signal !== undefined) publicId(audit.signal, 'audit signal');
+  if (audit.commitSha !== undefined && !COMMIT_SHA.test(audit.commitSha)) throw new Error('invalid commit SHA');
+  if (audit.capability !== undefined && !CAPABILITY.test(audit.capability)) throw new Error('invalid capability');
+  if (audit.capabilityId !== undefined) opaqueId(audit.capabilityId, 'audit capability id');
 }
 
-function validateEnvelope(envelope, expectedSequence) {
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function envelopeMac(envelope, journalMacKey) {
+  const authenticated = { ...envelope };
+  delete authenticated.mac;
+  return createHmac('sha256', journalMacKey).update(canonicalJson(authenticated), 'utf8').digest('hex');
+}
+
+function validateEnvelope(envelope, expectedSequence, journalMacKey, previousMac) {
+  const integrityEnabled = Buffer.isBuffer(journalMacKey);
+  const expectedKeys = integrityEnabled
+    ? ['schemaVersion', 'sequence', 'recordedAt', 'previousMac', 'mutation', 'audit', 'mac']
+    : ['schemaVersion', 'sequence', 'recordedAt', 'mutation', 'audit'];
   if (
     !envelope ||
     typeof envelope !== 'object' ||
     Array.isArray(envelope) ||
-    envelope.schemaVersion !== 1 ||
+    !exactRecordKeys(envelope, expectedKeys) ||
+    envelope.schemaVersion !== (integrityEnabled ? 2 : 1) ||
     envelope.sequence !== expectedSequence ||
     typeof envelope.recordedAt !== 'string' ||
     !envelope.audit ||
-    typeof envelope.audit !== 'object'
+    typeof envelope.audit !== 'object' ||
+    envelope.recordedAt !== envelope.audit.recordedAt
   ) {
     fail('invalid_state_journal', 'durable auth journal is malformed');
+  }
+  if (integrityEnabled) {
+    const expectedPreviousMac = previousMac ?? JOURNAL_GENESIS_MAC;
+    if (
+      envelope.previousMac !== expectedPreviousMac ||
+      !JOURNAL_MAC.test(envelope.mac ?? '')
+    ) {
+      fail('invalid_state_journal', 'durable auth journal integrity check failed');
+    }
+    const expected = Buffer.from(envelopeMac(envelope, journalMacKey), 'hex');
+    const actual = Buffer.from(envelope.mac, 'hex');
+    if (!timingSafeEqual(expected, actual)) {
+      fail('invalid_state_journal', 'durable auth journal integrity check failed');
+    }
   }
   try {
     validateReplayedAudit(envelope.audit);
@@ -262,17 +309,28 @@ function validateEnvelope(envelope, expectedSequence) {
 }
 
 async function openSecureJournal(directory) {
-  const absoluteDirectory = resolve(directory);
-  await mkdir(absoluteDirectory, { recursive: true, mode: 0o700 });
-  const directoryStat = await lstat(absoluteDirectory);
-  if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink() || (directoryStat.mode & 0o077) !== 0) {
+  const requestedDirectory = resolve(directory);
+  await mkdir(requestedDirectory, { recursive: true, mode: 0o700 });
+  const requestedStat = await lstat(requestedDirectory);
+  if (!requestedStat.isDirectory() || requestedStat.isSymbolicLink()) {
     fail('insecure_state_directory', 'durable auth state directory must be a private non-symlink directory');
+  }
+  const absoluteDirectory = await realpath(requestedDirectory);
+  const directoryStat = await lstat(absoluteDirectory);
+  if (
+    !directoryStat.isDirectory() || directoryStat.isSymbolicLink() ||
+    (directoryStat.mode & 0o077) !== 0 || directoryStat.uid !== process.getuid?.()
+  ) {
+    fail('insecure_state_directory', 'durable auth state directory must be owned by the broker identity');
   }
 
   const journalPath = join(absoluteDirectory, JOURNAL_FILE);
   try {
     const journalStat = await lstat(journalPath);
-    if (!journalStat.isFile() || journalStat.isSymbolicLink() || (journalStat.mode & 0o077) !== 0) {
+    if (
+      !journalStat.isFile() || journalStat.isSymbolicLink() ||
+      (journalStat.mode & 0o077) !== 0 || journalStat.uid !== process.getuid?.()
+    ) {
       fail('insecure_state_journal', 'durable auth journal must be a private regular file');
     }
   } catch (error) {
@@ -285,7 +343,7 @@ async function openSecureJournal(directory) {
     (fsConstants.O_NOFOLLOW ?? 0);
   const handle = await open(journalPath, flags, 0o600);
   const handleStat = await handle.stat();
-  if (!handleStat.isFile() || (handleStat.mode & 0o077) !== 0) {
+  if (!handleStat.isFile() || (handleStat.mode & 0o077) !== 0 || handleStat.uid !== process.getuid?.()) {
     await handle.close();
     fail('insecure_state_journal', 'durable auth journal must be a private regular file');
   }
@@ -298,6 +356,9 @@ export class DurableAuthState {
   #journalPath;
   #journalHandle;
   #sequence = 0;
+  #journalMacKey;
+  #lastMac;
+  #expectedJournalHeadMac;
   #queue = Promise.resolve();
   #closed = false;
   #credentialCheckouts = new Map();
@@ -305,32 +366,70 @@ export class DurableAuthState {
   #reauthRequests = new Map();
   #auditEvents = [];
 
-  static async open({ directory, clock = () => Date.now(), idFactory = () => randomUUID() }) {
+  static async open({
+    directory,
+    clock = () => Date.now(),
+    idFactory = () => randomUUID(),
+    journalMacKey,
+    requireIntegrity = false,
+    expectedJournalHeadMac,
+  }) {
     if (typeof directory !== 'string' || !isAbsolute(directory)) {
       fail('invalid_state_directory', 'durable auth state directory must be an absolute path');
     }
+    if (typeof requireIntegrity !== 'boolean') {
+      fail('invalid_state_integrity', 'requireIntegrity must be a boolean');
+    }
+    if (journalMacKey !== undefined && (!Buffer.isBuffer(journalMacKey) || journalMacKey.length !== 32)) {
+      fail('invalid_state_integrity', 'journal MAC key must be a 32-byte Buffer');
+    }
+    if (requireIntegrity && !Buffer.isBuffer(journalMacKey)) {
+      fail('state_integrity_required', 'durable auth journal integrity key is required');
+    }
+    if (expectedJournalHeadMac !== undefined && !JOURNAL_MAC.test(expectedJournalHeadMac)) {
+      fail('invalid_state_integrity', 'expected journal head MAC is invalid');
+    }
+    if (expectedJournalHeadMac !== undefined && !Buffer.isBuffer(journalMacKey)) {
+      fail('invalid_state_integrity', 'expected journal head MAC requires journal integrity');
+    }
     const opened = await openSecureJournal(directory);
-    const state = new DurableAuthState({ ...opened, clock, idFactory });
+    const state = new DurableAuthState({
+      ...opened,
+      clock,
+      idFactory,
+      journalMacKey: journalMacKey === undefined ? undefined : Buffer.from(journalMacKey),
+      expectedJournalHeadMac,
+    });
     try {
       await state.#replay();
     } catch (error) {
       state.#closed = true;
+      state.#zeroIntegrityKey();
       await opened.handle.close();
       throw error;
     }
     return state;
   }
 
-  constructor({ journalPath, handle, clock, idFactory }) {
+  constructor({ journalPath, handle, clock, idFactory, journalMacKey, expectedJournalHeadMac }) {
     this.#journalPath = journalPath;
     this.#journalHandle = handle;
     this.#clock = clock;
     this.#idFactory = idFactory;
+    this.#journalMacKey = journalMacKey;
+    this.#lastMac = undefined;
+    this.#expectedJournalHeadMac = expectedJournalHeadMac;
   }
 
   async #replay() {
     const contents = await readFile(this.#journalPath, 'utf8');
     if (contents.length === 0) {
+      if (
+        this.#expectedJournalHeadMac !== undefined &&
+        this.#expectedJournalHeadMac !== JOURNAL_GENESIS_MAC
+      ) {
+        fail('invalid_state_journal', 'durable auth journal head does not match the trusted checkpoint');
+      }
       return;
     }
     if (!contents.endsWith('\n')) {
@@ -344,8 +443,11 @@ export class DurableAuthState {
       } catch {
         fail('invalid_state_journal', 'durable auth journal contains invalid JSON');
       }
-      validateEnvelope(envelope, this.#sequence + 1);
+      validateEnvelope(envelope, this.#sequence + 1, this.#journalMacKey, this.#lastMac);
       this.#applyEnvelope(envelope);
+    }
+    if (this.#expectedJournalHeadMac !== undefined && this.#lastMac !== this.#expectedJournalHeadMac) {
+      fail('invalid_state_journal', 'durable auth journal head does not match the trusted checkpoint');
     }
   }
 
@@ -358,6 +460,7 @@ export class DurableAuthState {
 
   #applyEnvelope(envelope) {
     this.#sequence = envelope.sequence;
+    this.#lastMac = envelope.mac;
     this.#auditEvents.push(freezeRecord(envelope.audit));
     if (envelope.mutation !== null) {
       this.#mapFor(envelope.mutation.entityType).set(
@@ -378,12 +481,16 @@ export class DurableAuthState {
       fail('state_closed', 'durable auth state is closed');
     }
     const envelope = {
-      schemaVersion: 1,
+      schemaVersion: this.#journalMacKey ? 2 : 1,
       sequence: this.#sequence + 1,
       recordedAt: audit.recordedAt,
+      ...(this.#journalMacKey ? { previousMac: this.#lastMac ?? JOURNAL_GENESIS_MAC } : {}),
       mutation: entityType === null ? null : { entityType, entity },
       audit,
     };
+    if (this.#journalMacKey) {
+      envelope.mac = envelopeMac(envelope, this.#journalMacKey);
+    }
     try {
       await this.#journalHandle.appendFile(`${JSON.stringify(envelope)}\n`, 'utf8');
       await this.#journalHandle.sync();
@@ -392,6 +499,7 @@ export class DurableAuthState {
       // in-memory sequence could create a journal that cannot be replayed safely.
       this.#closed = true;
       await this.#journalHandle.close().catch(() => {});
+      this.#zeroIntegrityKey();
       fail('state_persistence_failed', 'durable auth state could not be persisted');
     }
     this.#applyEnvelope(envelope);
@@ -733,6 +841,15 @@ export class DurableAuthState {
   createReauthRequest({ reason, executionBinding, publicIdentity }) {
     return this.#serialize(async () => {
       const classification = classifyReauth(reason);
+      const binding = normalizeExecutionBinding(executionBinding);
+      const identity = normalizePublicIdentity(publicIdentity);
+      const existing = [...this.#reauthRequests.values()].find((candidate) =>
+        candidate.state === HUMAN_REAUTH_REQUIRED &&
+        candidate.reason === classification.code &&
+        isDeepStrictEqual(candidate.executionBinding, binding) &&
+        isDeepStrictEqual(candidate.publicIdentity, identity),
+      );
+      if (existing) return this.reauthRequestView(existing);
       const now = this.#clock();
       const entity = freezeRecord({
         id: opaqueId(this.#idFactory(), 'reauth request id'),
@@ -740,8 +857,8 @@ export class DurableAuthState {
         state: HUMAN_REAUTH_REQUIRED,
         reason: classification.code,
         requestedAt: iso(now),
-        executionBinding: normalizeExecutionBinding(executionBinding),
-        publicIdentity: normalizePublicIdentity(publicIdentity),
+        executionBinding: binding,
+        publicIdentity: identity,
       });
       const audit = auditFrom({
         idFactory: this.#idFactory,
@@ -813,11 +930,26 @@ export class DurableAuthState {
     });
   }
 
+  integrityCheckpoint() {
+    if (!this.#journalMacKey) {
+      fail('state_integrity_disabled', 'durable auth journal integrity is not enabled');
+    }
+    return freezeRecord({ sequence: this.#sequence, headMac: this.#lastMac ?? JOURNAL_GENESIS_MAC });
+  }
+
+  #zeroIntegrityKey() {
+    if (Buffer.isBuffer(this.#journalMacKey)) {
+      this.#journalMacKey.fill(0);
+      this.#journalMacKey = undefined;
+    }
+  }
+
   async close() {
     await this.#queue;
     if (!this.#closed) {
       this.#closed = true;
       await this.#journalHandle.close();
     }
+    this.#zeroIntegrityKey();
   }
 }

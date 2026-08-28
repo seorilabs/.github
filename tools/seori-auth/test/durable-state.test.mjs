@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -73,6 +73,10 @@ test('CredentialCheckout uses generation CAS, exact run/repo/worker binding, fiv
     assert.equal(checkout.generation, 1);
     assert.equal(checkout.maxUses, 1);
     assert.equal(checkout.secretExportable, false);
+    const issuedAudit = state.snapshot().auditEvents.at(-1);
+    assert.equal(issuedAudit.commitSha, request.commitSha);
+    assert.equal(issuedAudit.capability, request.capability);
+    assert.equal(issuedAudit.credentialRef, request.credentialRef);
 
     await assert.rejects(
       state.consumeCredentialCheckout({
@@ -195,6 +199,7 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
     });
     assert.deepEqual(Object.keys(checkout).sort(), ['capabilityId', 'publicIdentity']);
     assert.doesNotMatch(JSON.stringify(checkout), /profile|cookie|path/i);
+    assert.equal(state.snapshot().auditEvents.at(-1).capabilityId, checkout.capabilityId);
 
     await assert.rejects(
       state.checkoutBrowserSession({
@@ -300,5 +305,102 @@ test('ReauthRequest durably records all interactive factors as HUMAN_REAUTH_REQU
     const snapshot = state.snapshot();
     assert.equal(snapshot.reauthRequests.length, 6);
     assert.equal(snapshot.auditEvents.filter(({ eventType }) => eventType === 'REAUTH_REQUESTED').length, 6);
+    const duplicate = await state.createReauthRequest({
+      reason: 'captcha_required',
+      executionBinding: executionBinding(),
+      publicIdentity: publicIdentity(),
+    });
+    assert.equal(duplicate.id, snapshot.reauthRequests.find(({ reason }) => reason === 'captcha_required').id);
+    assert.equal(state.snapshot().auditEvents.filter(({ eventType }) => eventType === 'REAUTH_REQUESTED').length, 6);
   });
+});
+
+test('broker-held HMAC journal detects wrong keys, record tampering, and trusted-head rollback', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'seori-auth-integrity-'));
+  const journalMacKey = Buffer.alloc(32, 0x4a);
+  const wrongKey = Buffer.alloc(32, 0x5b);
+  let state;
+  try {
+    await assert.rejects(
+      DurableAuthState.open({ directory, requireIntegrity: true }),
+      (error) => error instanceof SeoriAuthError && error.code === 'state_integrity_required',
+    );
+    state = await DurableAuthState.open({
+      directory,
+      journalMacKey,
+      requireIntegrity: true,
+      idFactory: idFactory(),
+    });
+    await state.issueCredentialCheckout({
+      authorized: authorized(),
+      workerId: 'worker-a',
+      currentCredentialGeneration: 3,
+      currentPolicyGeneration: 7,
+    });
+    const checkpoint = state.integrityCheckpoint();
+    assert.equal(checkpoint.sequence, 1);
+    assert.match(checkpoint.headMac, /^[0-9a-f]{64}$/);
+    await state.close();
+    state = undefined;
+
+    const journalPath = join(directory, 'auth-journal.jsonl');
+    const original = await readFile(journalPath, 'utf8');
+    const envelope = JSON.parse(original.trimEnd());
+    assert.equal(envelope.schemaVersion, 2);
+    assert.equal(envelope.previousMac, '0'.repeat(64));
+    assert.equal(envelope.mac, checkpoint.headMac);
+    assert.doesNotMatch(original, new RegExp(journalMacKey.toString('hex')));
+    assert.doesNotMatch(original, new RegExp(journalMacKey.toString('base64')));
+
+    state = await DurableAuthState.open({
+      directory,
+      journalMacKey,
+      requireIntegrity: true,
+      expectedJournalHeadMac: checkpoint.headMac,
+      idFactory: idFactory(),
+    });
+    assert.equal(state.snapshot().credentialCheckouts.length, 1);
+    await state.close();
+    state = undefined;
+
+    await assert.rejects(
+      DurableAuthState.open({ directory, journalMacKey: wrongKey, requireIntegrity: true }),
+      (error) => error instanceof SeoriAuthError && error.code === 'invalid_state_journal',
+    );
+
+    await writeFile(journalPath, original.replace('"outcome":"SUCCESS"', '"outcome":"TAMPERED"'));
+    await assert.rejects(
+      DurableAuthState.open({ directory, journalMacKey, requireIntegrity: true }),
+      (error) => error instanceof SeoriAuthError && error.code === 'invalid_state_journal',
+    );
+
+    await writeFile(journalPath, '');
+    await assert.rejects(
+      DurableAuthState.open({
+        directory,
+        journalMacKey,
+        requireIntegrity: true,
+        expectedJournalHeadMac: checkpoint.headMac,
+      }),
+      (error) => error instanceof SeoriAuthError && error.code === 'invalid_state_journal',
+    );
+  } finally {
+    if (state) await state.close();
+    journalMacKey.fill(0);
+    wrongKey.fill(0);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('durable state refuses a directory readable by another OS identity', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'seori-auth-insecure-state-'));
+  try {
+    await chmod(directory, 0o755);
+    await assert.rejects(
+      DurableAuthState.open({ directory }),
+      (error) => error instanceof SeoriAuthError && error.code === 'insecure_state_directory',
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

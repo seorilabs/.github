@@ -19,7 +19,11 @@ function safeEnvironment(adapter) {
 }
 
 async function runChild({ adapter, secretBuffer }) {
-  const child = spawn(adapter.executable, adapter.args, {
+  const executable = adapter.launcher?.executable ?? adapter.executable;
+  const args = adapter.launcher
+    ? ['launch', '--', adapter.executable, ...adapter.args]
+    : adapter.args;
+  const child = spawn(executable, args, {
     cwd: adapter.cwd,
     env: safeEnvironment(adapter),
     shell: false,
