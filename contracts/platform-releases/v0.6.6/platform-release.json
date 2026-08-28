@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "release": {
+    "tag": "v0.6.6",
+    "sourceSha": "97f046ce2d9df5d72bc7a49fc81bb7c366ebaa17",
+    "baseSourceSha": "c23e7717286bd34c2a89eba2f3f445f3989be6f2"
+  },
+  "sdk": {
+    "typescript": {
+      "package": "@seorilabs/platform-sdk",
+      "version": "0.4.0",
+      "registry": "https://npm.pkg.github.com",
+      "artifact": {
+        "name": "seorilabs-platform-sdk-0.4.0.tgz",
+        "sha256": "8d7151f6ec7ff0c0fe8c9fe6fee2e6aa5a1158bd394dc03cc09a4e40f5a6abd7",
+        "size": 51104
+      }
+    },
+    "gdscript": {
+      "version": "0.6.6",
+      "source": "https://github.com/seorilabs/platform/releases/download/v0.6.6/seorilabs-platform-gdscript-0.6.6.tar.gz",
+      "treeChecksum": "7467b9bf17f61b04ce11bfa8ee56641c9eeaa0a1d8802034132a0b225fdb4e29",
+      "artifact": {
+        "name": "seorilabs-platform-gdscript-0.6.6.tar.gz",
+        "sha256": "2df58acd5885f598e854a7fa1a13482315311701bad47f03cfe8b3edcd36f965",
+        "size": 22817
+      },
+      "checksumArtifact": {
+        "name": "seorilabs-platform-gdscript-0.6.6.tar.gz.sha256",
+        "sha256": "f3db1079e355f680a22d52a351be52584f4fc764d131eed9ac2f1f4f7b762649",
+        "size": 107
+      }
+    }
+  },
+  "contract": {
+    "revision": "sha256:9906ee15a7a522d3401eb4dee788b44edc05f8145100bd33fdfeb021c6b05626",
+    "baseRevision": "sha256:9906ee15a7a522d3401eb4dee788b44edc05f8145100bd33fdfeb021c6b05626",
+    "classification": "implementation-only",
+    "supportedApiMajor": 1,
+    "affectedTracks": [
+      "gdscript"
+    ],
+    "affectedCapabilities": [
+      "core"
+    ]
+  }
+}

@@ -68,6 +68,7 @@ jobs:
         run: >-
           node packages/repo-contract/src/fleet-cli.mjs bundle
           --source-sha "$GITHUB_SHA"
+          --platform-release contracts/platform-releases/v0.6.6/platform-release.json
           --output "$RUNNER_TEMP/workflow-bundle.json"
 
       - name: Upload candidate evidence
