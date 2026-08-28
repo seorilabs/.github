@@ -36,6 +36,8 @@ const INSTALLATION_ID = "9001";
 const REPOSITORY_ID = "7001";
 const SOURCE_SHA = "d".repeat(40);
 const BUNDLE_SHA = "a".repeat(40);
+const WORKFLOW_EXECUTION_SHA =
+  "c328d9bf55f31ba11f53ef06071cc7b76d283617";
 const CLOUD_BUILD_VARIABLES = Object.freeze({
   GOOGLE_WORKLOAD_IDENTITY_PROVIDER:
     "projects/123456789/locations/global/workloadIdentityPools/seorilabs/providers/github",
@@ -95,18 +97,25 @@ function textDigest(value) {
 }
 
 function trustedSourceReadbackFor(bundle) {
-  return async ({ repository, sourceSha }) => ({
+  return async ({ repository, sourceSha, contractPaths, runtimeAssetPaths }) => ({
     repository,
     sourceSha,
-    contractDigests: structuredClone(bundle.quality.contractDigests),
-    runtimeAssetDigests: structuredClone(bundle.quality.runtimeAssetDigests),
+    contractDigests: Object.fromEntries(
+      contractPaths.map((path) => [path, bundle.quality.contractDigests[path]]),
+    ),
+    runtimeAssetDigests: Object.fromEntries(
+      runtimeAssetPaths.map((path) => [
+        path,
+        bundle.quality.runtimeAssetDigests[path],
+      ]),
+    ),
     workflowBundleSchemaText: await readFile(
       "contracts/workflow-bundle.schema.json",
       "utf8",
     ),
     contractAssetContents: Object.fromEntries(
       await Promise.all(
-        Object.keys(bundle.quality.contractDigests).map(async (path) => [
+        contractPaths.map(async (path) => [
           path,
           await readFile(path, "utf8"),
         ]),
@@ -114,7 +123,7 @@ function trustedSourceReadbackFor(bundle) {
     ),
     runtimeAssetContents: Object.fromEntries(
       await Promise.all(
-        Object.keys(bundle.quality.runtimeAssetDigests).map(async (path) => [
+        runtimeAssetPaths.map(async (path) => [
           path,
           await readFile(path, "utf8"),
         ]),
@@ -152,6 +161,7 @@ test.before(async () => {
       fullName: bundle.quality.canaries[record.profile].fullName,
       sourceSha: record.sourceSha,
       workflowBundleSourceSha: record.workflowBundleSourceSha,
+      workflowExecutionSha: bundle.buildWorkflows[record.profile].sha,
       staticRunId: record.staticRunId,
       buildRunId: record.buildRunId,
       cloudBuildId: record.cloudBuildId,
@@ -401,6 +411,15 @@ function provisioningExecutionHarness(plan) {
     bindings: [
       {
         bindingRevision: 3,
+        capabilities: [
+          {
+            environment: "internal",
+            repositoryId: REPOSITORY_ID,
+            jobWorkflowRef:
+              "seorilabs/.github/.github/workflows/rn-build-android-cloud-v1.yml@" +
+              WORKFLOW_EXECUTION_SHA,
+          },
+        ],
         logicalCredentialId: "shared/gcp/cloud-build",
         providerResourceName:
           "//iam.googleapis.com/projects/123456789/locations/global/" +

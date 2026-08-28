@@ -186,7 +186,7 @@ cloudBuild:
     kubernetesIssuer: https://kubernetes.default.svc
     githubAudience: https://github.com/seorilabs
     organizationId: "283115031"
-    workflowBundleSourceSha: 6e18b189d112f23270426cd88b3f906969103b75
+    workflowBundleSourceSha: f831208f120086c8897e0ac8beaa569eee5202e7
     workflowExecutionSha: c328d9bf55f31ba11f53ef06071cc7b76d283617
     repositories:
       - fullName: seorilabs/happy-farm

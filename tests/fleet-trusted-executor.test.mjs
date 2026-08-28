@@ -30,6 +30,15 @@ const CLOUD_BUILD_VARIABLES = Object.freeze({
     "seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
 });
 
+function wifCapability(repositoryId, workflowName) {
+  return {
+    environment: "internal",
+    repositoryId,
+    jobWorkflowRef:
+      `seorilabs/.github/.github/workflows/${workflowName}.yml@${"b".repeat(40)}`,
+  };
+}
+
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value !== null && typeof value === "object") {
@@ -810,6 +819,9 @@ test("공개 environment variable과 secret/WIF adapter는 exact catalog 필드�
       bindings: [
         {
           bindingRevision: 1,
+          capabilities: [
+            wifCapability(REPOSITORY_ID, "rn-build-android-cloud-v1"),
+          ],
           logicalCredentialId: "shared/gcp/cloud-build",
           providerResourceName:
             "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seorilabs/providers/github",
@@ -820,9 +832,41 @@ test("공개 environment variable과 secret/WIF adapter는 exact catalog 필드�
       provider: { applyBinding() {}, readBinding() {} },
     }),
   );
+  assert.throws(
+    () =>
+      createTrustedWifAdapter({
+        organizationId: ORGANIZATION_ID,
+        bindings: [
+          {
+            bindingRevision: 1,
+            capabilities: [
+              wifCapability(REPOSITORY_ID, "rn-build-android-cloud-v1"),
+            ],
+            logicalCredentialId: "shared/gcp/cloud-build",
+            providerResourceName:
+              "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seorilabs/providers/github",
+            serviceAccountEmail:
+              "seorilabs-ci-builder@seorilabs-ci.iam.gserviceaccount.com",
+          },
+          {
+            bindingRevision: 1,
+            capabilities: [
+              wifCapability("7002", "godot-build-android-cloud-v1"),
+            ],
+            logicalCredentialId: "shared/gcp/cloud-build-alt",
+            providerResourceName:
+              "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seorilabs/providers/github",
+            serviceAccountEmail:
+              "seorilabs-ci-runner@seorilabs-ci.iam.gserviceaccount.com",
+          },
+        ],
+        provider: { applyBinding() {}, readBinding() {} },
+      }),
+    /WIF_ADAPTER_CONFIGURATION_INVALID/u,
+  );
 });
 
-test("WIF는 repo별 provider를 만들지 않고 shared provider의 exact compound principal을 사용한다", async () => {
+test("WIF는 shared provider의 exact repo-workflow pair와 repository principal을 사용한다", async () => {
   const expectedByRepository = new Map();
   const providerResourceName =
     "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seorilabs/providers/github";
@@ -831,6 +875,10 @@ test("WIF는 repo별 provider를 만들지 않고 shared provider의 exact compo
     bindings: [
       {
         bindingRevision: 1,
+        capabilities: [
+          wifCapability(REPOSITORY_ID, "rn-build-android-cloud-v1"),
+          wifCapability("7002", "godot-build-android-cloud-v1"),
+        ],
         logicalCredentialId: "shared/gcp/cloud-build",
         providerResourceName,
         serviceAccountEmail:
@@ -868,8 +916,7 @@ test("WIF는 repo별 provider를 만들지 않고 shared provider의 exact compo
       approvedBundleDigest: `sha256:${"8".repeat(64)}`,
       bindingRevision: 1,
       environment: "internal",
-      jobWorkflowRef:
-        `seorilabs/.github/.github/workflows/${workflowName}.yml@${"b".repeat(40)}`,
+      jobWorkflowRef: wifCapability(repositoryId, workflowName).jobWorkflowRef,
       logicalCredentialId: "shared/gcp/cloud-build",
       organizationId: ORGANIZATION_ID,
       repositoryId,
@@ -887,9 +934,22 @@ test("WIF는 repo별 provider를 만들지 않고 shared provider의 exact compo
   assert.equal(firstExpected.providerResourceName, providerResourceName);
   assert.equal(secondExpected.providerResourceName, providerResourceName);
   assert.notEqual(firstExpected.principalSetMember, secondExpected.principalSetMember);
-  assert.match(firstExpected.principalSetMember, /attribute\.seorilabs_capability/u);
+  assert.match(firstExpected.principalSetMember, /attribute\.repository_id\/7001$/u);
+  assert.match(secondExpected.principalSetMember, /attribute\.repository_id\/7002$/u);
   assert.match(firstExpected.providerAttributeCondition, /repository_owner_id/u);
   assert.match(firstExpected.providerAttributeCondition, /job_workflow_ref/u);
+  assert.match(firstExpected.providerAttributeCondition, /repository_id == '7001'/u);
+  assert.match(firstExpected.providerAttributeCondition, /repository_id == '7002'/u);
+  assert.deepEqual(firstExpected.providerAttributeMapping, {
+    "google.subject": "assertion.sub",
+    "attribute.repository": "assertion.repository",
+    "attribute.repository_id": "assertion.repository_id",
+    "attribute.job_workflow_ref": "assertion.job_workflow_ref",
+  });
+  assert.equal(
+    firstExpected.providerAttributeCondition,
+    secondExpected.providerAttributeCondition,
+  );
   assert.equal(
     Object.hasOwn(firstExpected, "serviceAccountPolicyCondition"),
     false,

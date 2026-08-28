@@ -62,6 +62,23 @@ const REPOSITORIES = Object.freeze({
   }),
 });
 
+function wifCapabilityFor(repository) {
+  const profile = Object.entries(REPOSITORIES).find(
+    ([, candidate]) => candidate.repositoryId === repository.repositoryId,
+  )?.[0];
+  assert.ok(profile);
+  return {
+    environment: "internal",
+    repositoryId: repository.repositoryId,
+    jobWorkflowRef:
+      `seorilabs/.github/.github/workflows/${
+        profile === "react-native"
+          ? "rn-build-android-cloud-v1"
+          : "godot-build-android-cloud-v1"
+      }.yml@${WORKFLOW_EXECUTION_SHA}`,
+  };
+}
+
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value !== null && typeof value === "object") {
@@ -111,18 +128,25 @@ function wifBindingFor(repository) {
 }
 
 function sourceReadbackFor(bundle, state = {}) {
-  return async ({ repository, sourceSha }) => ({
+  return async ({ repository, sourceSha, contractPaths, runtimeAssetPaths }) => ({
     repository,
     sourceSha: state.sourceSha ?? sourceSha,
-    contractDigests: structuredClone(bundle.quality.contractDigests),
-    runtimeAssetDigests: structuredClone(bundle.quality.runtimeAssetDigests),
+    contractDigests: Object.fromEntries(
+      contractPaths.map((path) => [path, bundle.quality.contractDigests[path]]),
+    ),
+    runtimeAssetDigests: Object.fromEntries(
+      runtimeAssetPaths.map((path) => [
+        path,
+        bundle.quality.runtimeAssetDigests[path],
+      ]),
+    ),
     workflowBundleSchemaText: await readFile(
       "contracts/workflow-bundle.schema.json",
       "utf8",
     ),
     contractAssetContents: Object.fromEntries(
       await Promise.all(
-        Object.keys(bundle.quality.contractDigests).map(async (path) => [
+        contractPaths.map(async (path) => [
           path,
           await readFile(join(".", path), "utf8"),
         ]),
@@ -130,7 +154,7 @@ function sourceReadbackFor(bundle, state = {}) {
     ),
     runtimeAssetContents: Object.fromEntries(
       await Promise.all(
-        Object.keys(bundle.quality.runtimeAssetDigests).map(async (path) => [
+        runtimeAssetPaths.map(async (path) => [
           path,
           await readFile(join(".", path), "utf8"),
         ]),
@@ -319,6 +343,7 @@ function executorHarness(
     bindings: [
       {
         bindingRevision: 3,
+        capabilities: [wifCapabilityFor(repository)],
         logicalCredentialId: WIF_LOGICAL_CREDENTIAL_ID,
         providerResourceName: WIF_PROVIDER_RESOURCE_NAME,
         serviceAccountEmail: WIF_SERVICE_ACCOUNT_EMAIL,

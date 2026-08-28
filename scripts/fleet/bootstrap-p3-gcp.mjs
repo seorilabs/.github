@@ -18,6 +18,8 @@ import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
 
+import { createTrustedWifProviderPolicy } from "../../packages/repo-contract/src/trusted-executor.mjs";
+
 const contractPath = fileURLToPath(
   new URL("../../contracts/fleet-p3-runtime.yaml", import.meta.url),
 );
@@ -169,16 +171,18 @@ function localSourcePreflight() {
   }
 }
 
+const githubWifPolicy = createTrustedWifProviderPolicy({
+  organizationId: cloud.wif.organizationId,
+  capabilities: cloud.wif.repositories.map(({ repositoryId, workflow }) => ({
+    environment: cloud.githubActions.environment,
+    repositoryId,
+    jobWorkflowRef:
+      `seorilabs/.github/${workflow}@${cloud.wif.workflowExecutionSha}`,
+  })),
+});
+
 function githubCondition() {
-  const repositoryWorkflowClauses = cloud.wif.repositories.map(
-    ({ repositoryId, workflow }) =>
-      `(assertion.repository_id == '${repositoryId}' && ` +
-      `assertion.job_workflow_ref == 'seorilabs/.github/${workflow}@${cloud.wif.workflowExecutionSha}')`,
-  );
-  return [
-    `assertion.repository_owner_id == '${cloud.wif.organizationId}'`,
-    `(${repositoryWorkflowClauses.join(" || ")})`,
-  ].join(" && ");
+  return githubWifPolicy.attributeCondition;
 }
 
 function kubernetesCondition() {
@@ -193,12 +197,9 @@ function kubernetesCondition() {
   ].join(" && ");
 }
 
-const githubMapping = [
-  "google.subject=assertion.sub",
-  "attribute.repository=assertion.repository",
-  "attribute.repository_id=assertion.repository_id",
-  "attribute.job_workflow_ref=assertion.job_workflow_ref",
-].join(",");
+const githubMapping = Object.entries(githubWifPolicy.attributeMapping)
+  .map(([attribute, assertion]) => `${attribute}=${assertion}`)
+  .join(",");
 const kubernetesMapping = [
   "google.subject=assertion.sub",
   "attribute.namespace=assertion['kubernetes.io']['namespace']",

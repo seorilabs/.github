@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import {
   createHash,
   generateKeyPairSync,
@@ -31,6 +32,9 @@ import { CANARY_BUILD_BY_PROFILE } from "./helpers/workflow-bundle-fixtures.mjs"
 const SOURCE_SHA = "a".repeat(40);
 const WORKFLOW_EXECUTION_SHA =
   "c328d9bf55f31ba11f53ef06071cc7b76d283617";
+const P3_PROVENANCE_SHA = "f831208f120086c8897e0ac8beaa569eee5202e7";
+const PRE_EXECUTION_CONTRACT_SHA =
+  "6e18b189d112f23270426cd88b3f906969103b75";
 const STALE_SHA = "9".repeat(40);
 const DIGEST = `sha256:${"b".repeat(64)}`;
 const KEY_ID = "fleet-root-2026-01";
@@ -91,18 +95,25 @@ function recomputePublicIntegrity(bundle) {
 }
 
 function trustedSourceReadbackFor(bundle, repoRoot = ".") {
-  return async ({ repository, sourceSha }) => ({
+  return async ({ repository, sourceSha, contractPaths, runtimeAssetPaths }) => ({
     repository,
     sourceSha,
-    contractDigests: structuredClone(bundle.quality.contractDigests),
-    runtimeAssetDigests: structuredClone(bundle.quality.runtimeAssetDigests),
+    contractDigests: Object.fromEntries(
+      contractPaths.map((path) => [path, bundle.quality.contractDigests[path]]),
+    ),
+    runtimeAssetDigests: Object.fromEntries(
+      runtimeAssetPaths.map((path) => [
+        path,
+        bundle.quality.runtimeAssetDigests[path],
+      ]),
+    ),
     workflowBundleSchemaText: await readFile(
       join(repoRoot, "contracts/workflow-bundle.schema.json"),
       "utf8",
     ),
     contractAssetContents: Object.fromEntries(
       await Promise.all(
-        Object.keys(bundle.quality.contractDigests).map(async (path) => [
+        contractPaths.map(async (path) => [
           path,
           await readFile(join(repoRoot, path), "utf8"),
         ]),
@@ -110,13 +121,54 @@ function trustedSourceReadbackFor(bundle, repoRoot = ".") {
     ),
     runtimeAssetContents: Object.fromEntries(
       await Promise.all(
-        Object.keys(bundle.quality.runtimeAssetDigests).map(async (path) => [
+        runtimeAssetPaths.map(async (path) => [
           path,
           await readFile(join(repoRoot, path), "utf8"),
         ]),
       ),
     ),
   });
+}
+
+function exactGitSourceReadback(requests = []) {
+  return async ({ repository, sourceSha, contractPaths, runtimeAssetPaths }) => {
+    requests.push({
+      repository,
+      sourceSha,
+      contractPaths: [...contractPaths],
+      runtimeAssetPaths: [...runtimeAssetPaths],
+    });
+    const readExact = (path) =>
+      execFileSync("git", ["show", `${sourceSha}:${path}`], {
+        encoding: "utf8",
+        maxBuffer: 4 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    const contractAssetContents = Object.fromEntries(
+      contractPaths.map((path) => [path, readExact(path)]),
+    );
+    const runtimeAssetContents = Object.fromEntries(
+      runtimeAssetPaths.map((path) => [path, readExact(path)]),
+    );
+    const digestEntries = (contents) =>
+      Object.fromEntries(
+        Object.entries(contents).map(([path, content]) => [
+          path,
+          `sha256:${createHash("sha256").update(content).digest("hex")}`,
+        ]),
+      );
+    return {
+      repository,
+      sourceSha,
+      contractDigests: digestEntries(contractAssetContents),
+      runtimeAssetDigests: digestEntries(runtimeAssetContents),
+      workflowBundleSchemaText: readExact(
+        "contracts/workflow-bundle.schema.json",
+      ),
+      contractAssetContents,
+      runtimeAssetContents,
+    };
+  };
 }
 
 const trustedRunnerImageReadback = async (request) => ({
@@ -134,6 +186,7 @@ function verifiedEvidence(record, bundle) {
     fullName: bundle.quality.canaries[record.profile].fullName,
     sourceSha: record.sourceSha,
     workflowBundleSourceSha: record.workflowBundleSourceSha,
+    workflowExecutionSha: bundle.buildWorkflows[record.profile].sha,
     staticRunId: record.staticRunId,
     buildRunId: record.buildRunId,
     cloudBuildId: record.cloudBuildId,
@@ -870,7 +923,79 @@ test("exact remote source의 runtime digest 또는 bytes가 다르면 load를 �
   );
 });
 
-test("APPROVED bundle load는 exact remote source를 한 번만 읽는다", async () => {
+test("P3 bundle은 provenance f831과 execution c328을 두 exact source로 검증한다", async () => {
+  const candidate = await createWorkflowBundle({
+    sourceSha: P3_PROVENANCE_SHA,
+    platformRelease: PLATFORM_RELEASE,
+  });
+  const requests = [];
+  const trustedWorkflowSourceReadback = exactGitSourceReadback(requests);
+  const validation = await validateWorkflowBundle(candidate, {
+    trustedWorkflowSourceReadback,
+  });
+  assert.equal(validation.ok, true, validation.diagnostics.join(","));
+  assert.deepEqual(
+    requests.map(({ sourceSha }) => sourceSha),
+    [P3_PROVENANCE_SHA, WORKFLOW_EXECUTION_SHA],
+  );
+
+  const evidence = EVIDENCE.map((record) => ({
+    ...record,
+    workflowBundleSourceSha: P3_PROVENANCE_SHA,
+  }));
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const registry = new Map();
+  const approved = await promoteWorkflowBundle(candidate, evidence, {
+    trustedWorkflowSourceReadback,
+    evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
+    trustedRunnerImageReadback,
+    ...trustedSignerOptions(privateKey, publicKey, "p3-two-source-test"),
+    registryPublisher: async (record) => {
+      registry.set(record.subject, structuredClone(record));
+      return record;
+    },
+  });
+  const binding = await loadApprovedWorkflowBundle(approved, {
+    trustedApprovalKeys: new Map([["p3-two-source-test", publicKey]]),
+    trustedRegistryReadback: async ({ subject }) => registry.get(subject),
+    trustedWorkflowSourceReadback,
+    trustedRunnerImageReadback,
+  });
+  assert.equal(binding.sourceSha, P3_PROVENANCE_SHA);
+
+  const legacyCandidate = await createWorkflowBundle({
+    sourceSha: PRE_EXECUTION_CONTRACT_SHA,
+    platformRelease: PLATFORM_RELEASE,
+  });
+  const legacyValidation = await validateWorkflowBundle(legacyCandidate, {
+    trustedWorkflowSourceReadback: exactGitSourceReadback(),
+  });
+  assert.equal(legacyValidation.ok, false);
+  assert.ok(
+    legacyValidation.diagnostics.includes("WORKFLOW_SOURCE_READBACK_MISMATCH"),
+  );
+
+  const tamperedExecutionReadback = async (request) => {
+    const snapshot = await exactGitSourceReadback()(request);
+    if (request.sourceSha === WORKFLOW_EXECUTION_SHA) {
+      snapshot.runtimeAssetContents[
+        ".github/workflows/rn-build-android-cloud-v1.yml"
+      ] += "\n# tampered execution source\n";
+    }
+    return snapshot;
+  };
+  const tamperedValidation = await validateWorkflowBundle(candidate, {
+    trustedWorkflowSourceReadback: tamperedExecutionReadback,
+  });
+  assert.equal(tamperedValidation.ok, false);
+  assert.ok(
+    tamperedValidation.diagnostics.includes(
+      "WORKFLOW_EXECUTION_SOURCE_READBACK_MISMATCH",
+    ),
+  );
+});
+
+test("APPROVED bundle load는 provenance와 execution exact source를 한 번씩 읽는다", async () => {
   const { approved, trust } = await approvedFixture();
   let sourceReadbackCount = 0;
   const trustedWorkflowSourceReadback = async (request) => {
@@ -883,7 +1008,7 @@ test("APPROVED bundle load는 exact remote source를 한 번만 읽는다", asyn
     trustedWorkflowSourceReadback,
   });
 
-  assert.equal(sourceReadbackCount, 1);
+  assert.equal(sourceReadbackCount, 2);
 });
 
 test("공개 integrity 재계산과 공격자 registry로 APPROVED 상태를 위조할 수 없다", async () => {

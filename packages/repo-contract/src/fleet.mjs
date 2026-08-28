@@ -225,6 +225,15 @@ async function runtimeAssetDigests(repoRoot) {
 }
 
 function sourceSnapshotMatches(snapshot, bundle) {
+  const expectedSnapshotKeys = [
+    "contractAssetContents",
+    "contractDigests",
+    "repository",
+    "runtimeAssetContents",
+    "runtimeAssetDigests",
+    "sourceSha",
+    "workflowBundleSchemaText",
+  ];
   const expectedContractPaths = Object.keys(
     bundle?.quality?.contractDigests ?? {},
   ).sort();
@@ -234,6 +243,9 @@ function sourceSnapshotMatches(snapshot, bundle) {
   if (!(
     snapshot !== null &&
     typeof snapshot === "object" &&
+    (!isWorkflowBundleV4(bundle) ||
+      canonicalJson(Object.keys(snapshot).sort()) ===
+        canonicalJson(expectedSnapshotKeys)) &&
     snapshot.repository === "seorilabs/.github" &&
     snapshot.sourceSha === bundle?.source?.sha &&
     canonicalJson(snapshot.contractDigests ?? {}) ===
@@ -278,10 +290,80 @@ function sourceSnapshotMatches(snapshot, bundle) {
   );
 }
 
+function workflowExecutionPaths(bundle) {
+  const workflows = [
+    ...Object.values(bundle?.reusableWorkflows ?? {}),
+    ...Object.values(bundle?.buildWorkflows ?? {}),
+  ];
+  if (
+    workflows.some(
+      (workflow) =>
+        workflow === null ||
+        typeof workflow !== "object" ||
+        typeof workflow.path !== "string",
+    )
+  ) {
+    return [];
+  }
+  const paths = workflows.map(({ path }) => path);
+  return [...new Set(paths)].sort();
+}
+
+function executionSourceSnapshotMatches(
+  snapshot,
+  bundle,
+  provenanceSnapshot,
+  executionSha,
+) {
+  const paths = workflowExecutionPaths(bundle);
+  const expectedSnapshotKeys = [
+    "contractAssetContents",
+    "contractDigests",
+    "repository",
+    "runtimeAssetContents",
+    "runtimeAssetDigests",
+    "sourceSha",
+    "workflowBundleSchemaText",
+  ];
+  return (
+    paths.length > 0 &&
+    snapshot !== null &&
+    typeof snapshot === "object" &&
+    canonicalJson(Object.keys(snapshot).sort()) ===
+      canonicalJson(expectedSnapshotKeys) &&
+    snapshot.repository === "seorilabs/.github" &&
+    snapshot.sourceSha === executionSha &&
+    canonicalJson(Object.keys(snapshot.contractDigests ?? {}).sort()) ===
+      canonicalJson([SCHEMA_PATH]) &&
+    canonicalJson(Object.keys(snapshot.contractAssetContents ?? {}).sort()) ===
+      canonicalJson([SCHEMA_PATH]) &&
+    typeof snapshot.workflowBundleSchemaText === "string" &&
+    snapshot.workflowBundleSchemaText ===
+      snapshot.contractAssetContents[SCHEMA_PATH] &&
+    sha256(Buffer.from(snapshot.workflowBundleSchemaText, "utf8")) ===
+      snapshot.contractDigests[SCHEMA_PATH] &&
+    canonicalJson(Object.keys(snapshot.runtimeAssetDigests ?? {}).sort()) ===
+      canonicalJson(paths) &&
+    canonicalJson(Object.keys(snapshot.runtimeAssetContents ?? {}).sort()) ===
+      canonicalJson(paths) &&
+    paths.every(
+      (path) =>
+        typeof snapshot.runtimeAssetContents[path] === "string" &&
+        snapshot.runtimeAssetContents[path] ===
+          provenanceSnapshot.runtimeAssetContents[path] &&
+        snapshot.runtimeAssetDigests[path] ===
+          bundle.quality.runtimeAssetDigests[path] &&
+        sha256(Buffer.from(snapshot.runtimeAssetContents[path], "utf8")) ===
+          bundle.quality.runtimeAssetDigests[path],
+    )
+  );
+}
+
 async function verifyWorkflowSourceReadback(bundle, trustedWorkflowSourceReadback) {
   if (typeof trustedWorkflowSourceReadback !== "function") {
     return { diagnostic: "WORKFLOW_SOURCE_READBACK_REQUIRED" };
   }
+  let snapshot;
   try {
     const observed = await trustedWorkflowSourceReadback({
       repository: "seorilabs/.github",
@@ -289,14 +371,73 @@ async function verifyWorkflowSourceReadback(bundle, trustedWorkflowSourceReadbac
       contractPaths: Object.keys(bundle.quality.contractDigests),
       runtimeAssetPaths: Object.keys(bundle.quality.runtimeAssetDigests),
     });
-    const snapshot = structuredClone(observed);
+    snapshot = structuredClone(observed);
     if (!sourceSnapshotMatches(snapshot, bundle)) {
       return { diagnostic: "WORKFLOW_SOURCE_READBACK_MISMATCH" };
     }
-    return { snapshot };
   } catch {
     return { diagnostic: "WORKFLOW_SOURCE_READBACK_FAILED" };
   }
+
+  let workflowExecutionSha = bundle.source.sha;
+  if (isWorkflowBundleV4(bundle)) {
+    try {
+      const sourceDefinition = parseYamlText(
+        snapshot.contractAssetContents[SOURCE_PATH],
+        SOURCE_PATH,
+      );
+      workflowExecutionSha =
+        sourceDefinition.workflowExecutionSha ?? bundle.source.sha;
+    } catch {
+      return {
+        diagnostic: "WORKFLOW_EXECUTION_SOURCE_UNREADABLE",
+        snapshot,
+      };
+    }
+  }
+  if (!SHA_PATTERN.test(workflowExecutionSha ?? "")) {
+    return {
+      diagnostic: "WORKFLOW_EXECUTION_SHA_MISMATCH",
+      snapshot,
+    };
+  }
+  if (workflowExecutionSha === bundle.source.sha) {
+    return { snapshot, workflowExecutionSha };
+  }
+
+  let executionSnapshot;
+  try {
+    executionSnapshot = structuredClone(
+      await trustedWorkflowSourceReadback({
+        repository: "seorilabs/.github",
+        sourceSha: workflowExecutionSha,
+        contractPaths: [SCHEMA_PATH],
+        runtimeAssetPaths: workflowExecutionPaths(bundle),
+      }),
+    );
+  } catch {
+    return {
+      diagnostic: "WORKFLOW_EXECUTION_SOURCE_READBACK_FAILED",
+      snapshot,
+      workflowExecutionSha,
+    };
+  }
+  if (
+    !executionSourceSnapshotMatches(
+      executionSnapshot,
+      bundle,
+      snapshot,
+      workflowExecutionSha,
+    )
+  ) {
+    return {
+      diagnostic: "WORKFLOW_EXECUTION_SOURCE_READBACK_MISMATCH",
+      executionSnapshot,
+      snapshot,
+      workflowExecutionSha,
+    };
+  }
+  return { executionSnapshot, snapshot, workflowExecutionSha };
 }
 
 function fixedGitHubApiUrl(path, query = {}) {
@@ -1201,6 +1342,7 @@ function canaryEvidenceReadbackMatches(verified, record, canary, bundle) {
     "staticRunId",
     "staticWorkflowRef",
     "workflowBundleSourceSha",
+    "workflowExecutionSha",
   ];
   return (
     verified !== null &&
@@ -1215,6 +1357,10 @@ function canaryEvidenceReadbackMatches(verified, record, canary, bundle) {
       `seorilabs/.github/${bundle?.reusableWorkflows?.[record.profile]?.path}@${bundle?.reusableWorkflows?.[record.profile]?.sha}` &&
     verified.buildWorkflowRef ===
       `seorilabs/.github/${bundle?.buildWorkflows?.[record.profile]?.path}@${bundle?.buildWorkflows?.[record.profile]?.sha}` &&
+    verified.workflowExecutionSha ===
+      bundle?.reusableWorkflows?.[record.profile]?.sha &&
+    verified.workflowExecutionSha ===
+      bundle?.buildWorkflows?.[record.profile]?.sha &&
     verified.builderImage ===
       bundle?.delivery?.android?.builderImages?.[record.profile] &&
     verified.cloudBuildConfigSha256 ===
@@ -1330,19 +1476,20 @@ export async function validateWorkflowBundle(
   ) {
     diagnostics.push("CANDIDATE_BUNDLE_VERSION_UNSUPPORTED");
   }
-  const approvedSourceReadback =
-    bundle?.approval?.state === "APPROVED"
+  const sourceReadback =
+    bundle?.approval?.state === "APPROVED" ||
+    typeof trustedWorkflowSourceReadback === "function"
       ? await verifyWorkflowSourceReadback(
           bundle,
           trustedWorkflowSourceReadback,
         )
       : undefined;
-  if (approvedSourceReadback?.diagnostic) {
-    diagnostics.push(approvedSourceReadback.diagnostic);
+  if (sourceReadback?.diagnostic) {
+    diagnostics.push(sourceReadback.diagnostic);
   }
   let schema;
   try {
-    const schemaText = approvedSourceReadback?.snapshot
+    const schemaText = sourceReadback?.snapshot
       ?.workflowBundleSchemaText ??
       (await readFile(resolve(repoRoot, SCHEMA_PATH), "utf8"));
     schema = JSON.parse(schemaText);
@@ -1385,9 +1532,9 @@ export async function validateWorkflowBundle(
   let expectedWorkflowExecutionSha = bundle?.source?.sha;
   if (isWorkflowBundleV4(bundle)) {
     try {
-      const sourceDefinition = approvedSourceReadback?.snapshot
+      const sourceDefinition = sourceReadback?.snapshot
         ? parseYamlText(
-            approvedSourceReadback.snapshot.contractAssetContents[SOURCE_PATH],
+            sourceReadback.snapshot.contractAssetContents[SOURCE_PATH],
             SOURCE_PATH,
           )
         : await readYaml(resolve(repoRoot, SOURCE_PATH));
@@ -1458,8 +1605,8 @@ export async function validateWorkflowBundle(
       diagnostics.push("RUNTIME_DECLARATION_UNREADABLE");
     }
   } else if (
-    approvedSourceReadback?.snapshot &&
-    !sourceRuntimeDeclarationsMatch(bundle, approvedSourceReadback.snapshot)
+    sourceReadback?.snapshot &&
+    !sourceRuntimeDeclarationsMatch(bundle, sourceReadback.snapshot)
   ) {
     diagnostics.push("RUNTIME_DECLARATION_MISMATCH");
   }
@@ -1808,8 +1955,18 @@ export async function loadApprovedWorkflowBundle(
     repoRoot,
     trustedApprovalKeys: trustedApprovalKeySnapshot,
     trustedRegistryReadback,
-    trustedWorkflowSourceReadback: async () =>
-      structuredClone(sourceReadback.snapshot),
+    trustedWorkflowSourceReadback: async ({ sourceSha }) => {
+      if (sourceSha === bundle.source.sha) {
+        return structuredClone(sourceReadback.snapshot);
+      }
+      if (
+        sourceSha === sourceReadback.workflowExecutionSha &&
+        sourceReadback.executionSnapshot
+      ) {
+        return structuredClone(sourceReadback.executionSnapshot);
+      }
+      throw new Error("WORKFLOW_SOURCE_READBACK_UNAVAILABLE");
+    },
     trustedRunnerImageReadback,
   });
   if (!validation.ok) {

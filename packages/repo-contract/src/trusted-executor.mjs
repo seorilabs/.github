@@ -292,6 +292,74 @@ function snapshotEnvironmentVariableBindings(bindings) {
   return Object.freeze(byKey);
 }
 
+function snapshotWifCapabilities(capabilities) {
+  if (
+    !Array.isArray(capabilities) ||
+    capabilities.length === 0 ||
+    capabilities.length > 64
+  ) {
+    throw new Error("WIF_PROVIDER_POLICY_INVALID");
+  }
+  const snapshot = capabilities.map((capability) => {
+    if (
+      !exactKeys(capability, [
+        "environment",
+        "jobWorkflowRef",
+        "repositoryId",
+      ]) ||
+      capability.environment !== "internal" ||
+      !ID_PATTERN.test(capability.repositoryId ?? "") ||
+      !JOB_WORKFLOW_REF_PATTERN.test(capability.jobWorkflowRef ?? "")
+    ) {
+      throw new Error("WIF_PROVIDER_POLICY_INVALID");
+    }
+    return structuredClone(capability);
+  });
+  const keys = snapshot.map(
+    ({ repositoryId, jobWorkflowRef }) =>
+      `${repositoryId}:${jobWorkflowRef}`,
+  );
+  if (new Set(keys).size !== keys.length) {
+    throw new Error("WIF_PROVIDER_POLICY_INVALID");
+  }
+  return deepFreeze(
+    snapshot.toSorted(
+      (left, right) =>
+        left.repositoryId.localeCompare(right.repositoryId) ||
+        left.jobWorkflowRef.localeCompare(right.jobWorkflowRef),
+    ),
+  );
+}
+
+export function createTrustedWifProviderPolicy({
+  organizationId,
+  capabilities,
+} = {}) {
+  if (!ID_PATTERN.test(organizationId ?? "")) {
+    throw new Error("WIF_PROVIDER_POLICY_INVALID");
+  }
+  const trustedCapabilities = snapshotWifCapabilities(capabilities);
+  const pairwiseCondition = trustedCapabilities
+    .map(
+      ({ repositoryId, jobWorkflowRef }) =>
+        `(assertion.repository_id == '${repositoryId}' && ` +
+        `assertion.job_workflow_ref == '${jobWorkflowRef}')`,
+    )
+    .join(" || ");
+  return deepFreeze({
+    attributeCondition:
+      `assertion.repository_owner_id == '${organizationId}' && ` +
+      `(${pairwiseCondition})`,
+    attributeMapping: {
+      "google.subject": "assertion.sub",
+      "attribute.repository": "assertion.repository",
+      "attribute.repository_id": "assertion.repository_id",
+      "attribute.job_workflow_ref": "assertion.job_workflow_ref",
+    },
+    capabilities: trustedCapabilities,
+  });
+}
+
 function snapshotWifBindings(bindings) {
   const kind = "WIF_ADAPTER";
   if (!Array.isArray(bindings)) throw new Error(`${kind}_CONFIGURATION_INVALID`);
@@ -300,6 +368,7 @@ function snapshotWifBindings(bindings) {
     if (
       !exactKeys(binding, [
         "bindingRevision",
+        "capabilities",
         "logicalCredentialId",
         "providerResourceName",
         "serviceAccountEmail",
@@ -314,9 +383,15 @@ function snapshotWifBindings(bindings) {
     ) {
       throw new Error(`${kind}_CONFIGURATION_INVALID`);
     }
+    let capabilities;
+    try {
+      capabilities = snapshotWifCapabilities(binding.capabilities);
+    } catch {
+      throw new Error(`${kind}_CONFIGURATION_INVALID`);
+    }
     const key = `${binding.logicalCredentialId}@${binding.bindingRevision}`;
     if (byKey[key]) throw new Error(`${kind}_CONFIGURATION_INVALID`);
-    byKey[key] = deepFreeze(structuredClone(binding));
+    byKey[key] = deepFreeze({ ...structuredClone(binding), capabilities });
   }
   return Object.freeze(byKey);
 }
@@ -934,10 +1009,21 @@ function expectedWifBinding(operation, organizationId, bindings) {
     binding.providerResourceName,
   );
   if (!providerMatch) throw new Error("WIF_OPERATION_BINDING_UNTRUSTED");
-  const poolResource = providerMatch[1].replace(/\/providers\/[a-z][a-z0-9-]{3,31}$/u, "");
-  const capabilityValue = encodeURIComponent(
-    `${payload.repositoryId}:${payload.jobWorkflowRef}:${payload.environment}`,
+  const poolResource = providerMatch[1].replace(
+    /\/providers\/[a-z][a-z0-9-]{3,31}$/u,
+    "",
   );
+  const capability = binding.capabilities.find(
+    (item) =>
+      item.environment === payload.environment &&
+      item.repositoryId === payload.repositoryId &&
+      item.jobWorkflowRef === payload.jobWorkflowRef,
+  );
+  if (!capability) throw new Error("WIF_OPERATION_BINDING_UNTRUSTED");
+  const providerPolicy = createTrustedWifProviderPolicy({
+    organizationId,
+    capabilities: binding.capabilities,
+  });
   return deepFreeze({
     workflowBundleDigest: bundleDigest,
     bindingRevision: payload.bindingRevision,
@@ -948,21 +1034,9 @@ function expectedWifBinding(operation, organizationId, bindings) {
     organizationId,
     principalSetMember:
       `principalSet://iam.googleapis.com/${poolResource}/` +
-      `attribute.seorilabs_capability/${capabilityValue}`,
-    providerAttributeCondition:
-      `assertion.repository_owner_id == '${organizationId}' && ` +
-      `assertion.environment == 'internal' && ` +
-      "assertion.job_workflow_ref.matches(" +
-      "'^seorilabs/\\.github/\\.github/workflows/(rn|godot)-build-android-cloud-v1\\.yml@[0-9a-f]{40}$')",
-    providerAttributeMapping: {
-      "attribute.environment": "assertion.environment",
-      "attribute.job_workflow_ref": "assertion.job_workflow_ref",
-      "attribute.repository_id": "assertion.repository_id",
-      "attribute.repository_owner_id": "assertion.repository_owner_id",
-      "attribute.seorilabs_capability":
-        "assertion.repository_id + ':' + assertion.job_workflow_ref + ':' + assertion.environment",
-      "google.subject": "assertion.sub",
-    },
+      `attribute.repository_id/${payload.repositoryId}`,
+    providerAttributeCondition: providerPolicy.attributeCondition,
+    providerAttributeMapping: providerPolicy.attributeMapping,
     providerResourceName: binding.providerResourceName,
     repositoryId: payload.repositoryId,
     role: "roles/iam.workloadIdentityUser",
@@ -995,6 +1069,22 @@ export function createTrustedWifAdapter({
   let trustedBindings;
   try {
     trustedBindings = snapshotWifBindings(bindings);
+    const providerPolicies = new Map();
+    for (const binding of Object.values(trustedBindings)) {
+      const policy = createTrustedWifProviderPolicy({
+        organizationId,
+        capabilities: binding.capabilities,
+      });
+      const digest = canonicalJson({
+        attributeCondition: policy.attributeCondition,
+        attributeMapping: policy.attributeMapping,
+      });
+      const existing = providerPolicies.get(binding.providerResourceName);
+      if (existing !== undefined && existing !== digest) {
+        throw new Error("WIF_ADAPTER_CONFIGURATION_INVALID");
+      }
+      providerPolicies.set(binding.providerResourceName, digest);
+    }
   } catch {
     throw new Error("WIF_ADAPTER_CONFIGURATION_INVALID");
   }
