@@ -146,8 +146,9 @@ async function assertEmptyStoreTarget(applicationRoot, storePath) {
 }
 
 async function scanStore(path, storeRoot, tokenBytes, totals) {
-  const entries = (await readdir(path, { withFileTypes: true })).sort((left, right) =>
-    left.name.localeCompare(right.name),
+  const entries = (await readdir(path, { withFileTypes: true })).sort(
+    (left, right) =>
+      left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
   );
   for (const entry of entries) {
     const child = resolve(path, entry.name);

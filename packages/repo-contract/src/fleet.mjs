@@ -158,6 +158,10 @@ function canonicalJson(value) {
   return JSON.stringify(canonicalize(value));
 }
 
+function isObjectRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function sha256(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
@@ -668,6 +672,7 @@ function runtimeDeclarationsMatchTexts(bundle, runtimeTextByPath) {
       if (
         canonicalJson(Object.keys(workflow?.jobs ?? {}).sort()) !==
           canonicalJson(["submit-build-only"]) ||
+        !isObjectRecord(expectedBuildPermissions) ||
         canonicalJson(workflow?.permissions) !==
           canonicalJson(expectedBuildPermissions) ||
         workflow?.on?.workflow_call?.secrets !== undefined ||
@@ -2331,14 +2336,18 @@ export async function generateAndroidBuildCaller(options = {}) {
   ) {
     throw new Error("APPROVED_ANDROID_WORKFLOW_MISSING");
   }
+  const approvedPermissions =
+    bundleVerification.state.bundle.callerPolicies?.androidBuild?.permissions?.[
+      profile
+    ];
+  if (!isObjectRecord(approvedPermissions)) {
+    throw new Error("APPROVED_ANDROID_PERMISSIONS_MISSING");
+  }
 
   const caller = {
     name: "Android Build-only",
     on: ANDROID_DISPATCH,
-    permissions:
-      bundleVerification.state.bundle.callerPolicies.androidBuild.permissions[
-        profile
-      ],
+    permissions: approvedPermissions,
     concurrency: {
       group: `android-build-\${{ github.repository_id }}-${sourceSha}`,
       "cancel-in-progress": false,
