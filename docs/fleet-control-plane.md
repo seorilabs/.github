@@ -34,10 +34,24 @@ flowchart LR
 구현, CI, artifact, upload, processing, device QA, review, approval, deployment,
 public availability는 독립 gate다. 앞 gate의 성공은 뒤 gate를 증명하지 않는다.
 
-2026-08-28 live catalog preflight는 99개 항목, 오류 0건, 경고 2건이다. 이는 2026-08-27
-기준선 이후 catalog 수치만 다시 읽은 결과이며, 경고는 정리 완료나 credential 이동·회전·삭제의
-승인 근거로 사용하지 않는다. 당시 repository·workflow 확인 범위와 남은 권한 blocker는 날짜가
-고정된 [P0 기준선 스냅샷](migration/fleet-baseline-2026-08-27.md)에 보존한다.
+2026-08-29 live catalog preflight는 104개 항목, 오류 0건, 경고 0건이다. 이는 catalog의
+구문·참조 무결성 결과이며 provider 권한이나 실행 복제본의 존재를 뜻하지 않는다. 당시
+repository·workflow 확인 범위와 남은 권한 blocker는 날짜가 고정된
+[P0 기준선 스냅샷](migration/fleet-baseline-2026-08-27.md)에 보존한다.
+
+## Provider 인증 우선순위
+
+[`provider-auth-matrix.yaml`](../contracts/provider-auth-matrix.yaml)은 provider별 인증과
+사람 gate의 중앙 정본이다. 모든 capability는 `API_WIF → BROWSER_SESSION →
+BOT_PASSWORD_TOTP → HUMAN_REAUTH` 순서의 가능한 부분집합만 사용하고 마지막에는 항상 사람
+재인증을 둔다. 앞 전략의 검증된 실패 없이 다음 전략으로 건너뛰지 않는다.
+
+`ACTIVE`는 해당 logical credential의 실행 경로가 현재 사용 가능하다는 뜻이고 `PLANNED`와
+`BLOCKED`는 무인 실행 권한이 아니다. 비밀번호와 TOTP는 전용 봇 계정에만 허용하며 개인 계정,
+passkey, SMS, push, trusted-device, CAPTCHA, recovery, 약관·계정 승인은 항상
+`HUMAN_REAUTH`다. 로그인 성공은 심사 제출, 공개 배포, role·permission·key 변경 권한을 주지
+않는다. 계약은 logical ID와 공개 origin만 가지며 secret, token, cookie, TOTP seed를 수용하는
+field가 없다.
 
 ## WorkflowBundle v4
 
