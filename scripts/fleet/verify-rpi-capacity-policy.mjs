@@ -298,8 +298,8 @@ function liveReadback() {
     fail("RPI_CAPACITY_RPI4_QUARANTINE_DRIFT");
   }
   if (
-    workload?.spec?.unschedulable ===
-      contract.cluster.nodes.workload.schedulable ||
+    (workload?.spec?.unschedulable ?? false) !==
+      !contract.cluster.nodes.workload.schedulable ||
     condition(workload, "Ready") !== workloadConditions.ready ||
     condition(workload, "MemoryPressure") !==
       workloadConditions.memoryPressure
