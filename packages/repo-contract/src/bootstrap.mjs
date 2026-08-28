@@ -30,7 +30,7 @@ const BUNDLED_PLAN_SCHEMA = resolve(
 const PLAN_SCHEMA_PATH = existsSync(WORKSPACE_PLAN_SCHEMA)
   ? WORKSPACE_PLAN_SCHEMA
   : BUNDLED_PLAN_SCHEMA;
-const WEBHOOK_CREDENTIAL_ID = "shared/github/fleet-app-webhook";
+const WEBHOOK_CREDENTIAL_ID = "shared/github/backoffice-app-webhook";
 const DELIVERY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u;
 const SIGNATURE_PATTERN = /^sha256=([0-9a-f]{64})$/u;
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;

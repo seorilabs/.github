@@ -16,6 +16,7 @@ renderer는 secret 값을 읽거나 출력하지 않고 하나의 JSON `List`만
 | `namespace` | 고정값 `auth-broker` |
 | `image` | registry와 `@sha256:` digest가 포함된 immutable ARM64 image |
 | `imagePullPolicy` | `Always` 또는 `IfNotPresent` |
+| `imagePullSecretName` | 사전에 readback한 private GHCR pull Secret의 exact 이름 |
 | `nodeSelector` | 검증된 RPI5를 고르는 label 한 개 |
 | `stateClaimName` | 사전에 검증된 encrypted PVC 이름 |
 | `trustedWorkers` | namespace/pod exact match label을 각각 한 개씩 가진 selector |
@@ -42,6 +43,7 @@ renderer가 참조하지만 생성하지 않는 외부 객체는 다음뿐입니
 - role별 service mTLS Secret - `ca.crt`, `tls.crt`, `tls.key`
 - role별 egress mTLS Secret - `ca.crt`, `tls.crt`, `tls.key`
 - broker 전용 encrypted PVC
+- private GHCR pull Secret - 세 Pod에 동일한 exact `imagePullSecrets`로만 참조
 
 ConfigMap에는 secret 값 대신 logical credential ID, numeric Secret Manager resource version,
 public origin/account identity, immutable executable path와 checksum만 둡니다. TLS private key는
@@ -63,6 +65,9 @@ kubectl apply --dry-run=client --validate=false -f /tmp/seori-auth-rendered.json
 
 실제 cluster의 server dry-run, 아홉 RBAC `can-i=no`, WIF/IAM readback, egress proxy allowlist,
 PVC encryption과 fake-account login canary를 모두 통과한 뒤에만 별도 승인 작업에서 apply합니다.
+private GHCR pull Secret이 namespace에 존재하고 예상 registry identity에서 생성됐다는 공개
+readback이 없으면 workload apply를 중단합니다. renderer가 `imagePullSecrets`를 생략한 manifest는
+node image cache가 있더라도 운영 계약에 맞지 않습니다.
 현재 구현 작업은 live RBAC, Secret Manager IAM, TLS material, PVC 또는 provider 계정을
 생성·변경하지 않습니다.
 

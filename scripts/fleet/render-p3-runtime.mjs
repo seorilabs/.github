@@ -105,32 +105,24 @@ async function loadContract() {
 }
 
 function githubApp(contract) {
-  const { organization, app, webhook } = contract.github;
-  const url = new URL(
-    `https://github.com/organizations/${organization}/settings/apps/new`,
-  );
-  const parameters = {
-    name: app.name,
-    description: app.description,
-    url: app.homepageUrl,
-    public: String(app.public),
-    webhook_active: String(app.webhookActive),
-    webhook_url: app.webhookUrl,
-    request_oauth_on_install: "false",
-    ...app.permissions,
-  };
-  for (const [name, value] of Object.entries(parameters)) {
-    url.searchParams.set(name, value);
-  }
-  for (const event of app.events) url.searchParams.append("events[]", event);
+  const { organization, app, webhook, credentialRecovery } = contract.github;
   return {
     apiVersion: contract.github.apiVersion,
     organization,
-    registrationUrl: url.toString(),
-    humanOnly: true,
-    approvalGate: app.humanGate,
-    webhookSecretRequired: true,
-    webhookCredentialId: webhook.credentialId,
+    reuseExisting: app.reuseExisting,
+    identity: {
+      appId: app.appId,
+      slug: app.slug,
+      installationId: app.installationId,
+      targetType: app.targetType,
+      repositorySelection: app.repositorySelection,
+    },
+    requiredPermissions: app.permissions,
+    requiredEvents: app.events,
+    permissionExpansionGate: app.humanGate,
+    webhook: { ...webhook },
+    credentialRecovery,
+    staticKeysCreated: false,
   };
 }
 

@@ -10,6 +10,8 @@ import { promisify } from "node:util";
 import Ajv2020 from "ajv/dist/2020.js";
 import { parse } from "yaml";
 
+import { githubAppReadback } from "../scripts/fleet/github-app-readback.mjs";
+
 const execFileAsync = promisify(execFile);
 const script = "scripts/fleet/render-p3-runtime.mjs";
 const gcpBootstrap = "scripts/fleet/bootstrap-p3-gcp.mjs";
@@ -20,6 +22,24 @@ const contract = parse(await readFile("contracts/fleet-p3-runtime.yaml", "utf8")
 const schema = JSON.parse(
   await readFile("contracts/fleet-p3-runtime.schema.json", "utf8"),
 );
+const activeBackofficeInstallation = {
+  app_id: 4124446,
+  app_slug: "seorilabs-backoffice",
+  id: 142120077,
+  target_type: "Organization",
+  repository_selection: "all",
+  suspended_at: null,
+  permissions: {
+    actions: "write",
+    checks: "read",
+    contents: "write",
+    issues: "write",
+    members: "read",
+    metadata: "read",
+    pull_requests: "read",
+  },
+  events: ["issues", "issue_comment", "pull_request", "push", "workflow_run"],
+};
 
 async function render(command) {
   const result = await execFileAsync(process.execPath, [script, command]);
@@ -40,35 +60,93 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
   assert.equal(contract.authBroker.state.encryptionStatus, "blocked_unverified");
 });
 
-test("GitHub App bootstrap은 secret 없는 사람 전용 등록 URL과 webhook 계약만 만든다", async () => {
+test("GitHub App bootstrap은 active Backoffice App을 재사용하고 새 App을 등록하지 않는다", async () => {
   const output = await render("github-app");
-  const url = new URL(output.registrationUrl);
-  assert.equal(url.origin, "https://github.com");
-  assert.equal(url.pathname, "/organizations/seorilabs/settings/apps/new");
-  assert.equal(url.searchParams.get("public"), "false");
-  assert.equal(url.searchParams.get("webhook_active"), "true");
-  assert.equal(url.searchParams.get("request_oauth_on_install"), "false");
-  assert.deepEqual(url.searchParams.getAll("events[]"), ["repository", "push"]);
-  assert.equal(url.searchParams.get("organization_custom_properties"), "admin");
-  assert.equal(url.searchParams.get("organization_administration"), "write");
-  assert.equal(url.searchParams.has("webhook_secret"), false);
-  assert.equal(output.humanOnly, true);
-  assert.deepEqual(output.approvalGate, {
+  assert.equal("registrationUrl" in output, false);
+  assert.equal(output.reuseExisting, true);
+  assert.deepEqual(output.identity, {
+    appId: 4124446,
+    slug: "seorilabs-backoffice",
+    installationId: 142120077,
+    targetType: "Organization",
+    repositorySelection: "all",
+  });
+  assert.equal(output.requiredPermissions.organization_custom_properties, "admin");
+  assert.equal(output.requiredPermissions.organization_administration, "write");
+  assert.deepEqual(output.requiredEvents, ["repository", "push"]);
+  assert.deepEqual(output.permissionExpansionGate, {
     type: "approval",
     state: "HUMAN_REAUTH_REQUIRED",
-    operation: "GITHUB_APP_BOOTSTRAP",
+    operation: "GITHUB_APP_PERMISSION_EXPANSION_AND_INSTALLATION_ACCEPTANCE",
     requiredRole: "organization_owner",
     automaticRetry: false,
     requiredReadback: [
       "app_id",
-      "client_id",
       "slug",
       "installation_id",
-      "webhook_active",
+      "repository_selection",
+      "suspended_at",
+      "permissions",
+      "events",
     ],
   });
-  assert.equal(output.webhookSecretRequired, true);
-  assert.equal(output.webhookCredentialId, "shared/github/fleet-app-webhook");
+  assert.equal(output.webhook.appPrivateKeyCredentialId, "shared/github/backoffice-app-private-key");
+  assert.equal(output.webhook.credentialId, "shared/github/backoffice-app-webhook");
+  assert.equal(output.credentialRecovery.plaintextPolicy.newKeyGenerationAllowed, false);
+  assert.deepEqual(
+    output.credentialRecovery.mappings.map(({ targetCredentialId }) => targetCredentialId),
+    [
+      "shared/github/backoffice-app-private-key",
+      "shared/github/backoffice-app-webhook",
+    ],
+  );
+  assert.equal(output.credentialRecovery.approvalGate.automaticRetry, false);
+  assert.equal(output.staticKeysCreated, false);
+  assert.doesNotMatch(JSON.stringify(output), /-----BEGIN|gh[opusr]_|github_pat_/u);
+});
+
+test("GitHub App readback은 기존 permission/event를 보존한 최소 union만 계산한다", () => {
+  const state = githubAppReadback(
+    {
+      ...contract.github.app,
+    },
+    [activeBackofficeInstallation],
+  );
+  assert.equal(state.identityExact, true);
+  assert.equal(state.ready, false);
+  assert.deepEqual(state.permissionChanges, [
+    { permission: "pull_requests", current: "read", required: "write" },
+    { permission: "workflows", current: null, required: "write" },
+    { permission: "repository_custom_properties", current: null, required: "write" },
+    { permission: "environments", current: null, required: "write" },
+    { permission: "administration", current: null, required: "write" },
+    { permission: "organization_administration", current: null, required: "write" },
+    { permission: "organization_custom_properties", current: null, required: "admin" },
+  ]);
+  assert.equal(state.permissionUnion.actions, "write");
+  assert.equal(state.permissionUnion.checks, "read");
+  assert.equal(state.permissionUnion.issues, "write");
+  assert.equal(state.permissionUnion.members, "read");
+  assert.deepEqual(state.eventAdditions, ["repository"]);
+  assert.deepEqual(state.eventUnion, [
+    "issue_comment",
+    "issues",
+    "pull_request",
+    "push",
+    "repository",
+    "workflow_run",
+  ]);
+
+  const accepted = githubAppReadback(
+    { ...contract.github.app },
+    [{
+      ...activeBackofficeInstallation,
+      permissions: state.permissionUnion,
+      events: state.eventUnion,
+    }],
+  );
+  assert.equal(accepted.ready, true);
+  assert.equal(accepted.installationAcceptanceRequired, false);
 });
 
 test("custom property와 Evaluate ruleset payload는 pilot 두 repo만 겨냥한다", async () => {
@@ -101,7 +179,7 @@ test("custom property와 Evaluate ruleset payload는 pilot 두 repo만 겨냥한
   );
 });
 
-test("GitHub bootstrap 기본 실행은 사람 전용 App gate와 additive org dry-run만 출력한다", async () => {
+test("GitHub bootstrap 기본 실행은 App 재사용 gate와 additive org dry-run만 출력한다", async () => {
   const result = await execFileAsync(process.execPath, [
     "scripts/fleet/bootstrap-p3-github.mjs",
   ]);
@@ -109,14 +187,17 @@ test("GitHub bootstrap 기본 실행은 사람 전용 App gate와 additive org d
   const output = JSON.parse(result.stdout);
   assert.equal(output.mode, "DRY_RUN");
   assert.equal(output.organization, "seorilabs");
-  assert.equal(output.app.approvalGate.state, "HUMAN_REAUTH_REQUIRED");
-  assert.equal(output.app.approvalGate.automaticRetry, false);
+  assert.equal(output.app.reuseExisting, true);
+  assert.equal(output.app.identity.appId, 4124446);
+  assert.equal(output.app.permissionExpansionGate.state, "HUMAN_REAUTH_REQUIRED");
+  assert.equal(output.app.permissionExpansionGate.automaticRetry, false);
+  assert.equal("registrationUrl" in output.app, false);
   assert.equal(output.operations.filter(({ method }) => method === "PUT").length, 4);
   assert.equal(output.operations.filter(({ method }) => method === "PATCH").length, 2);
   assert.equal(output.operations.filter(({ method }) => method === "POST").length, 1);
   assert.doesNotMatch(
     JSON.stringify(output),
-    /webhook_secret|private.?key|access.?token|refresh.?token/iu,
+    /-----BEGIN|gh[opusr]_|github_pat_|access.?token.?value|refresh.?token.?value/iu,
   );
 });
 
@@ -517,6 +598,14 @@ test("Auth Broker foundation은 RBAC 0권한, exact NetworkPolicy와 cert-manage
   assert.match(
     publicBindings.data["bindings.json"],
     /"encryptionStatus": "blocked_unverified"/u,
+  );
+  assert.match(
+    publicBindings.data["bindings.json"],
+    /"imagePullSecretName": "seori-auth-ghcr-pull"/u,
+  );
+  assert.match(
+    publicBindings.data["bindings.json"],
+    /"credentialId": "shared\/github\/operator"/u,
   );
   assert.doesNotMatch(serialized, /"kind":"Secret"|"stringData"/u);
   assert.doesNotMatch(serialized, /"kind":"(?:Deployment|StatefulSet|PersistentVolumeClaim)"/u);

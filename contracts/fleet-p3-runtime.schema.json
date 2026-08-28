@@ -10,21 +10,21 @@
     "github": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["apiVersion", "organization", "app", "webhook", "customProperties", "pilotValues", "ruleset"],
+      "required": ["apiVersion", "organization", "app", "webhook", "credentialRecovery", "customProperties", "pilotValues", "ruleset"],
       "properties": {
         "apiVersion": { "const": "2026-03-10" },
         "organization": { "const": "seorilabs" },
         "app": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["name", "description", "homepageUrl", "webhookUrl", "public", "webhookActive", "permissions", "events", "humanGate"],
+          "required": ["reuseExisting", "appId", "slug", "installationId", "targetType", "repositorySelection", "permissions", "events", "humanGate"],
           "properties": {
-            "name": { "type": "string", "minLength": 1 },
-            "description": { "type": "string", "minLength": 1 },
-            "homepageUrl": { "$ref": "#/$defs/httpsUrl" },
-            "webhookUrl": { "$ref": "#/$defs/httpsUrl" },
-            "public": { "const": false },
-            "webhookActive": { "const": true },
+            "reuseExisting": { "const": true },
+            "appId": { "const": 4124446 },
+            "slug": { "const": "seorilabs-backoffice" },
+            "installationId": { "const": 142120077 },
+            "targetType": { "const": "Organization" },
+            "repositorySelection": { "const": "all" },
             "permissions": {
               "type": "object",
               "additionalProperties": false,
@@ -55,19 +55,21 @@
               "properties": {
                 "type": { "const": "approval" },
                 "state": { "const": "HUMAN_REAUTH_REQUIRED" },
-                "operation": { "const": "GITHUB_APP_BOOTSTRAP" },
+                "operation": { "const": "GITHUB_APP_PERMISSION_EXPANSION_AND_INSTALLATION_ACCEPTANCE" },
                 "requiredRole": { "const": "organization_owner" },
                 "automaticRetry": { "const": false },
                 "requiredReadback": {
                   "type": "array",
-                  "minItems": 5,
-                  "maxItems": 5,
+                  "minItems": 7,
+                  "maxItems": 7,
                   "prefixItems": [
                     { "const": "app_id" },
-                    { "const": "client_id" },
                     { "const": "slug" },
                     { "const": "installation_id" },
-                    { "const": "webhook_active" }
+                    { "const": "repository_selection" },
+                    { "const": "suspended_at" },
+                    { "const": "permissions" },
+                    { "const": "events" }
                   ],
                   "items": false
                 }
@@ -78,14 +80,70 @@
         "webhook": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["credentialId", "signatureHeader", "eventHeader", "deliveryHeader", "algorithm", "maxPayloadBytes"],
+          "required": ["url", "appPrivateKeyCredentialId", "credentialId", "signatureHeader", "eventHeader", "deliveryHeader", "algorithm", "maxPayloadBytes"],
           "properties": {
-            "credentialId": { "const": "shared/github/fleet-app-webhook" },
+            "url": { "const": "https://backoffice.vzyx.xyz/api/webhooks/github/fleet" },
+            "appPrivateKeyCredentialId": { "const": "shared/github/backoffice-app-private-key" },
+            "credentialId": { "const": "shared/github/backoffice-app-webhook" },
             "signatureHeader": { "const": "x-hub-signature-256" },
             "eventHeader": { "const": "x-github-event" },
             "deliveryHeader": { "const": "x-github-delivery" },
             "algorithm": { "const": "hmac-sha256" },
             "maxPayloadBytes": { "const": 1048576 }
+          }
+        },
+        "credentialRecovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "mappings", "plaintextPolicy", "approvalGate"],
+          "properties": {
+            "source": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["repository", "sourceSha", "manifestPath", "manifestSha256", "kind", "name", "namespace", "recoveryCredentialId"],
+              "properties": {
+                "repository": { "const": "seorilabs/seorilabs-backoffice" },
+                "sourceSha": { "const": "8d7162f352454b892ff749ac0d4061c492d7781f" },
+                "manifestPath": { "const": "k8s/backoffice-sealedsecret.yaml" },
+                "manifestSha256": { "const": "21c61c243e5124c24d2c1a15ea385375ffefff9a5fe8877b10bb750cc4234aaf" },
+                "kind": { "const": "SealedSecret" },
+                "name": { "const": "backoffice-secrets" },
+                "namespace": { "const": "platform" },
+                "recoveryCredentialId": { "const": "shared/k8s/sealed-secrets-recovery" }
+              }
+            },
+            "mappings": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                { "$ref": "#/$defs/githubPrivateKeyRecovery" },
+                { "$ref": "#/$defs/githubWebhookRecovery" }
+              ],
+              "items": false
+            },
+            "plaintextPolicy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["offlineOnly", "newKeyGenerationAllowed", "forbiddenSurfaces"],
+              "properties": {
+                "offlineOnly": { "const": true },
+                "newKeyGenerationAllowed": { "const": false },
+                "forbiddenSurfaces": {
+                  "type": "array",
+                  "minItems": 7,
+                  "maxItems": 7,
+                  "prefixItems": [
+                    { "const": "stdout" }, { "const": "argv" },
+                    { "const": "environment" }, { "const": "logs" },
+                    { "const": "files" }, { "const": "commits" },
+                    { "const": "pull_requests" }
+                  ],
+                  "items": false
+                }
+              }
+            },
+            "approvalGate": { "$ref": "#/$defs/githubCredentialRecoveryGate" }
           }
         },
         "customProperties": {
@@ -162,10 +220,26 @@
     "authBroker": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["namespace", "image", "wifAudience", "state", "trustedWorkers", "providerControlPlane", "egressProxy", "roles"],
+      "required": ["namespace", "image", "registry", "wifAudience", "state", "trustedWorkers", "providerControlPlane", "egressProxy", "roles"],
       "properties": {
         "namespace": { "const": "auth-broker" },
         "image": { "type": "string", "pattern": "^ghcr\\.io/seorilabs/seori-auth@sha256:[0-9a-f]{64}$" },
+        "registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["server", "imagePullSecretName", "credentialId", "requiredScopes", "catalogStatus", "kubernetesStatus"],
+          "properties": {
+            "server": { "const": "ghcr.io" },
+            "imagePullSecretName": { "const": "seori-auth-ghcr-pull" },
+            "credentialId": { "const": "shared/github/operator" },
+            "requiredScopes": {
+              "type": "array", "minItems": 1, "maxItems": 1,
+              "prefixItems": [{ "const": "read:packages" }], "items": false
+            },
+            "catalogStatus": { "const": "active" },
+            "kubernetesStatus": { "const": "blocked_unverified" }
+          }
+        },
         "wifAudience": { "type": "string", "pattern": "^//iam\\.googleapis\\.com/projects/[1-9][0-9]*/locations/global/workloadIdentityPools/[a-z0-9-]+/providers/[a-z0-9-]+$" },
         "state": {
           "type": "object",
@@ -283,6 +357,62 @@
           "items": false
         },
         "requiredStatusCheck": { "const": "Org Contract / Org Contract" }
+      }
+    },
+    "githubPrivateKeyRecovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["encryptedKey", "targetCredentialId", "targetKind"],
+      "properties": {
+        "encryptedKey": { "const": "GITHUB_PRIVATE_KEY" },
+        "targetCredentialId": { "const": "shared/github/backoffice-app-private-key" },
+        "targetKind": { "const": "macos-keychain-password" }
+      }
+    },
+    "githubWebhookRecovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["encryptedKey", "targetCredentialId", "targetKind"],
+      "properties": {
+        "encryptedKey": { "const": "GITHUB_WEBHOOK_SECRET" },
+        "targetCredentialId": { "const": "shared/github/backoffice-app-webhook" },
+        "targetKind": { "const": "macos-keychain-password" }
+      }
+    },
+    "githubCredentialRecoveryGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "state", "operation", "requiredRole", "automaticRetry", "requiredPreconditions", "requiredReadback"],
+      "properties": {
+        "type": { "const": "approval" },
+        "state": { "const": "HUMAN_APPROVAL_REQUIRED" },
+        "operation": { "const": "GITHUB_APP_CREDENTIAL_OFFLINE_RECOVERY" },
+        "requiredRole": { "const": "credential_custodian" },
+        "automaticRetry": { "const": false },
+        "requiredPreconditions": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "prefixItems": [
+            { "const": "source_digest_exact" },
+            { "const": "encrypted_keys_present" },
+            { "const": "recovery_credential_active" },
+            { "const": "target_logical_ids_absent" },
+            { "const": "pre_recovery_backup_restore_verified" }
+          ],
+          "items": false
+        },
+        "requiredReadback": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            { "const": "logical_ids_active" },
+            { "const": "app_identity_exact" },
+            { "const": "post_recovery_backup_restore_verified" }
+          ],
+          "items": false
+        }
       }
     },
     "reactNativeWifRepository": {

@@ -3,6 +3,8 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { githubAppReadback } from "./github-app-readback.mjs";
+
 const renderer = fileURLToPath(new URL("./render-p3-runtime.mjs", import.meta.url));
 const sourceSha = "c328d9bf55f31ba11f53ef06071cc7b76d283617";
 const apiVersion = "2026-03-10";
@@ -147,13 +149,57 @@ function ensureRuleset() {
   }
 }
 
+function readbackApp() {
+  const response = api({
+    method: "GET",
+    path: `/orgs/${organization}/installations`,
+  });
+  if (!Array.isArray(response?.installations)) {
+    fail("P3_GITHUB_APP_INSTALLATIONS_INVALID");
+  }
+  return githubAppReadback(
+    {
+      ...app.identity,
+      permissions: app.requiredPermissions,
+      events: app.requiredEvents,
+    },
+    response.installations,
+  );
+}
+
 function apply() {
+  const appState = readbackApp();
+  if (!appState.identityExact) fail(appState.code ?? "P3_GITHUB_APP_IDENTITY_MISMATCH");
+  if (!appState.ready) fail("P3_GITHUB_APP_PERMISSION_EXPANSION_REQUIRED");
   for (const operation of propertyOperations) api(operation);
   for (const operation of valueOperations) api(operation);
   ensureRuleset();
 }
 
+function appReadbackResult(appState) {
+  return {
+    ...appState,
+    humanGate: appState.ready
+      ? { state: "SATISFIED" }
+      : app.permissionExpansionGate,
+  };
+}
+
 function readback() {
+  const appState = readbackApp();
+  if (!appState.ready) {
+    return {
+      organization,
+      app: appReadbackResult(appState),
+      properties: [],
+      pilots: [],
+      ruleset: { read: false, exists: false, exact: false },
+      blockedBy: appState.identityExact
+        ? "P3_GITHUB_APP_PERMISSION_EXPANSION_REQUIRED"
+        : appState.code ?? "P3_GITHUB_APP_IDENTITY_MISMATCH",
+      ready: false,
+    };
+  }
   const properties = propertyOperations.map((operation) => {
     const desired = propertyDesired(operation);
     const actual = api(
@@ -207,13 +253,9 @@ function readback() {
     properties,
     pilots,
     ruleset,
-    app: {
-      state: app.approvalGate.state,
-      operation: app.approvalGate.operation,
-      humanOnly: app.humanOnly,
-      requiredReadback: app.approvalGate.requiredReadback,
-    },
+    app: appReadbackResult(appState),
     ready:
+      appState.ready &&
       properties.every(({ exact }) => exact) &&
       pilots.every(({ exact }) => exact) &&
       ruleset.exact,

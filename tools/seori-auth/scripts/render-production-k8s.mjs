@@ -89,7 +89,7 @@ function roleConfig(value, role) {
 
 function validate(config) {
   if (!exactKeys(config, [
-    'egressProxy', 'image', 'imagePullPolicy', 'namespace', 'nodeSelector', 'roles',
+    'egressProxy', 'image', 'imagePullPolicy', 'imagePullSecretName', 'namespace', 'nodeSelector', 'roles',
     'providerControlPlane', 'schemaVersion', 'stateClaimName', 'trustedWorkers',
   ]) || config.schemaVersion !== 1 || config.namespace !== 'auth-broker') {
     fail('top-level deployment fields are invalid');
@@ -133,6 +133,7 @@ function validate(config) {
   ) fail('provider control-plane network identity is invalid');
   return Object.freeze({
     ...config,
+    imagePullSecretName: dns(config.imagePullSecretName, 'imagePullSecretName'),
     nodeSelector: labels(config.nodeSelector, 'nodeSelector'),
     stateClaimName: dns(config.stateClaimName, 'stateClaimName'),
     trustedWorkers: Object.freeze({
@@ -291,6 +292,7 @@ function workload(role, config) {
       hostIPC: false,
       hostNetwork: false,
       hostPID: false,
+      imagePullSecrets: [{ name: config.imagePullSecretName }],
       nodeSelector: config.nodeSelector,
       securityContext: podSecurityContext(),
       serviceAccountName: serviceAccountName(role),

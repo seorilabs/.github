@@ -155,7 +155,8 @@ Kubernetes의 tmpfs `emptyDir`은 Pod 삭제 시 폐기되며, 같은 Pod의 bro
 
 `scripts/render-production-k8s.mjs`에 절대 경로의 public deployment config를 전달한 뒤
 schema/admission dry-run과 실제 binding을 read-only로 확인합니다. config에는 secret 값이
-아니라 image digest, object 이름, public Google identity/WIF audience, selector와 port만
+아니라 image digest, private registry pull Secret 이름, public Google identity/WIF audience,
+selector와 port만
 들어갑니다. RPI4에는 신규 workload를 배치하지 않고 검증된 RPI5 label을 node selector로
 지정합니다. 기존 `k8s/production/*.yaml`은 적용할 객체가 없는 compatibility marker입니다.
 `providerControlPlane`은 exact `backofficeClientSpiffeId`, 고정
@@ -182,6 +183,8 @@ done
 
 - namespace Pod Security `restricted` enforce/audit/warn
 - 모든 container non-root, read-only root, RuntimeDefault seccomp, capabilities ALL drop
+- 세 Pod의 `imagePullSecrets`가 사전 readback한 private GHCR pull Secret exact 이름과 일치하고
+  node cache가 비어 있어도 digest-pinned image를 pull할 수 있음
 - automount token false, explicit short-lived WIF audience만 mount
 - projected token은 고정 mount root와 leaf `token`만 사용하며 native `openat2` 검증을 통과
 - default deny 후 일반 trusted worker와 provider control-plane signer의 서로 분리된 exact ingress,

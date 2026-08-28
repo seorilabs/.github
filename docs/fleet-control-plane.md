@@ -70,8 +70,9 @@ webhook 검증, durable delivery, operation별 최소 권한과 운영 전 gate�
 현재 구현은 secret-free 계획 코어이며 trusted mutation adapter를 배포한 상태가 아니다.
 
 P3 운영 객체의 공개 정본은 `contracts/fleet-p3-runtime.yaml`과 strict schema다. 아래
-renderer는 GitHub App 사람 전용 등록 URL, 조직 custom property·Evaluate ruleset 요청,
-Cloud Build keyless identity/IAM 계획, Auth Broker 기반 manifest만 출력한다. secret·승인
+renderer는 active `seorilabs-backoffice` GitHub App의 exact identity·최소 permission/event 증설,
+조직 custom property·Evaluate ruleset 요청, Cloud Build keyless identity/IAM 계획, Auth Broker
+기반 manifest만 출력한다. secret·승인
 receipt·capability·lease token을 입력받거나 출력하지 않으며 외부 mutation도 수행하지 않는다.
 
 ```bash
@@ -93,8 +94,11 @@ NetworkPolicy, cert-manager 내부 TLS와 공개 binding만 생성한다. GCP se
 [Fleet P3 runtime 전환 기록](migration/fleet-p3-runtime-2026-08-28.md)에 고정한다.
 rollback renderer는 namespace를 보존하며 foundation이 소유한 객체만 반환한다.
 GitHub와 GCP bootstrap은 기본 실행이 dry-run이며 exact 공개 confirmation 없이는 mutation을
-거부한다. GitHub App 생성은 `HUMAN_REAUTH_REQUIRED` approval gate로 분리하고 자동 retry하지
-않는다.
+거부한다. GitHub bootstrap은 새 App을 만들지 않는다. App `4124446`, installation
+`142120077`의 public identity를 먼저 읽고 기존 permission/event union을 보존한 최소 증설과
+installation acceptance만 `HUMAN_REAUTH_REQUIRED` gate로 분리한다. 기존 SealedSecret의 두
+encrypted field를 신규 key 생성 없이 offline 복구해 분리 logical ID로 등록하는 작업은 별도
+backup/restore approval gate이며 자동 retry하지 않는다.
 
 로컬 CLI는 caller를 생성하거나 승인하지 않는다. trusted approval key와 registry readback을
 가진 GitHub App reconciler만 `loadApprovedWorkflowBundle`로 승인 binding을 만든 뒤

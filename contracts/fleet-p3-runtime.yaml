@@ -4,12 +4,12 @@ github:
   apiVersion: "2026-03-10"
   organization: seorilabs
   app:
-    name: Seorilabs Fleet Control Plane
-    description: Seorilabs 저장소의 중앙 계약과 bootstrap 작업을 exact readback으로 조정한다.
-    homepageUrl: https://github.com/seorilabs/.github/blob/main/docs/fleet-control-plane.md
-    webhookUrl: https://backoffice.vzyx.xyz/api/webhooks/github/fleet
-    public: false
-    webhookActive: true
+    reuseExisting: true
+    appId: 4124446
+    slug: seorilabs-backoffice
+    installationId: 142120077
+    targetType: Organization
+    repositorySelection: all
     permissions:
       metadata: read
       contents: write
@@ -26,22 +26,63 @@ github:
     humanGate:
       type: approval
       state: HUMAN_REAUTH_REQUIRED
-      operation: GITHUB_APP_BOOTSTRAP
+      operation: GITHUB_APP_PERMISSION_EXPANSION_AND_INSTALLATION_ACCEPTANCE
       requiredRole: organization_owner
       automaticRetry: false
       requiredReadback:
         - app_id
-        - client_id
         - slug
         - installation_id
-        - webhook_active
+        - repository_selection
+        - suspended_at
+        - permissions
+        - events
   webhook:
-    credentialId: shared/github/fleet-app-webhook
+    url: https://backoffice.vzyx.xyz/api/webhooks/github/fleet
+    appPrivateKeyCredentialId: shared/github/backoffice-app-private-key
+    credentialId: shared/github/backoffice-app-webhook
     signatureHeader: x-hub-signature-256
     eventHeader: x-github-event
     deliveryHeader: x-github-delivery
     algorithm: hmac-sha256
     maxPayloadBytes: 1048576
+  credentialRecovery:
+    source:
+      repository: seorilabs/seorilabs-backoffice
+      sourceSha: 8d7162f352454b892ff749ac0d4061c492d7781f
+      manifestPath: k8s/backoffice-sealedsecret.yaml
+      manifestSha256: 21c61c243e5124c24d2c1a15ea385375ffefff9a5fe8877b10bb750cc4234aaf
+      kind: SealedSecret
+      name: backoffice-secrets
+      namespace: platform
+      recoveryCredentialId: shared/k8s/sealed-secrets-recovery
+    mappings:
+      - encryptedKey: GITHUB_PRIVATE_KEY
+        targetCredentialId: shared/github/backoffice-app-private-key
+        targetKind: macos-keychain-password
+      - encryptedKey: GITHUB_WEBHOOK_SECRET
+        targetCredentialId: shared/github/backoffice-app-webhook
+        targetKind: macos-keychain-password
+    plaintextPolicy:
+      offlineOnly: true
+      newKeyGenerationAllowed: false
+      forbiddenSurfaces: [stdout, argv, environment, logs, files, commits, pull_requests]
+    approvalGate:
+      type: approval
+      state: HUMAN_APPROVAL_REQUIRED
+      operation: GITHUB_APP_CREDENTIAL_OFFLINE_RECOVERY
+      requiredRole: credential_custodian
+      automaticRetry: false
+      requiredPreconditions:
+        - source_digest_exact
+        - encrypted_keys_present
+        - recovery_credential_active
+        - target_logical_ids_absent
+        - pre_recovery_backup_restore_verified
+      requiredReadback:
+        - logical_ids_active
+        - app_identity_exact
+        - post_recovery_backup_restore_verified
   customProperties:
     - property_name: fleet-managed
       value_type: single_select
@@ -144,6 +185,13 @@ cloudBuild:
 authBroker:
   namespace: auth-broker
   image: ghcr.io/seorilabs/seori-auth@sha256:d8fabaa5e79711d2a4cddd4d70af8d8f17e96143a5b281bccf3f0ee89a1ea457
+  registry:
+    server: ghcr.io
+    imagePullSecretName: seori-auth-ghcr-pull
+    credentialId: shared/github/operator
+    requiredScopes: [read:packages]
+    catalogStatus: active
+    kubernetesStatus: blocked_unverified
   wifAudience: //iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/microk8s-auth
   state:
     claimName: seori-auth-state

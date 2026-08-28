@@ -18,6 +18,7 @@ function deploymentConfig() {
     namespace: 'auth-broker',
     image: `ghcr.io/seorilabs/seori-auth@sha256:${digest}`,
     imagePullPolicy: 'IfNotPresent',
+    imagePullSecretName: 'seori-auth-ghcr-pull',
     nodeSelector: { 'seorilabs.io/node-role': 'auth' },
     stateClaimName: 'seori-auth-state',
     trustedWorkers: {
@@ -117,6 +118,7 @@ test('production renderer emits immutable separated workloads without Kubernetes
     const tokenProjection = projected.projected.sources[0].serviceAccountToken;
     const tokenMount = container.volumeMounts.find((mount) => mount.name === 'projected-identity');
     assert.equal(container.image, `ghcr.io/seorilabs/seori-auth@sha256:${digest}`);
+    assert.deepEqual(pod.imagePullSecrets, [{ name: 'seori-auth-ghcr-pull' }]);
     const role = item.metadata.name === 'seori-auth-broker'
       ? 'broker'
       : item.metadata.name === 'seori-password-loader' ? 'passwordLoader' : 'totpSigner';
@@ -212,6 +214,22 @@ test('production renderer rejects mutable images and shared factor identities', 
   await assert.rejects(render(shared), (error) => {
     assert.equal(error.code, 1);
     assert.match(error.stderr, /must be distinct/);
+    return true;
+  });
+
+  const missingImagePullIdentity = deploymentConfig();
+  delete missingImagePullIdentity.imagePullSecretName;
+  await assert.rejects(render(missingImagePullIdentity), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /top-level deployment fields are invalid/);
+    return true;
+  });
+
+  const invalidImagePullIdentity = deploymentConfig();
+  invalidImagePullIdentity.imagePullSecretName = 'INVALID_NAME';
+  await assert.rejects(render(invalidImagePullIdentity), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /imagePullSecretName is invalid/);
     return true;
   });
 
