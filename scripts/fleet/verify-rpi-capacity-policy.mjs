@@ -79,16 +79,17 @@ try {
 
 function canonicalWorkspace() {
   try {
-    const entry = lstatSync(workspace);
+    const normalized = resolve(workspace);
+    const entry = lstatSync(normalized);
     if (
       !isAbsolute(workspace) ||
       !entry.isDirectory() ||
       entry.isSymbolicLink() ||
-      realpathSync(workspace) !== workspace
+      realpathSync(normalized) !== normalized
     ) {
       fail("RPI_CAPACITY_WORKSPACE_INVALID");
     }
-    return workspace;
+    return normalized;
   } catch {
     fail("RPI_CAPACITY_WORKSPACE_INVALID");
   }
@@ -413,11 +414,20 @@ function liveReadback() {
   );
   const quarantineIso = new Date(quarantineStartedAt).toISOString();
   const newActiveNonDaemonPodsOnRpi4 = (pods?.items ?? []).filter(
-    (pod) =>
-      pod?.spec?.nodeName === contract.cluster.nodes.quarantined.hostname &&
-      pod?.metadata?.creationTimestamp >= quarantineIso &&
-      pod?.metadata?.ownerReferences?.[0]?.kind !== "DaemonSet" &&
-      new Set(["Pending", "Running", "Unknown"]).has(pod?.status?.phase),
+    (pod) => {
+      if (pod?.spec?.nodeName !== contract.cluster.nodes.quarantined.hostname) {
+        return false;
+      }
+      const createdAt = Date.parse(pod?.metadata?.creationTimestamp ?? "");
+      if (!Number.isFinite(createdAt)) {
+        fail("RPI_CAPACITY_POD_TIMESTAMP_INVALID");
+      }
+      return (
+        createdAt >= quarantineStartedAt &&
+        pod?.metadata?.ownerReferences?.[0]?.kind !== "DaemonSet" &&
+        new Set(["Pending", "Running", "Unknown"]).has(pod?.status?.phase)
+      );
+    },
   );
   const restrictedActivePods = (pods?.items ?? []).filter(
     (pod) =>

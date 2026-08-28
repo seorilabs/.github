@@ -185,12 +185,17 @@ if (args[0] === "get" && args[1] === "pods") {
       },
     },
   ];
-  if (scenario === "placement-drift") {
+  if (new Set(["placement-drift", "placement-drift-offset", "invalid-pod-timestamp"]).has(scenario)) {
     items.push({
       metadata: {
         namespace: "tasks",
         name: "new-general-workload",
-        creationTimestamp: "2026-01-01T00:00:00Z",
+        creationTimestamp:
+          scenario === "placement-drift-offset"
+            ? "2025-08-27T20:01:39-04:00"
+            : scenario === "invalid-pod-timestamp"
+              ? "not-a-timestamp"
+              : "2026-01-01T00:00:00Z",
         ownerReferences: [{ kind: "Job" }],
       },
       spec: { nodeName: "rpi4001" },

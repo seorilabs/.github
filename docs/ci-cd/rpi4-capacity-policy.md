@@ -2,7 +2,7 @@
 
 기계 판독 정본은
 [`fleet-rpi-capacity-policy.yaml`](../../contracts/fleet-rpi-capacity-policy.yaml)이다.
-`/Users/syous/Workspace/kubectl/github-actions-runners`는 Git 저장소가 아닌 cluster 실행
+`SEORILABS_ARC_WORKSPACE/github-actions-runners`는 Git 저장소가 아닌 cluster 실행
 복제본이며, 정본과의 일치는
 [`verify-rpi-capacity-policy.mjs`](../../scripts/fleet/verify-rpi-capacity-policy.mjs)가
 fail-closed로 확인한다.
@@ -58,14 +58,14 @@ workload별 동시성 제한으로 해결해야 할 OOM을 분리한다.
 먼저 Git 미관리 실행 복제본만 비교한다.
 
 ```sh
-SEORILABS_ARC_WORKSPACE=/Users/syous/Workspace/kubectl \
+SEORILABS_ARC_WORKSPACE=/absolute/path/to/kubectl \
   node scripts/fleet/verify-rpi-capacity-policy.mjs files
 ```
 
 24시간 이후 live readback은 조회 명령만 실행한다.
 
 ```sh
-SEORILABS_ARC_WORKSPACE=/Users/syous/Workspace/kubectl \
+SEORILABS_ARC_WORKSPACE=/absolute/path/to/kubectl \
   node scripts/fleet/verify-rpi-capacity-policy.mjs readback
 ```
 

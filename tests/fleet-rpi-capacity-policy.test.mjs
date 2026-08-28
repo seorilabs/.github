@@ -132,7 +132,7 @@ test("RPI capacity contract는 exact node와 ARC 상한을 strict schema로 고�
 test("운영 복제본은 exact RPI5 selector와 일반 1/3, DIND 0/1일 때만 통과한다", async () => {
   const root = await fixtureWorkspace();
   try {
-    const result = await verify("files", root);
+    const result = await verify("files", `${root}/`);
     assert.equal(result.stderr, "");
     const output = JSON.parse(result.stdout);
     assert.equal(output.ok, true);
@@ -198,6 +198,8 @@ test("24시간 미만 관찰, ARC 실동작 초과와 RPI4 신규 Pod를 거부�
     ["arc-over-capacity", "RPI_CAPACITY_ARC_LIVE_DRIFT"],
     ["unmanaged-arc", "RPI_CAPACITY_ARC_LIVE_DRIFT"],
     ["placement-drift", "RPI_CAPACITY_WORKLOAD_PLACEMENT_DRIFT"],
+    ["placement-drift-offset", "RPI_CAPACITY_WORKLOAD_PLACEMENT_DRIFT"],
+    ["invalid-pod-timestamp", "RPI_CAPACITY_POD_TIMESTAMP_INVALID"],
   ];
   for (const [scenario, code] of cases) {
     const root = await fixtureWorkspace();
