@@ -14,6 +14,10 @@ if (process.argv.length !== 3 || !image || /[\s\0]/.test(image)) {
 
 const suffix = `${process.pid}-${randomBytes(6).toString('hex')}`;
 const projectedVolume = `seori-auth-projected-${suffix}`;
+const unsafeProjectedVolumes = new Map([
+  [0o450, `seori-auth-projected-0450-${suffix}`],
+  [0o460, `seori-auth-projected-0460-${suffix}`],
+]);
 const escapeVolume = `seori-auth-escape-${suffix}`;
 const configVolume = `seori-auth-config-${suffix}`;
 const fakeToken = 'FAKE_K8S_PROJECTED_TOKEN_CANARY_20260828';
@@ -52,8 +56,30 @@ function hardenedRun(extra) {
   ];
 }
 
+async function prepareProjectedVolume(volume, mode) {
+  const setup = [
+    "const fs=require('node:fs')",
+    "const root='/var/run/seori-auth/projected-identity'",
+    "const version=`${root}/..2026_08_28_00_00_00.000000000`",
+    'fs.mkdirSync(version,{mode:0o755})',
+    `fs.writeFileSync(\`${'${version}'}/token\`,${JSON.stringify(`${fakeToken}\n`)},{mode:Number(process.argv[1])})`,
+    "fs.chownSync(`${version}/token`,0,65532)",
+    "fs.chmodSync(`${version}/token`,Number(process.argv[1]))",
+    "fs.symlinkSync('..2026_08_28_00_00_00.000000000',`${root}/..data`)",
+    "fs.symlinkSync('..data/token',`${root}/token`)",
+  ].join(';');
+  await docker([
+    'run', '--rm', '--platform', 'linux/arm64', '--user', '0', '--network', 'none',
+    '-v', `${volume}:/var/run/seori-auth/projected-identity`,
+    '--entrypoint', '/usr/local/bin/node', image, '-e', setup, String(mode),
+  ]);
+}
+
 try {
   await docker(['volume', 'create', projectedVolume]);
+  for (const volume of unsafeProjectedVolumes.values()) {
+    await docker(['volume', 'create', volume]);
+  }
   await docker(['volume', 'create', escapeVolume]);
   await docker(['volume', 'create', configVolume]);
   await docker([
@@ -63,21 +89,10 @@ try {
     "const fs=require('node:fs');const p='/etc/seori-auth/secret-access.json';fs.writeFileSync(p,Buffer.from(process.argv[1],'base64'));fs.chownSync(p,0,65532);fs.chmodSync(p,0o440)",
     Buffer.from(fakeSecretAccessConfig, 'utf8').toString('base64'),
   ]);
-  const setup = [
-    "const fs=require('node:fs')",
-    "const root='/var/run/seori-auth/projected-identity'",
-    "const version=`${root}/..2026_08_28_00_00_00.000000000`",
-    'fs.mkdirSync(version,{mode:0o755})',
-    `fs.writeFileSync(\`${'${version}'}/token\`,${JSON.stringify(`${fakeToken}\n`)},{mode:0o440})`,
-    "fs.chownSync(`${version}/token`,0,65532)",
-    "fs.symlinkSync('..2026_08_28_00_00_00.000000000',`${root}/..data`)",
-    "fs.symlinkSync('..data/token',`${root}/token`)",
-  ].join(';');
-  await docker([
-    'run', '--rm', '--platform', 'linux/arm64', '--user', '0', '--network', 'none',
-    '-v', `${projectedVolume}:/var/run/seori-auth/projected-identity`,
-    '--entrypoint', '/usr/local/bin/node', image, '-e', setup,
-  ]);
+  await prepareProjectedVolume(projectedVolume, 0o440);
+  for (const [mode, volume] of unsafeProjectedVolumes) {
+    await prepareProjectedVolume(volume, mode);
+  }
   await docker([
     'run', '--rm', '--platform', 'linux/arm64', '--user', '0', '--network', 'none',
     '-v', `${escapeVolume}:/var/run/seori-auth/projected-identity`,
@@ -103,6 +118,16 @@ try {
   assert.deepEqual(JSON.parse(projected.stdout), {
     state: 'PROJECTED_TOKEN_OK', tokenExposed: false, fdReusable: false,
   });
+
+  for (const [mode, volume] of unsafeProjectedVolumes) {
+    const unsafeProjected = await docker(hardenedRun([
+      '-v', `${volume}:/var/run/seori-auth/projected-identity:ro`,
+      '--entrypoint', '/opt/seori-auth/bin/seori-auth-native', image, 'projected-token-self-test',
+    ]), 126);
+    assert.match(unsafeProjected.stderr, /projected identity token leaf is unsafe/);
+    assert.doesNotMatch(`${unsafeProjected.stdout}${unsafeProjected.stderr}`, new RegExp(fakeToken));
+    assert.equal(unsafeProjected.stdout, '', `native boundary must not emit token data for mode ${mode.toString(8)}`);
+  }
 
   const escape = await docker(hardenedRun([
     '-v', `${escapeVolume}:/var/run/seori-auth/projected-identity:ro`,
@@ -137,12 +162,16 @@ try {
     state: 'CONTAINER_RUNTIME_OK',
     secretExposed: false,
     projectedTokenFdReusable: false,
+    unsafeProjectedModesBlocked: ['0450', '0460'],
     escapeBlocked: true,
     digestMismatchBlocked: true,
     duplicateBlocked: true,
   })}\n`);
 } finally {
   await docker(['volume', 'rm', '--force', projectedVolume]).catch(() => {});
+  for (const volume of unsafeProjectedVolumes.values()) {
+    await docker(['volume', 'rm', '--force', volume]).catch(() => {});
+  }
   await docker(['volume', 'rm', '--force', escapeVolume]).catch(() => {});
   await docker(['volume', 'rm', '--force', configVolume]).catch(() => {});
 }
