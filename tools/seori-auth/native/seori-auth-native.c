@@ -303,8 +303,7 @@ static void bind_projected_identity_token(void) {
   if (
       fstat(token_fd, &token_state) != 0 || !S_ISREG(token_state.st_mode) ||
       token_state.st_uid != 0 || token_state.st_size < 32 ||
-      token_state.st_size > (32 * 1024) || (token_state.st_mode & 0007) != 0 ||
-      (token_state.st_mode & 0020) != 0) {
+      token_state.st_size > (32 * 1024) || (token_state.st_mode & 0037) != 0) {
     (void)close(token_fd);
     fail_closed("projected identity token leaf is unsafe");
   }
