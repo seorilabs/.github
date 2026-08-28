@@ -85,6 +85,7 @@ node scripts/fleet/render-p3-runtime.mjs auth-broker-foundation
 node scripts/fleet/render-p3-runtime.mjs auth-broker-foundation-rollback
 node scripts/fleet/bootstrap-p3-github.mjs
 node scripts/fleet/bootstrap-p3-gcp.mjs
+node scripts/fleet/bootstrap-p3-secret-manager.mjs
 ```
 
 Auth Broker foundation은 restricted namespace, API 권한이 없는 세 workload identity, exact
@@ -99,6 +100,22 @@ GitHub와 GCP bootstrap은 기본 실행이 dry-run이며 exact 공개 confirmat
 installation acceptance만 `HUMAN_REAUTH_REQUIRED` gate로 분리한다. 기존 SealedSecret의 두
 encrypted field를 신규 key 생성 없이 offline 복구해 분리 logical ID로 등록하는 작업은 별도
 backup/restore approval gate이며 자동 retry하지 않는다.
+복구 adapter는 nonce-prefixed ciphertext와 recovery key를 process-local memory에서 직접 해제한다.
+signed Security.framework native helper의 code identity와 unattended Keychain ACL이 아직 없으므로
+실제 write는 `HUMAN_REAUTH_REQUIRED`로 차단한다. `security -w`, stdout, argv, environment, 평문
+파일을 사용하지 않으며 helper 검증 뒤에도 App private key의 공개 SPKI fingerprint와 logical ID
+상태만 반환한다. GitHub 조직 mutation은
+복구 key로 만든 short-lived installation token과 exact capability adapter가 아직 검증되지 않아
+ambient personal token apply를 명시적으로 차단한다.
+
+Auth Broker의 Secret Manager 계획은 broker 전용 journal MAC/Browser Vault, password-loader
+전용 fake password, TOTP signer 전용 fake seed의 네 numeric version을 서로 다른 secret-level
+accessor binding으로 고정한다. 전용 bootstrap은 기본 dry-run이고 두 WIF provider와 네 resource를
+모두 read-only preflight한 뒤에만 IAM을 추가한다. rollback은 IAM을 제거하지 않고 exact
+Kubernetes provider만 disable한다.
+네 값 생성은 raw key, base64url fake password, canonical base32 fake TOTP의 entropy만 계약에 두고,
+fd3를 쓰는 native Secret Manager writer의 공개
+identity·CRC32C·backup/restore가 승인되기 전에는 별도 human gate로 남긴다.
 
 로컬 CLI는 caller를 생성하거나 승인하지 않는다. trusted approval key와 registry readback을
 가진 GitHub App reconciler만 `loadApprovedWorkflowBundle`로 승인 binding을 만든 뒤

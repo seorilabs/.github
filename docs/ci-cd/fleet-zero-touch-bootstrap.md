@@ -138,3 +138,12 @@ ruleset은 각각 admin 권한으로 적용하고 API readback이 exact 계약�
 경계는 [GitHub App permissions](https://docs.github.com/en/apps/creating-github-apps/setting-up-a-github-app/choosing-permissions-for-a-github-app),
 [조직 custom properties](https://docs.github.com/en/rest/orgs/custom-properties),
 [조직 rulesets](https://docs.github.com/en/rest/orgs/rules)를 따른다.
+
+offline recovery는 `scripts/fleet/github-credential-recovery.mjs`의 trusted adapter만 허용한다.
+adapter는 Sealed Secrets nonce-prefixed payload를 process-local memory에서만 해제한다. signed
+Security.framework native helper의 exact code identity, unattended ACL, item-not-found/readback,
+batch compensation이 검증되기 전에는 `HUMAN_REAUTH_REQUIRED`로 중단하고 raw value나
+`security -w` CLI를 사용하지 않는다. 검증 뒤에도 App public identity, 공개 fingerprint, 복구
+전후 backup/restore만 반환한다. GitHub apply는 이 private key로
+short-lived installation token을 발급하는 exact capability executor가 별도 검증되기 전까지
+`P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED`로 중단하며 ambient personal token으로 우회하지 않는다.

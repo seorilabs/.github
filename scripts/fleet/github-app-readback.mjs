@@ -52,7 +52,10 @@ export function githubAppReadback(desired, installations) {
       permission,
       current: currentPermissions[permission] ?? null,
       required,
-    }));
+    }))
+    .toSorted(({ permission: left }, { permission: right }) =>
+      left.localeCompare(right),
+    );
   const permissionUnion = { ...currentPermissions };
   for (const { permission, required } of permissionChanges) {
     permissionUnion[permission] = required;

@@ -38,6 +38,10 @@ function deploymentConfig() {
     },
     roles: {
       broker: {
+        allowedSecretManagerResources: [
+          'projects/seorilabs-ci/secrets/seori-auth-browser-vault/versions/1',
+          'projects/seorilabs-ci/secrets/seori-auth-journal-mac/versions/1',
+        ],
         configMapName: 'seori-auth-broker-config',
         tlsSecretName: 'seori-auth-broker-tls',
         egressTlsSecretName: 'seori-auth-broker-egress-tls',
@@ -46,6 +50,9 @@ function deploymentConfig() {
         wifAudience: audience,
       },
       passwordLoader: {
+        allowedSecretManagerResources: [
+          'projects/seorilabs-ci/secrets/seori-auth-canary-password/versions/1',
+        ],
         configMapName: 'seori-auth-password-config',
         tlsSecretName: 'seori-auth-password-tls',
         egressTlsSecretName: 'seori-auth-password-egress-tls',
@@ -54,6 +61,9 @@ function deploymentConfig() {
         wifAudience: audience,
       },
       totpSigner: {
+        allowedSecretManagerResources: [
+          'projects/seorilabs-ci/secrets/seori-auth-canary-totp-seed/versions/1',
+        ],
         configMapName: 'seori-auth-totp-config',
         tlsSecretName: 'seori-auth-totp-tls',
         egressTlsSecretName: 'seori-auth-totp-egress-tls',
@@ -133,6 +143,10 @@ test('production renderer emits immutable separated workloads without Kubernetes
       '--expected-provider-endpoint-scope=/internal/control-plane/provider-grants',
     ));
     assert.equal(item.spec.template.metadata.annotations['seorilabs.io/secret-access-sha256'], binding.secretAccessConfigSha256);
+    assert.match(
+      item.spec.template.metadata.annotations['seorilabs.io/secret-resource-partition-sha256'],
+      /^[a-f0-9]{64}$/,
+    );
     assert.equal(
       item.spec.template.metadata.annotations['seorilabs.io/provider-control-plane-spiffe'],
       'spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer',
@@ -222,6 +236,15 @@ test('production renderer rejects mutable images and shared factor identities', 
   await assert.rejects(render(missingImagePullIdentity), (error) => {
     assert.equal(error.code, 1);
     assert.match(error.stderr, /top-level deployment fields are invalid/);
+    return true;
+  });
+
+  const crossRoleSecret = deploymentConfig();
+  crossRoleSecret.roles.passwordLoader.allowedSecretManagerResources =
+    crossRoleSecret.roles.totpSigner.allowedSecretManagerResources;
+  await assert.rejects(render(crossRoleSecret), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /passwordLoader Secret Manager partition is invalid/);
     return true;
   });
 

@@ -1,17 +1,16 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import { githubAppReadback } from "./github-app-readback.mjs";
 
 const renderer = fileURLToPath(new URL("./render-p3-runtime.mjs", import.meta.url));
-const sourceSha = "c328d9bf55f31ba11f53ef06071cc7b76d283617";
 const apiVersion = "2026-03-10";
 const organization = "seorilabs";
 const mode = process.argv[2] ?? "plan";
 const confirmation = process.argv[3] ?? "";
-const expectedConfirmation = `fleet-github-${sourceSha.slice(0, 12)}`;
 
 function fail(code) {
   process.stderr.write(`${JSON.stringify({ ok: false, code })}\n`);
@@ -21,10 +20,6 @@ function fail(code) {
 if (!["plan", "apply", "readback"].includes(mode) || process.argv.length > 4) {
   fail("P3_GITHUB_COMMAND_INVALID");
 }
-if (mode === "apply" && confirmation !== expectedConfirmation) {
-  fail("P3_GITHUB_APPLY_CONFIRMATION_REQUIRED");
-}
-
 function run(args, { input, allowMissing = false, code }) {
   try {
     return execFileSync("gh", args, {
@@ -107,6 +102,21 @@ function equal(left, right) {
   return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
 }
 
+const contractPlanDigest = createHash("sha256")
+  .update(
+    JSON.stringify(
+      canonical({
+        app,
+        operations: [...propertyOperations, ...valueOperations, desiredRuleset],
+      }),
+    ),
+  )
+  .digest("hex");
+const expectedConfirmation = `fleet-github-${contractPlanDigest.slice(0, 12)}`;
+if (mode === "apply" && confirmation !== expectedConfirmation) {
+  fail("P3_GITHUB_APPLY_CONFIRMATION_REQUIRED");
+}
+
 function propertyDesired(operation) {
   return {
     property_name: decodeURIComponent(operation.path.split("/").at(-1)),
@@ -168,6 +178,12 @@ function readbackApp() {
 }
 
 function apply() {
+  if (
+    app.trustedExecution.state !== "ready" ||
+    app.trustedExecution.ambientPersonalTokenAllowed !== false
+  ) {
+    fail("P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED");
+  }
   const appState = readbackApp();
   if (!appState.identityExact) fail(appState.code ?? "P3_GITHUB_APP_IDENTITY_MISMATCH");
   if (!appState.ready) fail("P3_GITHUB_APP_PERMISSION_EXPANSION_REQUIRED");
@@ -185,12 +201,37 @@ function appReadbackResult(appState) {
   };
 }
 
+function protectedReadback() {
+  return {
+    trustedExecution: {
+      state: app.trustedExecution.state,
+      ambientPersonalTokenAllowed:
+        app.trustedExecution.ambientPersonalTokenAllowed,
+      ready: app.trustedExecution.state === "ready",
+    },
+    webhook: {
+      url: app.webhook.url,
+      state: "BLOCKED_APP_AUTH_READBACK",
+      exact: false,
+    },
+    credentialRecovery: {
+      state: app.credentialRecovery.trustedAdapter.state,
+      logicalIds: app.credentialRecovery.mappings.map(
+        ({ targetCredentialId }) => targetCredentialId,
+      ),
+      ready: false,
+    },
+  };
+}
+
 function readback() {
   const appState = readbackApp();
+  const protectedState = protectedReadback();
   if (!appState.ready) {
     return {
       organization,
       app: appReadbackResult(appState),
+      ...protectedState,
       properties: [],
       pilots: [],
       ruleset: { read: false, exists: false, exact: false },
@@ -250,12 +291,17 @@ function readback() {
   }
   return {
     organization,
+    ...protectedState,
     properties,
     pilots,
     ruleset,
     app: appReadbackResult(appState),
+    blockedBy: "P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED",
     ready:
       appState.ready &&
+      protectedState.trustedExecution.ready &&
+      protectedState.webhook.exact &&
+      protectedState.credentialRecovery.ready &&
       properties.every(({ exact }) => exact) &&
       pilots.every(({ exact }) => exact) &&
       ruleset.exact,
@@ -269,7 +315,7 @@ if (mode === "plan") {
         schemaVersion: 1,
         mode: "DRY_RUN",
         organization,
-        sourceSha,
+        contractPlanDigest,
         app,
         operations: [...propertyOperations, ...valueOperations, desiredRuleset],
         apply: `node scripts/fleet/bootstrap-p3-github.mjs apply ${expectedConfirmation}`,

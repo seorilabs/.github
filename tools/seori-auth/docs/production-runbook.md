@@ -59,6 +59,9 @@ production config의 `nativeHelperSha256`, `secretAccess.nodeSha256`,
 `secretAccessConfigSha256`와 같아야 합니다. 서비스는 파일의 root ownership, checksum,
 numeric resource partition, WIF audience와 public GSA impersonation target을 readiness 전에
 모두 검증합니다.
+production renderer 입력의 `allowedSecretManagerResources`도 broker의 journal MAC/Browser
+Vault, password-loader의 canary password, TOTP signer의 canary seed version `1` exact partition과
+일치해야 합니다. 다른 role resource를 하나라도 섞으면 manifest 생성 전에 중단합니다.
 
 Unix socket의 UID/GID/PID만으로 run 권한을 만들지 않습니다. scheduler가 agent input
 밖에 보관하는 run capability를 조회해 subject/run/repository/worker를 반환하고, HTTP

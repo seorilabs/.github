@@ -26,6 +26,8 @@ renderer는 secret 값을 읽거나 출력하지 않고 하나의 JSON `List`만
 
 각 role binding은 `configMapName`, `tlsSecretName`, `egressTlsSecretName`, public
 `googleServiceAccount`, WIF `wifAudience`, exact `secretAccessConfigSha256`만 가집니다.
+`allowedSecretManagerResources`는 broker의 journal MAC/Browser Vault version `1`, password
+loader의 fake password version `1`, TOTP signer의 fake seed version `1`로 exact 분리합니다.
 config/TLS/egress TLS/Google identity/config digest는 세 role 사이에서 반드시 달라야 합니다.
 renderer는 GSA, audience, digest를 container의 public startup binding으로 고정합니다. runtime은
 마운트된 `secret-access.json`의 digest와 impersonation target을 다시 읽어 일치하지 않으면

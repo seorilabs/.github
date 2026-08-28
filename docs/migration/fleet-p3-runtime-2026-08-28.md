@@ -33,6 +33,10 @@ receipt, lease token은 기록하지 않는다.
 - `scripts/fleet/bootstrap-p3-github.mjs`: 기존 Backoffice App exact identity와 permission/event
   union readback, 사람 전용 최소 증설 gate, additive custom property, pilot 값, Evaluate ruleset의
   기본 dry-run과 exact readback
+- `scripts/fleet/github-credential-recovery.mjs`: nonce-prefixed SealedSecret hybrid ciphertext를
+  process-local memory에서 해제하되 signed native Keychain helper 전에는 write를 차단하는 adapter
+- `scripts/fleet/bootstrap-p3-secret-manager.mjs`: broker/password/TOTP별 네 exact secret version과
+  secret-level accessor binding의 기본 dry-run, two-phase apply, readback, provider-disable rollback
 - `tests/fleet-p3-runtime.test.mjs`: strict schema, 최소 권한 분리, secret 비노출, RBAC 0권한,
   exact pilot과 fail-closed manifest 검증
 
@@ -82,13 +86,13 @@ condition, private Kubernetes issuer의 공개 JWKS upload는 각각 Google 공�
 
 ```bash
 node scripts/fleet/bootstrap-p3-gcp.mjs
-node scripts/fleet/bootstrap-p3-gcp.mjs apply fleet-p3-c328d9bf55f3
+node scripts/fleet/bootstrap-p3-gcp.mjs apply '<plan이 반환한 contract digest confirmation>'
 node scripts/fleet/bootstrap-p3-gcp.mjs readback
-node scripts/fleet/bootstrap-p3-gcp.mjs rollback fleet-p3-rollback-c328d9bf55f3
+node scripts/fleet/bootstrap-p3-gcp.mjs rollback '<plan이 반환한 rollback confirmation>'
 ```
 
-현재 provisioner에는 apply 권한이 없어 GCP 객체는 아직 생성되지 않았다. 2~6번은 권한 또는
-선행 보안 gate가 충족되기 전까지 완료로 기록하지 않는다.
+현재 provisioner의 project IAM readback은 권한 부족으로 실패하므로 GCP 객체의 존재나 정합성을
+판정하지 않는다. 2~6번은 권한 또는 선행 보안 gate가 충족되기 전까지 완료로 기록하지 않는다.
 
 2026-08-29 readback에서 App은 active·unsuspended, organization 전체 저장소 installation이었다.
 현재 permission은 `actions:write`, `checks:read`, `contents:write`, `issues:write`, `members:read`,
@@ -107,7 +111,11 @@ private key와 webhook의 local canonical source는 현재 없다. exact source
 `shared/github/backoffice-app-webhook`으로 분리 등록하는 작업은 새 key를 생성하지 않는 offline
 사람 승인 gate다. source digest 및 encrypted key 존재, recovery credential active, target ID
 부재, 복구 전 backup/restore 검증을 모두 확인해야 시작할 수 있다. plaintext는 stdout, argv,
-environment, log, 파일, commit, PR을 통과할 수 없으며 등록 후 logical ID active, App identity
+environment, log, 파일, commit, PR을 통과할 수 없다. trusted adapter는 nonce-prefixed
+AES-256-GCM/RSA-OAEP ciphertext와 recovery key를 process-local memory에서 처리한다. signed
+Security.framework native helper의 exact code identity, unattended ACL, locked/permission/item-not-found
+분리, batch compensation이 검증되기 전에는 `HUMAN_REAUTH_REQUIRED`이며 `security -w` CLI로
+우회하지 않는다. 등록 후 logical ID active, App identity
 exact, 복구 후 backup/restore 검증을 readback해야 완료다. 이번 변경에서는 복호화·등록·cluster
 Secret 생성 등 외부 mutation을 수행하지 않았다.
 
@@ -116,12 +124,34 @@ Secret 생성 등 외부 mutation을 수행하지 않았다.
 `imagePullSecrets`를 필수로 넣어 node cache 의존을 거부하지만, Secret 생성과 workload apply는
 등록 identity·backup/restore 승인 및 공개 readback 뒤 별도 외부 mutation gate로 남아 있다.
 
-GitHub 조직 변경도 기본 dry-run이다. 조직 owner는 아래 permission expansion approval gate를
-먼저 처리하고, `admin:org` 권한으로 additive property/ruleset bootstrap을 한 번 승인한 뒤
-readback한다.
+GitHub 조직 변경도 기본 dry-run이다. apply confirmation은 더 이상 workflow source
+`c328d9b`가 아니라 canonical App/operation plan digest에 결합한다. workflow source SHA는 WIF의
+immutable blob pin으로 별도 유지한다. 조직 owner는 permission expansion approval을 먼저
+처리해야 하며, 복구 private key로 short-lived installation token을 만드는 trusted executor와
+exact capability readback이 검증되기 전에는 ambient personal token apply가 항상 차단된다.
 
 ```bash
 node scripts/fleet/bootstrap-p3-github.mjs
-node scripts/fleet/bootstrap-p3-github.mjs apply fleet-github-c328d9bf55f3
+node scripts/fleet/bootstrap-p3-github.mjs apply '<plan이 반환한 contract plan digest confirmation>'
 node scripts/fleet/bootstrap-p3-github.mjs readback
 ```
+
+Auth Broker Secret Manager apply는 별도 role-change 승인이다. 네 secret은 각각 version `1`만
+허용하고 broker는 journal MAC/Browser Vault, password-loader는 fake password, TOTP signer는
+fake seed만 읽는다. 값은 raw key, base64url fake password, canonical base32 fake TOTP로 생성한다.
+fd3 native writer의 공개 identity, CRC32C, backup/restore를 승인한
+별도 gate이며 이 저장소는 raw value를 생성하거나 전달하지 않는다. apply는 GitHub/Kubernetes
+provider와 네 secret/version을 먼저 읽고 drift나 cross-role accessor가 하나라도 있으면 mutation
+0건으로 중단한다. rollback은 두 provider만 preflight하고, secret이 사라진 비상 상황에도
+pre-existing 여부를 알 수 없는 IAM을 제거하지 않은 채 Kubernetes provider를 disable한다.
+
+```bash
+node scripts/fleet/bootstrap-p3-secret-manager.mjs
+node scripts/fleet/bootstrap-p3-secret-manager.mjs apply '<plan이 반환한 confirmation>'
+node scripts/fleet/bootstrap-p3-secret-manager.mjs readback
+node scripts/fleet/bootstrap-p3-secret-manager.mjs rollback '<plan이 반환한 rollback confirmation>'
+```
+
+현재 provisioner의 project IAM readback은 `PERMISSION_DENIED`이므로 resource 부재로 판단하지
+않는다. 실제 네 secret/version, secret-level IAM, WIF 활성화, workload와 fake canary는 모두
+미적용·미검증 상태다.

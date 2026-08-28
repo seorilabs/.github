@@ -73,10 +73,24 @@ try {
 const cloud = contract.cloudBuild;
 const auth = contract.authBroker;
 
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .toSorted(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => [key, canonical(child)]),
+  );
+}
+
+const contractDigest = createHash("sha256")
+  .update(JSON.stringify(canonical(contract)))
+  .digest("hex");
+
 if (!modes.has(mode) || process.argv.length > 4) fail("P3_GCP_COMMAND_INVALID");
 
-const expectedConfirmation = `fleet-p3-${cloud.wif.workflowSourceSha.slice(0, 12)}`;
-const expectedRollback = `fleet-p3-rollback-${cloud.wif.workflowSourceSha.slice(0, 12)}`;
+const expectedConfirmation = `fleet-p3-${contractDigest.slice(0, 12)}`;
+const expectedRollback = `fleet-p3-rollback-${contractDigest.slice(0, 12)}`;
 const poolDisplayName = "Seorilabs Fleet P3";
 const poolDescription =
   "Dedicated keyless identities for Fleet Cloud Build and Auth Broker";
@@ -257,6 +271,8 @@ function publicPlan() {
     schemaVersion: 1,
     mode: "DRY_RUN",
     project: { id: cloud.projectId, number: cloud.projectNumber },
+    contractDigest,
+    workflowSourceSha: cloud.wif.workflowSourceSha,
     confirmation: expectedConfirmation,
     rollbackConfirmation: expectedRollback,
     staticKeysCreated: false,

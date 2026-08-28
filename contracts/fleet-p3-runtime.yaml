@@ -37,8 +37,33 @@ github:
         - suspended_at
         - permissions
         - events
+  trustedExecution:
+    state: blocked_unverified
+    adapterMode: github-app-installation-token
+    ambientPersonalTokenAllowed: false
+    readOnlyAmbientAllowed: true
+    appPrivateKeyCredentialId: shared/github/backoffice-app-private-key
+    appId: 4124446
+    installationId: 142120077
+    requiredCapabilities:
+      - organization_custom_properties_schema_write
+      - repository_custom_properties_values_write
+      - organization_rulesets_write
+    humanGate:
+      type: approval
+      state: HUMAN_APPROVAL_REQUIRED
+      operation: GITHUB_APP_TRUSTED_EXECUTOR_ACTIVATION
+      requiredRole: organization_owner
+      automaticRetry: false
+      requiredReadback:
+        - app_identity_exact
+        - webhook_url_exact
+        - installation_permissions_accepted
+        - private_key_logical_id_active
+        - short_lived_installation_token
+        - exact_capability_scope
   webhook:
-    url: https://backoffice.vzyx.xyz/api/webhooks/github/fleet
+    url: https://backoffice.vzyx.xyz/api/webhooks
     appPrivateKeyCredentialId: shared/github/backoffice-app-private-key
     credentialId: shared/github/backoffice-app-webhook
     signatureHeader: x-hub-signature-256
@@ -47,6 +72,18 @@ github:
     algorithm: hmac-sha256
     maxPayloadBytes: 1048576
   credentialRecovery:
+    trustedAdapter:
+      state: blocked_unverified
+      module: scripts/fleet/github-credential-recovery.mjs
+      entrypoint: recoverGithubAppCredentials
+      credentialStore: security-framework-native-helper
+      plaintextTransport: process-local-buffer-to-native-helper
+      requiredReadback:
+        - signed_helper_code_identity
+        - unattended_acl_exact
+        - keychain_readback_without_prompt
+        - item_not_found_exact
+        - batch_compensation_verified
     source:
       repository: seorilabs/seorilabs-backoffice
       sourceSha: 8d7162f352454b892ff749ac0d4061c492d7781f
@@ -60,16 +97,20 @@ github:
       - encryptedKey: GITHUB_PRIVATE_KEY
         targetCredentialId: shared/github/backoffice-app-private-key
         targetKind: macos-keychain-password
+        keychainService: com.seorilabs.github.backoffice-app-private-key
+        catalogPath: github/backoffice-app-private-key.keychain-ref
       - encryptedKey: GITHUB_WEBHOOK_SECRET
         targetCredentialId: shared/github/backoffice-app-webhook
         targetKind: macos-keychain-password
+        keychainService: com.seorilabs.github.backoffice-app-webhook
+        catalogPath: github/backoffice-app-webhook.keychain-ref
     plaintextPolicy:
       offlineOnly: true
       newKeyGenerationAllowed: false
       forbiddenSurfaces: [stdout, argv, environment, logs, files, commits, pull_requests]
     approvalGate:
-      type: approval
-      state: HUMAN_APPROVAL_REQUIRED
+      type: reauth
+      state: HUMAN_REAUTH_REQUIRED
       operation: GITHUB_APP_CREDENTIAL_OFFLINE_RECOVERY
       requiredRole: credential_custodian
       automaticRetry: false
@@ -192,6 +233,91 @@ authBroker:
     requiredScopes: [read:packages]
     catalogStatus: active
     kubernetesStatus: blocked_unverified
+  secretManager:
+    projectId: seorilabs-ci
+    state: blocked_unverified
+    provisioning:
+      state: blocked_unverified
+      adapterMode: native-secret-manager-writer
+      plaintextTransport: fd3
+      values:
+        - secretId: seori-auth-journal-mac
+          generation: cryptographic-random
+          encoding: raw
+          entropyBytes: 32
+        - secretId: seori-auth-browser-vault
+          generation: cryptographic-random
+          encoding: raw
+          entropyBytes: 32
+        - secretId: seori-auth-canary-password
+          generation: cryptographic-random
+          encoding: base64url
+          entropyBytes: 32
+        - secretId: seori-auth-canary-totp-seed
+          generation: cryptographic-random
+          encoding: base32-no-padding
+          entropyBytes: 20
+      humanGate:
+        type: approval
+        state: HUMAN_APPROVAL_REQUIRED
+        operation: AUTH_BROKER_FAKE_SECRET_PROVISIONING
+        requiredRole: gcp_security_admin
+        automaticRetry: false
+        requiredReadback:
+          - native_writer_identity_exact
+          - secret_values_absent_from_argv_env_stdout_files
+          - four_numeric_versions_active
+          - public_crc32c_verified
+          - backup_restore_verified
+    resources:
+      - secretId: seori-auth-journal-mac
+        resource: projects/seorilabs-ci/secrets/seori-auth-journal-mac
+        version: 1
+        versionResource: projects/seorilabs-ci/secrets/seori-auth-journal-mac/versions/1
+        logicalCredentialId: shared/seori-auth/journal-mac
+        consumerRole: broker
+        googleServiceAccount: seori-auth-broker@seorilabs-ci.iam.gserviceaccount.com
+      - secretId: seori-auth-browser-vault
+        resource: projects/seorilabs-ci/secrets/seori-auth-browser-vault
+        version: 1
+        versionResource: projects/seorilabs-ci/secrets/seori-auth-browser-vault/versions/1
+        logicalCredentialId: shared/seori-auth/browser-vault
+        consumerRole: broker
+        googleServiceAccount: seori-auth-broker@seorilabs-ci.iam.gserviceaccount.com
+      - secretId: seori-auth-canary-password
+        resource: projects/seorilabs-ci/secrets/seori-auth-canary-password
+        version: 1
+        versionResource: projects/seorilabs-ci/secrets/seori-auth-canary-password/versions/1
+        logicalCredentialId: shared/seori-auth/canary-password
+        consumerRole: password-loader
+        googleServiceAccount: seori-auth-password-loader@seorilabs-ci.iam.gserviceaccount.com
+      - secretId: seori-auth-canary-totp-seed
+        resource: projects/seorilabs-ci/secrets/seori-auth-canary-totp-seed
+        version: 1
+        versionResource: projects/seorilabs-ci/secrets/seori-auth-canary-totp-seed/versions/1
+        logicalCredentialId: shared/seori-auth/canary-totp-seed
+        consumerRole: totp-signer
+        googleServiceAccount: seori-auth-totp-signer@seorilabs-ci.iam.gserviceaccount.com
+    humanGate:
+      type: approval
+      state: HUMAN_APPROVAL_REQUIRED
+      operation: AUTH_BROKER_SECRET_MANAGER_ROLE_BINDING
+      requiredRole: gcp_security_admin
+      automaticRetry: false
+      requiredPreconditions:
+        - project_iam_visible
+        - four_secret_resources_active
+        - numeric_versions_pinned
+        - logical_credentials_backed_up
+        - kubernetes_provider_exact
+      requiredReadback:
+        - four_secret_level_accessor_bindings_exact
+        - cross_role_access_denied
+        - secret_access_config_digests_exact
+        - fake_password_execution_copy_verified
+        - fake_totp_execution_copy_verified
+        - journal_mac_replay_verified
+        - browser_vault_round_trip_verified
   wifAudience: //iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/microk8s-auth
   state:
     claimName: seori-auth-state

@@ -224,6 +224,8 @@ credential을 연결하거나 manifest를 apply하지 않습니다.
 - password loader와 TOTP signer의 서로 다른 workload identity 및 secret 단위 IAM
 - 암호화 PVC, tmpfs clone, mTLS identity, 실제 image digest가 고정된 K8s render
 - 사전 readback한 private GHCR pull Secret과 세 Pod의 exact `imagePullSecrets`
+- broker journal/Vault, password canary, TOTP canary의 numeric Secret Manager version과
+  상호 배타적인 workload identity partition
 
 [`docs/production-runbook.md`](docs/production-runbook.md)가 활성화·rollback 절차와
 fail-closed 검증 명령을 정의합니다. 운영 manifest는 public deployment config에서
