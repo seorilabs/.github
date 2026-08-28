@@ -2,9 +2,18 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  constants,
+  accessSync,
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
@@ -13,13 +22,14 @@ const contractPath = fileURLToPath(
   new URL("../../contracts/fleet-p3-runtime.yaml", import.meta.url),
 );
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
-const gcloud = join(
+const defaultGcloud = join(
   homedir(),
   ".config",
   "seorilabs",
   "scripts",
   "gcloud-cli.sh",
 );
+const gcloud = process.env.SEORILABS_GCLOUD_CLI ?? defaultGcloud;
 const mode = process.argv[2] ?? "plan";
 const confirmation = process.argv[3] ?? "";
 const modes = new Set(["plan", "apply", "readback", "rollback"]);
@@ -27,6 +37,31 @@ const modes = new Set(["plan", "apply", "readback", "rollback"]);
 function fail(code) {
   process.stderr.write(`${JSON.stringify({ ok: false, code })}\n`);
   process.exit(1);
+}
+
+function validateGcloudExecutable() {
+  try {
+    const entry = lstatSync(gcloud);
+    if (
+      !isAbsolute(gcloud) ||
+      !entry.isFile() ||
+      entry.isSymbolicLink() ||
+      realpathSync(gcloud) !== gcloud
+    ) {
+      fail("P3_GCLOUD_WRAPPER_INVALID");
+    }
+    accessSync(gcloud, constants.R_OK | constants.X_OK);
+  } catch {
+    fail("P3_GCLOUD_WRAPPER_INVALID");
+  }
+}
+
+function parsePublicJson(raw, code) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    fail(code);
+  }
 }
 
 let contract;
@@ -245,6 +280,7 @@ function publicPlan() {
 }
 
 function gcpPreflight() {
+  validateGcloudExecutable();
   const number = gcloudRun(
     ["projects", "describe", cloud.projectId, "--format=value(projectNumber)"],
     "P3_GCP_PROJECT_READ_FAILED",
@@ -330,7 +366,9 @@ function providerRead(provider) {
     ],
     "P3_GCP_WIF_PROVIDER_READ_FAILED",
   );
-  return raw === null ? null : JSON.parse(raw);
+  return raw === null
+    ? null
+    : parsePublicJson(raw, "P3_GCP_WIF_PROVIDER_RESPONSE_INVALID");
 }
 
 function mappingObject(mapping) {
@@ -362,12 +400,10 @@ function kubernetesJwks() {
     "P3_KUBERNETES_OIDC_DISCOVERY_FAILED",
   );
   if (discoveryRaw === null) fail("P3_KUBERNETES_OIDC_DISCOVERY_FAILED");
-  let discovery;
-  try {
-    discovery = JSON.parse(discoveryRaw);
-  } catch {
-    fail("P3_KUBERNETES_OIDC_DISCOVERY_FAILED");
-  }
+  const discovery = parsePublicJson(
+    discoveryRaw,
+    "P3_KUBERNETES_OIDC_DISCOVERY_FAILED",
+  );
   if (discovery.issuer !== cloud.wif.kubernetesIssuer) {
     fail("P3_KUBERNETES_OIDC_ISSUER_MISMATCH");
   }
@@ -377,12 +413,7 @@ function kubernetesJwks() {
     "P3_KUBERNETES_JWKS_READ_FAILED",
   );
   if (raw === null) fail("P3_KUBERNETES_JWKS_READ_FAILED");
-  let jwks;
-  try {
-    jwks = JSON.parse(raw);
-  } catch {
-    fail("P3_KUBERNETES_JWKS_READ_FAILED");
-  }
+  const jwks = parsePublicJson(raw, "P3_KUBERNETES_JWKS_READ_FAILED");
   if (
     !Array.isArray(jwks.keys) ||
     jwks.keys.length === 0 ||
@@ -551,7 +582,7 @@ function readPolicy(item) {
 function bindingPresent(item) {
   const raw = readPolicy(item);
   if (raw === null) return false;
-  const policy = JSON.parse(raw);
+  const policy = parsePublicJson(raw, "P3_GCP_IAM_RESPONSE_INVALID");
   return (policy.bindings ?? []).some(
     ({ role, members, condition }) =>
       role === item.role &&
@@ -574,7 +605,12 @@ function readback() {
       ],
       "P3_GCP_SERVICE_ACCOUNT_READ_FAILED",
     );
-    return raw === null ? { email: account.email, exists: false } : { ...JSON.parse(raw), exists: true };
+    return raw === null
+      ? { email: account.email, exists: false }
+      : {
+          ...parsePublicJson(raw, "P3_GCP_SERVICE_ACCOUNT_RESPONSE_INVALID"),
+          exists: true,
+        };
   });
   const github = providerRead(cloud.wif.githubProvider);
   const kubernetes = providerRead(cloud.wif.kubernetesProvider);

@@ -75,7 +75,12 @@ function api(operation, { allowMissing = false } = {}) {
     allowMissing,
     code: "P3_GITHUB_API_FAILED",
   });
-  return raw === null || raw === "" ? raw : JSON.parse(raw);
+  if (raw === null || raw === "") return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    fail("P3_GITHUB_API_RESPONSE_INVALID");
+  }
 }
 
 const app = render("github-app");
