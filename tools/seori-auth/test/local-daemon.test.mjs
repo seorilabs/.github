@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { DurableAuthState, LocalAuthDaemon } from '../src/index.mjs';
-import { makePolicy, makeRequest } from '../fixtures/helpers.mjs';
+import { DurableAuthState, EncryptedBrowserVault, LocalAuthDaemon } from '../src/index.mjs';
+import { makeNativeLockProvider, makePolicy, makeRequest } from '../fixtures/helpers.mjs';
 
 const fixture = fileURLToPath(new URL('../fixtures/echo-secret-child.mjs', import.meta.url));
 
@@ -56,16 +56,40 @@ function publicIdentity(overrides = {}) {
   };
 }
 
+function stateContractStub() {
+  return Object.fromEntries([
+    'issueCredentialCheckout',
+    'consumeCredentialCheckout',
+    'recordCredentialExecution',
+    'checkoutBrowserSession',
+    'authorizeBrowserSessionExecution',
+    'completeBrowserSession',
+    'abortBrowserSession',
+    'createReauthRequest',
+  ].map((method) => [method, async () => {}]));
+}
+
+function browserVaultStub() {
+  return {
+    checkout: async () => {},
+    withClone: async (_binding, operation) => operation('/trusted/ephemeral-clone'),
+    complete: async () => {},
+    abort: async () => {},
+  };
+}
+
 test('daemon cannot be constructed without an out-of-body principal attestor', () => {
   assert.throws(
     () => new LocalAuthDaemon({
       socketPath: '/tmp/seori-auth-constructor-test.sock',
-      state: { issueCredentialCheckout() {} },
+      state: stateContractStub(),
       policy: makePolicy(),
       adapters: [],
       loadSecret: async () => Buffer.from('unused'),
       getCredentialGeneration: async () => 3,
       readBrowserIdentity: async () => publicIdentity(),
+      browserVault: browserVaultStub(),
+      executeBrowserSession: async () => {},
     }),
     /authenticatePrincipal must attest the Unix peer outside the HTTP body/,
   );
@@ -102,10 +126,14 @@ test('Unix-only daemon exposes only five non-secret POST routes and never leaks 
   }
 
   let state;
+  let vault;
   let daemon;
   let unauthenticatedDaemon;
   let trustedIdentityReadback = publicIdentity();
   let generationLookups = 0;
+  let browserAdapterRuns = 0;
+  let expectedBrowserLeaseId;
+  const vaultKey = Buffer.alloc(32, 0x4d);
   try {
     state = await DurableAuthState.open({ directory: stateDirectory });
     await state.registerBrowserSession({
@@ -113,6 +141,21 @@ test('Unix-only daemon exposes only five non-secret POST routes and never leaks 
       generation: 1,
       executionBinding: executionBinding(),
       publicIdentity: publicIdentity(),
+    });
+    const browserProfile = join(root, 'browser-profile');
+    await mkdir(browserProfile, { mode: 0o700 });
+    await writeFile(join(browserProfile, 'Cookies'), 'fake-encrypted-session-input', { mode: 0o600 });
+    vault = await EncryptedBrowserVault.open({
+      vaultDirectory: join(root, 'browser-vault'),
+      runtimeDirectory: join(root, 'browser-runtime'),
+      encryptionKey: vaultKey,
+      lockProvider: await makeNativeLockProvider(),
+    });
+    await vault.registerProfile({
+      sourceDirectory: browserProfile,
+      role: 'release',
+      publicIdentity: publicIdentity(),
+      generation: 1,
     });
     unauthenticatedDaemon = new LocalAuthDaemon({
       socketPath: join(runtimeDirectory, 'unauthenticated.sock'),
@@ -133,6 +176,8 @@ test('Unix-only daemon exposes only five non-secret POST routes and never leaks 
       authenticatePrincipal: async () => {
         throw new Error('same UID without scheduler attestation');
       },
+      browserVault: vault,
+      executeBrowserSession: async () => {},
     });
     await unauthenticatedDaemon.start();
     const unauthenticated = await post(
@@ -172,6 +217,15 @@ test('Unix-only daemon exposes only five non-secret POST routes and never leaks 
       authenticatePrincipal: async (socket) => {
         assert.equal(typeof socket.remoteAddress, 'undefined');
         return executionBinding();
+      },
+      browserVault: vault,
+      executeBrowserSession: async ({ cloneDirectory, authorization }) => {
+        browserAdapterRuns += 1;
+        assert.equal(await readFile(join(cloneDirectory, 'Cookies'), 'utf8'), 'fake-encrypted-session-input');
+        assert.equal(authorization.leaseId, expectedBrowserLeaseId);
+        assert.equal(authorization.request.commitSha, makeRequest().commitSha);
+        assert.equal(authorization.request.origin, makeRequest().origin);
+        assert.deepEqual(authorization.request.approval, makeRequest().approval);
       },
     });
     const listening = await daemon.start();
@@ -241,10 +295,23 @@ test('Unix-only daemon exposes only five non-secret POST routes and never leaks 
     assert.equal('stdout' in executed.body.execution, false);
     assert.equal('stderr' in executed.body.execution, false);
 
+    const browserContext = makeRequest();
+    const browserLease = await post(socketPath, '/auth/leases', {
+      workerId: 'worker-a',
+      request: browserContext,
+    });
+    assert.equal(browserLease.status, 201);
+    expectedBrowserLeaseId = browserLease.body.credentialCheckout.id;
     const browserCheckout = await post(socketPath, '/auth/browser-sessions/browser-session-a/checkout', {
-      expectedGeneration: 1,
+      context: browserContext,
       executionBinding: executionBinding(),
+      expectedLeaseGeneration: browserLease.body.credentialCheckout.generation,
+      expectedProfileGeneration: 1,
+      expectedSessionGeneration: 1,
       expectedIdentity: publicIdentity(),
+      leaseId: browserLease.body.credentialCheckout.id,
+      role: 'release',
+      workerId: 'worker-a',
     });
     assert.equal(browserCheckout.status, 200);
     assert.deepEqual(
@@ -252,34 +319,106 @@ test('Unix-only daemon exposes only five non-secret POST routes and never leaks 
       ['capabilityId', 'publicIdentity'],
     );
     assert.doesNotMatch(browserCheckout.text, /profile|cookie|path/i);
+    assert.equal(browserAdapterRuns, 0, 'checkout must not expose or execute the clone');
+
+    const completionRequest = {
+      capabilityId: browserCheckout.body.browserSession.capabilityId,
+      context: browserContext,
+      executionBinding: executionBinding(),
+      expectedGeneration: 2,
+      leaseId: browserLease.body.credentialCheckout.id,
+      profileGeneration: 1,
+      role: 'release',
+      workerId: 'worker-a',
+    };
 
     const spoofedReadback = await post(socketPath, '/auth/browser-sessions/browser-session-a/complete', {
-      capabilityId: browserCheckout.body.browserSession.capabilityId,
-      expectedGeneration: 2,
-      executionBinding: executionBinding(),
+      ...completionRequest,
       identityReadback: publicIdentity({ accountId: canary }),
     });
     assert.equal(spoofedReadback.status, 400);
     assert.doesNotMatch(spoofedReadback.text, new RegExp(canary));
     assert.equal(state.snapshot().browserSessionBindings[0].generation, 2);
+    assert.equal(browserAdapterRuns, 0);
+
+    const changedBindings = [
+      [makeRequest({ commitSha: '2'.repeat(40) }), 403, 'capability_forbidden'],
+      [makeRequest({ origin: 'https://business.toss.im' }), 403, 'capability_forbidden'],
+      [makeRequest({ capability: 'ait.bundle.status.read' }), 403, 'capability_forbidden'],
+      [makeRequest({
+        resource: { kind: 'miniapp', id: 'other-app', environment: 'private' },
+      }), 403, 'capability_forbidden'],
+      [makeRequest({
+        artifact: { sha256: 'b'.repeat(64), sizeBytes: 1024 },
+      }), 403, 'capability_forbidden'],
+      [makeRequest({ policyGeneration: 8 }), 409, 'stale_policy_generation'],
+      [makeRequest({
+        approval: {
+          id: 'approval-123', mode: 'preapproved', expiresAt: '2098-01-01T00:00:00.000Z', maxUses: 1,
+        },
+      }), 403, 'capability_forbidden'],
+    ];
+    for (const [context, status, code] of changedBindings) {
+      const changed = await post(socketPath, '/auth/browser-sessions/browser-session-a/complete', {
+        ...completionRequest,
+        context,
+      });
+      assert.equal(changed.status, status);
+      assert.deepEqual(changed.body, { error: { code } });
+    }
+    assert.equal(browserAdapterRuns, 0, 'changed browser binding must fail before the trusted adapter');
+
+    const changedLease = await post(socketPath, '/auth/browser-sessions/browser-session-a/complete', {
+      ...completionRequest,
+      leaseId: 'different-browser-lease',
+    });
+    assert.equal(changedLease.status, 403);
+    assert.deepEqual(changedLease.body, { error: { code: 'browser_session_binding_mismatch' } });
+    assert.equal(browserAdapterRuns, 0, 'changed lease must fail before the trusted browser adapter');
 
     trustedIdentityReadback = publicIdentity({ appId: 'wrong-app' });
-    const mismatch = await post(socketPath, '/auth/browser-sessions/browser-session-a/complete', {
-      capabilityId: browserCheckout.body.browserSession.capabilityId,
-      expectedGeneration: 2,
-      executionBinding: executionBinding(),
-    });
-    assert.equal(mismatch.status, 403);
-    assert.equal(state.snapshot().browserSessionBindings[0].generation, 2);
+    const mismatch = await post(
+      socketPath,
+      '/auth/browser-sessions/browser-session-a/complete',
+      completionRequest,
+    );
+    assert.equal(mismatch.status, 403, JSON.stringify(mismatch.body));
+    assert.equal(browserAdapterRuns, 1);
+    assert.equal(state.snapshot().browserSessionBindings[0].generation, 3);
+    assert.equal(state.snapshot().browserSessionBindings[0].state, 'AVAILABLE');
 
     trustedIdentityReadback = publicIdentity();
-    const completed = await post(socketPath, '/auth/browser-sessions/browser-session-a/complete', {
-      capabilityId: browserCheckout.body.browserSession.capabilityId,
-      expectedGeneration: 2,
+    const retryLease = await post(socketPath, '/auth/leases', {
+      workerId: 'worker-a',
+      request: browserContext,
+    });
+    expectedBrowserLeaseId = retryLease.body.credentialCheckout.id;
+    const retryCheckout = await post(socketPath, '/auth/browser-sessions/browser-session-a/checkout', {
+      context: browserContext,
       executionBinding: executionBinding(),
+      expectedLeaseGeneration: retryLease.body.credentialCheckout.generation,
+      expectedProfileGeneration: 1,
+      expectedSessionGeneration: 3,
+      expectedIdentity: publicIdentity(),
+      leaseId: retryLease.body.credentialCheckout.id,
+      role: 'release',
+      workerId: 'worker-a',
+    });
+    assert.equal(retryCheckout.status, 200);
+    const completed = await post(socketPath, '/auth/browser-sessions/browser-session-a/complete', {
+      capabilityId: retryCheckout.body.browserSession.capabilityId,
+      context: browserContext,
+      executionBinding: executionBinding(),
+      expectedGeneration: 4,
+      leaseId: retryLease.body.credentialCheckout.id,
+      profileGeneration: 1,
+      role: 'release',
+      workerId: 'worker-a',
     });
     assert.equal(completed.status, 200);
     assert.equal(completed.body.browserSession.state, 'COMPLETED');
+    assert.equal(completed.body.browserSession.generation, 5);
+    assert.equal(browserAdapterRuns, 2);
 
     const reauth = await post(socketPath, '/auth/reauth-requests', {
       reason: 'captcha_required',
@@ -304,7 +443,9 @@ test('Unix-only daemon exposes only five non-secret POST routes and never leaks 
   } finally {
     if (unauthenticatedDaemon) await unauthenticatedDaemon.stop();
     if (daemon) await daemon.stop();
+    if (vault) await vault.close();
     if (state) await state.close();
+    vaultKey.fill(0);
     for (const [name, value] of previousEnvironment) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;

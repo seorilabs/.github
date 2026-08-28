@@ -59,6 +59,17 @@ function authorized(request = makeRequest()) {
   return new PolicyEngine(makePolicy()).authorize(request);
 }
 
+function browserAuthorization(request = makeRequest(), overrides = {}) {
+  return {
+    leaseId: 'browser-lease-a',
+    ruleId: 'private-upload',
+    profileGeneration: 1,
+    role: 'release',
+    request,
+    ...overrides,
+  };
+}
+
 test('CredentialCheckout uses generation CAS, exact run/repo/worker binding, five-minute TTL, and one use', async () => {
   await withState(async ({ state }) => {
     const request = makeRequest();
@@ -190,16 +201,36 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
         publicIdentity: publicIdentity(),
       });
     }
+    await state.registerBrowserSession({
+      sessionId: 'session-wrong-app',
+      generation: 1,
+      executionBinding: executionBinding(),
+      publicIdentity: publicIdentity({ appId: 'other-app' }),
+    });
+    await assert.rejects(
+      state.checkoutBrowserSession({
+        sessionId: 'session-wrong-app',
+        expectedGeneration: 1,
+        executionBinding: executionBinding(),
+        expectedIdentity: publicIdentity({ appId: 'other-app' }),
+        authorization: browserAuthorization(),
+      }),
+      (error) => error instanceof SeoriAuthError && error.code === 'browser_session_binding_mismatch',
+    );
 
     const checkout = await state.checkoutBrowserSession({
       sessionId: 'session-a',
       expectedGeneration: 1,
       executionBinding: executionBinding(),
       expectedIdentity: publicIdentity(),
+      authorization: browserAuthorization(),
     });
     assert.deepEqual(Object.keys(checkout).sort(), ['capabilityId', 'publicIdentity']);
     assert.doesNotMatch(JSON.stringify(checkout), /profile|cookie|path/i);
     assert.equal(state.snapshot().auditEvents.at(-1).capabilityId, checkout.capabilityId);
+    assert.equal(state.snapshot().auditEvents.at(-1).credentialRef, makeRequest().credentialRef);
+    assert.equal(state.snapshot().auditEvents.at(-1).leaseId, 'browser-lease-a');
+    assert.equal(state.snapshot().auditEvents.at(-1).ruleId, 'private-upload');
 
     await assert.rejects(
       state.checkoutBrowserSession({
@@ -207,9 +238,45 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
         expectedGeneration: 1,
         executionBinding: executionBinding(),
         expectedIdentity: publicIdentity(),
+        authorization: browserAuthorization(undefined, { leaseId: 'browser-lease-b' }),
       }),
       (error) => error instanceof SeoriAuthError && error.code === 'browser_account_in_use',
     );
+
+    const exactAuthorizationMismatches = [
+      browserAuthorization(makeRequest({ commitSha: '2'.repeat(40) })),
+      browserAuthorization(makeRequest({ origin: 'https://business.toss.im' })),
+      browserAuthorization(makeRequest({ capability: 'ait.bundle.status.read' })),
+      browserAuthorization(makeRequest({
+        resource: { kind: 'miniapp', id: 'other-app', environment: 'private' },
+      })),
+      browserAuthorization(makeRequest({
+        artifact: { sha256: 'b'.repeat(64), sizeBytes: 1024 },
+      })),
+      browserAuthorization(makeRequest({ policyGeneration: 8 })),
+      browserAuthorization(makeRequest({
+        approval: {
+          id: 'approval-123', mode: 'preapproved', expiresAt: '2098-01-01T00:00:00.000Z', maxUses: 1,
+        },
+      })),
+      browserAuthorization(undefined, { leaseId: 'browser-lease-other' }),
+      browserAuthorization(undefined, { ruleId: 'different-rule' }),
+      browserAuthorization(undefined, { profileGeneration: 2 }),
+      browserAuthorization(undefined, { role: 'support' }),
+    ];
+    for (const authorization of exactAuthorizationMismatches) {
+      await assert.rejects(
+        state.completeBrowserSession({
+          sessionId: 'session-a',
+          capabilityId: checkout.capabilityId,
+          expectedGeneration: 2,
+          executionBinding: executionBinding(),
+          authorization,
+          readIdentity: async () => publicIdentity(),
+        }),
+        (error) => error instanceof SeoriAuthError && error.code === 'browser_session_binding_mismatch',
+      );
+    }
 
     for (const executionMismatch of [
       executionBinding({ runId: 'github:other' }),
@@ -222,6 +289,7 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
           capabilityId: checkout.capabilityId,
           expectedGeneration: 2,
           executionBinding: executionMismatch,
+          authorization: browserAuthorization(),
           readIdentity: async () => publicIdentity(),
         }),
         (error) => error instanceof SeoriAuthError && error.code === 'browser_session_binding_mismatch',
@@ -234,6 +302,7 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
         capabilityId: checkout.capabilityId,
         expectedGeneration: 2,
         executionBinding: executionBinding(),
+        authorization: browserAuthorization(),
         readIdentity: async () => publicIdentity({ workspaceId: 'wrong-workspace' }),
       }),
       (error) => error instanceof SeoriAuthError && error.code === 'identity_readback_mismatch',
@@ -247,6 +316,7 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
       capabilityId: checkout.capabilityId,
       expectedGeneration: 2,
       executionBinding: executionBinding(),
+      authorization: browserAuthorization(),
       readIdentity: async () => publicIdentity(),
     });
     assert.equal(completed.state, 'COMPLETED');
@@ -259,6 +329,7 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
         capabilityId: checkout.capabilityId,
         expectedGeneration: 3,
         executionBinding: executionBinding(),
+        authorization: browserAuthorization(),
         readIdentity: async () => publicIdentity(),
       }),
       (error) => error instanceof SeoriAuthError && error.code === 'browser_capability_invalid',
@@ -269,6 +340,7 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
       expectedGeneration: 1,
       executionBinding: executionBinding(),
       expectedIdentity: publicIdentity(),
+      authorization: browserAuthorization(undefined, { leaseId: 'browser-lease-b' }),
     });
     advance(LEASE_TTL_MS);
     await assert.rejects(
@@ -277,6 +349,7 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
         capabilityId: second.capabilityId,
         expectedGeneration: 2,
         executionBinding: executionBinding(),
+        authorization: browserAuthorization(undefined, { leaseId: 'browser-lease-b' }),
         readIdentity: async () => publicIdentity(),
       }),
       (error) => error instanceof SeoriAuthError && error.code === 'browser_capability_expired',
@@ -313,6 +386,40 @@ test('ReauthRequest durably records all interactive factors as HUMAN_REAUTH_REQU
     assert.equal(duplicate.id, snapshot.reauthRequests.find(({ reason }) => reason === 'captcha_required').id);
     assert.equal(state.snapshot().auditEvents.filter(({ eventType }) => eventType === 'REAUTH_REQUESTED').length, 6);
   });
+});
+
+test('browser lease authorization and reconstructable audit survive durable replay', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'seori-auth-browser-replay-'));
+  let state = await DurableAuthState.open({ directory, idFactory: idFactory() });
+  try {
+    await state.registerBrowserSession({
+      sessionId: 'session-replay',
+      generation: 1,
+      executionBinding: executionBinding(),
+      publicIdentity: publicIdentity(),
+    });
+    const checkout = await state.checkoutBrowserSession({
+      sessionId: 'session-replay',
+      expectedGeneration: 1,
+      executionBinding: executionBinding(),
+      expectedIdentity: publicIdentity(),
+      authorization: browserAuthorization(),
+    });
+    const before = state.snapshot();
+    await state.close();
+    state = await DurableAuthState.open({ directory, idFactory: idFactory() });
+    const replayed = state.snapshot();
+    assert.deepEqual(replayed.browserSessionBindings, before.browserSessionBindings);
+    assert.deepEqual(replayed.auditEvents, before.auditEvents);
+    const audit = replayed.auditEvents.find(({ capabilityId }) => capabilityId === checkout.capabilityId);
+    assert.equal(audit.leaseId, 'browser-lease-a');
+    assert.equal(audit.credentialRef, makeRequest().credentialRef);
+    assert.equal(audit.commitSha, makeRequest().commitSha);
+    assert.equal(audit.capability, makeRequest().capability);
+  } finally {
+    await state.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('broker-held HMAC journal detects wrong keys, record tampering, and trusted-head rollback', async () => {

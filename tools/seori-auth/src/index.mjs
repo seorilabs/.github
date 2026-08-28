@@ -1,4 +1,5 @@
 export { TrustedAdapterRegistry } from './adapters.mjs';
+export { CanonicalAccountRegistry } from './accounts.mjs';
 export { EncryptedBrowserVault } from './browser-vault.mjs';
 export { BrowserLoginBoundary } from './browser-login.mjs';
 export { SeoriAuthError } from './errors.mjs';

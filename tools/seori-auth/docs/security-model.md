@@ -32,7 +32,8 @@
 - child가 받는 secret을 argv와 environment에서 제외
 - audit callback에 child 출력이나 secret을 전달하지 않음
 - child stdout/stderr를 저장·반환하지 않고 output byte 상한과 status만 사용
-- account별 browser checkout 동시 1개, 고정 5분 TTL과 성공 1회 사용
+- account별 browser checkout 동시 1개, 고정 5분 TTL과 성공 1회 사용. 잠금은 native
+  OS advisory lock이며 잠금 파일 만료시각이나 unlink 경쟁으로 소유권을 판정하지 않음
 - browser 완료는 provider/account/team/workspace/app 공개 identity readback이 기대값과
   정확히 같을 때만 generation과 상태 변경
 - browser HTTP 응답에는 opaque capability ID와 공개 identity만 포함
@@ -40,7 +41,8 @@
   checkpoint가 주어지면 tail 삭제/rollback도 startup에서 거부
 - provider/account/role별 profile을 AES-256-GCM으로 저장하고 clone은 owner-only runtime
   directory에만 생성하며 provider/account별 filesystem lock으로 프로세스 간 동시 실행 1개.
-  capability는 expected profile generation, source SHA, subject/run/repo/worker와 exact binding
+  capability는 credential lease, expected profile generation, source SHA, exact origin/redirect,
+  action, resource, artifact, approval, subject/run/repo/worker와 exact binding
 - origin, redirect chain, provider/account/team/workspace/app ID를 factor 주입 직전과 직후에
   exact match하고 capture/export/clipboard/network control이 하나라도 열리면 주입 전 중단
 - Linux `SO_PEERCRED`, macOS `getpeereid`와 `LOCAL_PEERPID`로 HTTP body 밖의 peer를 증명
@@ -113,3 +115,9 @@ ephemeral clone path를 제공합니다. clone 종료 시 폐기하고 exact ide
 limit를 사용합니다. 실제 provider DOM selector와 identity readback 구현은 provider별
 검토된 adapter가 공급하며, 해당 binding·egress allowlist·fake-account canary가 없으면
 그 provider의 browser 자동화를 활성화하지 않습니다.
+
+broker startup은 runtime의 `checkout-*` clone마다 해당 account advisory lock을 먼저
+획득한 뒤, 현재 소유자가 없는 clone만 제거합니다. 정상 종료와 TTL timer도 같은
+clone/lock을 idempotent하게 해제합니다. process supervisor는 broker가 종료된 뒤
+`scripts/cleanup-browser-runtime.mjs`를 실행합니다. Kubernetes의 tmpfs `emptyDir`은 Pod
+종료 시 함께 사라지고 같은 Pod 안의 container restart는 startup cleanup으로 회수합니다.

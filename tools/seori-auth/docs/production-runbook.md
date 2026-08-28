@@ -66,6 +66,21 @@ trusted browser adapter만 `withClone` callback 안에서 path를 받고, agent 
 screenshot·artifact에는 path나 storage state를 넣지 않습니다. 종료·TTL·identity mismatch
 시 clone을 폐기하며 expected identity가 모두 맞을 때만 encrypted 원본을 갱신합니다.
 
+broker는 startup마다 account별 native advisory lock을 획득할 수 있는 stale clone만
+자동 제거합니다. systemd/launchd 같은 process supervisor는 broker process가 완전히
+종료된 뒤 다음 명령을 `ExecStopPost` 상당 단계에서 실행합니다. 활성 checkout의 lock은
+획득할 수 없으므로 삭제하지 않습니다.
+
+```sh
+npm run cleanup:browser-runtime -- \
+  --runtime-directory=/run/seori-auth/browser \
+  --native-helper=/opt/seori-auth/bin/seori-auth-native
+```
+
+명령은 clone path나 cookie를 출력하지 않고 `{"state":"CLEAN"}`만 반환해야 합니다.
+Kubernetes의 tmpfs `emptyDir`은 Pod 삭제 시 폐기되며, 같은 Pod의 broker container만
+재시작하는 경우 startup cleanup이 crash clone을 회수합니다.
+
 ## 4. Password/TOTP 분리
 
 - password loader와 TOTP signer는 다른 ServiceAccount, workload identity, Secret Manager
@@ -73,7 +88,8 @@ screenshot·artifact에는 path나 storage state를 넣지 않습니다. 종료�
 - password loader에는 TOTP seed 권한이 없고 signer에는 password 권한이 없습니다.
 - signer API에는 seed read/export/list가 없고, exact origin/account 확인 뒤 30초 이내
   만료하는 코드만 trusted browser injector에 전달합니다.
-- 개인 계정, passkey, SMS, push, trusted-device, CAPTCHA, recovery, 약관 화면은
+- canonical registry가 `human`으로 분류한 계정의 password/TOTP, passkey, SMS, push,
+  trusted-device, CAPTCHA, recovery, 약관 화면은
   `HUMAN_REAUTH_REQUIRED`로 한 번만 기록하고 자동 retry하지 않습니다.
 
 ## 5. Kubernetes render gate

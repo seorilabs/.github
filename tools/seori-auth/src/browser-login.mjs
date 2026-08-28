@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 
+import { CanonicalAccountRegistry } from './accounts.mjs';
 import { HUMAN_REAUTH_REQUIRED, normalizePublicIdentity } from './durable-state.mjs';
 import { fail } from './errors.mjs';
 import { classifyReauth } from './reauth.mjs';
@@ -75,9 +76,10 @@ function validTotpBytes(buffer) {
 export class BrowserLoginBoundary {
   #passwordLoader;
   #totpSigner;
+  #accounts;
   #clock;
 
-  constructor({ passwordLoader, totpSigner, clock = () => Date.now() }) {
+  constructor({ passwordLoader, totpSigner, accountRegistry, clock = () => Date.now() }) {
     if (
       !passwordLoader || typeof passwordLoader !== 'object' ||
       typeof passwordLoader.loadPassword !== 'function'
@@ -93,9 +95,13 @@ export class BrowserLoginBoundary {
     if (passwordLoader === totpSigner) {
       fail('invalid_factor_service', 'password loader and TOTP signer must be separate service boundaries');
     }
+    if (!(accountRegistry instanceof CanonicalAccountRegistry)) {
+      fail('invalid_factor_service', 'canonical account registry is required');
+    }
     if (typeof clock !== 'function') fail('invalid_factor_service', 'trusted clock is required');
     this.#passwordLoader = passwordLoader;
     this.#totpSigner = totpSigner;
+    this.#accounts = accountRegistry;
     this.#clock = clock;
   }
 
@@ -125,7 +131,6 @@ export class BrowserLoginBoundary {
     passwordGeneration,
     totpRef,
     totpGeneration,
-    accountKind,
     expectedOrigin,
     expectedRedirectOrigins,
     expectedIdentity,
@@ -149,17 +154,29 @@ export class BrowserLoginBoundary {
       fail('invalid_browser_login', 'browser login factors are invalid');
     }
     const useTotp = authFactors.includes('totp');
-    if (useTotp && accountKind !== 'dedicated_bot') {
-      fail('totp_forbidden', 'automated TOTP is allowed only for a dedicated bot account');
-    }
-    if (!['dedicated_bot', 'human'].includes(accountKind)) {
-      fail('invalid_browser_login', 'browser account kind is invalid');
-    }
     const binding = Object.freeze({
       origin: normalizeHttpsOrigin(expectedOrigin, 'expected origin'),
       redirectOrigins: normalizeRedirects(expectedRedirectOrigins),
       publicIdentity: normalizePublicIdentity(expectedIdentity),
     });
+    const normalizedPasswordRef = credentialReference(passwordRef, 'passwordRef');
+    const normalizedPasswordGeneration = positiveInteger(passwordGeneration, 'passwordGeneration');
+    const normalizedTotpRef = useTotp ? credentialReference(totpRef, 'totpRef') : undefined;
+    const normalizedTotpGeneration = useTotp ? positiveInteger(totpGeneration, 'totpGeneration') : undefined;
+    if (useTotp && normalizedTotpRef === normalizedPasswordRef) {
+      fail('invalid_factor_service', 'password and TOTP must use different logical credentials');
+    }
+    const account = this.#accounts.require({
+      provider: binding.publicIdentity.provider,
+      accountId: binding.publicIdentity.accountId,
+      credentialRefs: [
+        normalizedPasswordRef,
+        ...(normalizedTotpRef === undefined ? [] : [normalizedTotpRef]),
+      ],
+    });
+    if (account.kind !== 'dedicated_bot') {
+      fail(HUMAN_REAUTH_REQUIRED, 'personal account password or TOTP automation is forbidden');
+    }
     let controls;
     try {
       controls = await browser.securityControls();
@@ -175,14 +192,6 @@ export class BrowserLoginBoundary {
     ) {
       fail('browser_security_controls_failed', 'browser capture, export, or network controls are not fail-closed');
     }
-    const normalizedPasswordRef = credentialReference(passwordRef, 'passwordRef');
-    const normalizedPasswordGeneration = positiveInteger(passwordGeneration, 'passwordGeneration');
-    const normalizedTotpRef = useTotp ? credentialReference(totpRef, 'totpRef') : undefined;
-    const normalizedTotpGeneration = useTotp ? positiveInteger(totpGeneration, 'totpGeneration') : undefined;
-    if (useTotp && normalizedTotpRef === normalizedPasswordRef) {
-      fail('invalid_factor_service', 'password and TOTP must use different logical credentials');
-    }
-
     const initial = await this.#inspect(browser, 'before_password', binding);
     if (initial.challenge !== null) humanReauth(initial.challenge);
     if (initial.authenticated) fail('browser_session_state_invalid', 'browser session was already authenticated');

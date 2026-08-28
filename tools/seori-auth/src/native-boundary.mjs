@@ -6,9 +6,11 @@ import { isAbsolute } from 'node:path';
 import { fail } from './errors.mjs';
 import { normalizeExecutionBinding } from './durable-state.mjs';
 import { NATIVE_LAUNCHER_BRAND } from './native-launcher-brand.mjs';
+import { NATIVE_FILE_LOCK_BRAND } from './native-lock-brand.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const MAX_ATTESTATION_BYTES = 1_024;
+const LOCK_READY_TIMEOUT_MS = 5_000;
 
 async function validateHelper(helperPath, expectedSha256) {
   if (typeof helperPath !== 'string' || !isAbsolute(helperPath)) {
@@ -125,6 +127,69 @@ export class NativeSecurityBoundary {
       executable: this.#helperPath,
       mode: 'non-dumpable-v1',
       [NATIVE_LAUNCHER_BRAND]: true,
+    });
+  }
+
+  lockProvider() {
+    const helperPath = this.#helperPath;
+    return Object.freeze({
+      [NATIVE_FILE_LOCK_BRAND]: true,
+      async acquire(path) {
+        if (typeof path !== 'string' || !isAbsolute(path) || path.includes('\0')) {
+          fail('invalid_browser_vault', 'native lock path must be absolute');
+        }
+        const child = spawn(helperPath, ['hold-lock', path], {
+          env: { LANG: 'C.UTF-8' },
+          shell: false,
+          stdio: ['pipe', 'pipe', 'ignore'],
+          windowsHide: true,
+        });
+        let released = false;
+        let timer;
+        const closed = new Promise((resolve) => child.once('close', (code, signal) => resolve({ code, signal })));
+        try {
+          const ready = await Promise.race([
+            new Promise((resolve, reject) => {
+              let encoded = '';
+              child.once('error', reject);
+              child.stdout.on('data', (chunk) => {
+                encoded += chunk.toString('utf8');
+                if (encoded.length > 128) {
+                  reject(new Error('lock readiness output exceeded bound'));
+                  return;
+                }
+                if (encoded.includes('\n')) resolve(encoded);
+              });
+              child.once('close', () => reject(new Error('lock helper exited before acquisition')));
+            }),
+            new Promise((_, reject) => {
+              timer = setTimeout(() => reject(new Error('lock acquisition timed out')), LOCK_READY_TIMEOUT_MS);
+              timer.unref();
+            }),
+          ]);
+          if (JSON.parse(ready.trim()).locked !== true) throw new Error('invalid lock readiness');
+        } catch {
+          child.kill('SIGKILL');
+          const result = await closed;
+          if (result.code === 75 && result.signal === null) {
+            fail('browser_account_in_use', 'provider account lock is already held');
+          }
+          fail('insecure_browser_vault', 'native account lock boundary failed');
+        } finally {
+          clearTimeout(timer);
+        }
+        return Object.freeze({
+          async release() {
+            if (released) return;
+            released = true;
+            child.stdin.end();
+            const result = await closed;
+            if (result.code !== 0 || result.signal !== null) {
+              fail('insecure_browser_vault', 'native account lock exited unexpectedly');
+            }
+          },
+        });
+      },
     });
   }
 

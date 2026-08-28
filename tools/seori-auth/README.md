@@ -15,7 +15,7 @@ daemon과 MAC-chain durable state, native OS 경계, encrypted Browser Vault를
 - policy는 logical credential reference를 exact allowlist로 고정합니다.
 - lease는 subject, run, repository, worker, commit SHA, provider, exact HTTPS origin,
   redirect chain, capability, resource, artifact SHA, adapter, credential/policy
-  generation을 모두 고정합니다.
+  generation, canonical account ID, approval ID/mode/expiry/max-use를 모두 고정합니다.
 - lease TTL은 변경할 수 없는 5분이고 정상 실행 시도 전에 한 번 소비됩니다.
 - HTTP에는 secret 조회, export, print endpoint가 없고 실행 결과에서도 child
   stdout/stderr를 반환하지 않습니다.
@@ -24,6 +24,9 @@ daemon과 MAC-chain durable state, native OS 경계, encrypted Browser Vault를
   저장하지 않습니다. `EncryptedBrowserVault`만 암호화 원본과 tmpfs clone 경로를
   알고 provider/account/role별 profile과 account별 동시 실행 1개를 강제합니다.
   checkout은 expected profile generation, source SHA, subject/run/repo/worker에도 묶입니다.
+  checkout에 사용한 credential lease와 그 lease의 origin/action/resource/artifact/approval
+  전체를 durable authorization으로 고정하고 trusted browser adapter 실행 전에 다시
+  exact-match합니다.
 - `CredentialCheckout`, `BrowserSessionBinding`, `ReauthRequest`, `AuthAuditEvent`는
   권한 `0600` append-only journal에 기록되고 재시작 시 replay됩니다. 운영 모드의
   schema v2 record는 broker-held 32-byte key의 HMAC-SHA256 chain으로 인증하며,
@@ -42,6 +45,9 @@ daemon과 MAC-chain durable state, native OS 경계, encrypted Browser Vault를
   network allowlist를 비밀번호/TOTP 주입 전후에 다시 확인합니다. screenshot, video,
   trace, HAR, clipboard, download, extension, storage-state export가 모두 꺼져 있지 않으면
   factor loader를 호출하지 않습니다.
+- account 종류는 요청이 아니라 signed policy의 canonical account registry에서만 읽습니다.
+  `human` account의 password 또는 TOTP는 browser control 검사와 factor loader보다 먼저
+  `HUMAN_REAUTH_REQUIRED`로 중단합니다.
 
 ## 임베딩과 로컬 daemon
 
@@ -103,6 +109,9 @@ const daemon = new LocalAuthDaemon({
   getCredentialGeneration,
   readBrowserIdentity,
   authenticatePrincipal: (socket) => nativeBoundary.authenticatePrincipal(socket),
+  browserVault,
+  executeBrowserSession: ({ cloneDirectory, authorization }) =>
+    trustedProviderBrowserAdapter.execute({ cloneDirectory, authorization }),
 });
 await daemon.start();
 ```
@@ -124,8 +133,8 @@ daemon은 절대 경로의 Unix socket만 받으며 socket과 state directory가
 | --- | --- |
 | `/auth/leases` | 정책·credential generation을 확인하고 `CredentialCheckout` 발급 |
 | `/auth/leases/{id}/execute` | generation CAS와 run/repo/worker exact binding 뒤 1회 실행 |
-| `/auth/browser-sessions/{id}/checkout` | 계정별 동시 1개인 opaque browser capability 발급 |
-| `/auth/browser-sessions/{id}/complete` | 기대한 공개 identity와 provider readback이 모두 같을 때만 완료 |
+| `/auth/browser-sessions/{id}/checkout` | 정책 승인된 1회 lease와 exact 실행 문맥을 소비해 계정별 동시 1개인 opaque browser capability 발급 |
+| `/auth/browser-sessions/{id}/complete` | checkout의 lease/source/origin/action/resource/artifact/approval을 재검증한 trusted adapter와 공개 identity readback이 모두 성공할 때만 완료 |
 | `/auth/reauth-requests` | 자동화 중단 사유를 `HUMAN_REAUTH_REQUIRED`로 기록 |
 
 요청·응답과 네 가지 durable record의 JSON 계약은
@@ -175,8 +184,9 @@ node src/cli.mjs classify-reauth trusted_device_required
 
 ## TOTP와 재인증
 
-TOTP가 포함된 요청은 정책에 `allowTotp: true`가 있고 계정 종류가
-`dedicated_bot`일 때만 허용됩니다. `BrowserLoginBoundary`는 서로 다른 객체 identity의
+password 또는 TOTP가 포함된 요청은 canonical account 종류가 `dedicated_bot`일 때만
+허용되며, TOTP는 추가로 정책의 `allowTotp: true`가 필요합니다. account 종류를 request로
+제출하는 계약은 없습니다. `BrowserLoginBoundary`는 서로 다른 객체 identity의
 password loader와 TOTP signer를 요구하고, logical credential ID도 서로 달라야 합니다.
 signer는 seed를 반환하지 않고 origin/account가 확인된 뒤 30초 이내 만료하는 6자리
 또는 8자리 코드 Buffer만 내놓으며 주입 직후 zeroize합니다. 실제 seed 저장과 OTP

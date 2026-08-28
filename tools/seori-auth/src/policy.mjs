@@ -1,7 +1,8 @@
+import { CanonicalAccountRegistry } from './accounts.mjs';
 import { fail } from './errors.mjs';
 import { isLogicalCredentialRef, isSha256, normalizeHttpsOrigin, normalizeLeaseRequest } from './validation.mjs';
 
-const POLICY_KEYS = new Set(['$schema', 'schemaVersion', 'generation', 'rules']);
+const POLICY_KEYS = new Set(['$schema', 'schemaVersion', 'generation', 'accounts', 'rules']);
 const RULE_KEYS = new Set([
   'id',
   'enabled',
@@ -16,10 +17,11 @@ const RULE_KEYS = new Set([
   'capabilities',
   'resources',
   'adapters',
-  'accountKinds',
+  'accountIds',
   'requiresArtifact',
   'artifactSha256s',
   'allowTotp',
+  'approvals',
 ]);
 
 function assertExactKeys(value, allowed, required, label) {
@@ -60,6 +62,34 @@ function resourceList(value, label) {
       }
     }
     return Object.freeze({ ...resource });
+  }));
+}
+
+function approvalList(value, label) {
+  if (!Array.isArray(value) || value.length === 0) {
+    fail('invalid_policy', `${label} must be a non-empty array`);
+  }
+  return Object.freeze(value.map((approval, index) => {
+    assertExactKeys(
+      approval,
+      new Set(['id', 'mode', 'expiresAt', 'maxUses']),
+      ['id', 'mode', 'expiresAt', 'maxUses'],
+      `${label}[${index}]`,
+    );
+    if (
+      typeof approval.id !== 'string' || approval.id.length === 0 ||
+      !['preapproved', 'per_run'].includes(approval.mode) ||
+      typeof approval.expiresAt !== 'string' || !Number.isFinite(Date.parse(approval.expiresAt)) ||
+      approval.expiresAt !== new Date(approval.expiresAt).toISOString() || approval.maxUses !== 1
+    ) {
+      fail('invalid_policy', `${label}[${index}] is invalid`);
+    }
+    return Object.freeze({
+      id: approval.id,
+      mode: approval.mode,
+      expiresAt: approval.expiresAt,
+      maxUses: 1,
+    });
   }));
 }
 
@@ -104,10 +134,11 @@ function normalizeRule(rule, index) {
     capabilities: stringList(rule.capabilities, `rules[${index}].capabilities`),
     resources: resourceList(rule.resources, `rules[${index}].resources`),
     adapters: stringList(rule.adapters, `rules[${index}].adapters`),
-    accountKinds: stringList(rule.accountKinds, `rules[${index}].accountKinds`),
+    accountIds: stringList(rule.accountIds, `rules[${index}].accountIds`),
     requiresArtifact: rule.requiresArtifact,
     artifactSha256s,
     allowTotp: rule.allowTotp,
+    approvals: approvalList(rule.approvals, `rules[${index}].approvals`),
   });
 }
 
@@ -138,15 +169,21 @@ function matchesRule(rule, request) {
     rule.capabilities.includes(request.capability) &&
     includesResource(rule.resources, request.resource) &&
     rule.adapters.includes(request.adapterId) &&
-    rule.accountKinds.includes(request.accountKind) &&
+    rule.accountIds.includes(request.accountId) &&
     artifactMatches &&
-    (!request.authFactors.includes('totp') || (rule.allowTotp && request.accountKind === 'dedicated_bot'))
+    rule.approvals.some(
+      (approval) =>
+        approval.id === request.approval.id &&
+        approval.mode === request.approval.mode &&
+        approval.expiresAt === request.approval.expiresAt &&
+        approval.maxUses === request.approval.maxUses,
+    )
   );
 }
 
 export class PolicyEngine {
   constructor(policy) {
-    assertExactKeys(policy, POLICY_KEYS, ['schemaVersion', 'generation', 'rules'], 'policy');
+    assertExactKeys(policy, POLICY_KEYS, ['schemaVersion', 'generation', 'accounts', 'rules'], 'policy');
     if (policy.schemaVersion !== 1) {
       fail('invalid_policy', 'only policy schemaVersion 1 is supported');
     }
@@ -158,6 +195,7 @@ export class PolicyEngine {
     }
 
     this.generation = policy.generation;
+    this.accounts = new CanonicalAccountRegistry(policy.accounts);
     this.rules = Object.freeze(policy.rules.map(normalizeRule));
     Object.freeze(this);
   }
@@ -168,11 +206,31 @@ export class PolicyEngine {
       fail('stale_policy_generation', 'lease request policy generation is stale');
     }
 
-    const rule = this.rules.find((candidate) => matchesRule(candidate, request));
-    if (!rule) {
+    if (Date.now() >= Date.parse(request.approval.expiresAt)) {
+      fail('approval_expired', 'approval has expired');
+    }
+    const matchingRules = this.rules.filter((candidate) => matchesRule(candidate, request));
+    if (matchingRules.length === 0) {
       fail('capability_forbidden', 'no enabled policy rule exactly matches the requested capability binding');
     }
+    const account = this.accounts.require({
+      provider: request.provider,
+      accountId: request.accountId,
+      credentialRefs: [request.credentialRef],
+    });
+    if (
+      request.authFactors.some((factor) => factor === 'password' || factor === 'totp') &&
+      account.kind !== 'dedicated_bot'
+    ) {
+      fail('HUMAN_REAUTH_REQUIRED', 'personal account password or TOTP automation is forbidden');
+    }
+    const rule = request.authFactors.includes('totp')
+      ? matchingRules.find((candidate) => candidate.allowTotp)
+      : matchingRules[0];
+    if (!rule) {
+      fail('capability_forbidden', 'no enabled policy rule allows TOTP for this capability binding');
+    }
 
-    return Object.freeze({ request, ruleId: rule.id });
+    return Object.freeze({ request, ruleId: rule.id, account });
   }
 }

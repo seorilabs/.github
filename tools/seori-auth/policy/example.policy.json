@@ -2,6 +2,16 @@
   "$schema": "../schemas/policy.schema.json",
   "schemaVersion": 1,
   "generation": 1,
+  "accounts": [
+    {
+      "provider": "apps-in-toss",
+      "accountId": "operator-account",
+      "kind": "dedicated_bot",
+      "credentialRefs": [
+        "shared/apps-in-toss/operator"
+      ]
+    }
+  ],
   "rules": [
     {
       "id": "apps-in-toss-private-bundle-upload",
@@ -41,14 +51,22 @@
       "adapters": [
         "ait-cli-v1"
       ],
-      "accountKinds": [
-        "dedicated_bot"
+      "accountIds": [
+        "operator-account"
       ],
       "requiresArtifact": true,
       "artifactSha256s": [
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       ],
-      "allowTotp": false
+      "allowTotp": false,
+      "approvals": [
+        {
+          "id": "approval-example-private-upload",
+          "mode": "preapproved",
+          "expiresAt": "2099-01-01T00:00:00.000Z",
+          "maxUses": 1
+        }
+      ]
     }
   ]
 }

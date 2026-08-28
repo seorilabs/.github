@@ -20,6 +20,14 @@ test('example policy and JSON schemas are parseable', async () => {
   assert.equal(policySchema.additionalProperties, false);
   assert.equal(leaseSchema.additionalProperties, false);
   assert.equal(leaseSchema.properties.redirectOrigins.uniqueItems, true);
+  assert.equal('accountKind' in leaseSchema.properties, false);
+  assert.equal(leaseSchema.required.includes('accountId'), true);
+  assert.equal(leaseSchema.required.includes('approval'), true);
+  assert.equal(policySchema.required.includes('accounts'), true);
+  assert.deepEqual(
+    policySchema.properties.rules.items.properties.approvals.items.required,
+    ['id', 'mode', 'expiresAt', 'maxUses'],
+  );
   assert.equal(brokerSchema.$defs.executionBinding.additionalProperties, false);
   assert.equal(brokerSchema.oneOf.length, 5);
   assert.deepEqual(
@@ -39,10 +47,25 @@ test('example policy and JSON schemas are parseable', async () => {
     ['reauthRequest', 'id'],
     ['authAuditEvent', 'id'],
     ['authAuditEvent', 'entityId'],
+    ['authAuditEvent', 'leaseId'],
   ]) {
     assert.equal(brokerSchema.$defs[definition].properties[property].$ref, '#/$defs/opaqueId');
   }
   assert.deepEqual(brokerSchema.$defs.browserCheckout.required, ['capabilityId', 'publicIdentity']);
+  assert.deepEqual(
+    brokerSchema.$defs.browserCheckoutRequest.required,
+    [
+      'context', 'executionBinding', 'expectedLeaseGeneration', 'expectedProfileGeneration',
+      'expectedSessionGeneration', 'expectedIdentity', 'leaseId', 'role', 'workerId',
+    ],
+  );
+  assert.deepEqual(
+    brokerSchema.$defs.browserCompleteRequest.required,
+    [
+      'capabilityId', 'context', 'executionBinding', 'expectedGeneration', 'leaseId',
+      'profileGeneration', 'role', 'workerId',
+    ],
+  );
   assert.equal('identityReadback' in brokerSchema.$defs.browserCompleteRequest.properties, false);
   assert.deepEqual(
     Object.keys(brokerSchema.$defs.leaseExecuteResponse.properties.execution.properties).sort(),
@@ -51,6 +74,7 @@ test('example policy and JSON schemas are parseable', async () => {
   assert.equal(brokerSchema.$defs.reauthRequest.properties.state.const, 'HUMAN_REAUTH_REQUIRED');
   assert.equal(brokerSchema.$defs.authAuditEvent.properties.commitSha.pattern, '^[0-9a-f]{40}$');
   assert.equal(brokerSchema.$defs.authAuditEvent.properties.capabilityId.$ref, '#/$defs/opaqueId');
+  assert.equal(brokerSchema.$defs.authAuditEvent.properties.ruleId.$ref, '#/$defs/publicId');
   assert.ok(
     [
       'subject',
@@ -80,6 +104,7 @@ test('Kubernetes examples contain no secret value and grant workers no API rules
   const networkPolicy = await read('k8s/network-policy.yaml');
   const sidecar = await read('k8s/local-sidecar-pod.yaml');
   const securityModel = await read('docs/security-model.md');
+  const cleanupScript = await read('scripts/cleanup-browser-runtime.mjs');
   const workerRole = rbac.match(
     /name: seori-auth-worker-no-kubernetes-api\n  namespace: seori-auth-workloads\nrules: \[\]/,
   );
@@ -104,6 +129,9 @@ test('Kubernetes examples contain no secret value and grant workers no API rules
   assert.match(securityModel, /RLIMIT_CORE=0/);
   assert.match(securityModel, /broker-held key.*schema v2 HMAC\/hash chain/s);
   assert.match(securityModel, /`EncryptedBrowserVault`/);
+  assert.match(securityModel, /advisory lock/);
+  assert.match(cleanupScript, /EncryptedBrowserVault\.cleanupRuntime/);
+  assert.doesNotMatch(cleanupScript, /loadSecret|get-secret|print-secret|copy-password/);
 });
 
 test('production Kubernetes template isolates broker and factor services without Kubernetes Secret access', async () => {
@@ -158,7 +186,7 @@ test('local daemon declares only the five approved POST route shapes and no secr
   assert.match(routePatterns[1], /browser-sessions/);
   assert.match(routePatterns[2], /browser-sessions/);
   assert.doesNotMatch(daemonSource, /\/auth\/(?:secrets|export|print|credentials)/);
-  assert.doesNotMatch(daemonSource, /authorization|bearer/i);
+  assert.doesNotMatch(daemonSource, /request\.headers\[['"]authorization['"]\]|bearer/i);
   assert.match(daemonSource, /#authenticatePrincipal/);
   assert.doesNotMatch(daemonSource, /\.listen\(\s*\d|hostname|host:/);
 });

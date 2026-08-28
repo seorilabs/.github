@@ -100,9 +100,29 @@ test('policy generation is exact', () => {
   );
 });
 
-test('TOTP is limited to policy-approved dedicated bot accounts', () => {
+test('approval expiry and max-use are fixed by signed policy rather than caller input', () => {
+  const engine = new PolicyEngine(makePolicy());
+  assert.throws(
+    () => engine.authorize(makeRequest({
+      approval: {
+        id: 'approval-123', mode: 'preapproved', expiresAt: '2098-01-01T00:00:00.000Z', maxUses: 1,
+      },
+    })),
+    (error) => error instanceof SeoriAuthError && error.code === 'capability_forbidden',
+  );
+
+  const expiredApproval = {
+    id: 'approval-123', mode: 'preapproved', expiresAt: '2000-01-01T00:00:00.000Z', maxUses: 1,
+  };
+  const expired = new PolicyEngine(makePolicy({ approvals: [expiredApproval] }));
+  assert.throws(
+    () => expired.authorize(makeRequest({ approval: expiredApproval })),
+    (error) => error instanceof SeoriAuthError && error.code === 'approval_expired',
+  );
+});
+
+test('password/TOTP is limited to canonical dedicated bot accounts and TOTP needs policy approval', () => {
   const policy = makePolicy({
-    accountKinds: ['dedicated_bot', 'human'],
     allowTotp: true,
   });
   const engine = new PolicyEngine(policy);
@@ -112,7 +132,28 @@ test('TOTP is limited to policy-approved dedicated bot accounts', () => {
     'private-upload',
   );
   assert.throws(
-    () => engine.authorize(makeRequest({ accountKind: 'human', authFactors: ['password', 'totp'] })),
+    () => new PolicyEngine(makePolicy()).authorize(makeRequest({ authFactors: ['password', 'totp'] })),
     (error) => error instanceof SeoriAuthError && error.code === 'capability_forbidden',
+  );
+  const human = new PolicyEngine(makePolicy(
+    {},
+    {
+      accounts: [{
+        provider: 'apps-in-toss',
+        accountId: 'operator-account',
+        kind: 'human',
+        credentialRefs: ['shared/apps-in-toss/operator'],
+      }],
+    },
+  ));
+  for (const authFactors of [['password'], ['password', 'totp']]) {
+    assert.throws(
+      () => human.authorize(makeRequest({ authFactors })),
+      (error) => error instanceof SeoriAuthError && error.code === 'HUMAN_REAUTH_REQUIRED',
+    );
+  }
+  assert.throws(
+    () => engine.authorize(makeRequest({ accountKind: 'dedicated_bot' })),
+    (error) => error instanceof SeoriAuthError && error.code === 'invalid_request',
   );
 });

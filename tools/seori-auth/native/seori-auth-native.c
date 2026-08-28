@@ -1,11 +1,13 @@
 #define _GNU_SOURCE
 
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -115,6 +117,46 @@ static int self_test(void) {
   return 0;
 }
 
+static int hold_lock(int argc, char **argv) {
+  if (argc != 3 || argv[2][0] != '/') {
+    fail_closed("hold-lock requires one absolute path");
+  }
+  harden_process();
+  const int flags = O_RDWR | O_CREAT
+#if defined(O_NOFOLLOW)
+      | O_NOFOLLOW
+#endif
+      ;
+  const int lock_fd = open(argv[2], flags, 0600);
+  if (lock_fd < 0) {
+    fail_closed("unable to open lock file");
+  }
+  struct stat state;
+  if (fstat(lock_fd, &state) != 0 || !S_ISREG(state.st_mode) ||
+      (state.st_mode & 0077) != 0 || state.st_uid != geteuid()) {
+    (void)close(lock_fd);
+    fail_closed("lock file is not a private owned regular file");
+  }
+  if (flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
+    const int lock_error = errno;
+    (void)close(lock_fd);
+    if (lock_error == EWOULDBLOCK || lock_error == EAGAIN) {
+      _exit(75);
+    }
+    fail_closed("unable to acquire lock");
+  }
+  if (printf("{\"locked\":true}\n") < 0 || fflush(stdout) != 0) {
+    (void)close(lock_fd);
+    fail_closed("unable to report lock acquisition");
+  }
+  char buffer[64];
+  while (read(STDIN_FILENO, buffer, sizeof(buffer)) > 0) {
+  }
+  (void)flock(lock_fd, LOCK_UN);
+  (void)close(lock_fd);
+  return 0;
+}
+
 static int launch(int argc, char **argv) {
   if (argc < 4 || strcmp(argv[2], "--") != 0 || argv[3][0] != '/') {
     fail_closed("launch requires an absolute executable after --");
@@ -131,6 +173,9 @@ int main(int argc, char **argv) {
   }
   if (argc == 2 && strcmp(argv[1], "self-test") == 0) {
     return self_test();
+  }
+  if (argc >= 2 && strcmp(argv[1], "hold-lock") == 0) {
+    return hold_lock(argc, argv);
   }
   if (argc >= 2 && strcmp(argv[1], "launch") == 0) {
     return launch(argc, argv);

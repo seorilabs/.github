@@ -26,8 +26,9 @@ const REQUEST_KEYS = new Set([
   'resource',
   'artifact',
   'adapterId',
-  'accountKind',
+  'accountId',
   'authFactors',
+  'approval',
 ]);
 
 function assertOnlyKeys(value, allowed, label) {
@@ -116,6 +117,22 @@ function normalizeArtifact(artifact) {
   });
 }
 
+function normalizeApproval(approval) {
+  assertOnlyKeys(approval, new Set(['id', 'mode', 'expiresAt', 'maxUses']), 'approval');
+  const id = auditSafeId(approval.id, 'approval.id');
+  if (!['preapproved', 'per_run'].includes(approval.mode)) {
+    fail('invalid_request', 'approval.mode must be preapproved or per_run');
+  }
+  if (
+    typeof approval.expiresAt !== 'string' || !Number.isFinite(Date.parse(approval.expiresAt)) ||
+    approval.expiresAt !== new Date(approval.expiresAt).toISOString()
+  ) {
+    fail('invalid_request', 'approval.expiresAt must be a canonical ISO timestamp');
+  }
+  if (approval.maxUses !== 1) fail('invalid_request', 'approval.maxUses must be one');
+  return Object.freeze({ id, mode: approval.mode, expiresAt: approval.expiresAt, maxUses: 1 });
+}
+
 export function normalizeLeaseRequest(request) {
   assertOnlyKeys(request, REQUEST_KEYS, 'lease request');
 
@@ -137,9 +154,7 @@ export function normalizeLeaseRequest(request) {
   if (!SIMPLE_ID.test(request.adapterId ?? '')) {
     fail('invalid_request', 'adapterId must be a lowercase identifier');
   }
-  if (!['dedicated_bot', 'human'].includes(request.accountKind)) {
-    fail('invalid_request', 'accountKind must be dedicated_bot or human');
-  }
+  auditSafeId(request.accountId, 'accountId');
   if (
     !Array.isArray(request.redirectOrigins) ||
     request.redirectOrigins.length > 8 ||
@@ -173,8 +188,9 @@ export function normalizeLeaseRequest(request) {
     resource: normalizeResource(request.resource),
     artifact: normalizeArtifact(request.artifact),
     adapterId: request.adapterId,
-    accountKind: request.accountKind,
+    accountId: request.accountId,
     authFactors: Object.freeze([...request.authFactors]),
+    approval: normalizeApproval(request.approval),
   });
 }
 

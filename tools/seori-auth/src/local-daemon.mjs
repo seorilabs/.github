@@ -13,6 +13,7 @@ import { normalizeLeaseRequest } from './validation.mjs';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const IDENTITY_READBACK_TIMEOUT_MS = 10_000;
+const BROWSER_OPERATION_TIMEOUT_MS = 120_000;
 const PUBLIC_PATH_ID = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$/;
 
 function assertExactBody(value, keys) {
@@ -51,7 +52,8 @@ function errorStatus(code) {
     ['capability_forbidden', 'lease_binding_mismatch', 'browser_session_binding_mismatch',
       'identity_readback_mismatch', 'principal_unauthenticated', 'principal_binding_mismatch'].includes(code)
   ) return 403;
-  if (['lease_expired', 'browser_capability_expired'].includes(code)) return 410;
+  if (['lease_expired', 'browser_capability_expired', 'approval_expired'].includes(code)) return 410;
+  if (code === 'HUMAN_REAUTH_REQUIRED') return 409;
   if (
     ['generation_conflict', 'lease_already_used', 'browser_capability_invalid', 'browser_account_in_use',
       'browser_session_exists', 'stale_credential_generation', 'stale_policy_generation'].includes(code)
@@ -130,6 +132,8 @@ export class LocalAuthDaemon {
   #getCredentialGeneration;
   #readBrowserIdentity;
   #authenticatePrincipal;
+  #browserVault;
+  #executeBrowserSession;
   #server;
   #socketIdentity;
 
@@ -142,11 +146,20 @@ export class LocalAuthDaemon {
     getCredentialGeneration,
     readBrowserIdentity,
     authenticatePrincipal,
+    browserVault,
+    executeBrowserSession,
   }) {
     if (typeof socketPath !== 'string' || !isAbsolute(socketPath)) {
       throw new TypeError('socketPath must be an absolute Unix domain socket path');
     }
-    if (!state || typeof state.issueCredentialCheckout !== 'function') {
+    if (
+      !state || typeof state !== 'object' ||
+      [
+        'issueCredentialCheckout', 'consumeCredentialCheckout', 'recordCredentialExecution',
+        'checkoutBrowserSession', 'authorizeBrowserSessionExecution', 'completeBrowserSession',
+        'abortBrowserSession', 'createReauthRequest',
+      ].some((method) => typeof state[method] !== 'function')
+    ) {
       throw new TypeError('state must be a DurableAuthState');
     }
     if (typeof loadSecret !== 'function') {
@@ -161,6 +174,16 @@ export class LocalAuthDaemon {
     if (typeof authenticatePrincipal !== 'function') {
       throw new TypeError('authenticatePrincipal must attest the Unix peer outside the HTTP body');
     }
+    if (
+      !browserVault || typeof browserVault !== 'object' ||
+      typeof browserVault.checkout !== 'function' || typeof browserVault.withClone !== 'function' ||
+      typeof browserVault.complete !== 'function' || typeof browserVault.abort !== 'function'
+    ) {
+      throw new TypeError('browserVault must provide the trusted isolated profile boundary');
+    }
+    if (typeof executeBrowserSession !== 'function') {
+      throw new TypeError('executeBrowserSession must be a trusted browser adapter callback');
+    }
     this.#socketPath = socketPath;
     this.#state = state;
     this.#policy = new PolicyEngine(policy);
@@ -169,6 +192,8 @@ export class LocalAuthDaemon {
     this.#getCredentialGeneration = getCredentialGeneration;
     this.#readBrowserIdentity = readBrowserIdentity;
     this.#authenticatePrincipal = authenticatePrincipal;
+    this.#browserVault = browserVault;
+    this.#executeBrowserSession = executeBrowserSession;
   }
 
   async start() {
@@ -336,33 +361,153 @@ export class LocalAuthDaemon {
 
     const checkoutMatch = url.pathname.match(/^\/auth\/browser-sessions\/([^/]+)\/checkout$/);
     if (checkoutMatch) {
-      assertExactBody(body, ['expectedGeneration', 'executionBinding', 'expectedIdentity']);
+      assertExactBody(body, [
+        'context', 'executionBinding', 'expectedLeaseGeneration', 'expectedProfileGeneration',
+        'expectedSessionGeneration', 'expectedIdentity', 'leaseId', 'role', 'workerId',
+      ]);
+      assertAttestedPrincipal(principal, {
+        subject: body.context?.subject,
+        runId: body.context?.runId,
+        repository: body.context?.repository,
+        workerId: body.workerId,
+      });
       assertAttestedPrincipal(principal, body.executionBinding);
+      const context = normalizeLeaseRequest(body.context);
+      const authorized = this.#policy.authorize(context);
+      const currentCredentialGeneration = await this.#currentCredentialGeneration(context.credentialRef);
+      const consumed = await this.#state.consumeCredentialCheckout({
+        id: pathId(body.leaseId),
+        expectedGeneration: body.expectedLeaseGeneration,
+        context,
+        workerId: principal.workerId,
+        currentCredentialGeneration,
+        currentPolicyGeneration: this.#policy.generation,
+      });
+      if (authorized.ruleId !== consumed.ruleId) {
+        fail('browser_session_binding_mismatch', 'browser lease rule no longer matches policy');
+      }
+      const authorization = Object.freeze({
+        leaseId: consumed.id,
+        ruleId: consumed.ruleId,
+        profileGeneration: body.expectedProfileGeneration,
+        role: body.role,
+        request: consumed.binding,
+      });
+      const sessionId = pathId(checkoutMatch[1]);
       const browserSession = await this.#state.checkoutBrowserSession({
-        sessionId: pathId(checkoutMatch[1]),
-        expectedGeneration: body.expectedGeneration,
+        sessionId,
+        expectedGeneration: body.expectedSessionGeneration,
         executionBinding: principal,
         expectedIdentity: body.expectedIdentity,
+        authorization,
       });
+      try {
+        await this.#browserVault.checkout({
+          capabilityId: browserSession.capabilityId,
+          role: body.role,
+          expectedIdentity: body.expectedIdentity,
+          expectedGeneration: body.expectedProfileGeneration,
+          executionBinding: principal,
+          sourceSha: context.commitSha,
+        });
+      } catch (error) {
+        await this.#state.abortBrowserSession({
+          sessionId,
+          capabilityId: browserSession.capabilityId,
+          expectedGeneration: body.expectedSessionGeneration + 1,
+          executionBinding: principal,
+          authorization,
+        }).catch(() => {});
+        throw error;
+      }
       sendJson(response, 200, { browserSession });
       return;
     }
 
     const completeMatch = url.pathname.match(/^\/auth\/browser-sessions\/([^/]+)\/complete$/);
     if (completeMatch) {
-      assertExactBody(body, ['capabilityId', 'expectedGeneration', 'executionBinding']);
+      assertExactBody(body, [
+        'capabilityId', 'context', 'executionBinding', 'expectedGeneration', 'leaseId',
+        'profileGeneration', 'role', 'workerId',
+      ]);
+      assertAttestedPrincipal(principal, {
+        subject: body.context?.subject,
+        runId: body.context?.runId,
+        repository: body.context?.repository,
+        workerId: body.workerId,
+      });
       assertAttestedPrincipal(principal, body.executionBinding);
-      const browserSession = await this.#state.completeBrowserSession({
-        sessionId: pathId(completeMatch[1]),
+      const context = normalizeLeaseRequest(body.context);
+      const authorized = this.#policy.authorize(context);
+      const currentCredentialGeneration = await this.#currentCredentialGeneration(context.credentialRef);
+      if (currentCredentialGeneration !== context.credentialGeneration) {
+        fail('stale_credential_generation', 'credential generation changed during browser execution');
+      }
+      const authorization = Object.freeze({
+        leaseId: pathId(body.leaseId),
+        ruleId: authorized.ruleId,
+        profileGeneration: body.profileGeneration,
+        role: body.role,
+        request: context,
+      });
+      const sessionId = pathId(completeMatch[1]);
+      await this.#state.authorizeBrowserSessionExecution({
+        sessionId,
         capabilityId: body.capabilityId,
         expectedGeneration: body.expectedGeneration,
         executionBinding: principal,
-        readIdentity: (binding) => withTimeout(
-          Promise.resolve().then(() => this.#readBrowserIdentity(binding)),
-          IDENTITY_READBACK_TIMEOUT_MS,
-        ),
+        authorization,
       });
-      sendJson(response, 200, { browserSession });
+      let observedIdentity;
+      try {
+        await this.#browserVault.withClone({
+          capabilityId: body.capabilityId,
+          executionBinding: principal,
+          sourceSha: context.commitSha,
+        }, (cloneDirectory) => withTimeout(
+          Promise.resolve().then(() => this.#executeBrowserSession(Object.freeze({
+            cloneDirectory,
+            authorization,
+          }))),
+          BROWSER_OPERATION_TIMEOUT_MS,
+        ));
+        observedIdentity = await withTimeout(
+          Promise.resolve().then(() => this.#readBrowserIdentity({
+            sessionId,
+            capabilityId: body.capabilityId,
+          })),
+          IDENTITY_READBACK_TIMEOUT_MS,
+        );
+        await this.#browserVault.complete({
+          capabilityId: body.capabilityId,
+          executionBinding: principal,
+          sourceSha: context.commitSha,
+          observedIdentity,
+        });
+        const browserSession = await this.#state.completeBrowserSession({
+          sessionId,
+          capabilityId: body.capabilityId,
+          expectedGeneration: body.expectedGeneration,
+          executionBinding: principal,
+          authorization,
+          readIdentity: async () => observedIdentity,
+        });
+        sendJson(response, 200, { browserSession });
+      } catch (error) {
+        await this.#browserVault.abort({
+          capabilityId: body.capabilityId,
+          executionBinding: principal,
+          sourceSha: context.commitSha,
+        }).catch(() => {});
+        await this.#state.abortBrowserSession({
+          sessionId,
+          capabilityId: body.capabilityId,
+          expectedGeneration: body.expectedGeneration,
+          executionBinding: principal,
+          authorization,
+        }).catch(() => {});
+        throw error;
+      }
       return;
     }
 

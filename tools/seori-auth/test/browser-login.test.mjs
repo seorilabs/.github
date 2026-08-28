@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   BrowserLoginBoundary,
+  CanonicalAccountRegistry,
   HUMAN_REAUTH_REQUIRED,
   SeoriAuthError,
 } from '../src/index.mjs';
@@ -35,13 +36,24 @@ function request(overrides = {}) {
     passwordGeneration: 1,
     totpRef: 'shared/apps-in-toss/bot-totp',
     totpGeneration: 2,
-    accountKind: 'dedicated_bot',
     expectedOrigin: 'https://business.toss.im',
     expectedRedirectOrigins: ['https://accounts.toss.im'],
     expectedIdentity: identity(),
     authFactors: ['password', 'totp'],
     ...overrides,
   };
+}
+
+function accountRegistry(kind = 'dedicated_bot') {
+  return new CanonicalAccountRegistry([{
+    provider: 'apps-in-toss',
+    accountId: 'automation-account',
+    kind,
+    credentialRefs: [
+      'shared/apps-in-toss/bot-password',
+      'shared/apps-in-toss/bot-totp',
+    ],
+  }]);
 }
 
 function securityControls(overrides = {}) {
@@ -65,6 +77,7 @@ test('password and TOTP stay inside distinct trusted services and exact browser 
   const totp = Buffer.from('123456');
   const calls = [];
   const login = new BrowserLoginBoundary({
+    accountRegistry: accountRegistry(),
     passwordLoader: {
       async loadPassword(input) {
         calls.push({ service: 'password', input });
@@ -124,6 +137,7 @@ test('look-alike origin and wrong public identity fail before either factor serv
     let passwordLoads = 0;
     let totpSigns = 0;
     const login = new BrowserLoginBoundary({
+      accountRegistry: accountRegistry(),
       passwordLoader: { async loadPassword() { passwordLoads += 1; return Buffer.from('unused'); } },
       totpSigner: { async signCode() { totpSigns += 1; return { code: Buffer.from('123456'), expiresAt: Date.now() + 10_000 }; } },
     });
@@ -145,9 +159,10 @@ test('look-alike origin and wrong public identity fail before either factor serv
   }
 });
 
-test('human challenges and personal-account TOTP stop without retry', async () => {
+test('human challenges and canonical human-account password/TOTP stop before any loader', async () => {
   let loads = 0;
   const login = new BrowserLoginBoundary({
+    accountRegistry: accountRegistry(),
     passwordLoader: { async loadPassword() { loads += 1; return Buffer.from('unused'); } },
     totpSigner: { async signCode() { throw new Error('must not run'); } },
   });
@@ -179,18 +194,26 @@ test('human challenges and personal-account TOTP stop without retry', async () =
   );
   assert.equal(loads, 0, 'revoked session must not trigger password retry');
 
-  await assert.rejects(
-    login.authenticate({
-      ...request({ accountKind: 'human' }),
-      browser: {
-        async securityControls() { return securityControls(); },
-        async inspect() { throw new Error('must not inspect'); },
-        async injectPassword() {},
-        async injectTotp() {},
-      },
-    }),
-    (error) => error instanceof SeoriAuthError && error.code === 'totp_forbidden',
-  );
+  const humanLogin = new BrowserLoginBoundary({
+    accountRegistry: accountRegistry('human'),
+    passwordLoader: { async loadPassword() { loads += 1; return Buffer.from('unused'); } },
+    totpSigner: { async signCode() { throw new Error('must not run'); } },
+  });
+  for (const authFactors of [['password'], ['password', 'totp']]) {
+    await assert.rejects(
+      humanLogin.authenticate({
+        ...request({ authFactors }),
+        browser: {
+          async securityControls() { throw new Error('must not inspect controls'); },
+          async inspect() { throw new Error('must not inspect'); },
+          async injectPassword() {},
+          async injectTotp() {},
+        },
+      }),
+      (error) => error instanceof SeoriAuthError && error.code === HUMAN_REAUTH_REQUIRED,
+    );
+  }
+  assert.equal(loads, 0, 'human password must stop before loading');
 });
 
 test('capture, export, clipboard, and network controls fail before password loading', async () => {
@@ -200,6 +223,7 @@ test('capture, export, clipboard, and network controls fail before password load
   ]) {
     let loads = 0;
     const login = new BrowserLoginBoundary({
+      accountRegistry: accountRegistry(),
       passwordLoader: { async loadPassword() { loads += 1; return Buffer.from('unused'); } },
       totpSigner: { async signCode() { throw new Error('must not run'); } },
     });
@@ -222,7 +246,11 @@ test('capture, export, clipboard, and network controls fail before password load
 test('password and TOTP service objects cannot be the same boundary', () => {
   const combined = { loadPassword() {}, signCode() {} };
   assert.throws(
-    () => new BrowserLoginBoundary({ passwordLoader: combined, totpSigner: combined }),
+    () => new BrowserLoginBoundary({
+      passwordLoader: combined,
+      totpSigner: combined,
+      accountRegistry: accountRegistry(),
+    }),
     (error) => error instanceof SeoriAuthError && error.code === 'invalid_factor_service',
   );
 });

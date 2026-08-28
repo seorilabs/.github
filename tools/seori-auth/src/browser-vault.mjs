@@ -24,10 +24,12 @@ import { isDeepStrictEqual } from 'node:util';
 import { normalizeExecutionBinding, normalizePublicIdentity } from './durable-state.mjs';
 import { fail, SeoriAuthError } from './errors.mjs';
 import { LEASE_TTL_MS } from './lease-store.mjs';
+import { NATIVE_FILE_LOCK_BRAND } from './native-lock-brand.mjs';
 
 const ROLE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
 const ENVELOPE_KEYS = ['algorithm', 'ciphertext', 'iv', 'tag', 'version'];
+const CHECKOUT_DIRECTORY = /^checkout-([0-9a-f]{64})-[A-Za-z0-9_-]+$/;
 
 function exactKeys(value, expected) {
   return value && typeof value === 'object' && !Array.isArray(value) &&
@@ -311,6 +313,40 @@ async function readPrivateRegularFile(path, label) {
   }
 }
 
+function validateLockProvider(lockProvider) {
+  if (
+    !lockProvider || typeof lockProvider !== 'object' ||
+    lockProvider[NATIVE_FILE_LOCK_BRAND] !== true ||
+    typeof lockProvider.acquire !== 'function'
+  ) {
+    fail('invalid_browser_vault', 'trusted native file lock provider is required');
+  }
+  return lockProvider;
+}
+
+async function cleanupRuntimeClones(runtimeDirectory, lockDirectory, lockProvider) {
+  const entries = await readdir(runtimeDirectory, { withFileTypes: true });
+  for (const entry of entries) {
+    const match = entry.name.match(CHECKOUT_DIRECTORY);
+    if (!match) continue;
+    if (!entry.isDirectory() || entry.isSymbolicLink()) {
+      fail('insecure_browser_vault', 'browser runtime checkout entry is not a directory');
+    }
+    let accountLock;
+    try {
+      accountLock = await lockProvider.acquire(join(lockDirectory, `${match[1]}.lock`));
+    } catch (error) {
+      if (error instanceof SeoriAuthError && error.code === 'browser_account_in_use') continue;
+      throw error;
+    }
+    try {
+      await rm(join(runtimeDirectory, entry.name), { recursive: true, force: true });
+    } finally {
+      await accountLock.release();
+    }
+  }
+}
+
 export class EncryptedBrowserVault {
   #vaultDirectory;
   #runtimeDirectory;
@@ -321,6 +357,7 @@ export class EncryptedBrowserVault {
   #ttlMs;
   #maxFiles;
   #maxBytes;
+  #lockProvider;
   #checkouts = new Map();
   #closed = false;
 
@@ -328,6 +365,7 @@ export class EncryptedBrowserVault {
     vaultDirectory,
     runtimeDirectory,
     encryptionKey,
+    lockProvider,
     clock = () => Date.now(),
     idFactory = () => randomUUID(),
     ttlMs = LEASE_TTL_MS,
@@ -357,6 +395,8 @@ export class EncryptedBrowserVault {
       fail('invalid_browser_vault', 'persistent vault and ephemeral runtime must be separate paths');
     }
     const lockDirectory = await secureDirectory(join(runtime, '.locks'), 'browser account lock directory');
+    const trustedLockProvider = validateLockProvider(lockProvider);
+    await cleanupRuntimeClones(runtime, lockDirectory, trustedLockProvider);
     return new EncryptedBrowserVault({
       vaultDirectory: vault,
       runtimeDirectory: runtime,
@@ -367,7 +407,18 @@ export class EncryptedBrowserVault {
       ttlMs,
       maxFiles,
       maxBytes,
+      lockProvider: trustedLockProvider,
     });
+  }
+
+  static async cleanupRuntime({ runtimeDirectory, lockProvider }) {
+    if (typeof runtimeDirectory !== 'string' || !isAbsolute(runtimeDirectory)) {
+      fail('invalid_browser_vault', 'browser runtime path must be absolute');
+    }
+    const runtime = await secureDirectory(resolve(runtimeDirectory), 'browser runtime');
+    const lockDirectory = await secureDirectory(join(runtime, '.locks'), 'browser account lock directory');
+    await cleanupRuntimeClones(runtime, lockDirectory, validateLockProvider(lockProvider));
+    return Object.freeze({ state: 'CLEAN' });
   }
 
   constructor(options) {
@@ -380,6 +431,7 @@ export class EncryptedBrowserVault {
     this.#ttlMs = options.ttlMs;
     this.#maxFiles = options.maxFiles;
     this.#maxBytes = options.maxBytes;
+    this.#lockProvider = options.lockProvider;
   }
 
   #assertOpen() {
@@ -402,76 +454,25 @@ export class EncryptedBrowserVault {
     return join(this.#lockDirectory, `${accountDigest(this.#key, identity)}.lock`);
   }
 
-  async #acquireAccountLock(identity, capabilityId, expiresAt) {
-    const lockPath = this.#lockPath(identity);
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        const handle = await fsOpen(
-          lockPath,
-          fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY | (fsConstants.O_NOFOLLOW ?? 0),
-          0o600,
-        );
-        try {
-          await handle.writeFile(JSON.stringify({ capabilityId, expiresAt }));
-          await handle.sync();
-          return lockPath;
-        } catch (error) {
-          await unlink(lockPath).catch(() => {});
-          throw error;
-        } finally {
-          await handle.close();
-        }
-      } catch (error) {
-        if (error.code !== 'EEXIST') throw error;
-        let lock;
-        try {
-          const stat = await lstat(lockPath);
-          if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) {
-            fail('insecure_browser_vault', 'browser account lock is not a private regular file');
-          }
-          const encodedLock = await readPrivateRegularFile(lockPath, 'browser account lock');
-          lock = JSON.parse(encodedLock.toString('utf8'));
-          encodedLock.fill(0);
-        } catch (readError) {
-          if (readError.code === 'ENOENT') continue;
-          if (readError?.code === 'insecure_browser_vault') throw readError;
-          fail('browser_account_in_use', 'browser account lock could not be validated');
-        }
-        if (!Number.isSafeInteger(lock.expiresAt) || lock.expiresAt > this.#now()) {
-          fail('browser_account_in_use', 'provider account already has an active browser checkout');
-        }
-        await unlink(lockPath).catch((unlinkError) => {
-          if (unlinkError.code !== 'ENOENT') throw unlinkError;
-        });
-      }
-    }
-    fail('browser_account_in_use', 'provider account already has an active browser checkout');
+  async #acquireAccountLock(identity) {
+    return this.#lockProvider.acquire(this.#lockPath(identity));
   }
 
   async #releaseCheckout(checkout) {
-    await rm(checkout.cloneDirectory, { recursive: true, force: true });
-    await this.#releaseAccountLock(checkout.lockPath, checkout.capabilityId);
-    this.#checkouts.delete(checkout.capabilityId);
-  }
-
-  async #releaseAccountLock(lockPath, capabilityId) {
-    let lock;
-    try {
-      const lockStat = await lstat(lockPath);
-      if (!lockStat.isFile() || lockStat.isSymbolicLink() || (lockStat.mode & 0o077) !== 0) {
-        fail('insecure_browser_vault', 'browser account lock is not a private regular file');
+    if (checkout.releasePromise) return checkout.releasePromise;
+    checkout.releasePromise = (async () => {
+      clearTimeout(checkout.expiryTimer);
+      try {
+        await rm(checkout.cloneDirectory, { recursive: true, force: true });
+      } finally {
+        try {
+          await checkout.accountLock.release();
+        } finally {
+          this.#checkouts.delete(checkout.capabilityId);
+        }
       }
-      const encodedLock = await readPrivateRegularFile(lockPath, 'browser account lock');
-      lock = JSON.parse(encodedLock.toString('utf8'));
-      encodedLock.fill(0);
-    } catch (error) {
-      if (error.code === 'ENOENT') return;
-      fail('insecure_browser_vault', 'browser account lock could not be verified before release');
-    }
-    if (lock.capabilityId !== capabilityId) return;
-    await unlink(lockPath).catch((error) => {
-      if (error.code !== 'ENOENT') throw error;
-    });
+    })();
+    return checkout.releasePromise;
   }
 
   async #sealDirectory({ sourceDirectory, identity, role, generation }) {
@@ -507,21 +508,16 @@ export class EncryptedBrowserVault {
     if (!Number.isSafeInteger(generation) || generation < 1) {
       fail('invalid_browser_profile', 'browser profile generation is invalid');
     }
-    const registeredCapabilityId = normalizeCapabilityId(this.#idFactory());
-    const lockPath = await this.#acquireAccountLock(
-      identity,
-      registeredCapabilityId,
-      this.#now() + this.#ttlMs,
-    );
+    const accountLock = await this.#acquireAccountLock(identity);
     try {
       await this.#sealDirectory({ sourceDirectory: canonicalSource, identity, role: normalizedRole, generation });
     } finally {
-      await this.#releaseAccountLock(lockPath, registeredCapabilityId);
+      await accountLock.release();
     }
     return Object.freeze({ publicIdentity: identity, generation });
   }
 
-  async checkout({ role, expectedIdentity, expectedGeneration, executionBinding, sourceSha }) {
+  async checkout({ capabilityId, role, expectedIdentity, expectedGeneration, executionBinding, sourceSha }) {
     this.#assertOpen();
     const identity = normalizePublicIdentity(expectedIdentity);
     const binding = normalizeExecutionBinding(executionBinding);
@@ -529,13 +525,14 @@ export class EncryptedBrowserVault {
       fail('invalid_browser_profile', 'browser profile generation or source SHA is invalid');
     }
     const normalizedRole = assertRole(role);
-    const checkoutCapabilityId = normalizeCapabilityId(this.#idFactory());
+    const checkoutCapabilityId = normalizeCapabilityId(capabilityId ?? this.#idFactory());
     if (this.#checkouts.has(checkoutCapabilityId)) {
       fail('invalid_browser_vault', 'browser capability id is not unique');
     }
     const now = this.#now();
     const expiresAt = now + this.#ttlMs;
-    const lockPath = await this.#acquireAccountLock(identity, checkoutCapabilityId, expiresAt);
+    const accountLockDigest = accountDigest(this.#key, identity);
+    const accountLock = await this.#acquireAccountLock(identity);
     let cloneDirectory;
     try {
       const profileKey = profileDigest(this.#key, identity, normalizedRole);
@@ -562,7 +559,7 @@ export class EncryptedBrowserVault {
         for (const file of decoded.files) file.data.fill(0);
         fail('browser_profile_generation_mismatch', 'encrypted browser profile generation is stale');
       }
-      cloneDirectory = await mkdtemp(join(this.#runtimeDirectory, 'checkout-'));
+      cloneDirectory = await mkdtemp(join(this.#runtimeDirectory, `checkout-${accountLockDigest}-`));
       await materializeClone(cloneDirectory, decoded.files);
       const checkout = {
         capabilityId: checkoutCapabilityId,
@@ -573,9 +570,15 @@ export class EncryptedBrowserVault {
         generation: decoded.generation,
         expiresAt,
         cloneDirectory,
-        lockPath,
+        accountLock,
+        expiryTimer: undefined,
+        releasePromise: undefined,
       };
       this.#checkouts.set(checkoutCapabilityId, checkout);
+      checkout.expiryTimer = setTimeout(() => {
+        this.#releaseCheckout(checkout).catch(() => {});
+      }, this.#ttlMs);
+      checkout.expiryTimer.unref();
       return Object.freeze({
         capabilityId: checkoutCapabilityId,
         publicIdentity: identity,
@@ -584,7 +587,7 @@ export class EncryptedBrowserVault {
       });
     } catch (error) {
       if (cloneDirectory) await rm(cloneDirectory, { recursive: true, force: true }).catch(() => {});
-      await this.#releaseAccountLock(lockPath, checkoutCapabilityId).catch(() => {});
+      await accountLock.release().catch(() => {});
       if (error?.code === 'ENOENT') fail('browser_profile_not_found', 'encrypted browser profile does not exist');
       throw error;
     }

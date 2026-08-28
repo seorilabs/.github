@@ -7,12 +7,13 @@ import test from 'node:test';
 
 import {
   BrowserLoginBoundary,
+  CanonicalAccountRegistry,
   DurableAuthState,
   EncryptedBrowserVault,
   PolicyEngine,
   SeoriAuthBroker,
 } from '../src/index.mjs';
-import { makePolicy, makeRequest } from '../fixtures/helpers.mjs';
+import { makeNativeLockProvider, makePolicy, makeRequest } from '../fixtures/helpers.mjs';
 
 const fixture = fileURLToPath(new URL('../fixtures/echo-secret-child.mjs', import.meta.url));
 
@@ -128,6 +129,15 @@ test('deterministic canaries never cross prompt, output, argv, env, journal, log
     const loginPassword = Buffer.from(passwordCanary);
     const loginTotp = Buffer.from(totpCanary);
     const login = new BrowserLoginBoundary({
+      accountRegistry: new CanonicalAccountRegistry([{
+        provider: 'apps-in-toss',
+        accountId: 'fake-automation-account',
+        kind: 'dedicated_bot',
+        credentialRefs: [
+          'shared/apps-in-toss/bot-password',
+          'shared/apps-in-toss/bot-totp',
+        ],
+      }]),
       passwordLoader: { async loadPassword() { return loginPassword; } },
       totpSigner: {
         async signCode() {
@@ -179,7 +189,6 @@ test('deterministic canaries never cross prompt, output, argv, env, journal, log
       passwordGeneration: 1,
       totpRef: 'shared/apps-in-toss/bot-totp',
       totpGeneration: 1,
-      accountKind: 'dedicated_bot',
       expectedOrigin: 'https://business.toss.im',
       expectedRedirectOrigins: ['https://accounts.toss.im'],
       expectedIdentity: identity(),
@@ -195,6 +204,7 @@ test('deterministic canaries never cross prompt, output, argv, env, journal, log
       runtimeDirectory,
       encryptionKey: vaultKey,
       idFactory: () => 'canary-browser-capability',
+      lockProvider: await makeNativeLockProvider(),
     });
     await vault.registerProfile({ sourceDirectory: profileSource, role: 'release', publicIdentity: identity() });
     const browserCheckout = await vault.checkout({

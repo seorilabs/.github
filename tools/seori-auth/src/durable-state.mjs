@@ -16,6 +16,7 @@ const COMMIT_SHA = /^[0-9a-f]{40}$/;
 const CAPABILITY = /^[a-z0-9][a-z0-9.-]*$/;
 const PROVIDER = /^[a-z0-9][a-z0-9-]*$/;
 const CREDENTIAL_REF = /^(shared|app)\/[a-z0-9][a-z0-9-]*(\/[a-z0-9][a-z0-9-]*)+$/;
+const BROWSER_ROLE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const JOURNAL_FILE = 'auth-journal.jsonl';
 const JOURNAL_GENESIS_MAC = '0'.repeat(64);
 const JOURNAL_MAC = /^[0-9a-f]{64}$/;
@@ -111,6 +112,20 @@ function leaseBinding(request, workerId) {
   });
 }
 
+function normalizeBrowserAuthorization(value) {
+  const keys = new Set(['leaseId', 'profileGeneration', 'request', 'role', 'ruleId']);
+  assertExactKeys(value, keys, 'browser authorization');
+  const request = normalizeLeaseRequest(value.request);
+  if (!BROWSER_ROLE.test(value.role ?? '')) fail('invalid_request', 'browser authorization role is invalid');
+  return Object.freeze({
+    leaseId: opaqueId(value.leaseId, 'browser authorization lease id'),
+    ruleId: publicId(value.ruleId, 'browser authorization rule id'),
+    profileGeneration: positiveInteger(value.profileGeneration, 'browser profile generation'),
+    role: value.role,
+    request,
+  });
+}
+
 function iso(milliseconds) {
   return new Date(milliseconds).toISOString();
 }
@@ -124,6 +139,7 @@ function auditFrom({ idFactory, now, eventType, outcome, entityType, entity, det
     fail('invalid_audit_event', 'auth audit entity type is invalid');
   }
   const binding = entity.executionBinding;
+  const request = entity.request ?? entity.authorization?.request;
   return freezeRecord({
     id: opaqueId(idFactory(), 'audit id'),
     eventType: publicId(eventType, 'audit event type'),
@@ -133,13 +149,19 @@ function auditFrom({ idFactory, now, eventType, outcome, entityType, entity, det
     generation: positiveInteger(entity.generation, 'audit generation'),
     recordedAt: iso(now),
     ...(binding ? { executionBinding: binding } : {}),
-    ...(entity.credentialRef ? { credentialRef: entity.credentialRef } : {}),
+    ...((entity.credentialRef ?? request?.credentialRef) ? {
+      credentialRef: entity.credentialRef ?? request.credentialRef,
+    } : {}),
     ...(entity.publicIdentity ? { publicIdentity: entity.publicIdentity } : {}),
-    ...(entity.request ? {
-      commitSha: entity.request.commitSha,
-      capability: entity.request.capability,
+    ...(request ? {
+      commitSha: request.commitSha,
+      capability: request.capability,
     } : {}),
     ...(entity.capabilityId ? { capabilityId: entity.capabilityId } : {}),
+    ...(entity.authorization ? {
+      leaseId: entity.authorization.leaseId,
+      ruleId: entity.authorization.ruleId,
+    } : entity.ruleId ? { ruleId: entity.ruleId } : {}),
     ...details,
   });
 }
@@ -184,7 +206,9 @@ function validateReplayedEntity(type, entity) {
     return;
   }
   if (type === 'BrowserSessionBinding') {
-    const transitionKeys = entity.state === 'AVAILABLE' ? [] : ['capabilityId', 'checkedOutAt', 'expiresAt'];
+    const transitionKeys = entity.state === 'AVAILABLE'
+      ? []
+      : ['capabilityId', 'checkedOutAt', 'expiresAt', 'authorization'];
     const completedKeys = entity.state === 'COMPLETED' ? ['completedAt'] : [];
     const keys = [
       'id', 'generation', 'state', 'registeredAt', 'executionBinding', 'publicIdentity',
@@ -202,6 +226,23 @@ function validateReplayedEntity(type, entity) {
     if (entity.capabilityId !== undefined) opaqueId(entity.capabilityId, 'capability id');
     normalizeExecutionBinding(entity.executionBinding);
     normalizePublicIdentity(entity.publicIdentity);
+    if (entity.authorization !== undefined) {
+      const authorization = normalizeBrowserAuthorization(entity.authorization);
+      if (
+        !isDeepStrictEqual(
+          normalizeExecutionBinding(entity.executionBinding),
+          leaseBinding(authorization.request, entity.executionBinding.workerId),
+        ) ||
+        entity.publicIdentity.provider !== authorization.request.provider ||
+        entity.publicIdentity.accountId !== authorization.request.accountId ||
+        (
+          entity.publicIdentity.appId !== null &&
+          entity.publicIdentity.appId !== authorization.request.resource.id
+        )
+      ) {
+        throw new Error('invalid browser authorization binding');
+      }
+    }
     return;
   }
   const reauthKeys = [
@@ -221,7 +262,7 @@ function validateReplayedAudit(audit) {
   const allowed = [
     'id', 'eventType', 'outcome', 'entityType', 'entityId', 'generation', 'recordedAt',
     'executionBinding', 'credentialRef', 'publicIdentity', 'reason', 'exitCode', 'signal',
-    'commitSha', 'capability', 'capabilityId',
+    'commitSha', 'capability', 'capabilityId', 'leaseId', 'ruleId',
   ];
   if (
     !Object.keys(audit).every((key) => allowed.includes(key)) ||
@@ -244,6 +285,8 @@ function validateReplayedAudit(audit) {
   if (audit.commitSha !== undefined && !COMMIT_SHA.test(audit.commitSha)) throw new Error('invalid commit SHA');
   if (audit.capability !== undefined && !CAPABILITY.test(audit.capability)) throw new Error('invalid capability');
   if (audit.capabilityId !== undefined) opaqueId(audit.capabilityId, 'audit capability id');
+  if (audit.leaseId !== undefined) opaqueId(audit.leaseId, 'audit lease id');
+  if (audit.ruleId !== undefined) publicId(audit.ruleId, 'audit rule id');
 }
 
 function canonicalJson(value) {
@@ -702,7 +745,13 @@ export class DurableAuthState {
     });
   }
 
-  checkoutBrowserSession({ sessionId, expectedGeneration, executionBinding, expectedIdentity }) {
+  checkoutBrowserSession({
+    sessionId,
+    expectedGeneration,
+    executionBinding,
+    expectedIdentity,
+    authorization,
+  }) {
     return this.#serialize(async () => {
       const entity = this.#browserSessionBindings.get(opaqueId(sessionId, 'browser session id'));
       if (!entity) {
@@ -711,13 +760,18 @@ export class DurableAuthState {
       positiveInteger(expectedGeneration, 'expectedGeneration');
       const binding = normalizeExecutionBinding(executionBinding);
       const identity = normalizePublicIdentity(expectedIdentity);
+      const authorized = normalizeBrowserAuthorization(authorization);
       if (entity.generation !== expectedGeneration) {
         fail('generation_conflict', 'browser session generation does not match');
       }
       if (
         entity.state !== 'AVAILABLE' || entity.useCount !== 0 ||
         !isDeepStrictEqual(entity.executionBinding, binding) ||
-        !isDeepStrictEqual(entity.publicIdentity, identity)
+        !isDeepStrictEqual(entity.publicIdentity, identity) ||
+        !isDeepStrictEqual(binding, leaseBinding(authorized.request, binding.workerId)) ||
+        identity.provider !== authorized.request.provider ||
+        identity.accountId !== authorized.request.accountId ||
+        (identity.appId !== null && identity.appId !== authorized.request.resource.id)
       ) {
         fail('browser_session_binding_mismatch', 'browser session binding does not exactly match');
       }
@@ -741,6 +795,7 @@ export class DurableAuthState {
         capabilityId: opaqueId(this.#idFactory(), 'capability id'),
         checkedOutAt: iso(now),
         expiresAt: iso(now + LEASE_TTL_MS),
+        authorization: authorized,
       });
       const audit = auditFrom({
         idFactory: this.#idFactory,
@@ -755,11 +810,47 @@ export class DurableAuthState {
     });
   }
 
+  authorizeBrowserSessionExecution({
+    sessionId,
+    capabilityId,
+    expectedGeneration,
+    executionBinding,
+    authorization,
+  }) {
+    return this.#serialize(async () => {
+      const entity = this.#browserSessionBindings.get(opaqueId(sessionId, 'browser session id'));
+      if (!entity) fail('browser_session_not_found', 'browser session binding does not exist');
+      positiveInteger(expectedGeneration, 'expectedGeneration');
+      const binding = normalizeExecutionBinding(executionBinding);
+      const authorized = normalizeBrowserAuthorization(authorization);
+      if (entity.generation !== expectedGeneration) {
+        fail('generation_conflict', 'browser session generation does not match');
+      }
+      if (
+        entity.state !== 'CHECKED_OUT' ||
+        entity.capabilityId !== opaqueId(capabilityId, 'capability id')
+      ) {
+        fail('browser_capability_invalid', 'browser capability is invalid or already used');
+      }
+      if (this.#clock() >= Date.parse(entity.expiresAt)) {
+        fail('browser_capability_expired', 'browser capability has expired');
+      }
+      if (
+        !isDeepStrictEqual(entity.executionBinding, binding) ||
+        !isDeepStrictEqual(entity.authorization, authorized)
+      ) {
+        fail('browser_session_binding_mismatch', 'browser authorization does not exactly match checkout');
+      }
+      return freezeRecord({ publicIdentity: entity.publicIdentity });
+    });
+  }
+
   completeBrowserSession({
     sessionId,
     capabilityId,
     expectedGeneration,
     executionBinding,
+    authorization,
     readIdentity,
   }) {
     return this.#serialize(async () => {
@@ -769,6 +860,7 @@ export class DurableAuthState {
       }
       positiveInteger(expectedGeneration, 'expectedGeneration');
       const binding = normalizeExecutionBinding(executionBinding);
+      const authorized = normalizeBrowserAuthorization(authorization);
       if (typeof readIdentity !== 'function') {
         fail('identity_readback_unavailable', 'trusted provider identity readback is required');
       }
@@ -788,6 +880,13 @@ export class DurableAuthState {
           entityType: 'BrowserSessionBinding', entity,
         });
         fail('browser_session_binding_mismatch', 'browser session binding does not exactly match');
+      }
+      if (!isDeepStrictEqual(entity.authorization, authorized)) {
+        await this.#recordFailure({
+          eventType: 'BROWSER_SESSION_COMPLETE', outcome: 'AUTHORIZATION_MISMATCH',
+          entityType: 'BrowserSessionBinding', entity,
+        });
+        fail('browser_session_binding_mismatch', 'browser authorization does not exactly match checkout');
       }
       let readback;
       try {
@@ -835,6 +934,45 @@ export class DurableAuthState {
       });
       await this.#append({ entityType: 'BrowserSessionBinding', entity: completed, audit });
       return this.browserSessionView(completed);
+    });
+  }
+
+  abortBrowserSession({ sessionId, capabilityId, expectedGeneration, executionBinding, authorization }) {
+    return this.#serialize(async () => {
+      const entity = this.#browserSessionBindings.get(opaqueId(sessionId, 'browser session id'));
+      if (!entity) fail('browser_session_not_found', 'browser session binding does not exist');
+      positiveInteger(expectedGeneration, 'expectedGeneration');
+      const binding = normalizeExecutionBinding(executionBinding);
+      const authorized = normalizeBrowserAuthorization(authorization);
+      if (
+        entity.generation !== expectedGeneration || entity.state !== 'CHECKED_OUT' ||
+        entity.capabilityId !== opaqueId(capabilityId, 'capability id') ||
+        !isDeepStrictEqual(entity.executionBinding, binding) ||
+        !isDeepStrictEqual(entity.authorization, authorized)
+      ) {
+        fail('browser_session_binding_mismatch', 'browser abort binding does not exactly match checkout');
+      }
+      const now = this.#clock();
+      const available = freezeRecord({
+        id: entity.id,
+        generation: entity.generation + 1,
+        state: 'AVAILABLE',
+        registeredAt: entity.registeredAt,
+        executionBinding: entity.executionBinding,
+        publicIdentity: entity.publicIdentity,
+        maxUses: 1,
+        useCount: 0,
+      });
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'BROWSER_SESSION_ABORTED',
+        outcome: 'ABORTED',
+        entityType: 'BrowserSessionBinding',
+        entity,
+      });
+      await this.#append({ entityType: 'BrowserSessionBinding', entity: available, audit });
+      return this.browserSessionView(available);
     });
   }
 
