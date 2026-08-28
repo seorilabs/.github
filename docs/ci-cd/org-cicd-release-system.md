@@ -74,7 +74,7 @@
 
 ## 2. 러너 라우팅 매트릭스 (확정)
 
-`global-versions.yaml` 기준. general `seorilabs-rpi-arm64`(ARM64, min2/max4, Node 24.16.0 사전설치), dind `seorilabs-rpi-arm64-dind`(min0/max1).
+`global-versions.yaml` 기준. general `seorilabs-rpi-arm64`(ARM64, min1/max3, Node 24.16.0 사전설치), dind `seorilabs-rpi-arm64-dind`(min0/max1). RPI4 격리와 exact RPI5 placement는 [RPI4 capacity 정책](rpi4-capacity-policy.md)을 따른다.
 
 | 작업 | 러너 | 근거 |
 |---|---|---|

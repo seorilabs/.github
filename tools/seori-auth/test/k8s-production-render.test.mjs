@@ -28,7 +28,7 @@ function deploymentConfig() {
       catalogStatus: 'ACTIVE',
       kubernetesStatus: 'VERIFIED',
     },
-    nodeSelector: { 'seorilabs.io/node-role': 'auth' },
+    nodeSelector: { 'kubernetes.io/hostname': 'rpi5' },
     stateClaimName: 'seori-auth-state',
     trustedWorkers: {
       namespaceSelector: { 'kubernetes.io/metadata.name': 'release-workers' },
@@ -138,6 +138,7 @@ test('production renderer emits immutable separated workloads without Kubernetes
     const tokenMount = container.volumeMounts.find((mount) => mount.name === 'projected-identity');
     assert.equal(container.image, APPROVED_IMAGE_BINDING.image);
     assert.deepEqual(pod.imagePullSecrets, [{ name: 'seori-auth-ghcr-pull' }]);
+    assert.deepEqual(pod.nodeSelector, { 'kubernetes.io/hostname': 'rpi5' });
     const role = item.metadata.name === 'seori-auth-broker'
       ? 'broker'
       : item.metadata.name === 'seori-password-loader' ? 'passwordLoader' : 'totpSigner';
@@ -314,6 +315,19 @@ test('production renderer rejects mutable images and shared factor identities', 
     assert.match(error.stderr, /nodeSelector is invalid/);
     return true;
   });
+
+  for (const nodeSelector of [
+    { 'kubernetes.io/hostname': 'rpi4001' },
+    { 'seorilabs.io/node-role': 'auth' },
+  ]) {
+    const wrongNode = deploymentConfig();
+    wrongNode.nodeSelector = nodeSelector;
+    await assert.rejects(render(wrongNode), (error) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr, /nodeSelector must select rpi5 exactly/);
+      return true;
+    });
+  }
 
   const driftedProviderScope = deploymentConfig();
   driftedProviderScope.providerControlPlane.endpointScope = '/auth/policy-grants';
