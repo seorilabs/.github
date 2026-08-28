@@ -363,10 +363,6 @@ function preflightProviders() {
     "P3_SECRET_MANAGER_PROJECT_READ_FAILED",
   );
   if (number !== cloud.projectNumber) fail("P3_SECRET_MANAGER_PROJECT_MISMATCH");
-  const projectPolicy = projectPolicyRead();
-  if (projectScopedP3Accessors(projectPolicy).length !== 0) {
-    fail("P3_SECRET_MANAGER_PROJECT_ACCESSOR_PRESENT");
-  }
   const providers = providerStates();
   if (providers.some(({ actual }) => actual === null)) {
     fail("P3_SECRET_MANAGER_WIF_PROVIDER_MISSING");
@@ -379,6 +375,10 @@ function preflightProviders() {
 
 function preflight() {
   const providers = preflightProviders();
+  const projectPolicy = projectPolicyRead();
+  if (projectScopedP3Accessors(projectPolicy).length !== 0) {
+    fail("P3_SECRET_MANAGER_PROJECT_ACCESSOR_PRESENT");
+  }
   const resources = manager.resources.map(secretRead);
   if (resources.some(({ exists }) => !exists)) {
     fail("P3_SECRET_MANAGER_RESOURCE_MISSING");

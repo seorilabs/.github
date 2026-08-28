@@ -961,6 +961,14 @@ test("Secret Manager bootstrap은 role partition을 two-phase 적용하고 rollb
     );
 
     appliedState.history = [];
+    const emergencyProjectBinding = {
+      resourceType: "project",
+      resource: "projects/seorilabs-ci",
+      role: "roles/secretmanager.secretAccessor",
+      member: "serviceAccount:seori-auth-broker@seorilabs-ci.iam.gserviceaccount.com",
+    };
+    appliedState.bindings.push(emergencyProjectBinding);
+    const rollbackBindingSnapshot = structuredClone(appliedState.bindings);
     const missingDuringRollback = plan.resources[0].secretId;
     const restoredSecret = appliedState.secrets[missingDuringRollback];
     delete appliedState.secrets[missingDuringRollback];
@@ -969,12 +977,15 @@ test("Secret Manager bootstrap은 role partition을 two-phase 적용하고 rollb
     assert.equal(rolledBack.providerDisabled, true);
     assert.equal(rolledBack.iamBindingsMutated, false);
     const rolledBackState = await readState();
-    assert.deepEqual(rolledBackState.bindings, bindingSnapshot);
+    assert.deepEqual(rolledBackState.bindings, rollbackBindingSnapshot);
     assert.deepEqual(rolledBackState.history, [
       `provider:disable:${gcpPlan.workloadIdentity.kubernetes.provider}`,
     ]);
 
     rolledBackState.history = [];
+    rolledBackState.bindings = rolledBackState.bindings.filter(
+      (binding) => JSON.stringify(binding) !== JSON.stringify(emergencyProjectBinding),
+    );
     rolledBackState.secrets[missingDuringRollback] = restoredSecret;
     await writeState(rolledBackState);
     const reapplied = await bootstrap("apply", plan.confirmation);
