@@ -39,6 +39,37 @@ test("v2 정적 workflow는 고정 품질 명령과 stable required check를 사
     assert.ok(
       checkoutSteps.every((step) => step.with?.["persist-credentials"] === false),
     );
+    const applicationCheckout = parsed.jobs.quality.steps.find(
+      (step) => step.name === "Checkout application source",
+    );
+    assert.equal(applicationCheckout.with.path, ".seorilabs-application");
+    const productSteps = parsed.jobs.quality.steps.filter((step) =>
+      [
+        "Fetch locked dependencies without lifecycle scripts",
+        "Rebuild dependencies without registry credential",
+        "Reject high severity dependency advisories",
+        "Import Godot project",
+        "Run canonical product tests",
+        "Run canonical architecture checks",
+        "Run canonical release checks",
+      ].includes(step.name),
+    );
+    assert.ok(productSteps.length >= 6);
+    assert.ok(
+      productSteps.every(
+        (step) =>
+          step["working-directory"] ===
+          "${{ format('.seorilabs-application/{0}', inputs.working_directory) }}",
+      ),
+    );
+    assert.match(
+      workflow,
+      /--repo-root "\$GITHUB_WORKSPACE\/\.seorilabs-application"/u,
+    );
+    assert.match(
+      workflow,
+      /secret-scan\.mjs "\$GITHUB_WORKSPACE\/\.seorilabs-application"/u,
+    );
   }
 });
 
@@ -149,7 +180,13 @@ test("Godot binary는 architecture별 공식 checksum으로 검증된다", () =>
     /cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4/u,
   );
   assert.match(godot, /sha256sum --check --status/u);
-  assert.match(godot, /SCRIPT ERROR\|ERROR:/u);
+  assert.match(godot, /Probe pinned Godot toolchain diagnostics/u);
+  assert.match(
+    godot,
+    /fixtures\/workflow-bundle\/godot\/toolchain-probe/u,
+  );
+  assert.match(godot, /godot-diagnostic-gate\.mjs/u);
+  assert.doesNotMatch(godot, /grep -E 'SCRIPT ERROR\|ERROR:'/u);
 });
 
 test("candidate workflow는 테스트 뒤 불변 bundle을 만들고 3일만 보관한다", async () => {
@@ -175,6 +212,7 @@ test("candidate workflow는 테스트 뒤 불변 bundle을 만들고 3일만 보
 test("직접 실행되는 ESM entrypoint는 resolve와 realpath를 사용한다", async () => {
   const entrypoints = [
     "packages/repo-contract/src/fleet-cli.mjs",
+    "scripts/fleet/godot-diagnostic-gate.mjs",
     "scripts/fleet/static-preflight.mjs",
     "scripts/fleet/secret-scan.mjs",
     "scripts/fleet/write-provenance.mjs",
@@ -192,6 +230,7 @@ test("직접 실행되는 ESM entrypoint는 resolve와 realpath를 사용한다"
 test("직접 실행되는 ESM entrypoint는 상대 경로 호출에서도 실행된다", () => {
   const entrypoints = [
     "packages/repo-contract/src/fleet-cli.mjs",
+    "scripts/fleet/godot-diagnostic-gate.mjs",
     "scripts/fleet/static-preflight.mjs",
     "scripts/fleet/secret-scan.mjs",
     "scripts/fleet/write-provenance.mjs",

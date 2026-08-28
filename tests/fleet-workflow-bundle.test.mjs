@@ -253,8 +253,10 @@ test("candidate bundle은 static, build-only workflow와 실행 asset의 실제 
     ".github/workflows/rn-build-android-cloud-v1.yml",
     ".github/workflows/rn-static-checks-v2.yml",
     "fixtures/workflow-bundle/godot/fixture.json",
+    "fixtures/workflow-bundle/godot/toolchain-probe/project.godot",
     "fixtures/workflow-bundle/react-native/fixture.json",
     "scripts/fleet/fixture-canary.mjs",
+    "scripts/fleet/godot-diagnostic-gate.mjs",
     "scripts/fleet/secret-scan.mjs",
     "scripts/fleet/stage-private-pnpm-store.mjs",
     "scripts/fleet/static-preflight.mjs",
@@ -725,6 +727,37 @@ test("bundle action 또는 toolchain 선언이 실제 workflow와 다르면 거�
   );
   await assert.rejects(
     createWorkflowBundle({ repoRoot: semanticRoot, sourceSha: SOURCE_SHA }),
+    /RUNTIME_DECLARATION_MISMATCH/u,
+  );
+
+  const diagnosticRoot = await mkdtemp(
+    join(tmpdir(), "fleet-bundle-godot-diagnostic-"),
+  );
+  temporaryRoots.push(diagnosticRoot);
+  for (const directory of [
+    "contracts",
+    "profiles",
+    "scripts/fleet",
+    "fixtures",
+    ".github/cloud-build",
+    ".github/workflows",
+  ]) {
+    await cp(directory, join(diagnosticRoot, directory), { recursive: true });
+  }
+  const godotWorkflowPath = join(
+    diagnosticRoot,
+    ".github/workflows/godot-checks-v2.yml",
+  );
+  const godotWorkflow = await readFile(godotWorkflowPath, "utf8");
+  await writeFile(
+    godotWorkflowPath,
+    godotWorkflow.replace(
+      '--toolchain-log "$RUNNER_TEMP/godot-toolchain.log"',
+      '--toolchain-log "$RUNNER_TEMP/godot-import.log"',
+    ),
+  );
+  await assert.rejects(
+    createWorkflowBundle({ repoRoot: diagnosticRoot, sourceSha: SOURCE_SHA }),
     /RUNTIME_DECLARATION_MISMATCH/u,
   );
 });
