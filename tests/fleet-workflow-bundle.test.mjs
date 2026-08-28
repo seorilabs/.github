@@ -252,6 +252,37 @@ test("candidate bundle은 static, build-only workflow와 실행 asset의 실제 
   assert.doesNotMatch(source, /builders:/u);
 });
 
+test("candidate bundle은 공식 Platform v0.6.6 릴리스 manifest를 exact digest로 묶는다", async () => {
+  const path = "contracts/platform-releases/v0.6.6/platform-release.json";
+  const content = await readFile(path);
+  const platformRelease = JSON.parse(content.toString("utf8"));
+  const bundle = await createWorkflowBundle({
+    sourceSha: SOURCE_SHA,
+    platformRelease,
+  });
+
+  assert.deepEqual(bundle.platform, {
+    state: "RESOLVED",
+    sourceSha: "97f046ce2d9df5d72bc7a49fc81bb7c366ebaa17",
+    contractRevision:
+      "sha256:9906ee15a7a522d3401eb4dee788b44edc05f8145100bd33fdfeb021c6b05626",
+    typescript: {
+      version: "0.4.0",
+      digest:
+        "sha256:8d7151f6ec7ff0c0fe8c9fe6fee2e6aa5a1158bd394dc03cc09a4e40f5a6abd7",
+    },
+    gdscript: {
+      version: "0.6.6",
+      digest:
+        "sha256:2df58acd5885f598e854a7fa1a13482315311701bad47f03cfe8b3edcd36f965",
+    },
+  });
+  assert.equal(
+    bundle.quality.contractDigests[path],
+    "sha256:a04e829a5cd3e109609ecb74d7b8461fb180d9679d247dcade48881191d84788",
+  );
+});
+
 test("v4 candidate는 3.x version downgrade로 runner와 delivery gate를 우회할 수 없다", async () => {
   const bundle = await createWorkflowBundle({ sourceSha: SOURCE_SHA });
   bundle.bundleVersion = "3.9.9";

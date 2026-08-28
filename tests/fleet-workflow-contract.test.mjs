@@ -159,6 +159,10 @@ test("candidate workflow는 테스트 뒤 불변 bundle을 만들고 3일만 보
   );
   assert.ok(candidate.indexOf("npm test") < candidate.indexOf("fleet-cli.mjs bundle"));
   assert.match(candidate, /--source-sha "\$GITHUB_SHA"/u);
+  assert.match(
+    candidate,
+    /--platform-release contracts\/platform-releases\/v0\.6\.6\/platform-release\.json/u,
+  );
   assert.match(candidate, /retention-days: 3/u);
   assert.doesNotMatch(candidate, /permissions:[\s\S]*?contents: write/u);
   const parsed = parse(candidate);

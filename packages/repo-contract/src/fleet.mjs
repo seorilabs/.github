@@ -61,6 +61,7 @@ const V4_RUNTIME_AST_DIGEST_BY_PATH = Object.freeze({
 const CONTRACT_FILES = Object.freeze([
   "contracts/app.schema.json",
   "contracts/fleet-bootstrap-plan.schema.json",
+  "contracts/platform-releases/v0.6.6/platform-release.json",
   "contracts/release-policy.yaml",
   "contracts/test-policy.yaml",
   "contracts/workflow-bundle.schema.json",
@@ -935,11 +936,36 @@ function normalizePlatformRelease(platformRelease) {
     return { state: "UNRESOLVED" };
   }
 
-  const sourceSha = platformRelease.sourceSha;
-  const contractRevision = platformRelease.contractRevision;
+  const sourceSha = platformRelease.sourceSha ?? platformRelease.release?.sourceSha;
+  const contractRevision =
+    platformRelease.contractRevision ?? platformRelease.contract?.revision;
   const typescript =
-    platformRelease.typescript ?? platformRelease.artifacts?.typescript;
-  const gdscript = platformRelease.gdscript ?? platformRelease.artifacts?.gdscript;
+    platformRelease.typescript ??
+    platformRelease.artifacts?.typescript ??
+    (platformRelease.sdk?.typescript
+      ? {
+          version: platformRelease.sdk.typescript.version,
+          digest: `sha256:${platformRelease.sdk.typescript.artifact?.sha256 ?? ""}`,
+        }
+      : undefined);
+  const gdscript =
+    platformRelease.gdscript ??
+    platformRelease.artifacts?.gdscript ??
+    (platformRelease.sdk?.gdscript
+      ? {
+          version: platformRelease.sdk.gdscript.version,
+          digest: `sha256:${platformRelease.sdk.gdscript.artifact?.sha256 ?? ""}`,
+        }
+      : undefined);
+
+  if (
+    platformRelease.schemaVersion !== undefined &&
+    (platformRelease.schemaVersion !== 1 ||
+      platformRelease.release?.tag !== `v${platformRelease.sdk?.gdscript?.version}` ||
+      platformRelease.contract?.classification === undefined)
+  ) {
+    throw new Error("PLATFORM_RELEASE_INVALID");
+  }
 
   if (
     !SHA_PATTERN.test(sourceSha ?? "") ||
