@@ -206,7 +206,7 @@ test("GCP bootstrap apply와 rollback은 exact 공개 confirmation 없이는 실
   }
 });
 
-test("GCP rollback은 기존 IAM을 보존하고 disabled provider만 재활성화한다", async () => {
+test("GCP apply와 rollback은 두 provider를 preflight하고 기존 IAM을 보존한다", async () => {
   const bootstrapSource = await readFile(gcpBootstrap, "utf8");
   assert.doesNotMatch(bootstrapSource, /remove-iam-policy-binding/u);
   const planResult = await execFileAsync(process.execPath, [gcpBootstrap, "plan"]);
@@ -217,10 +217,16 @@ test("GCP rollback은 기존 IAM을 보존하고 disabled provider만 재활성�
     Object.fromEntries(
       mapping.split(",").map((entry) => entry.split(/=(.*)/su).slice(0, 2)),
     );
-  const providerState = ({ attributeCondition, attributeMapping, issuer, audience }) => ({
+  const providerState = ({
+    attributeCondition,
+    attributeMapping,
+    issuer,
+    audience,
+    disabled = false,
+  }) => ({
     attributeCondition,
     attributeMapping: mappingObject(attributeMapping),
-    disabled: false,
+    disabled,
     oidc: { allowedAudiences: [audience], issuerUri: issuer },
   });
   const initialState = {
@@ -285,6 +291,29 @@ test("GCP rollback은 기존 IAM을 보존하고 disabled provider만 재활성�
     );
     const bindingSnapshot = structuredClone(appliedState.bindings);
 
+    const kubernetesProvider = plan.workloadIdentity.kubernetes.provider;
+    const rollbackDriftState = structuredClone(appliedState);
+    rollbackDriftState.history = [];
+    rollbackDriftState.providers[kubernetesProvider].attributeCondition +=
+      " && false";
+    await writeState(rollbackDriftState);
+    await assert.rejects(
+      bootstrap("rollback", plan.rollbackConfirmation),
+      (error) => {
+        assert.match(error.stderr, /P3_KUBERNETES_WIF_PROVIDER_DRIFT/u);
+        return true;
+      },
+    );
+    const rollbackDriftResult = await readState();
+    assert.deepEqual(rollbackDriftResult.history, []);
+    assert.equal(
+      rollbackDriftResult.providers[plan.workloadIdentity.github.provider]
+        .disabled,
+      false,
+    );
+
+    appliedState.history = [];
+    await writeState(appliedState);
     const rolledBack = await bootstrap("rollback", plan.rollbackConfirmation);
     assert.equal(rolledBack.state, "NEW_TOKEN_EXCHANGE_REVOKED");
     assert.equal(rolledBack.iamBindingsMutated, false);
@@ -316,21 +345,25 @@ test("GCP rollback은 기존 IAM을 보존하고 disabled provider만 재활성�
       ),
     );
 
-    const githubProvider = plan.workloadIdentity.github.provider;
-    rolledBackState.providers[githubProvider].attributeCondition += " && false";
-    await writeState(rolledBackState);
+    const applyDriftState = structuredClone(rolledBackState);
+    applyDriftState.history = [];
+    applyDriftState.providers[kubernetesProvider].attributeCondition += " && false";
+    await writeState(applyDriftState);
     await assert.rejects(
       bootstrap("apply", plan.confirmation),
       (error) => {
-        assert.match(error.stderr, /P3_GITHUB_WIF_PROVIDER_DRIFT/u);
+        assert.match(error.stderr, /P3_KUBERNETES_WIF_PROVIDER_DRIFT/u);
         return true;
       },
     );
-    rolledBackState.providers[githubProvider] = providerState({
-      ...plan.workloadIdentity.github,
-      disabled: true,
-    });
-    rolledBackState.providers[githubProvider].disabled = true;
+    const applyDriftResult = await readState();
+    assert.deepEqual(applyDriftResult.history, []);
+    assert.equal(
+      applyDriftResult.providers[plan.workloadIdentity.github.provider].disabled,
+      true,
+    );
+
+    rolledBackState.history = [];
     await writeState(rolledBackState);
 
     const reapplied = await bootstrap("apply", plan.confirmation);

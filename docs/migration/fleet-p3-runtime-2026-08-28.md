@@ -68,6 +68,8 @@ token exchange는 차단되지만 이미 발급된 access token은 자체 만료
 같은 apply는 configuration이 exact인 disabled provider를 안전하게 re-enable하며 provider drift,
 pool disabled·metadata/state drift에서는 fail-closed한다. readback은 pool active 상태, 5개 공개
 identity, 두 active provider condition, 15개 exact binding이 모두 일치할 때만 `ready: true`다.
+apply와 rollback은 GitHub와 Kubernetes provider를 모두 read-only preflight한 뒤에만 provider
+mutation 단계로 넘어가므로 두 번째 provider drift에서도 첫 번째 provider를 변경하지 않는다.
 Cloud Build service agent의 user-specified executor token 생성, GitHub multi-tenant issuer의 조직
 condition, private Kubernetes issuer의 공개 JWKS upload는 각각 Google 공식
 [user-specified service account](https://cloud.google.com/build/docs/securing-builds/configure-user-specified-service-accounts),

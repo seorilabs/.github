@@ -495,37 +495,61 @@ function kubernetesJwks() {
   return `${JSON.stringify(jwks)}\n`;
 }
 
-function ensureGithubProvider() {
-  const expected = {
-    condition: githubCondition(),
-    mapping: githubMapping,
-    issuer: cloud.wif.githubIssuer,
-    audience: cloud.wif.githubAudience,
-  };
-  const existing = providerRead(cloud.wif.githubProvider);
-  if (existing !== null) {
-    if (!providerConfigurationMatches(existing, expected)) {
-      fail("P3_GITHUB_WIF_PROVIDER_DRIFT");
+function providerSpecifications() {
+  return [
+    {
+      name: "github",
+      id: cloud.wif.githubProvider,
+      expected: {
+        condition: githubCondition(),
+        mapping: githubMapping,
+        issuer: cloud.wif.githubIssuer,
+        audience: cloud.wif.githubAudience,
+      },
+      driftCode: "P3_GITHUB_WIF_PROVIDER_DRIFT",
+      createCode: "P3_GITHUB_WIF_PROVIDER_CREATE_FAILED",
+      enableCode: "P3_GITHUB_WIF_PROVIDER_ENABLE_FAILED",
+    },
+    {
+      name: "kubernetes",
+      id: cloud.wif.kubernetesProvider,
+      expected: {
+        condition: kubernetesCondition(),
+        mapping: kubernetesMapping,
+        issuer: cloud.wif.kubernetesIssuer,
+        audience: auth.wifAudience,
+      },
+      driftCode: "P3_KUBERNETES_WIF_PROVIDER_DRIFT",
+      createCode: "P3_KUBERNETES_WIF_PROVIDER_CREATE_FAILED",
+      enableCode: "P3_KUBERNETES_WIF_PROVIDER_ENABLE_FAILED",
+    },
+  ];
+}
+
+function preflightProviders() {
+  const states = providerSpecifications().map((specification) => ({
+    ...specification,
+    existing: providerRead(specification.id),
+  }));
+  for (const { existing, expected, driftCode } of states) {
+    if (
+      existing !== null &&
+      !providerConfigurationMatches(existing, expected)
+    ) {
+      fail(driftCode);
     }
-    if (existing.disabled === true) {
-      updateProviderDisabled(
-        cloud.wif.githubProvider,
-        false,
-        "P3_GITHUB_WIF_PROVIDER_ENABLE_FAILED",
-      );
-      if (!providerMatches(providerRead(cloud.wif.githubProvider), expected)) {
-        fail("P3_GITHUB_WIF_PROVIDER_ENABLE_FAILED");
-      }
-    }
-    return;
   }
+  return states;
+}
+
+function createGithubProvider({ id, expected, createCode }) {
   gcloudRun(
     [
       "iam",
       "workload-identity-pools",
       "providers",
       "create-oidc",
-      cloud.wif.githubProvider,
+      id,
       `--project=${cloud.projectId}`,
       "--location=global",
       `--workload-identity-pool=${cloud.wif.pool}`,
@@ -535,34 +559,11 @@ function ensureGithubProvider() {
       `--attribute-condition=${expected.condition}`,
       "--format=none",
     ],
-    "P3_GITHUB_WIF_PROVIDER_CREATE_FAILED",
+    createCode,
   );
 }
 
-function ensureKubernetesProvider() {
-  const expected = {
-    condition: kubernetesCondition(),
-    mapping: kubernetesMapping,
-    issuer: cloud.wif.kubernetesIssuer,
-    audience: auth.wifAudience,
-  };
-  const existing = providerRead(cloud.wif.kubernetesProvider);
-  if (existing !== null) {
-    if (!providerConfigurationMatches(existing, expected)) {
-      fail("P3_KUBERNETES_WIF_PROVIDER_DRIFT");
-    }
-    if (existing.disabled === true) {
-      updateProviderDisabled(
-        cloud.wif.kubernetesProvider,
-        false,
-        "P3_KUBERNETES_WIF_PROVIDER_ENABLE_FAILED",
-      );
-      if (!providerMatches(providerRead(cloud.wif.kubernetesProvider), expected)) {
-        fail("P3_KUBERNETES_WIF_PROVIDER_ENABLE_FAILED");
-      }
-    }
-    return;
-  }
+function createKubernetesProvider({ id, expected, createCode }) {
   const directory = mkdtempSync(join(tmpdir(), "seori-p3-jwks-"));
   const jwksPath = join(directory, "jwks.json");
   try {
@@ -573,7 +574,7 @@ function ensureKubernetesProvider() {
         "workload-identity-pools",
         "providers",
         "create-oidc",
-        cloud.wif.kubernetesProvider,
+        id,
         `--project=${cloud.projectId}`,
         "--location=global",
         `--workload-identity-pool=${cloud.wif.pool}`,
@@ -584,10 +585,28 @@ function ensureKubernetesProvider() {
         `--jwk-json-path=${jwksPath}`,
         "--format=none",
       ],
-      "P3_KUBERNETES_WIF_PROVIDER_CREATE_FAILED",
+      createCode,
     );
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function ensureProviders() {
+  const states = preflightProviders();
+  for (const state of states) {
+    if (state.existing === null) {
+      if (state.name === "github") createGithubProvider(state);
+      else createKubernetesProvider(state);
+      if (!providerMatches(providerRead(state.id), state.expected)) {
+        fail(state.createCode);
+      }
+    } else if (state.existing.disabled === true) {
+      updateProviderDisabled(state.id, false, state.enableCode);
+      if (!providerMatches(providerRead(state.id), state.expected)) {
+        fail(state.enableCode);
+      }
+    }
   }
 }
 
@@ -708,16 +727,9 @@ function readback() {
         };
   });
   const pool = poolRead();
-  const github = providerRead(cloud.wif.githubProvider);
-  const kubernetes = providerRead(cloud.wif.kubernetesProvider);
-  const githubExpected = {
-    condition: githubCondition(), mapping: githubMapping,
-    issuer: cloud.wif.githubIssuer, audience: cloud.wif.githubAudience,
-  };
-  const kubernetesExpected = {
-    condition: kubernetesCondition(), mapping: kubernetesMapping,
-    issuer: cloud.wif.kubernetesIssuer, audience: auth.wifAudience,
-  };
+  const [githubSpec, kubernetesSpec] = providerSpecifications();
+  const github = providerRead(githubSpec.id);
+  const kubernetes = providerRead(kubernetesSpec.id);
   const bindingState = bindings.map((item) => ({ ...item, present: bindingPresent(item) }));
   return {
     project: { id: cloud.projectId, number: cloud.projectNumber },
@@ -732,13 +744,19 @@ function readback() {
     providers: {
       github: {
         exists: github !== null,
-        configurationExact: providerConfigurationMatches(github, githubExpected),
+        configurationExact: providerConfigurationMatches(
+          github,
+          githubSpec.expected,
+        ),
         disabled: github?.disabled === true,
         active: providerActive(github),
       },
       kubernetes: {
         exists: kubernetes !== null,
-        configurationExact: providerConfigurationMatches(kubernetes, kubernetesExpected),
+        configurationExact: providerConfigurationMatches(
+          kubernetes,
+          kubernetesSpec.expected,
+        ),
         disabled: kubernetes?.disabled === true,
         active: providerActive(kubernetes),
       },
@@ -748,41 +766,22 @@ function readback() {
       accountState.every(({ exists, disabled }) => exists && disabled !== true) &&
       poolConfigurationMatches(pool) &&
       poolActive(pool) &&
-      providerMatches(github, githubExpected) &&
-      providerMatches(kubernetes, kubernetesExpected) &&
+      providerMatches(github, githubSpec.expected) &&
+      providerMatches(kubernetes, kubernetesSpec.expected) &&
       bindingState.every(({ present }) => present),
     staticKeysCreated: false,
   };
 }
 
 function rollback() {
-  const expectedProviders = [
-    {
-      id: cloud.wif.githubProvider,
-      expected: {
-        condition: githubCondition(), mapping: githubMapping,
-        issuer: cloud.wif.githubIssuer, audience: cloud.wif.githubAudience,
-      },
-      driftCode: "P3_GITHUB_WIF_PROVIDER_DRIFT",
-    },
-    {
-      id: cloud.wif.kubernetesProvider,
-      expected: {
-        condition: kubernetesCondition(), mapping: kubernetesMapping,
-        issuer: cloud.wif.kubernetesIssuer, audience: auth.wifAudience,
-      },
-      driftCode: "P3_KUBERNETES_WIF_PROVIDER_DRIFT",
-    },
-  ];
+  const states = preflightProviders();
   const providersDisabled = [];
   const providersAbsent = [];
-  for (const { id, expected, driftCode } of expectedProviders) {
-    const existing = providerRead(id);
+  for (const { id, expected, existing } of states) {
     if (existing === null) {
       providersAbsent.push(id);
       continue;
     }
-    if (!providerConfigurationMatches(existing, expected)) fail(driftCode);
     if (existing.disabled !== true) {
       updateProviderDisabled(id, true, "P3_GCP_WIF_PROVIDER_DISABLE_FAILED");
     }
@@ -816,8 +815,7 @@ if (mode === "plan") {
   if (mode === "apply") {
     ensureServiceAccounts();
     ensurePool();
-    ensureGithubProvider();
-    ensureKubernetesProvider();
+    ensureProviders();
     applyBindings();
     process.stdout.write(`${JSON.stringify(readback(), null, 2)}\n`);
   } else if (mode === "readback") {
