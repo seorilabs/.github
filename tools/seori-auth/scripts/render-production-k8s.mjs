@@ -8,9 +8,14 @@ import {
   PROVIDER_CONTROL_PLANE_CLIENT_SPIFFE_ID,
   PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE,
 } from '../src/provider-grants.mjs';
+import {
+  exactKeys,
+  imagePullSecrets,
+  validateImageProvenance,
+  validateRegistry,
+} from './public-image-binding.mjs';
 
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
-const IMAGE = /^[a-z0-9][a-z0-9._\/-]*(?::[0-9]+)?\/[a-z0-9][a-z0-9._\/-]*@sha256:[a-f0-9]{64}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const WIF_AUDIENCE = /^\/\/iam\.googleapis\.com\/projects\/[1-9][0-9]*\/locations\/global\/workloadIdentityPools\/[A-Za-z0-9_-]+\/providers\/[A-Za-z0-9_-]+$/;
 const GOOGLE_IDENTITY = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.iam\.gserviceaccount\.com$/;
@@ -37,11 +42,6 @@ const PROVIDER_POD_SELECTOR = Object.freeze({
 function fail(message) {
   process.stderr.write(`${JSON.stringify({ valid: false, code: 'invalid_deployment_config', message })}\n`);
   process.exit(1);
-}
-
-function exactKeys(value, expected) {
-  return value && typeof value === 'object' && !Array.isArray(value) &&
-    Object.keys(value).sort().join(',') === [...expected].sort().join(',');
 }
 
 function dns(value, label) {
@@ -110,12 +110,13 @@ function roleConfig(value, role) {
 
 function validate(config) {
   if (!exactKeys(config, [
-    'egressProxy', 'image', 'imagePullPolicy', 'imagePullSecretName', 'namespace', 'nodeSelector', 'roles',
-    'providerControlPlane', 'schemaVersion', 'stateClaimName', 'trustedWorkers',
+    'egressProxy', 'image', 'imageProvenance', 'imagePullPolicy', 'namespace', 'nodeSelector', 'registry',
+    'roles', 'providerControlPlane', 'schemaVersion', 'stateClaimName', 'trustedWorkers',
   ]) || config.schemaVersion !== 1 || config.namespace !== 'auth-broker') {
     fail('top-level deployment fields are invalid');
   }
-  if (!IMAGE.test(config.image ?? '') || config.image.includes('example.invalid')) fail('image must be one immutable registry digest');
+  const imageProvenance = validateImageProvenance(config.image, config.imageProvenance, fail);
+  const registry = validateRegistry(config.registry, fail);
   if (!['Always', 'IfNotPresent'].includes(config.imagePullPolicy)) fail('imagePullPolicy is invalid');
   if (!exactKeys(config.roles, ROLES)) fail('all three role bindings are required');
   if (!exactKeys(config.egressProxy, ['namespaceSelector', 'podSelector', 'port'])) fail('egress proxy binding is invalid');
@@ -154,7 +155,8 @@ function validate(config) {
   ) fail('provider control-plane network identity is invalid');
   return Object.freeze({
     ...config,
-    imagePullSecretName: dns(config.imagePullSecretName, 'imagePullSecretName'),
+    imageProvenance,
+    registry,
     nodeSelector: labels(config.nodeSelector, 'nodeSelector'),
     stateClaimName: dns(config.stateClaimName, 'stateClaimName'),
     trustedWorkers: Object.freeze({
@@ -273,6 +275,7 @@ function probe(role) {
 
 function workload(role, config) {
   const binding = config.roles[role];
+  const pullSecrets = imagePullSecrets(config.registry);
   const resourcePartitionSha256 = createHash('sha256')
     .update(JSON.stringify(binding.allowedSecretManagerResources.toSorted()))
     .digest('hex');
@@ -305,10 +308,17 @@ function workload(role, config) {
       labels,
       annotations: {
         'seorilabs.io/google-service-account': binding.googleServiceAccount,
+        'seorilabs.io/image-digest': config.imageProvenance.imageDigest,
+        'seorilabs.io/image-source-sha': config.imageProvenance.sourceSha,
+        'seorilabs.io/image-workflow-run': String(config.imageProvenance.runId),
+        'seorilabs.io/registry-mode': config.registry.mode,
         'seorilabs.io/secret-access-sha256': binding.secretAccessConfigSha256,
         'seorilabs.io/secret-resource-partition-sha256': resourcePartitionSha256,
         'seorilabs.io/provider-control-plane-spiffe': config.providerControlPlane.backofficeClientSpiffeId,
         'seorilabs.io/provider-endpoint-scope': config.providerControlPlane.endpointScope,
+        ...(config.registry.mode === 'PACKAGES_READER'
+          ? { 'seorilabs.io/registry-credential-id': config.registry.credentialId }
+          : {}),
       },
     },
     spec: {
@@ -317,7 +327,7 @@ function workload(role, config) {
       hostIPC: false,
       hostNetwork: false,
       hostPID: false,
-      imagePullSecrets: [{ name: config.imagePullSecretName }],
+      ...(pullSecrets === undefined ? {} : { imagePullSecrets: pullSecrets }),
       nodeSelector: config.nodeSelector,
       securityContext: podSecurityContext(),
       serviceAccountName: serviceAccountName(role),
@@ -331,7 +341,12 @@ function workload(role, config) {
     kind: role === 'broker' ? 'StatefulSet' : 'Deployment',
     metadata: {
       ...metadata(appName(role)),
-      annotations: { 'seorilabs.io/deployable': 'true', 'seorilabs.io/image': config.image },
+      annotations: {
+        'seorilabs.io/deployable': 'true',
+        'seorilabs.io/image': config.image,
+        'seorilabs.io/image-source-sha': config.imageProvenance.sourceSha,
+        'seorilabs.io/registry-mode': config.registry.mode,
+      },
     },
     spec: {
       replicas: 1,

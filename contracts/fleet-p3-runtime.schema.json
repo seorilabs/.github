@@ -311,16 +311,32 @@
     "authBroker": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["namespace", "image", "registry", "secretManager", "wifAudience", "state", "trustedWorkers", "providerControlPlane", "egressProxy", "roles"],
+      "required": ["namespace", "image", "imageProvenance", "registry", "canary", "secretManager", "wifAudience", "state", "trustedWorkers", "providerControlPlane", "egressProxy", "roles"],
       "properties": {
         "namespace": { "const": "auth-broker" },
         "image": { "type": "string", "pattern": "^ghcr\\.io/seorilabs/seori-auth@sha256:[0-9a-f]{64}$" },
+        "imageProvenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "sourceSha", "workflow", "runId", "platform", "imageDigest"],
+          "properties": {
+            "repository": { "const": "seorilabs/.github" },
+            "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "workflow": { "const": ".github/workflows/seori-auth-image.yml" },
+            "runId": { "type": "integer", "minimum": 1 },
+            "platform": { "const": "linux/arm64" },
+            "imageDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+          }
+        },
         "registry": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["server", "imagePullSecretName", "credentialId", "credentialKind", "identityRequirement", "personalOperatorReuseAllowed", "publicPackageAlternativeAllowed", "requiredScopes", "catalogStatus", "kubernetesStatus", "humanGate"],
+          "required": ["mode", "server", "repository", "packageVersionTag", "personalOperatorReuseAllowed", "publicPackageAlternativeAllowed", "humanGate"],
           "properties": {
+            "mode": { "enum": ["PUBLIC", "PACKAGES_READER"] },
             "server": { "const": "ghcr.io" },
+            "repository": { "const": "ghcr.io/seorilabs/seori-auth" },
+            "packageVersionTag": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
             "imagePullSecretName": { "const": "seori-auth-ghcr-pull" },
             "credentialId": { "const": "shared/github/packages-reader" },
             "credentialKind": { "const": "github-pat-classic" },
@@ -331,8 +347,9 @@
               "type": "array", "minItems": 1, "maxItems": 1,
               "prefixItems": [{ "const": "read:packages" }], "items": false
             },
-            "catalogStatus": { "const": "blocked_missing" },
-            "kubernetesStatus": { "const": "blocked_unverified" },
+            "catalogStatus": { "enum": ["active", "blocked_missing"] },
+            "kubernetesStatus": { "enum": ["verified", "blocked_unverified"] },
+            "packageVisibilityStatus": { "enum": ["verified_public", "blocked_unverified"] },
             "humanGate": {
               "type": "object",
               "additionalProperties": false,
@@ -362,6 +379,81 @@
                   ],
                   "items": false
                 }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": ["mode"],
+                "properties": { "mode": { "const": "PUBLIC" } }
+              },
+              "then": {
+                "required": ["packageVisibilityStatus"],
+                "properties": { "packageVisibilityStatus": {} },
+                "not": {
+                  "anyOf": [
+                    { "required": ["imagePullSecretName"], "properties": { "imagePullSecretName": {} } },
+                    { "required": ["credentialId"], "properties": { "credentialId": {} } },
+                    { "required": ["credentialKind"], "properties": { "credentialKind": {} } },
+                    { "required": ["identityRequirement"], "properties": { "identityRequirement": {} } },
+                    { "required": ["requiredScopes"], "properties": { "requiredScopes": {} } },
+                    { "required": ["catalogStatus"], "properties": { "catalogStatus": {} } },
+                    { "required": ["kubernetesStatus"], "properties": { "kubernetesStatus": {} } }
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "required": ["mode"],
+                "properties": { "mode": { "const": "PACKAGES_READER" } }
+              },
+              "then": {
+                "required": ["imagePullSecretName", "credentialId", "credentialKind", "identityRequirement", "requiredScopes", "catalogStatus", "kubernetesStatus"],
+                "properties": {
+                  "imagePullSecretName": {},
+                  "credentialId": {},
+                  "credentialKind": {},
+                  "identityRequirement": {},
+                  "requiredScopes": {},
+                  "catalogStatus": {},
+                  "kubernetesStatus": {}
+                },
+                "not": {
+                  "required": ["packageVisibilityStatus"],
+                  "properties": { "packageVisibilityStatus": {} }
+                }
+              }
+            }
+          ]
+        },
+        "canary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["contractVersion", "kind", "nodeSelector", "activeDeadlineSeconds", "expectedOutputSha256", "idempotency"],
+          "properties": {
+            "contractVersion": { "const": 1 },
+            "kind": { "const": "NON_SECRET_BUILTIN" },
+            "nodeSelector": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kubernetes.io/hostname"],
+              "properties": {
+                "kubernetes.io/hostname": { "const": "rpi5" }
+              }
+            },
+            "activeDeadlineSeconds": { "const": 300 },
+            "expectedOutputSha256": { "const": "db69575cac8240a6fb6946f05c32a1ad59d6b58b430b62d99fa2dfa1cea05591" },
+            "idempotency": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["markerKind", "key", "existingPolicy", "unknownOutcomePolicy"],
+              "properties": {
+                "markerKind": { "const": "Job" },
+                "key": { "const": "image-source-contract-sha256" },
+                "existingPolicy": { "const": "READBACK_ONLY" },
+                "unknownOutcomePolicy": { "const": "READBACK_FIRST" }
               }
             }
           }

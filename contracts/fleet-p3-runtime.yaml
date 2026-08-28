@@ -234,9 +234,19 @@ cloudBuild:
 
 authBroker:
   namespace: auth-broker
-  image: ghcr.io/seorilabs/seori-auth@sha256:d8fabaa5e79711d2a4cddd4d70af8d8f17e96143a5b281bccf3f0ee89a1ea457
+  image: ghcr.io/seorilabs/seori-auth@sha256:b5c5ee63ecc3f16e90013e8f6f8727d6c7dc9f4812ba1a1805165bb7413cd515
+  imageProvenance:
+    repository: seorilabs/.github
+    sourceSha: 6e18b189d112f23270426cd88b3f906969103b75
+    workflow: .github/workflows/seori-auth-image.yml
+    runId: 33190683201
+    platform: linux/arm64
+    imageDigest: sha256:b5c5ee63ecc3f16e90013e8f6f8727d6c7dc9f4812ba1a1805165bb7413cd515
   registry:
+    mode: PACKAGES_READER
     server: ghcr.io
+    repository: ghcr.io/seorilabs/seori-auth
+    packageVersionTag: 6e18b189d112f23270426cd88b3f906969103b75
     imagePullSecretName: seori-auth-ghcr-pull
     credentialId: shared/github/packages-reader
     credentialKind: github-pat-classic
@@ -261,6 +271,18 @@ authBroker:
         - package_access_exact
         - image_digest_signature_exact
         - pull_secret_materialized_when_private
+  canary:
+    contractVersion: 1
+    kind: NON_SECRET_BUILTIN
+    nodeSelector:
+      kubernetes.io/hostname: rpi5
+    activeDeadlineSeconds: 300
+    expectedOutputSha256: db69575cac8240a6fb6946f05c32a1ad59d6b58b430b62d99fa2dfa1cea05591
+    idempotency:
+      markerKind: Job
+      key: image-source-contract-sha256
+      existingPolicy: READBACK_ONLY
+      unknownOutcomePolicy: READBACK_FIRST
   secretManager:
     projectId: seorilabs-ci
     state: blocked_unverified
