@@ -1,6 +1,6 @@
 # Seorilabs Fleet Control Plane
 
-> 상태: P0 credential 기준선과 P1-P6 additive 제어면 배포, P3 pilot·P7 shadow cutover 검증 중
+> 상태: P0 기준선과 P1·P4·P5·P6 Backoffice 제어면 배포, P2 broker·P3 pilot·P7 cutover gate 검증 중
 > 비범위: 실제 provider 계정 생성, TOTP 등록, secret 회전·폐기, 마켓 업로드, 심사 제출, 공개 배포
 
 Fleet Control Plane은 앱 저장소마다 운영 설정과 CI를 복제하는 구조를 없애기 위한 조직
