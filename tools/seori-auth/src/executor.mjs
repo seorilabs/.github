@@ -196,9 +196,9 @@ async function runProviderChild({ adapter, secretBuffer, command }) {
     });
     if (exceeded) fail('adapter_output_limit', 'trusted provider adapter exceeded its output limit');
     const encodedResult = Buffer.concat(resultChunks);
-    const markers = secretBuffer.length >= 8
-      ? [secretBuffer, base64Marker(secretBuffer), hexMarker(secretBuffer)]
-      : [];
+    // Credential length is not a trust signal. Even a one-byte credential
+    // must fail closed if the adapter echoes its raw or common encoded form.
+    const markers = [secretBuffer, base64Marker(secretBuffer), hexMarker(secretBuffer)];
     try {
       if (markers.some((candidate) => encodedResult.includes(candidate))) {
         fail('adapter_result_secret_detected', 'trusted provider adapter result contained credential material');

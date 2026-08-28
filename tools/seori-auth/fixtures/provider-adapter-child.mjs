@@ -17,7 +17,9 @@ try {
     }));
   }
 
-  if (mode === 'leak-base64') {
+  if (mode === 'leak-raw') {
+    writeFileSync(resultFd, secret);
+  } else if (mode === 'leak-base64') {
     writeFileSync(resultFd, secret.toString('base64'));
   } else if (mode === 'human') {
     writeFileSync(resultFd, JSON.stringify({

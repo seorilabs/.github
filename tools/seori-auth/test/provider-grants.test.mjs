@@ -515,6 +515,18 @@ test('native provider adapter receives secret only on fd3 and returns strict pub
       }),
       (error) => error instanceof SeoriAuthError && error.code === 'adapter_result_secret_detected',
     );
+
+    for (const mode of ['leak-raw', 'leak-base64']) {
+      await assert.rejects(
+        executeConsumedProviderLease({
+          consumed: { binding: providerGrantLeaseRequest(command, subject) },
+          registry: new TrustedAdapterRegistry([providerAdapter(launcher, mode)]),
+          loadSecret: async () => Buffer.from('x'),
+          command,
+        }),
+        (error) => error instanceof SeoriAuthError && error.code === 'adapter_result_secret_detected',
+      );
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
