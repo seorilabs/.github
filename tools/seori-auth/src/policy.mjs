@@ -20,6 +20,7 @@ const RULE_KEYS = new Set([
   'resources',
   'adapters',
   'accountIds',
+  'actionClass',
   'authStrategies',
   'requiresArtifact',
   'artifactSha256s',
@@ -27,14 +28,14 @@ const RULE_KEYS = new Set([
   'approvals',
 ]);
 const AUTH_FACTORS = new Set(['api_key', 'certificate', 'oidc', 'password', 'session', 'totp']);
-const MUTATING_ACTIONS = new Set([
-  'add', 'assign', 'cancel', 'change', 'create', 'delete', 'deploy', 'disable', 'enable',
-  'grant', 'invite', 'issue', 'promote', 'publish', 'release', 'remove', 'replace', 'revoke',
-  'rotate', 'set', 'start', 'stop', 'submit', 'transfer', 'update',
+const ACTION_CLASSES = new Set([
+  'read_only', 'build_status', 'internal_upload', 'review_submit', 'review_cancel',
+  'public_release', 'tester_change', 'role_change', 'permission_change',
+  'credential_change', 'certificate_change', 'other_mutation',
 ]);
-const PROTECTED_RESOURCES = new Set([
-  'certificate', 'certificates', 'key', 'keys', 'permission', 'permissions', 'role', 'roles',
-  'tester', 'testers',
+const PROTECTED_ACTION_CLASSES = new Set([
+  'review_submit', 'review_cancel', 'public_release', 'tester_change', 'role_change',
+  'permission_change', 'credential_change', 'certificate_change', 'other_mutation',
 ]);
 
 function assertExactKeys(value, allowed, required, label) {
@@ -126,13 +127,8 @@ function authStrategyList(value, label) {
   }));
 }
 
-function requiresPerRunApproval(request) {
-  const tokens = request.capability.split(/[.-]/);
-  const mutating = tokens.some((token) => MUTATING_ACTIONS.has(token));
-  if (!mutating) return false;
-  if (tokens.includes('review') && (tokens.includes('submit') || tokens.includes('cancel'))) return true;
-  if (tokens.includes('public') || tokens.includes('production')) return true;
-  return tokens.some((token) => PROTECTED_RESOURCES.has(token));
+function requiresPerRunApproval(request, rule) {
+  return request.resource.environment === 'production' || PROTECTED_ACTION_CLASSES.has(rule.actionClass);
 }
 
 function normalizeRule(rule, index) {
@@ -142,6 +138,9 @@ function normalizeRule(rule, index) {
   }
   if (typeof rule.enabled !== 'boolean' || typeof rule.requiresArtifact !== 'boolean' || typeof rule.allowTotp !== 'boolean') {
     fail('invalid_policy', `rules[${index}] boolean fields are invalid`);
+  }
+  if (!ACTION_CLASSES.has(rule.actionClass)) {
+    fail('invalid_policy', `rules[${index}].actionClass is invalid`);
   }
 
   const commitShas = stringList(rule.commitShas, `rules[${index}].commitShas`);
@@ -177,6 +176,7 @@ function normalizeRule(rule, index) {
     resources: resourceList(rule.resources, `rules[${index}].resources`),
     adapters: stringList(rule.adapters, `rules[${index}].adapters`),
     accountIds: stringList(rule.accountIds, `rules[${index}].accountIds`),
+    actionClass: rule.actionClass,
     authStrategies: authStrategyList(rule.authStrategies, `rules[${index}].authStrategies`),
     requiresArtifact: rule.requiresArtifact,
     artifactSha256s,
@@ -244,7 +244,7 @@ export class PolicyEngine {
     Object.freeze(this);
   }
 
-  authorize(rawRequest) {
+  #evaluate(rawRequest) {
     const request = normalizeLeaseRequest(rawRequest);
     if (request.policyGeneration !== this.generation) {
       fail('stale_policy_generation', 'lease request policy generation is stale');
@@ -278,10 +278,35 @@ export class PolicyEngine {
     if (!rule) {
       fail('capability_forbidden', 'no enabled policy rule allows TOTP for this capability binding');
     }
-    if (requiresPerRunApproval(request) && request.approval.mode !== 'per_run') {
-      fail('per_run_approval_required', 'protected capability requires a per-run approval');
+    if (requiresPerRunApproval(request, rule) && request.approval.mode !== 'per_run') {
+      fail('per_run_approval_required', 'production resources and protected action classes require a per-run approval');
     }
 
-    return Object.freeze({ request, ruleId: rule.id, account });
+    const authStrategyIndex = rule.authStrategies.findIndex(
+      (strategy) => isDeepStrictEqual(strategy, request.authFactors),
+    );
+    return Object.freeze({
+      request,
+      ruleId: rule.id,
+      account,
+      actionClass: rule.actionClass,
+      authStrategyIndex,
+      authStrategies: rule.authStrategies,
+    });
+  }
+
+  authorize(rawRequest) {
+    const authorized = this.#evaluate(rawRequest);
+    if (authorized.authStrategyIndex > 0) {
+      fail(
+        'durable_auth_strategy_evidence_required',
+        'fallback authentication strategies require durable same-run failure evidence',
+      );
+    }
+    return authorized;
+  }
+
+  evaluateForDurableState(rawRequest) {
+    return this.#evaluate(rawRequest);
   }
 }

@@ -7,13 +7,19 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import {
-  DurableAuthState,
   EncryptedBrowserVault,
   HUMAN_REAUTH_REQUIRED,
   LocalAuthDaemon,
   SeoriAuthError,
 } from '../src/index.mjs';
-import { makeNativeLauncher, makeNativeLockProvider, makePolicy, makeRequest } from '../fixtures/helpers.mjs';
+import {
+  makeNativeLauncher,
+  makeNativeLockProvider,
+  makeNativeBrowserAdapter,
+  makePolicy,
+  makeRequest,
+  openDurableAuthState,
+} from '../fixtures/helpers.mjs';
 
 const fixture = fileURLToPath(new URL('../fixtures/echo-secret-child.mjs', import.meta.url));
 
@@ -40,6 +46,15 @@ function post(socketPath, path, body, method = 'POST') {
     if (payload) request.write(payload);
     request.end();
   });
+}
+
+async function waitUntil(predicate, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail('condition was not reached before timeout');
 }
 
 function executionBinding() {
@@ -99,14 +114,19 @@ function browserVaultStub() {
 
 async function startBrowserHarness({
   approvals,
+  ruleOverrides = {},
   executeBrowserSession,
+  browserAdapter,
   reconcileBrowserSession,
   readBrowserIdentity = async () => publicIdentity(),
   getCredentialGeneration = async () => 3,
 }) {
   const root = await mkdtemp(join(tmpdir(), 'seori-auth-browser-daemon-'));
   const socketPath = join(root, 'broker.sock');
-  const state = await DurableAuthState.open({ directory: join(root, 'state') });
+  const state = await openDurableAuthState({ directory: join(root, 'state') });
+  const trustedBrowserAdapter = browserAdapter ?? await makeNativeBrowserAdapter({
+    execute: executeBrowserSession,
+  });
   await state.registerBrowserSession({
     sessionId: 'browser-session-harness',
     generation: 1,
@@ -116,7 +136,7 @@ async function startBrowserHarness({
   const daemon = new LocalAuthDaemon({
     socketPath,
     state,
-    policy: makePolicy({ approvals }),
+    policy: makePolicy({ ...ruleOverrides, approvals }),
     adapters: [],
     loadSecret: async () => Buffer.from('unused'),
     getCredentialGeneration,
@@ -124,15 +144,20 @@ async function startBrowserHarness({
     reconcileBrowserSession,
     authenticatePrincipal: async () => executionBinding(),
     browserVault: browserVaultStub(),
-    executeBrowserSession,
+    browserAdapter: trustedBrowserAdapter,
   });
   await daemon.start();
 
   return {
     socketPath,
     state,
-    async checkout({ approval: requestApproval, occurrence, expectedSessionGeneration = 1 }) {
-      const context = makeRequest({ approval: requestApproval });
+    async checkout({
+      approval: requestApproval,
+      occurrence,
+      expectedSessionGeneration = 1,
+      requestOverrides = {},
+    }) {
+      const context = makeRequest({ ...requestOverrides, approval: requestApproval });
       const lease = await post(socketPath, '/auth/leases', {
         idempotencyKey: occurrence,
         workerId: 'worker-a',
@@ -185,13 +210,13 @@ test('daemon cannot be constructed without an out-of-body principal attestor', (
       readBrowserIdentity: async () => publicIdentity(),
       reconcileBrowserSession: async () => ({ outcome: 'UNKNOWN', publicIdentity: publicIdentity() }),
       browserVault: browserVaultStub(),
-      executeBrowserSession: async () => {},
     }),
     /authenticatePrincipal must attest the Unix peer outside the HTTP body/,
   );
 });
 
-test('daemon production boundary requires every credential adapter to use the native launcher', () => {
+test('daemon production boundary requires every credential adapter to use the native launcher', async () => {
+  const browserAdapter = await makeNativeBrowserAdapter({ execute: async () => {} });
   assert.throws(
     () => new LocalAuthDaemon({
       socketPath: '/tmp/seori-auth-native-required.sock',
@@ -211,10 +236,29 @@ test('daemon production boundary requires every credential adapter to use the na
       reconcileBrowserSession: async () => ({ outcome: 'UNKNOWN', publicIdentity: publicIdentity() }),
       authenticatePrincipal: async () => executionBinding(),
       browserVault: browserVaultStub(),
-      executeBrowserSession: async () => {},
+      browserAdapter,
       requireNativeLauncher: false,
     }),
     (error) => error instanceof SeoriAuthError && error.code === 'native_launcher_required',
+  );
+});
+
+test('daemon rejects an in-process browser callback without the native abort and kill contract', () => {
+  assert.throws(
+    () => new LocalAuthDaemon({
+      socketPath: '/tmp/seori-auth-browser-native-required.sock',
+      state: stateContractStub(),
+      policy: makePolicy(),
+      adapters: [],
+      loadSecret: async () => Buffer.from('unused'),
+      getCredentialGeneration: async () => 3,
+      readBrowserIdentity: async () => publicIdentity(),
+      reconcileBrowserSession: async () => ({ outcome: 'UNKNOWN', publicIdentity: publicIdentity() }),
+      authenticatePrincipal: async () => executionBinding(),
+      browserVault: browserVaultStub(),
+      browserAdapter: { execute: async () => {}, terminate: async () => ({ terminated: true }) },
+    }),
+    /native abortable and kill-confirmed launcher boundary/,
   );
 });
 
@@ -335,6 +379,171 @@ test('uncertain browser failure remains claimed and every retry is readback-only
   }
 });
 
+test('browser NOT_APPLIED readback becomes durable same-run evidence for the next fallback strategy', async () => {
+  const sessionApproval = approval('approval-session-strategy');
+  const passwordApproval = approval('approval-password-strategy');
+  let adapterRuns = 0;
+  const harness = await startBrowserHarness({
+    approvals: [sessionApproval, passwordApproval],
+    ruleOverrides: {
+      authStrategies: [['session'], ['password', 'totp']],
+      allowTotp: true,
+    },
+    executeBrowserSession: async () => {
+      adapterRuns += 1;
+      throw new Error('session was rejected');
+    },
+    reconcileBrowserSession: async () => ({ outcome: 'NOT_APPLIED', publicIdentity: publicIdentity() }),
+  });
+  try {
+    const { completion } = await harness.checkout({
+      approval: sessionApproval,
+      occurrence: 'session-strategy',
+      requestOverrides: { authFactors: ['session'] },
+    });
+    const failed = await post(
+      harness.socketPath,
+      '/auth/browser-sessions/browser-session-harness/complete',
+      completion,
+    );
+    assert.equal(failed.status, 500);
+    const reconciled = await post(
+      harness.socketPath,
+      '/auth/browser-sessions/browser-session-harness/complete',
+      completion,
+    );
+    assert.equal(reconciled.status, 409);
+    assert.deepEqual(reconciled.body, { error: { code: 'browser_reconciliation_not_applied' } });
+    assert.equal(adapterRuns, 1);
+
+    const fallbackRequest = makeRequest({
+      authFactors: ['password', 'totp'],
+      approval: passwordApproval,
+    });
+    const fallback = await post(harness.socketPath, '/auth/leases', {
+      idempotencyKey: 'password-strategy-after-readback',
+      workerId: 'worker-a',
+      request: fallbackRequest,
+    });
+    assert.equal(fallback.status, 201, JSON.stringify(fallback.body));
+  } finally {
+    await harness.close();
+  }
+});
+
+test('browser timeout aborts and waits for kill plus full exit before recovery can reclaim the session', async () => {
+  const requestApproval = approval('approval-timeout-complete');
+  let abortObserved = false;
+  let terminationCalled = false;
+  let releaseTermination;
+  let finishExecution;
+  const terminationGate = new Promise((resolve) => { releaseTermination = resolve; });
+  const browserAdapter = await makeNativeBrowserAdapter({
+    timeoutMs: 20,
+    terminationTimeoutMs: 1_000,
+    execute: ({ signal }) => new Promise((resolve) => {
+      finishExecution = resolve;
+      signal.addEventListener('abort', () => { abortObserved = true; }, { once: true });
+    }),
+    terminate: async () => {
+      terminationCalled = true;
+      await terminationGate;
+      finishExecution();
+      return { terminated: true };
+    },
+  });
+  const harness = await startBrowserHarness({
+    approvals: [requestApproval],
+    browserAdapter,
+    reconcileBrowserSession: async () => ({ outcome: 'NOT_APPLIED', publicIdentity: publicIdentity() }),
+  });
+  try {
+    const { completion } = await harness.checkout({
+      approval: requestApproval,
+      occurrence: 'timeout-complete',
+    });
+    const firstCompletion = post(
+      harness.socketPath,
+      '/auth/browser-sessions/browser-session-harness/complete',
+      completion,
+    );
+    await waitUntil(() => abortObserved && terminationCalled);
+    assert.equal(
+      harness.state.snapshot().browserSessionBindings[0].state,
+      'CLAIMED',
+      'timeout must remain claimed while native termination is pending',
+    );
+    const concurrentRetry = await post(
+      harness.socketPath,
+      '/auth/browser-sessions/browser-session-harness/complete',
+      completion,
+    );
+    assert.equal(concurrentRetry.status, 409);
+    assert.deepEqual(concurrentRetry.body, { error: { code: 'generation_conflict' } });
+
+    releaseTermination();
+    const timedOut = await firstCompletion;
+    assert.equal(timedOut.status, 500);
+    assert.deepEqual(timedOut.body, { error: { code: 'browser_adapter_timeout' } });
+    assert.equal(harness.state.snapshot().browserSessionBindings[0].state, 'CLAIMED');
+
+    const readbackOnly = await post(
+      harness.socketPath,
+      '/auth/browser-sessions/browser-session-harness/complete',
+      completion,
+    );
+    assert.equal(readbackOnly.status, 409);
+    assert.deepEqual(readbackOnly.body, { error: { code: 'browser_reconciliation_not_applied' } });
+    assert.equal(harness.state.snapshot().browserSessionBindings[0].state, 'AVAILABLE');
+  } finally {
+    releaseTermination();
+    if (finishExecution) finishExecution();
+    await harness.close();
+  }
+});
+
+test('kill acknowledgement without adapter exit keeps the browser session permanently claimed', async () => {
+  const requestApproval = approval('approval-unconfirmed-exit');
+  let abortObserved = false;
+  const browserAdapter = await makeNativeBrowserAdapter({
+    timeoutMs: 20,
+    terminationTimeoutMs: 20,
+    execute: ({ signal }) => new Promise(() => {
+      signal.addEventListener('abort', () => { abortObserved = true; }, { once: true });
+    }),
+    terminate: async () => ({ terminated: true }),
+  });
+  const harness = await startBrowserHarness({
+    approvals: [requestApproval],
+    browserAdapter,
+    reconcileBrowserSession: async () => ({ outcome: 'NOT_APPLIED', publicIdentity: publicIdentity() }),
+  });
+  try {
+    const { completion } = await harness.checkout({
+      approval: requestApproval,
+      occurrence: 'unconfirmed-exit',
+    });
+    const result = await post(
+      harness.socketPath,
+      '/auth/browser-sessions/browser-session-harness/complete',
+      completion,
+    );
+    assert.equal(abortObserved, true);
+    assert.equal(result.status, 500);
+    assert.deepEqual(result.body, { error: { code: 'browser_adapter_termination_unconfirmed' } });
+    assert.equal(harness.state.snapshot().browserSessionBindings[0].state, 'CLAIMED');
+    const retry = await post(
+      harness.socketPath,
+      '/auth/browser-sessions/browser-session-harness/complete',
+      completion,
+    );
+    assert.equal(retry.status, 409);
+    assert.deepEqual(retry.body, { error: { code: 'generation_conflict' } });
+  } finally {
+    await harness.close();
+  }
+});
+
 test('detected interactive login gate creates durable ReauthRequest and blocks retries', async () => {
   const firstApproval = approval('approval-human-gate-first');
   const retryApproval = approval('approval-human-gate-retry');
@@ -430,7 +639,7 @@ test('Unix-only daemon exposes only five non-secret POST routes and never leaks 
   });
   const vaultKey = Buffer.alloc(32, 0x4d);
   try {
-    state = await DurableAuthState.open({ directory: stateDirectory });
+    state = await openDurableAuthState({ directory: stateDirectory });
     await state.registerBrowserSession({
       sessionId: 'browser-session-a',
       generation: 1,
@@ -453,6 +662,7 @@ test('Unix-only daemon exposes only five non-secret POST routes and never leaks 
       generation: 1,
     });
     const nativeLauncher = await makeNativeLauncher();
+    const noOpBrowserAdapter = await makeNativeBrowserAdapter({ execute: async () => {} });
     unauthenticatedDaemon = new LocalAuthDaemon({
       socketPath: join(runtimeDirectory, 'unauthenticated.sock'),
       state,
@@ -475,7 +685,7 @@ test('Unix-only daemon exposes only five non-secret POST routes and never leaks 
         throw new Error('same UID without scheduler attestation');
       },
       browserVault: vault,
-      executeBrowserSession: async () => {},
+      browserAdapter: noOpBrowserAdapter,
     });
     await unauthenticatedDaemon.start();
     const unauthenticated = await post(
@@ -488,6 +698,15 @@ test('Unix-only daemon exposes only five non-secret POST routes and never leaks 
     await unauthenticatedDaemon.stop();
     unauthenticatedDaemon = undefined;
 
+    const nativeBrowserAdapter = await makeNativeBrowserAdapter({
+      execute: async ({ cloneDirectory, authorization, signal }) => {
+        assert.equal(signal.aborted, false);
+        browserAdapterRuns += 1;
+        assert.equal(await readFile(join(cloneDirectory, 'Cookies'), 'utf8'), 'fake-encrypted-session-input');
+        assert.equal(authorization.leaseId, expectedBrowserLeaseId);
+        assert.deepEqual(authorization.request, expectedBrowserContext);
+      },
+    });
     daemon = new LocalAuthDaemon({
       socketPath,
       state,
@@ -522,12 +741,7 @@ test('Unix-only daemon exposes only five non-secret POST routes and never leaks 
         return executionBinding();
       },
       browserVault: vault,
-      executeBrowserSession: async ({ cloneDirectory, authorization }) => {
-        browserAdapterRuns += 1;
-        assert.equal(await readFile(join(cloneDirectory, 'Cookies'), 'utf8'), 'fake-encrypted-session-input');
-        assert.equal(authorization.leaseId, expectedBrowserLeaseId);
-        assert.deepEqual(authorization.request, expectedBrowserContext);
-      },
+      browserAdapter: nativeBrowserAdapter,
     });
     const listening = await daemon.start();
     assert.deepEqual(listening, { transport: 'unix', socketPath });

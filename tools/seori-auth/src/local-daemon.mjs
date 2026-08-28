@@ -4,16 +4,22 @@ import { dirname, isAbsolute } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import { TrustedAdapterRegistry } from './adapters.mjs';
-import { HUMAN_REAUTH_REQUIRED, normalizeExecutionBinding, normalizePublicIdentity } from './durable-state.mjs';
+import {
+  computeAuthStrategyEvidenceKey,
+  HUMAN_REAUTH_REQUIRED,
+  normalizeExecutionBinding,
+  normalizePublicIdentity,
+} from './durable-state.mjs';
 import { SeoriAuthError, fail } from './errors.mjs';
 import { executeConsumedLease } from './executor.mjs';
+import { NATIVE_BROWSER_ADAPTER_BRAND } from './native-browser-adapter-brand.mjs';
+import { NATIVE_LAUNCHER_BRAND } from './native-launcher-brand.mjs';
 import { PolicyEngine } from './policy.mjs';
 import { classifyReauth } from './reauth.mjs';
 import { normalizeLeaseRequest } from './validation.mjs';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const IDENTITY_READBACK_TIMEOUT_MS = 10_000;
-const BROWSER_OPERATION_TIMEOUT_MS = 120_000;
 const PUBLIC_PATH_ID = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$/;
 const RECONCILIATION_OUTCOMES = new Set(['SUCCEEDED', 'NOT_APPLIED', 'UNKNOWN']);
 
@@ -83,7 +89,8 @@ function errorStatus(code) {
     ['generation_conflict', 'lease_already_used', 'browser_capability_invalid', 'browser_account_in_use',
       'browser_session_exists', 'stale_credential_generation', 'stale_policy_generation',
       'approval_already_used', 'idempotency_conflict', 'browser_reconciliation_required',
-      'browser_reconciliation_not_applied', 'lease_invalidated_by_reauth'].includes(code)
+      'browser_reconciliation_not_applied', 'lease_invalidated_by_reauth',
+      'auth_strategy_evidence_required'].includes(code)
   ) return 409;
   if (
     code.startsWith('invalid_') || code === 'unknown_reauth_classification' ||
@@ -139,6 +146,87 @@ async function withTimeout(operation, milliseconds) {
   }
 }
 
+function validateNativeBrowserAdapter(adapter) {
+  if (
+    !adapter || typeof adapter !== 'object' || Array.isArray(adapter) ||
+    adapter[NATIVE_BROWSER_ADAPTER_BRAND] !== true ||
+    typeof adapter.execute !== 'function' || typeof adapter.terminate !== 'function' ||
+    !Number.isSafeInteger(adapter.timeoutMs) || adapter.timeoutMs < 10 || adapter.timeoutMs > 300_000 ||
+    !Number.isSafeInteger(adapter.terminationTimeoutMs) || adapter.terminationTimeoutMs < 10 ||
+    adapter.terminationTimeoutMs > 30_000 ||
+    !adapter.launcher || adapter.launcher[NATIVE_LAUNCHER_BRAND] !== true ||
+    adapter.launcher.mode !== 'non-dumpable-v1' ||
+    typeof adapter.launcher.executable !== 'string' || !isAbsolute(adapter.launcher.executable)
+  ) {
+    throw new TypeError('browserAdapter must use the native abortable and kill-confirmed launcher boundary');
+  }
+  return adapter;
+}
+
+async function executeAbortableBrowserAdapter(adapter, input) {
+  const controller = new AbortController();
+  const execution = Promise.resolve()
+    .then(() => adapter.execute(Object.freeze({ ...input, signal: controller.signal })))
+    .then(
+      (value) => Object.freeze({ status: 'FULFILLED', value }),
+      (reason) => Object.freeze({ status: 'REJECTED', reason }),
+    );
+  const timeoutMarker = Object.freeze({ status: 'TIMED_OUT' });
+  const first = await Promise.race([
+    execution,
+    new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(timeoutMarker), adapter.timeoutMs);
+      timer.unref();
+      execution.finally(() => clearTimeout(timer));
+    }),
+  ]);
+  if (first.status === 'FULFILLED') return first.value;
+  if (first.status === 'REJECTED') throw first.reason;
+
+  controller.abort(new SeoriAuthError('browser_adapter_timeout', 'trusted browser adapter timed out'));
+  let termination;
+  try {
+    termination = await withTimeout(
+      Promise.resolve().then(() => adapter.terminate(Object.freeze({
+        capabilityId: input.capabilityId,
+        reason: 'timeout',
+      }))),
+      adapter.terminationTimeoutMs,
+    );
+  } catch {
+    fail(
+      'browser_adapter_termination_unconfirmed',
+      'browser adapter termination could not be confirmed; its session remains claimed',
+    );
+  }
+  if (
+    !termination || typeof termination !== 'object' || Array.isArray(termination) ||
+    Object.keys(termination).join(',') !== 'terminated' || termination.terminated !== true
+  ) {
+    fail(
+      'browser_adapter_termination_unconfirmed',
+      'browser adapter termination could not be confirmed; its session remains claimed',
+    );
+  }
+
+  let settled;
+  try {
+    settled = await withTimeout(execution, adapter.terminationTimeoutMs);
+  } catch {
+    fail(
+      'browser_adapter_termination_unconfirmed',
+      'browser adapter did not fully exit after termination; its session remains claimed',
+    );
+  }
+  if (!['FULFILLED', 'REJECTED'].includes(settled.status)) {
+    fail(
+      'browser_adapter_termination_unconfirmed',
+      'browser adapter did not fully exit after termination; its session remains claimed',
+    );
+  }
+  fail('browser_adapter_timeout', 'trusted browser adapter timed out after confirmed termination');
+}
+
 async function assertSocketPathAvailable(socketPath) {
   try {
     await lstat(socketPath);
@@ -160,7 +248,7 @@ export class LocalAuthDaemon {
   #readBrowserIdentity;
   #authenticatePrincipal;
   #browserVault;
-  #executeBrowserSession;
+  #browserAdapter;
   #reconcileBrowserSession;
   #server;
   #socketIdentity;
@@ -175,7 +263,7 @@ export class LocalAuthDaemon {
     readBrowserIdentity,
     authenticatePrincipal,
     browserVault,
-    executeBrowserSession,
+    browserAdapter,
     reconcileBrowserSession,
   }) {
     if (typeof socketPath !== 'string' || !isAbsolute(socketPath)) {
@@ -213,9 +301,7 @@ export class LocalAuthDaemon {
     ) {
       throw new TypeError('browserVault must provide the trusted isolated profile boundary');
     }
-    if (typeof executeBrowserSession !== 'function') {
-      throw new TypeError('executeBrowserSession must be a trusted browser adapter callback');
-    }
+    this.#browserAdapter = validateNativeBrowserAdapter(browserAdapter);
     if (typeof reconcileBrowserSession !== 'function') {
       throw new TypeError('reconcileBrowserSession must be a trusted provider readback callback');
     }
@@ -228,7 +314,6 @@ export class LocalAuthDaemon {
     this.#readBrowserIdentity = readBrowserIdentity;
     this.#authenticatePrincipal = authenticatePrincipal;
     this.#browserVault = browserVault;
-    this.#executeBrowserSession = executeBrowserSession;
     this.#reconcileBrowserSession = reconcileBrowserSession;
   }
 
@@ -330,7 +415,7 @@ export class LocalAuthDaemon {
       const normalizedRequest = normalizeLeaseRequest(body.request);
       let authorized;
       try {
-        authorized = this.#policy.authorize(normalizedRequest);
+        authorized = this.#policy.evaluateForDurableState(normalizedRequest);
       } catch (error) {
         if (error instanceof SeoriAuthError && error.code === HUMAN_REAUTH_REQUIRED) {
           await this.#state.createReauthRequest({
@@ -367,7 +452,7 @@ export class LocalAuthDaemon {
       const context = normalizeLeaseRequest(body.context);
       // Re-authorize before any generation-source lookup. This prevents an unapproved
       // caller from probing logical credential references through the trusted callback.
-      this.#policy.authorize(context);
+      this.#policy.evaluateForDurableState(context);
       const currentCredentialGeneration = await this.#currentCredentialGeneration(context.credentialRef);
       const consumed = await this.#state.consumeCredentialCheckout({
         id: pathId(executeMatch[1]),
@@ -423,7 +508,7 @@ export class LocalAuthDaemon {
       });
       assertAttestedPrincipal(principal, body.executionBinding);
       const context = normalizeLeaseRequest(body.context);
-      const authorized = this.#policy.authorize(context);
+      const authorized = this.#policy.evaluateForDurableState(context);
       const currentCredentialGeneration = await this.#currentCredentialGeneration(context.credentialRef);
       const consumed = await this.#state.consumeCredentialCheckout({
         id: pathId(body.leaseId),
@@ -437,11 +522,14 @@ export class LocalAuthDaemon {
         fail('browser_session_binding_mismatch', 'browser lease rule no longer matches policy');
       }
       const authorization = Object.freeze({
+        actionClass: consumed.actionClass,
+        authStrategyIndex: consumed.authStrategyIndex,
         leaseId: consumed.id,
         ruleId: consumed.ruleId,
         profileGeneration: body.expectedProfileGeneration,
         role: body.role,
         request: consumed.binding,
+        strategyEvidenceKey: consumed.strategyEvidenceKey,
       });
       const sessionId = pathId(checkoutMatch[1]);
       const browserSession = await this.#state.checkoutBrowserSession({
@@ -512,17 +600,26 @@ export class LocalAuthDaemon {
         sendJson(response, 200, { browserSession });
         return;
       }
-      const authorized = this.#policy.authorize(context);
+      const authorized = this.#policy.evaluateForDurableState(context);
       const currentCredentialGeneration = await this.#currentCredentialGeneration(context.credentialRef);
       if (currentCredentialGeneration !== context.credentialGeneration) {
         fail('stale_credential_generation', 'credential generation changed during browser execution');
       }
       const authorization = Object.freeze({
+        actionClass: authorized.actionClass,
+        authStrategyIndex: authorized.authStrategyIndex,
         leaseId,
         ruleId: authorized.ruleId,
         profileGeneration: body.profileGeneration,
         role: body.role,
         request: context,
+        strategyEvidenceKey: computeAuthStrategyEvidenceKey({
+          request: context,
+          executionBinding: principal,
+          ruleId: authorized.ruleId,
+          strategyIndex: authorized.authStrategyIndex,
+          authFactors: context.authFactors,
+        }),
       });
       const claim = await this.#state.claimBrowserSessionExecution({
         sessionId,
@@ -549,13 +646,11 @@ export class LocalAuthDaemon {
           capabilityId: body.capabilityId,
           executionBinding: principal,
           sourceSha: context.commitSha,
-        }, (cloneDirectory) => withTimeout(
-          Promise.resolve().then(() => this.#executeBrowserSession(Object.freeze({
+        }, (cloneDirectory) => executeAbortableBrowserAdapter(this.#browserAdapter, Object.freeze({
             cloneDirectory,
             authorization,
-          }))),
-          BROWSER_OPERATION_TIMEOUT_MS,
-        ));
+            capabilityId: body.capabilityId,
+          })));
         observedIdentity = await withTimeout(
           Promise.resolve().then(() => this.#readBrowserIdentity({
             sessionId,
@@ -579,11 +674,15 @@ export class LocalAuthDaemon {
         });
         sendJson(response, 200, { browserSession });
       } catch (error) {
-        await this.#browserVault.abort({
-          capabilityId: body.capabilityId,
-          executionBinding: principal,
-          sourceSha: context.commitSha,
-        }).catch(() => {});
+        const terminationUnconfirmed = error instanceof SeoriAuthError &&
+          error.code === 'browser_adapter_termination_unconfirmed';
+        if (!terminationUnconfirmed) {
+          await this.#browserVault.abort({
+            capabilityId: body.capabilityId,
+            executionBinding: principal,
+            sourceSha: context.commitSha,
+          }).catch(() => {});
+        }
         if (error instanceof SeoriAuthError && error.code === HUMAN_REAUTH_REQUIRED) {
           await this.#state.createReauthRequest({
             reason: error.details?.reason ?? 'mfa_required',
@@ -597,7 +696,7 @@ export class LocalAuthDaemon {
             executionBinding: principal,
             authorization,
           });
-        } else {
+        } else if (!terminationUnconfirmed) {
           await this.#state.requireBrowserSessionReconciliation({
             sessionId,
             capabilityId: body.capabilityId,

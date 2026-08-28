@@ -101,6 +101,7 @@ const result = await broker.execute({
 
 const state = await DurableAuthState.open({
   directory: '/var/lib/seori-auth',
+  writerLockProvider: nativeBoundary.lockProvider(),
   journalMacKey,
   requireIntegrity: true,
   expectedJournalHeadMac,
@@ -115,8 +116,12 @@ const daemon = new LocalAuthDaemon({
   readBrowserIdentity,
   authenticatePrincipal: (socket) => nativeBoundary.authenticatePrincipal(socket),
   browserVault,
-  executeBrowserSession: ({ cloneDirectory, authorization }) =>
-    trustedProviderBrowserAdapter.execute({ cloneDirectory, authorization }),
+  browserAdapter: nativeBoundary.browserAdapter({
+    execute: ({ cloneDirectory, authorization, signal }) =>
+      trustedProviderBrowserAdapter.execute({ cloneDirectory, authorization, signal }),
+    terminate: ({ capabilityId, reason }) =>
+      trustedProviderBrowserAdapter.killAndWait({ capabilityId, reason }),
+  }),
   reconcileBrowserSession: ({ authorization }) =>
     trustedProviderApi.readActionOutcome({ authorization }),
 });
@@ -127,9 +132,23 @@ await daemon.start();
 `buildArgs`는 검토된 adapter 코드이고 secret을 인자로 받지 않습니다. 실제 provider
 adapter는 API 우선으로 구현하고, 웹 세션은 API가 없는 동작에만 사용합니다.
 
+`authStrategies`의 배열 순서는 fallback 순서입니다. 첫 전략 이외의 checkout은 같은
+run·repo·SHA·action·resource에 대해 모든 앞선 전략이 실제로 실패했다는 durable
+non-secret audit evidence가 있어야 합니다. `SeoriAuthBroker`의 메모리 lease 경로는 이
+증거를 제공할 수 없으므로 첫 전략만 허용합니다. policy의 `actionClass`는 capability
+문자열과 별도로 서명되며 protected class 또는 `resource.environment=production`은
+항상 `per_run` approval을 요구합니다.
+
 daemon은 절대 경로의 Unix socket만 받으며 socket과 state directory가 owner-only가
 아니거나 symlink이면 시작을 거부합니다. 기존 path는 다른 broker의 socket인지
 추측해 제거하지 않고 fail-closed합니다. TCP host/port 설정은 제공하지 않습니다.
+durable journal은 native advisory writer lock을 배포 생명주기 전체에 보유하므로 같은
+경로를 두 broker instance가 동시에 replay/append할 수 없습니다. crash 뒤 남은 private
+lock file은 소유권이 아니며 OS lock을 새로 획득한 instance만 replay합니다.
+
+browser adapter는 `NativeSecurityBoundary.browserAdapter`가 만든 AbortSignal·terminate
+계약만 허용합니다. timeout이면 abort 뒤 native kill과 adapter promise의 완전 종료를
+모두 확인하기 전에는 clone을 폐기하거나 session을 recovery/reuse 상태로 바꾸지 않습니다.
 
 ## HTTP 계약
 

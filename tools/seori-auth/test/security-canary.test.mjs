@@ -8,12 +8,17 @@ import test from 'node:test';
 import {
   BrowserLoginBoundary,
   CanonicalAccountRegistry,
-  DurableAuthState,
   EncryptedBrowserVault,
   PolicyEngine,
   SeoriAuthBroker,
 } from '../src/index.mjs';
-import { makeNativeLauncher, makeNativeLockProvider, makePolicy, makeRequest } from '../fixtures/helpers.mjs';
+import {
+  makeNativeLauncher,
+  makeNativeLockProvider,
+  makePolicy,
+  makeRequest,
+  openDurableAuthState,
+} from '../fixtures/helpers.mjs';
 
 const fixture = fileURLToPath(new URL('../fixtures/echo-secret-child.mjs', import.meta.url));
 
@@ -113,7 +118,7 @@ test('deterministic canaries never cross prompt, output, argv, env, journal, log
     assert.ok(executionPassword.every((byte) => byte === 0));
 
     let nextId = 0;
-    state = await DurableAuthState.open({
+    state = await openDurableAuthState({
       directory: stateDirectory,
       journalMacKey,
       requireIntegrity: true,

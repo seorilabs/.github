@@ -163,10 +163,15 @@ test('authentication factors are an ordered exact policy strategy', () => {
   const engine = new PolicyEngine(makePolicy({
     authStrategies: [['api_key'], ['oidc', 'certificate']],
   }));
-  assert.equal(engine.authorize(makeRequest({ authFactors: ['api_key'] })).ruleId, 'private-upload');
+  assert.equal(engine.authorize(makeRequest({ authFactors: ['api_key'] })).authStrategyIndex, 0);
+  assert.throws(
+    () => engine.authorize(makeRequest({ authFactors: ['oidc', 'certificate'] })),
+    (error) => error instanceof SeoriAuthError &&
+      error.code === 'durable_auth_strategy_evidence_required',
+  );
   assert.equal(
-    engine.authorize(makeRequest({ authFactors: ['oidc', 'certificate'] })).ruleId,
-    'private-upload',
+    engine.evaluateForDurableState(makeRequest({ authFactors: ['oidc', 'certificate'] })).authStrategyIndex,
+    1,
   );
   for (const authFactors of [
     ['password'],
@@ -182,35 +187,53 @@ test('authentication factors are an ordered exact policy strategy', () => {
 });
 
 test('protected actions always require an exact per-run approval', () => {
-  for (const capability of [
-    'ait.release.public',
-    'store.review.submit',
-    'account.role.update',
-    'account.permission.change',
-    'credential.key.rotate',
-    'credential.api-key.issue',
-    'signing.certificate.issue',
-    'account.roles.assign',
-    'account.testers.invite',
-    'production.rollout.start',
+  const opaqueCapability = 'operation.execute';
+  for (const actionClass of [
+    'review_submit',
+    'review_cancel',
+    'public_release',
+    'tester_change',
+    'role_change',
+    'permission_change',
+    'credential_change',
+    'certificate_change',
+    'other_mutation',
   ]) {
-    const preapproved = new PolicyEngine(makePolicy({ capabilities: [capability] }));
+    const preapproved = new PolicyEngine(makePolicy({
+      capabilities: [opaqueCapability],
+      actionClass,
+    }));
     assert.throws(
-      () => preapproved.authorize(makeRequest({ capability })),
+      () => preapproved.authorize(makeRequest({ capability: opaqueCapability })),
       (error) => error instanceof SeoriAuthError && error.code === 'per_run_approval_required',
     );
     const approval = {
-      id: `approval-${capability.replaceAll('.', '-')}`,
+      id: `approval-${actionClass.replaceAll('_', '-')}`,
       mode: 'per_run',
       expiresAt: '2099-01-01T00:00:00.000Z',
       maxUses: 1,
     };
-    const perRun = new PolicyEngine(makePolicy({ capabilities: [capability], approvals: [approval] }));
-    assert.equal(perRun.authorize(makeRequest({ capability, approval })).ruleId, 'private-upload');
+    const perRun = new PolicyEngine(makePolicy({
+      capabilities: [opaqueCapability],
+      actionClass,
+      approvals: [approval],
+    }));
+    assert.equal(
+      perRun.authorize(makeRequest({ capability: opaqueCapability, approval })).actionClass,
+      actionClass,
+    );
   }
-  const readOnly = 'production.status.read';
+  const productionResource = { kind: 'miniapp', id: 'example-app', environment: 'production' };
+  const production = new PolicyEngine(makePolicy({
+    actionClass: 'read_only',
+    resources: [productionResource],
+  }));
+  assert.throws(
+    () => production.authorize(makeRequest({ resource: productionResource })),
+    (error) => error instanceof SeoriAuthError && error.code === 'per_run_approval_required',
+  );
   assert.equal(
-    new PolicyEngine(makePolicy({ capabilities: [readOnly] })).authorize(makeRequest({ capability: readOnly })).ruleId,
-    'private-upload',
+    new PolicyEngine(makePolicy({ actionClass: 'read_only' })).authorize(makeRequest()).actionClass,
+    'read_only',
   );
 });

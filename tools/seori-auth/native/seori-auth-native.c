@@ -157,6 +157,30 @@ static int hold_lock(int argc, char **argv) {
   return 0;
 }
 
+static int acquire_lock_fd(int argc) {
+  if (argc != 2) {
+    fail_closed("acquire-lock-fd takes no path argument");
+  }
+  harden_process();
+  const int lock_fd = 3;
+  struct stat state;
+  if (fstat(lock_fd, &state) != 0 || !S_ISREG(state.st_mode) ||
+      (state.st_mode & 0077) != 0 || state.st_uid != geteuid()) {
+    fail_closed("lock descriptor is not a private owned regular file");
+  }
+  if (flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
+    const int lock_error = errno;
+    if (lock_error == EWOULDBLOCK || lock_error == EAGAIN) {
+      _exit(75);
+    }
+    fail_closed("unable to acquire descriptor lock");
+  }
+  if (printf("{\"locked\":true}\n") < 0 || fflush(stdout) != 0) {
+    fail_closed("unable to report descriptor lock acquisition");
+  }
+  return 0;
+}
+
 static int launch(int argc, char **argv) {
   if (argc < 4 || strcmp(argv[2], "--") != 0 || argv[3][0] != '/') {
     fail_closed("launch requires an absolute executable after --");
@@ -176,6 +200,9 @@ int main(int argc, char **argv) {
   }
   if (argc >= 2 && strcmp(argv[1], "hold-lock") == 0) {
     return hold_lock(argc, argv);
+  }
+  if (argc >= 2 && strcmp(argv[1], "acquire-lock-fd") == 0) {
+    return acquire_lock_fd(argc);
   }
   if (argc >= 2 && strcmp(argv[1], "launch") == 0) {
     return launch(argc, argv);

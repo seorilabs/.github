@@ -53,6 +53,13 @@
   exact match하고 capture/export/clipboard/network control이 하나라도 열리면 주입 전 중단
 - Linux `SO_PEERCRED`, macOS `getpeereid`와 `LOCAL_PEERPID`로 HTTP body 밖의 peer를 증명
 - native launcher가 adapter에 `RLIMIT_CORE=0`과 OS non-dumpable 정책을 적용
+- native advisory lock 하나가 durable journal writer를 process 단위로 직렬화하며 crash 뒤
+  stale lock inode는 OS lock ownership 없이 writer 권한을 만들지 못함
+- browser timeout은 AbortSignal, native kill acknowledgement, adapter promise settlement를
+  모두 확인하고 그 전에는 clone/session을 reclaim 또는 reuse하지 않음
+- ordered auth fallback은 같은 run의 앞선 전략 실패를 journal의 non-secret digest로 증명
+- signed `actionClass` 또는 production environment가 capability 문자열과 무관하게
+  `per_run` approval을 강제
 
 ## 보장하지 않는 것
 
@@ -75,7 +82,9 @@ broker process 자체도 같은 helper를 entrypoint로 사용해야 합니다. 
 승인값과 다르거나 group/world write가 허용된 경로이면 시작하지 않습니다. production
 image에서는 broker identity가 수정할 수 없는 root 소유 read-only layer로 고정합니다.
 `SeoriAuthBroker`와 `LocalAuthDaemon`은 launcher 없는 credential adapter 등록을 거부하며
-이를 끄는 runtime option을 제공하지 않습니다.
+이를 끄는 runtime option을 제공하지 않습니다. browser adapter도
+`NativeSecurityBoundary.browserAdapter`가 발급한 abort/terminate 계약이 없으면 daemon
+생성 단계에서 거부합니다.
 
 ## 중단 조건
 
@@ -105,6 +114,11 @@ broker-held key와 `requireIntegrity: true`를 사용해 schema v2 HMAC/hash cha
 group/other-readable mode는 fail-closed입니다. control plane에 보관한 마지막 head MAC을
 `expectedJournalHeadMac`으로 주면 journal tail rollback도 거부합니다. MAC key와 secret
 실행 복제본은 journal에 쓰지 않습니다.
+journal을 열기 전 native helper가 broker 소유 FD에 non-blocking advisory writer lock을
+걸고, broker가 그 FD를 닫을 때까지 같은 open file description을 보유합니다. 따라서 각
+process의 메모리 queue만으로는
+막을 수 없던 다중 broker approval reservation 경쟁도 하나의 replay/append writer로
+직렬화됩니다.
 
 startup replay는 TTL이 지난 `CHECKED_OUT`을 새 generation의 `AVAILABLE`로 journal에
 회수하고, 남아 있는 `CLAIMED`는 readback-only recovery 대상으로 표시합니다. 같은

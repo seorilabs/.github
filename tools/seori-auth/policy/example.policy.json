@@ -54,6 +54,7 @@
       "accountIds": [
         "operator-account"
       ],
+      "actionClass": "internal_upload",
       "authStrategies": [
         [
           "api_key"

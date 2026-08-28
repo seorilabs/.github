@@ -3,7 +3,13 @@ export { CanonicalAccountRegistry } from './accounts.mjs';
 export { EncryptedBrowserVault } from './browser-vault.mjs';
 export { BrowserLoginBoundary } from './browser-login.mjs';
 export { SeoriAuthError } from './errors.mjs';
-export { DurableAuthState, HUMAN_REAUTH_REQUIRED, normalizeExecutionBinding, normalizePublicIdentity } from './durable-state.mjs';
+export {
+  computeAuthStrategyEvidenceKey,
+  DurableAuthState,
+  HUMAN_REAUTH_REQUIRED,
+  normalizeExecutionBinding,
+  normalizePublicIdentity,
+} from './durable-state.mjs';
 export { executeConsumedLease, executeLease } from './executor.mjs';
 export {
   MacOSKeychainPasswordLoader,
@@ -41,7 +47,8 @@ export class SeoriAuthBroker {
   }
 
   issueLease(request, { idempotencyKey } = {}) {
-    return this.#leaseStore.issue({ ...this.#policy.authorize(request), idempotencyKey });
+    const authorized = this.#policy.authorize(request);
+    return this.#leaseStore.issue({ ...authorized, idempotencyKey });
   }
 
   execute({ leaseId, context, currentCredentialGeneration }) {

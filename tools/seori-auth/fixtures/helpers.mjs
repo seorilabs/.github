@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 
 import { NativeSecurityBoundary } from '../src/native-boundary.mjs';
+import { DurableAuthState } from '../src/durable-state.mjs';
 
 export const COMMIT_SHA = '1'.repeat(40);
 export const ARTIFACT_SHA = 'a'.repeat(64);
@@ -30,6 +31,31 @@ export async function makeNativeLauncher() {
     }),
   });
   return boundary.launcher();
+}
+
+export async function makeNativeBrowserAdapter({
+  execute,
+  terminate = async () => ({ terminated: true }),
+  timeoutMs,
+  terminationTimeoutMs,
+}) {
+  const boundary = await NativeSecurityBoundary.open({
+    helperPath: NATIVE_HELPER,
+    resolvePrincipal: async () => ({
+      subject: 'fixture',
+      runId: 'fixture',
+      repository: 'seorilabs/fixture',
+      workerId: 'fixture',
+    }),
+  });
+  return boundary.browserAdapter({ execute, terminate, timeoutMs, terminationTimeoutMs });
+}
+
+export async function openDurableAuthState(options) {
+  return DurableAuthState.open({
+    ...options,
+    writerLockProvider: options.writerLockProvider ?? await makeNativeLockProvider(),
+  });
 }
 
 export function makePolicy(ruleOverrides = {}, policyOverrides = {}) {
@@ -64,6 +90,7 @@ export function makePolicy(ruleOverrides = {}, policyOverrides = {}) {
         resources: [{ kind: 'miniapp', id: 'example-app', environment: 'private' }],
         adapters: ['test-adapter'],
         accountIds: ['operator-account'],
+        actionClass: 'internal_upload',
         authStrategies: [['api_key']],
         requiresArtifact: true,
         artifactSha256s: [ARTIFACT_SHA],

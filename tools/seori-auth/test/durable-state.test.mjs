@@ -5,13 +5,14 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import {
+  computeAuthStrategyEvidenceKey,
   DurableAuthState,
   HUMAN_REAUTH_REQUIRED,
   LEASE_TTL_MS,
   PolicyEngine,
   SeoriAuthError,
 } from '../src/index.mjs';
-import { makePolicy, makeRequest } from '../fixtures/helpers.mjs';
+import { makePolicy, makeRequest, openDurableAuthState } from '../fixtures/helpers.mjs';
 
 function idFactory() {
   let id = 0;
@@ -42,7 +43,7 @@ function publicIdentity(overrides = {}) {
 async function withState(run) {
   const directory = await mkdtemp(join(tmpdir(), 'seori-auth-state-'));
   let now = 1_700_000_000_000;
-  const state = await DurableAuthState.open({
+  const state = await openDurableAuthState({
     directory,
     clock: () => now,
     idFactory: idFactory(),
@@ -61,11 +62,20 @@ function authorized(request = makeRequest()) {
 
 function browserAuthorization(request = makeRequest(), overrides = {}) {
   return {
+    actionClass: 'internal_upload',
+    authStrategyIndex: 0,
     leaseId: 'browser-lease-a',
     ruleId: 'private-upload',
     profileGeneration: 1,
     role: 'release',
     request,
+    strategyEvidenceKey: computeAuthStrategyEvidenceKey({
+      request,
+      executionBinding: executionBinding(),
+      ruleId: 'private-upload',
+      strategyIndex: 0,
+      authFactors: request.authFactors,
+    }),
     ...overrides,
   };
 }
@@ -154,7 +164,7 @@ test('CredentialCheckout uses generation CAS, exact run/repo/worker binding, fiv
 test('approval maxUses is durably reserved once and exact idempotent retries survive concurrency and restart', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'seori-auth-approval-reservation-'));
   const nextId = idFactory();
-  let state = await DurableAuthState.open({ directory, idFactory: nextId });
+  let state = await openDurableAuthState({ directory, idFactory: nextId });
   const request = makeRequest();
   const issuance = {
     authorized: authorized(request),
@@ -185,7 +195,7 @@ test('approval maxUses is durably reserved once and exact idempotent retries sur
     );
 
     await state.close();
-    state = await DurableAuthState.open({ directory, idFactory: nextId });
+    state = await openDurableAuthState({ directory, idFactory: nextId });
     const replay = await state.issueCredentialCheckout(issuance);
     assert.equal(replay.id, concurrent[0].id);
     await assert.rejects(
@@ -202,10 +212,139 @@ test('approval maxUses is durably reserved once and exact idempotent retries sur
   }
 });
 
+test('one native writer owns a journal and a stale lock file never permits duplicate approval reservation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'seori-auth-single-writer-'));
+  let first;
+  let second;
+  try {
+    await assert.rejects(
+      DurableAuthState.open({ directory }),
+      (error) => error instanceof SeoriAuthError && error.code === 'invalid_state_writer_lock',
+    );
+    first = await openDurableAuthState({ directory, idFactory: idFactory() });
+    await assert.rejects(
+      openDurableAuthState({ directory, idFactory: idFactory() }),
+      (error) => error instanceof SeoriAuthError && error.code === 'state_writer_in_use',
+    );
+    const request = makeRequest();
+    await first.issueCredentialCheckout({
+      authorized: authorized(request),
+      workerId: 'worker-a',
+      idempotencyKey: 'single-writer-first',
+      currentCredentialGeneration: 3,
+      currentPolicyGeneration: 7,
+    });
+    await first.close();
+    first = undefined;
+
+    // The private lock inode intentionally remains. Advisory ownership, not file
+    // existence, decides liveness, so a restarted writer can safely replay it.
+    second = await openDurableAuthState({ directory, idFactory: idFactory() });
+    await assert.rejects(
+      second.issueCredentialCheckout({
+        authorized: authorized(request),
+        workerId: 'worker-a',
+        idempotencyKey: 'single-writer-duplicate',
+        currentCredentialGeneration: 3,
+        currentPolicyGeneration: 7,
+      }),
+      (error) => error instanceof SeoriAuthError && error.code === 'approval_already_used',
+    );
+  } finally {
+    if (first) await first.close();
+    if (second) await second.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('ordered fallback requires durable failures for every earlier strategy in the exact same run', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'seori-auth-strategy-fallback-'));
+  const firstApproval = {
+    id: 'approval-strategy-primary', mode: 'preapproved',
+    expiresAt: '2099-01-01T00:00:00.000Z', maxUses: 1,
+  };
+  const fallbackApproval = {
+    id: 'approval-strategy-fallback', mode: 'preapproved',
+    expiresAt: '2099-01-01T00:00:00.000Z', maxUses: 1,
+  };
+  const otherRunApproval = {
+    id: 'approval-strategy-other-run', mode: 'preapproved',
+    expiresAt: '2099-01-01T00:00:00.000Z', maxUses: 1,
+  };
+  const policy = makePolicy({
+    authStrategies: [['api_key'], ['session']],
+    approvals: [firstApproval, fallbackApproval, otherRunApproval],
+    runIds: ['github:123', 'github:other'],
+  });
+  const engine = new PolicyEngine(policy);
+  const nextId = idFactory();
+  const primaryRequest = makeRequest({ approval: firstApproval });
+  const fallbackRequest = makeRequest({ authFactors: ['session'], approval: fallbackApproval });
+  let state = await openDurableAuthState({ directory, idFactory: nextId });
+  try {
+    await assert.rejects(
+      state.issueCredentialCheckout({
+        authorized: engine.evaluateForDurableState(fallbackRequest),
+        workerId: 'worker-a',
+        idempotencyKey: 'fallback-before-primary-failure',
+        currentCredentialGeneration: 3,
+        currentPolicyGeneration: 7,
+      }),
+      (error) => error instanceof SeoriAuthError && error.code === 'auth_strategy_evidence_required',
+    );
+    const primary = await state.issueCredentialCheckout({
+      authorized: engine.authorize(primaryRequest),
+      workerId: 'worker-a',
+      idempotencyKey: 'fallback-primary',
+      currentCredentialGeneration: 3,
+      currentPolicyGeneration: 7,
+    });
+    const consumed = await state.consumeCredentialCheckout({
+      id: primary.id,
+      expectedGeneration: primary.generation,
+      context: primaryRequest,
+      workerId: 'worker-a',
+      currentCredentialGeneration: 3,
+      currentPolicyGeneration: 7,
+    });
+    await state.recordCredentialExecution({ consumed, outcome: 'ADAPTER_FAILED', exitCode: 1, signal: null });
+    await state.close();
+
+    state = await openDurableAuthState({ directory, idFactory: nextId });
+    const fallback = await state.issueCredentialCheckout({
+      authorized: engine.evaluateForDurableState(fallbackRequest),
+      workerId: 'worker-a',
+      idempotencyKey: 'fallback-after-primary-failure',
+      currentCredentialGeneration: 3,
+      currentPolicyGeneration: 7,
+    });
+    assert.equal(fallback.state, 'ISSUED');
+
+    const otherRun = makeRequest({
+      runId: 'github:other',
+      authFactors: ['session'],
+      approval: otherRunApproval,
+    });
+    await assert.rejects(
+      state.issueCredentialCheckout({
+        authorized: engine.evaluateForDurableState(otherRun),
+        workerId: 'worker-a',
+        idempotencyKey: 'fallback-other-run',
+        currentCredentialGeneration: 3,
+        currentPolicyGeneration: 7,
+      }),
+      (error) => error instanceof SeoriAuthError && error.code === 'auth_strategy_evidence_required',
+    );
+  } finally {
+    await state.close().catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('CredentialCheckout expires and durable state plus AuthAuditEvent replay from append-only journal', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'seori-auth-replay-'));
   let now = 1_700_000_000_000;
-  let state = await DurableAuthState.open({ directory, clock: () => now, idFactory: idFactory() });
+  let state = await openDurableAuthState({ directory, clock: () => now, idFactory: idFactory() });
   try {
     const checkout = await state.issueCredentialCheckout({
       authorized: authorized(),
@@ -230,7 +369,7 @@ test('CredentialCheckout expires and durable state plus AuthAuditEvent replay fr
     assert.ok(before.auditEvents.length >= 2);
     await state.close();
 
-    state = await DurableAuthState.open({ directory, clock: () => now, idFactory: idFactory() });
+    state = await openDurableAuthState({ directory, clock: () => now, idFactory: idFactory() });
     const replayed = state.snapshot();
     assert.deepEqual(replayed.credentialCheckouts, before.credentialCheckouts);
     assert.deepEqual(replayed.auditEvents, before.auditEvents);
@@ -440,7 +579,7 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
 test('browser execution claim is an atomic durable CAS and crash replay is readback-only', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'seori-auth-browser-claim-'));
   const nextId = idFactory();
-  let state = await DurableAuthState.open({ directory, idFactory: nextId });
+  let state = await openDurableAuthState({ directory, idFactory: nextId });
   try {
     await state.registerBrowserSession({
       sessionId: 'session-claim',
@@ -475,7 +614,7 @@ test('browser execution claim is an atomic durable CAS and crash replay is readb
     assert.equal(state.snapshot().browserSessionBindings[0].state, 'CLAIMED');
 
     await state.close();
-    state = await DurableAuthState.open({ directory, idFactory: nextId });
+    state = await openDurableAuthState({ directory, idFactory: nextId });
     const recoveryProbe = await state.claimBrowserSessionRecovery({
       sessionId: 'session-claim',
       capabilityId: checkout.capabilityId,
@@ -515,7 +654,7 @@ test('startup reconciliation reclaims expired unclaimed browser checkouts', asyn
   const directory = await mkdtemp(join(tmpdir(), 'seori-auth-browser-expiry-startup-'));
   const nextId = idFactory();
   let now = 1_700_000_000_000;
-  let state = await DurableAuthState.open({ directory, clock: () => now, idFactory: nextId });
+  let state = await openDurableAuthState({ directory, clock: () => now, idFactory: nextId });
   try {
     await state.registerBrowserSession({
       sessionId: 'session-expired',
@@ -532,7 +671,7 @@ test('startup reconciliation reclaims expired unclaimed browser checkouts', asyn
     });
     now += LEASE_TTL_MS;
     await state.close();
-    state = await DurableAuthState.open({ directory, clock: () => now, idFactory: nextId });
+    state = await openDurableAuthState({ directory, clock: () => now, idFactory: nextId });
 
     const reclaimed = state.snapshot().browserSessionBindings[0];
     assert.equal(reclaimed.state, 'AVAILABLE');
@@ -587,7 +726,7 @@ test('ReauthRequest durably records all interactive factors as HUMAN_REAUTH_REQU
 test('unresolved ReauthRequest blocks matching issuance across restart until trusted exact resolution', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'seori-auth-reauth-block-'));
   const nextId = idFactory();
-  let state = await DurableAuthState.open({ directory, idFactory: nextId });
+  let state = await openDurableAuthState({ directory, idFactory: nextId });
   const issuance = {
     authorized: authorized(),
     workerId: 'worker-a',
@@ -606,7 +745,7 @@ test('unresolved ReauthRequest blocks matching issuance across restart until tru
       (error) => error instanceof SeoriAuthError && error.code === HUMAN_REAUTH_REQUIRED,
     );
     await state.close();
-    state = await DurableAuthState.open({ directory, idFactory: nextId });
+    state = await openDurableAuthState({ directory, idFactory: nextId });
     await assert.rejects(
       state.issueCredentialCheckout(issuance),
       (error) => error instanceof SeoriAuthError && error.code === HUMAN_REAUTH_REQUIRED,
@@ -718,7 +857,7 @@ test('reauth invalidates every older matching checkout and requires a new approv
 
 test('browser lease authorization and reconstructable audit survive durable replay', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'seori-auth-browser-replay-'));
-  let state = await DurableAuthState.open({ directory, idFactory: idFactory() });
+  let state = await openDurableAuthState({ directory, idFactory: idFactory() });
   try {
     await state.registerBrowserSession({
       sessionId: 'session-replay',
@@ -735,7 +874,7 @@ test('browser lease authorization and reconstructable audit survive durable repl
     });
     const before = state.snapshot();
     await state.close();
-    state = await DurableAuthState.open({ directory, idFactory: idFactory() });
+    state = await openDurableAuthState({ directory, idFactory: idFactory() });
     const replayed = state.snapshot();
     assert.deepEqual(replayed.browserSessionBindings, before.browserSessionBindings);
     assert.deepEqual(replayed.auditEvents, before.auditEvents);
@@ -757,10 +896,10 @@ test('broker-held HMAC journal detects wrong keys, record tampering, and trusted
   let state;
   try {
     await assert.rejects(
-      DurableAuthState.open({ directory, requireIntegrity: true }),
+      openDurableAuthState({ directory, requireIntegrity: true }),
       (error) => error instanceof SeoriAuthError && error.code === 'state_integrity_required',
     );
-    state = await DurableAuthState.open({
+    state = await openDurableAuthState({
       directory,
       journalMacKey,
       requireIntegrity: true,
@@ -788,7 +927,7 @@ test('broker-held HMAC journal detects wrong keys, record tampering, and trusted
     assert.doesNotMatch(original, new RegExp(journalMacKey.toString('hex')));
     assert.doesNotMatch(original, new RegExp(journalMacKey.toString('base64')));
 
-    state = await DurableAuthState.open({
+    state = await openDurableAuthState({
       directory,
       journalMacKey,
       requireIntegrity: true,
@@ -800,19 +939,19 @@ test('broker-held HMAC journal detects wrong keys, record tampering, and trusted
     state = undefined;
 
     await assert.rejects(
-      DurableAuthState.open({ directory, journalMacKey: wrongKey, requireIntegrity: true }),
+      openDurableAuthState({ directory, journalMacKey: wrongKey, requireIntegrity: true }),
       (error) => error instanceof SeoriAuthError && error.code === 'invalid_state_journal',
     );
 
     await writeFile(journalPath, original.replace('"outcome":"SUCCESS"', '"outcome":"TAMPERED"'));
     await assert.rejects(
-      DurableAuthState.open({ directory, journalMacKey, requireIntegrity: true }),
+      openDurableAuthState({ directory, journalMacKey, requireIntegrity: true }),
       (error) => error instanceof SeoriAuthError && error.code === 'invalid_state_journal',
     );
 
     await writeFile(journalPath, '');
     await assert.rejects(
-      DurableAuthState.open({
+      openDurableAuthState({
         directory,
         journalMacKey,
         requireIntegrity: true,
@@ -833,7 +972,7 @@ test('durable state refuses a directory readable by another OS identity', async 
   try {
     await chmod(directory, 0o755);
     await assert.rejects(
-      DurableAuthState.open({ directory }),
+      openDurableAuthState({ directory }),
       (error) => error instanceof SeoriAuthError && error.code === 'insecure_state_directory',
     );
   } finally {

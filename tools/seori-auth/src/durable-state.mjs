@@ -1,11 +1,12 @@
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { mkdir, open, readFile, lstat, realpath } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
-import { fail } from './errors.mjs';
+import { fail, SeoriAuthError } from './errors.mjs';
 import { LEASE_TTL_MS } from './lease-store.mjs';
+import { NATIVE_FILE_LOCK_BRAND } from './native-lock-brand.mjs';
 import { classifyReauth } from './reauth.mjs';
 import { normalizeLeaseRequest } from './validation.mjs';
 
@@ -18,6 +19,7 @@ const PROVIDER = /^[a-z0-9][a-z0-9-]*$/;
 const CREDENTIAL_REF = /^(shared|app)\/[a-z0-9][a-z0-9-]*(\/[a-z0-9][a-z0-9-]*)+$/;
 const BROWSER_ROLE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const JOURNAL_FILE = 'auth-journal.jsonl';
+const JOURNAL_WRITER_LOCK_FILE = '.auth-journal.writer.lock';
 const JOURNAL_GENESIS_MAC = '0'.repeat(64);
 const JOURNAL_MAC = /^[0-9a-f]{64}$/;
 const EXECUTION_OUTCOMES = new Set([
@@ -31,6 +33,9 @@ const EXECUTION_OUTCOMES = new Set([
   'ADAPTER_START_FAILED',
   'ADAPTER_OUTPUT_LIMIT',
 ]);
+const AUTH_STRATEGY_FAILURE_OUTCOMES = new Set(['ADAPTER_FAILED', 'ADAPTER_TIMEOUT']);
+const ACTION_CLASS = /^[a-z][a-z_]{1,63}$/;
+const SHA256 = /^[0-9a-f]{64}$/;
 
 const BINDING_KEYS = new Set(['subject', 'runId', 'repository', 'workerId']);
 const IDENTITY_KEYS = new Set(['provider', 'accountId', 'teamId', 'workspaceId', 'appId']);
@@ -122,17 +127,64 @@ function reauthMatches(candidate, executionBinding, request) {
 }
 
 function normalizeBrowserAuthorization(value) {
-  const keys = new Set(['leaseId', 'profileGeneration', 'request', 'role', 'ruleId']);
+  const keys = new Set([
+    'actionClass', 'authStrategyIndex', 'leaseId', 'profileGeneration', 'request', 'role',
+    'ruleId', 'strategyEvidenceKey',
+  ]);
   assertExactKeys(value, keys, 'browser authorization');
   const request = normalizeLeaseRequest(value.request);
   if (!BROWSER_ROLE.test(value.role ?? '')) fail('invalid_request', 'browser authorization role is invalid');
+  if (!ACTION_CLASS.test(value.actionClass ?? '')) {
+    fail('invalid_request', 'browser authorization action class is invalid');
+  }
   return Object.freeze({
     leaseId: opaqueId(value.leaseId, 'browser authorization lease id'),
     ruleId: publicId(value.ruleId, 'browser authorization rule id'),
+    actionClass: value.actionClass,
+    authStrategyIndex: nonNegativeInteger(value.authStrategyIndex, 'browser authorization strategy index'),
+    strategyEvidenceKey: sha256(value.strategyEvidenceKey, 'browser authorization strategy evidence key'),
     profileGeneration: positiveInteger(value.profileGeneration, 'browser profile generation'),
     role: value.role,
     request,
   });
+}
+
+function nonNegativeInteger(value, label) {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    fail('invalid_request', `${label} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function sha256(value, label) {
+  if (typeof value !== 'string' || !SHA256.test(value)) {
+    fail('invalid_request', `${label} must be a lowercase SHA-256 digest`);
+  }
+  return value;
+}
+
+export function computeAuthStrategyEvidenceKey({ request, executionBinding, ruleId, strategyIndex, authFactors }) {
+  return createHash('sha256').update(canonicalJson({
+    version: 1,
+    ruleId,
+    strategyIndex,
+    authFactors,
+    operation: {
+      subject: request.subject,
+      runId: request.runId,
+      repository: request.repository,
+      commitSha: request.commitSha,
+      policyGeneration: request.policyGeneration,
+      provider: request.provider,
+      origin: request.origin,
+      redirectOrigins: request.redirectOrigins,
+      capability: request.capability,
+      resource: request.resource,
+      artifact: request.artifact,
+      accountId: request.accountId,
+      workerId: executionBinding.workerId,
+    },
+  }), 'utf8').digest('hex');
 }
 
 function iso(milliseconds) {
@@ -171,6 +223,11 @@ function auditFrom({ idFactory, now, eventType, outcome, entityType, entity, det
       leaseId: entity.authorization.leaseId,
       ruleId: entity.authorization.ruleId,
     } : entity.ruleId ? { ruleId: entity.ruleId } : {}),
+    ...((entity.authStrategyIndex ?? entity.authorization?.authStrategyIndex) !== undefined ? {
+      actionClass: entity.actionClass ?? entity.authorization.actionClass,
+      authStrategyIndex: entity.authStrategyIndex ?? entity.authorization.authStrategyIndex,
+      strategyEvidenceKey: entity.strategyEvidenceKey ?? entity.authorization.strategyEvidenceKey,
+    } : {}),
     ...(entity.idempotencyKey ? { idempotencyKey: entity.idempotencyKey } : {}),
     ...details,
   });
@@ -185,6 +242,17 @@ function validIso(value) {
   return typeof value === 'string' && Number.isFinite(Date.parse(value)) && value === new Date(value).toISOString();
 }
 
+function validateWriterLockProvider(lockProvider) {
+  if (
+    !lockProvider || typeof lockProvider !== 'object' ||
+    lockProvider[NATIVE_FILE_LOCK_BRAND] !== true ||
+    typeof lockProvider.acquire !== 'function'
+  ) {
+    fail('invalid_state_writer_lock', 'trusted native journal writer lock provider is required');
+  }
+  return lockProvider;
+}
+
 function validateReplayedEntity(type, entity) {
   opaqueId(entity.id, 'entity id');
   positiveInteger(entity.generation, 'entity generation');
@@ -192,7 +260,7 @@ function validateReplayedEntity(type, entity) {
     const keys = [
       'id', 'generation', 'state', 'issuedAt', 'expiresAt', 'maxUses', 'useCount', 'ruleId',
       'credentialRef', 'credentialGeneration', 'policyGeneration', 'executionBinding', 'request',
-      'idempotencyKey', 'issuedSequence',
+      'idempotencyKey', 'issuedSequence', 'actionClass', 'authStrategyIndex', 'strategyEvidenceKey',
       ...(entity.state === 'CONSUMED' ? ['consumedAt'] : []),
     ];
     if (
@@ -205,6 +273,9 @@ function validateReplayedEntity(type, entity) {
     ) throw new Error('invalid credential checkout');
     publicId(entity.ruleId, 'rule id');
     publicId(entity.idempotencyKey, 'idempotency key');
+    if (!ACTION_CLASS.test(entity.actionClass ?? '')) throw new Error('invalid action class');
+    nonNegativeInteger(entity.authStrategyIndex, 'auth strategy index');
+    sha256(entity.strategyEvidenceKey, 'strategy evidence key');
     positiveInteger(entity.issuedSequence, 'issued sequence');
     positiveInteger(entity.credentialGeneration, 'credential generation');
     positiveInteger(entity.policyGeneration, 'policy generation');
@@ -284,6 +355,7 @@ function validateReplayedAudit(audit) {
     'id', 'eventType', 'outcome', 'entityType', 'entityId', 'generation', 'recordedAt',
     'executionBinding', 'credentialRef', 'publicIdentity', 'reason', 'exitCode', 'signal',
     'commitSha', 'capability', 'capabilityId', 'leaseId', 'ruleId', 'idempotencyKey',
+    'actionClass', 'authStrategyIndex', 'strategyEvidenceKey',
   ];
   if (
     !Object.keys(audit).every((key) => allowed.includes(key)) ||
@@ -309,6 +381,21 @@ function validateReplayedAudit(audit) {
   if (audit.leaseId !== undefined) opaqueId(audit.leaseId, 'audit lease id');
   if (audit.ruleId !== undefined) publicId(audit.ruleId, 'audit rule id');
   if (audit.idempotencyKey !== undefined) publicId(audit.idempotencyKey, 'audit idempotency key');
+  if (audit.actionClass !== undefined && !ACTION_CLASS.test(audit.actionClass)) {
+    throw new Error('invalid audit action class');
+  }
+  if (audit.authStrategyIndex !== undefined) nonNegativeInteger(audit.authStrategyIndex, 'audit auth strategy index');
+  if (audit.strategyEvidenceKey !== undefined) sha256(audit.strategyEvidenceKey, 'audit strategy evidence key');
+  if (
+    (
+      audit.eventType === 'CREDENTIAL_EXECUTION_FINISHED' &&
+      AUTH_STRATEGY_FAILURE_OUTCOMES.has(audit.outcome)
+    ) ||
+    (audit.eventType === 'BROWSER_SESSION_RECONCILED_NOT_APPLIED' && audit.outcome === 'NOT_APPLIED')
+  ) {
+    nonNegativeInteger(audit.authStrategyIndex, 'audit auth strategy index');
+    sha256(audit.strategyEvidenceKey, 'audit strategy evidence key');
+  }
 }
 
 function canonicalJson(value) {
@@ -420,6 +507,7 @@ export class DurableAuthState {
   #idFactory;
   #journalPath;
   #journalHandle;
+  #writerLock;
   #sequence = 0;
   #journalMacKey;
   #lastMac;
@@ -431,6 +519,7 @@ export class DurableAuthState {
   #reauthRequests = new Map();
   #auditEvents = [];
   #recoveredBrowserClaims = new Set();
+  #authStrategyFailures = new Set();
 
   static async open({
     directory,
@@ -439,6 +528,7 @@ export class DurableAuthState {
     journalMacKey,
     requireIntegrity = false,
     expectedJournalHeadMac,
+    writerLockProvider,
   }) {
     if (typeof directory !== 'string' || !isAbsolute(directory)) {
       fail('invalid_state_directory', 'durable auth state directory must be an absolute path');
@@ -458,13 +548,32 @@ export class DurableAuthState {
     if (expectedJournalHeadMac !== undefined && !Buffer.isBuffer(journalMacKey)) {
       fail('invalid_state_integrity', 'expected journal head MAC requires journal integrity');
     }
+    const lockProvider = validateWriterLockProvider(writerLockProvider);
     const opened = await openSecureJournal(directory);
+    let writerLock;
+    try {
+      writerLock = await lockProvider.acquire(join(opened.absoluteDirectory, JOURNAL_WRITER_LOCK_FILE));
+      if (!writerLock || typeof writerLock.assertHeld !== 'function' || typeof writerLock.release !== 'function') {
+        fail('invalid_state_writer_lock', 'native journal writer lock handle is invalid');
+      }
+      writerLock.assertHeld();
+    } catch (error) {
+      await opened.handle.close().catch(() => {});
+      if (writerLock && typeof writerLock.release === 'function') {
+        await writerLock.release().catch(() => {});
+      }
+      if (error instanceof SeoriAuthError && error.code === 'browser_account_in_use') {
+        fail('state_writer_in_use', 'another durable auth state writer already owns this journal');
+      }
+      throw error;
+    }
     const state = new DurableAuthState({
       ...opened,
       clock,
       idFactory,
       journalMacKey: journalMacKey === undefined ? undefined : Buffer.from(journalMacKey),
       expectedJournalHeadMac,
+      writerLock,
     });
     try {
       await state.#replay();
@@ -473,14 +582,16 @@ export class DurableAuthState {
       state.#closed = true;
       state.#zeroIntegrityKey();
       await opened.handle.close();
+      await writerLock.release().catch(() => {});
       throw error;
     }
     return state;
   }
 
-  constructor({ journalPath, handle, clock, idFactory, journalMacKey, expectedJournalHeadMac }) {
+  constructor({ journalPath, handle, clock, idFactory, journalMacKey, expectedJournalHeadMac, writerLock }) {
     this.#journalPath = journalPath;
     this.#journalHandle = handle;
+    this.#writerLock = writerLock;
     this.#clock = clock;
     this.#idFactory = idFactory;
     this.#journalMacKey = journalMacKey;
@@ -559,6 +670,18 @@ export class DurableAuthState {
     this.#sequence = envelope.sequence;
     this.#lastMac = envelope.mac;
     this.#auditEvents.push(freezeRecord(envelope.audit));
+    if (
+      (
+        envelope.audit.eventType === 'CREDENTIAL_EXECUTION_FINISHED' &&
+        AUTH_STRATEGY_FAILURE_OUTCOMES.has(envelope.audit.outcome)
+      ) ||
+      (
+        envelope.audit.eventType === 'BROWSER_SESSION_RECONCILED_NOT_APPLIED' &&
+        envelope.audit.outcome === 'NOT_APPLIED'
+      )
+    ) {
+      this.#authStrategyFailures.add(envelope.audit.strategyEvidenceKey);
+    }
     if (envelope.mutation !== null) {
       this.#mapFor(envelope.mutation.entityType).set(
         envelope.mutation.entity.id,
@@ -576,6 +699,15 @@ export class DurableAuthState {
   async #append({ entityType, entity, audit }) {
     if (this.#closed) {
       fail('state_closed', 'durable auth state is closed');
+    }
+    try {
+      this.#writerLock.assertHeld();
+    } catch {
+      this.#closed = true;
+      await this.#journalHandle.close().catch(() => {});
+      await this.#writerLock.release().catch(() => {});
+      this.#zeroIntegrityKey();
+      fail('state_writer_lock_lost', 'durable auth state writer lock was lost');
     }
     const envelope = {
       schemaVersion: this.#journalMacKey ? 2 : 1,
@@ -596,6 +728,7 @@ export class DurableAuthState {
       // in-memory sequence could create a journal that cannot be replayed safely.
       this.#closed = true;
       await this.#journalHandle.close().catch(() => {});
+      await this.#writerLock.release().catch(() => {});
       this.#zeroIntegrityKey();
       fail('state_persistence_failed', 'durable auth state could not be persisted');
     }
@@ -628,6 +761,37 @@ export class DurableAuthState {
       const normalizedWorkerId = publicId(workerId, 'workerId');
       const normalizedIdempotencyKey = publicId(idempotencyKey, 'idempotencyKey');
       const executionBinding = leaseBinding(request, normalizedWorkerId);
+      if (
+        !Number.isSafeInteger(authorized?.authStrategyIndex) || authorized.authStrategyIndex < 0 ||
+        !Array.isArray(authorized?.authStrategies) ||
+        !Array.isArray(authorized.authStrategies[authorized.authStrategyIndex]) ||
+        !isDeepStrictEqual(authorized.authStrategies[authorized.authStrategyIndex], request.authFactors) ||
+        typeof authorized.actionClass !== 'string' || !ACTION_CLASS.test(authorized.actionClass)
+      ) {
+        fail('invalid_authorization', 'authorized authentication strategy metadata is invalid');
+      }
+      for (let index = 0; index < authorized.authStrategyIndex; index += 1) {
+        const evidenceKey = computeAuthStrategyEvidenceKey({
+          request,
+          executionBinding,
+          ruleId: authorized.ruleId,
+          strategyIndex: index,
+          authFactors: authorized.authStrategies[index],
+        });
+        if (!this.#authStrategyFailures.has(evidenceKey)) {
+          fail(
+            'auth_strategy_evidence_required',
+            'fallback authentication strategy requires durable same-run failure evidence for every earlier strategy',
+          );
+        }
+      }
+      const strategyEvidenceKey = computeAuthStrategyEvidenceKey({
+        request,
+        executionBinding,
+        ruleId: authorized.ruleId,
+        strategyIndex: authorized.authStrategyIndex,
+        authFactors: request.authFactors,
+      });
       if (currentPolicyGeneration !== request.policyGeneration) {
         fail('stale_policy_generation', 'policy generation changed before lease issuance');
       }
@@ -683,6 +847,9 @@ export class DurableAuthState {
         executionBinding,
         idempotencyKey: normalizedIdempotencyKey,
         issuedSequence: this.#sequence + 1,
+        actionClass: authorized.actionClass,
+        authStrategyIndex: authorized.authStrategyIndex,
+        strategyEvidenceKey,
         request,
       });
       const audit = auditFrom({
@@ -798,6 +965,9 @@ export class DurableAuthState {
         binding: consumed.request,
         consumedAt: Date.parse(consumed.consumedAt),
         generation: consumed.generation,
+        actionClass: consumed.actionClass,
+        authStrategyIndex: consumed.authStrategyIndex,
+        strategyEvidenceKey: consumed.strategyEvidenceKey,
       });
     });
   }
@@ -1040,11 +1210,14 @@ export class DurableAuthState {
         fail('generation_conflict', 'browser execution is already claimed by an active operation');
       }
       const authorization = normalizeBrowserAuthorization({
+        actionClass: entity.authorization.actionClass,
+        authStrategyIndex: entity.authorization.authStrategyIndex,
         leaseId,
         profileGeneration,
         request,
         role,
         ruleId: entity.authorization.ruleId,
+        strategyEvidenceKey: entity.authorization.strategyEvidenceKey,
       });
       if (
         ![entity.generation - 1, entity.generation].includes(expectedGeneration) ||
@@ -1468,7 +1641,11 @@ export class DurableAuthState {
     await this.#queue;
     if (!this.#closed) {
       this.#closed = true;
-      await this.#journalHandle.close();
+      try {
+        await this.#journalHandle.close();
+      } finally {
+        await this.#writerLock.release();
+      }
     }
     this.#zeroIntegrityKey();
   }

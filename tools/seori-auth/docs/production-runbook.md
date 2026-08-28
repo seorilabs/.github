@@ -13,7 +13,7 @@
 - signed policy generation과 adapter digest
 - 공개 provider/account/team/workspace/app ID
 - exact primary origin, 순서가 고정된 redirect origin, egress-proxy hostname allowlist
-- 순서가 고정된 exact auth factor strategy와 action별 approval mode
+- 순서가 고정된 exact auth factor fallback strategy, signed `actionClass`, action별 approval mode
 - journal MAC logical ID/generation과 직전 trusted head MAC
 - Browser Vault key logical ID/generation과 encrypted PVC snapshot ID
 
@@ -49,6 +49,7 @@ production state는 다음 조건으로만 엽니다.
 ```js
 await DurableAuthState.open({
   directory: '/var/lib/seori-auth/state',
+  writerLockProvider: nativeBoundary.lockProvider(),
   journalMacKey,
   requireIntegrity: true,
   expectedJournalHeadMac,
@@ -60,6 +61,12 @@ memory에만 유지합니다. argv, env, 일반 파일, Kubernetes Secret, log�
 각 성공 append 후 `integrityCheckpoint()`의 public sequence/head MAC을 control plane에
 CAS로 보관합니다. startup 시 wrong key, MAC chain 오류, incomplete line, head mismatch는
 새 lease를 발급하지 않고 incident로 전환합니다.
+같은 state directory는 native advisory writer lock을 획득한 broker process 하나만 열 수
+있습니다. lock file은 삭제하지 않아도 되며 crash 뒤 OS ownership이 해제된 경우에만 새
+broker가 같은 inode를 잠그고 replay합니다. native acquisition helper가 inherited FD에
+lock을 건 뒤 broker가 같은 open file
+description을 계속 보유합니다. helper 종료는 lock을 풀지 않으며 broker crash/close가 FD를
+닫을 때만 커널이 소유권을 해제합니다.
 
 Browser Vault 원본은 encrypted PVC, clone은 `emptyDir.medium: Memory`에 둡니다.
 provider/account/role별 원본 하나와 provider/account별 checkout 하나만 허용합니다.
@@ -73,6 +80,18 @@ broker가 CLAIMED 상태에서 종료되거나 adapter 결과가 불명확하면
 `NOT_APPLIED`만 새 checkout 허용, `UNKNOWN`은 CLAIMED 유지가 기준입니다. startup은 만료된
 미실행 CHECKED_OUT만 AVAILABLE로 회수합니다. 이 readback은 저장된 authorization exact
 binding으로만 열고 approval 만료나 credential generation 변경을 이유로 막지 않습니다.
+
+browser adapter는 native boundary가 발급한 AbortSignal·kill-and-wait 계약이어야 합니다.
+timeout 시 signal을 abort하고 kill 확인과 adapter promise settlement를 모두 기다립니다.
+둘 중 하나라도 확인되지 않으면 clone을 abort하지 않고 session을 `CLAIMED`에 유지하며,
+같은 daemon에서 recovery·reclaim·reuse를 모두 거부합니다.
+
+`authStrategies`의 뒤 전략은 any-of가 아닙니다. 같은 run/repo/SHA/action/resource에서 앞선
+각 전략의 `ADAPTER_FAILED`, `ADAPTER_TIMEOUT` 또는 browser `NOT_APPLIED` readback이
+journal에 non-secret evidence digest로 남은 경우에만 다음 전략 checkout을 허용합니다.
+infrastructure load/start 오류나 다른 run의 실패는 fallback evidence가 아닙니다.
+signed `actionClass`가 protected이거나 resource environment가 `production`이면 capability
+이름이 무엇이든 approval mode는 `per_run`이어야 합니다.
 
 broker는 startup마다 account별 native advisory lock을 획득할 수 있는 stale clone만
 자동 제거합니다. systemd/launchd 같은 process supervisor는 broker process가 완전히
