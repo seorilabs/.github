@@ -7,24 +7,19 @@ import { test } from 'node:test';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
+import { APPROVED_IMAGE_BINDING } from '../scripts/public-image-binding.mjs';
+
 const execFileAsync = promisify(execFile);
 const renderer = fileURLToPath(new URL('../scripts/render-production-k8s.mjs', import.meta.url));
-const digest = 'a'.repeat(64);
+const digest = APPROVED_IMAGE_BINDING.imageProvenance.imageDigest.slice('sha256:'.length);
 
 function deploymentConfig() {
   const audience = '//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seori-auth/providers/microk8s';
   return {
     schemaVersion: 1,
     namespace: 'auth-broker',
-    image: `ghcr.io/seorilabs/seori-auth@sha256:${digest}`,
-    imageProvenance: {
-      repository: 'seorilabs/.github',
-      sourceSha: 'b'.repeat(40),
-      workflow: '.github/workflows/seori-auth-image.yml',
-      runId: 123456789,
-      platform: 'linux/arm64',
-      imageDigest: `sha256:${digest}`,
-    },
+    image: APPROVED_IMAGE_BINDING.image,
+    imageProvenance: { ...APPROVED_IMAGE_BINDING.imageProvenance },
     imagePullPolicy: 'IfNotPresent',
     registry: {
       mode: 'PACKAGES_READER',
@@ -141,7 +136,7 @@ test('production renderer emits immutable separated workloads without Kubernetes
     const projected = pod.volumes.find((volume) => volume.name === 'projected-identity');
     const tokenProjection = projected.projected.sources[0].serviceAccountToken;
     const tokenMount = container.volumeMounts.find((mount) => mount.name === 'projected-identity');
-    assert.equal(container.image, `ghcr.io/seorilabs/seori-auth@sha256:${digest}`);
+    assert.equal(container.image, APPROVED_IMAGE_BINDING.image);
     assert.deepEqual(pod.imagePullSecrets, [{ name: 'seori-auth-ghcr-pull' }]);
     const role = item.metadata.name === 'seori-auth-broker'
       ? 'broker'
@@ -158,7 +153,10 @@ test('production renderer emits immutable separated workloads without Kubernetes
     ));
     assert.equal(item.spec.template.metadata.annotations['seorilabs.io/secret-access-sha256'], binding.secretAccessConfigSha256);
     assert.equal(item.spec.template.metadata.annotations['seorilabs.io/image-digest'], `sha256:${digest}`);
-    assert.equal(item.spec.template.metadata.annotations['seorilabs.io/image-source-sha'], 'b'.repeat(40));
+    assert.equal(
+      item.spec.template.metadata.annotations['seorilabs.io/image-source-sha'],
+      APPROVED_IMAGE_BINDING.imageProvenance.sourceSha,
+    );
     assert.equal(item.spec.template.metadata.annotations['seorilabs.io/registry-mode'], 'PACKAGES_READER');
     assert.equal(
       item.spec.template.metadata.annotations['seorilabs.io/registry-credential-id'],
@@ -294,10 +292,10 @@ test('production renderer rejects mutable images and shared factor identities', 
   });
 
   const driftedProvenance = deploymentConfig();
-  driftedProvenance.imageProvenance.imageDigest = `sha256:${'e'.repeat(64)}`;
+  driftedProvenance.imageProvenance.sourceSha = 'e'.repeat(40);
   await assert.rejects(render(driftedProvenance), (error) => {
     assert.equal(error.code, 1);
-    assert.match(error.stderr, /image provenance does not match/);
+    assert.match(error.stderr, /code-approved immutable binding/);
     return true;
   });
 

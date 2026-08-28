@@ -158,7 +158,8 @@ Kubernetes의 tmpfs `emptyDir`은 Pod 삭제 시 폐기되며, 같은 Pod의 bro
 
 `scripts/render-production-k8s.mjs`에 절대 경로의 public deployment config를 전달한 뒤
 schema/admission dry-run과 실제 binding을 read-only로 확인합니다. config에는 secret 값이
-아니라 image digest와 exact source provenance, 명시적 `PUBLIC`/`PACKAGES_READER` registry mode,
+아니라 image digest와 code-owned approved source SHA/workflow run provenance, 명시적
+`PUBLIC`/`PACKAGES_READER` registry mode,
 public Google identity/WIF audience, selector와 port만
 들어갑니다. RPI4에는 신규 workload를 배치하지 않고 검증된 RPI5 label을 node selector로
 지정합니다. 기존 `k8s/production/*.yaml`은 적용할 객체가 없는 compatibility marker입니다.
@@ -204,11 +205,13 @@ done
 
 ## 6. Fake-account canary와 활성화
 
-Secret Manager 실행 복제본보다 먼저 `render-nonsecret-canary-k8s.mjs`의 built-in image canary를
-RPI5에서 한 번만 실행합니다. Job 이름과 full idempotency annotation은 image digest, source
-provenance, registry binding, canary contract version의 canonical SHA-256입니다. 같은 Job이 있으면
-성공 여부와 기존 Pod/log를 readback하고 삭제·재생성·재실행하지 않습니다. 결과 불명도 새 Job을
-만들지 않고 `READBACK_FIRST`로 유지합니다. Job은 `backoffLimit: 0`, ServiceAccount token 없음,
+Secret Manager 실행 복제본보다 먼저 `execute-nonsecret-canary-k8s.mjs`로 built-in image canary를
+RPI5에서 한 번만 실행합니다. executor는 전용 empty-pull `seori-auth-canary` ServiceAccount,
+NetworkPolicy, Job을 먼저 GET하고 없는 객체만 server dry-run 뒤 create합니다. Job 이름과 full
+idempotency annotation은 image digest, code-owned source provenance, registry binding, canary contract
+version의 canonical SHA-256입니다. 같은 Job이 있거나 create 결과가 불명확하면 mutation을 반복하지
+않고 성공 여부와 기존 admitted Pod/log를 readback합니다. 결과 불명은 `READBACK_FIRST`로
+유지합니다. Job은 `backoffLimit: 0`, `podReplacementPolicy: Failed`, ServiceAccount token 없음,
 read-only root, tmpfs 두 개, ingress/egress default-deny이며 Secret/ConfigMap/PVC/provider endpoint를
 참조하지 않습니다.
 
@@ -216,8 +219,10 @@ read-only root, tmpfs 두 개, ingress/egress default-deny이며 Secret/ConfigMa
 `db69575cac8240a6fb6946f05c32a1ad59d6b58b430b62d99fa2dfa1cea05591`과 exact-match할 때만
 통과합니다. raw log를 운영 화면에 중계하거나 변수·파일에 보관하지 않고
 `kubectl logs job/<job> --container=canary | node scripts/verify-nonsecret-canary-output.mjs`로
-직접 검증합니다. verifier는 stdin만 받고 128 byte를 넘거나 exact 한 줄이 아니면 원문을 반사하지
-않은 공개 오류 코드만 반환합니다.
+executor가 fixed child의 log stdout을 code-owned verifier stdin으로만 전달해 검증합니다. verifier는
+128 byte를 넘거나 exact 한 줄이 아니면 원문을 반사하지 않은 공개 오류 코드만 반환합니다.
+PUBLIC admitted Pod에 pull secret/credential annotation이 생기거나 PACKAGES_READER가 canonical
+pull Secret 하나 외의 binding을 가지면 결과를 수용하지 않습니다.
 
 먼저 canary logical IDs와 가짜 browser profile만 연결합니다. `npm test`의 deterministic
 canary는 raw/base64/hex representation이 다음 표면에 없음을 검사합니다.

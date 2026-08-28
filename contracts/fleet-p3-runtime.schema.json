@@ -314,18 +314,18 @@
       "required": ["namespace", "image", "imageProvenance", "registry", "canary", "secretManager", "wifAudience", "state", "trustedWorkers", "providerControlPlane", "egressProxy", "roles"],
       "properties": {
         "namespace": { "const": "auth-broker" },
-        "image": { "type": "string", "pattern": "^ghcr\\.io/seorilabs/seori-auth@sha256:[0-9a-f]{64}$" },
+        "image": { "const": "ghcr.io/seorilabs/seori-auth@sha256:b5c5ee63ecc3f16e90013e8f6f8727d6c7dc9f4812ba1a1805165bb7413cd515" },
         "imageProvenance": {
           "type": "object",
           "additionalProperties": false,
           "required": ["repository", "sourceSha", "workflow", "runId", "platform", "imageDigest"],
           "properties": {
             "repository": { "const": "seorilabs/.github" },
-            "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "sourceSha": { "const": "6e18b189d112f23270426cd88b3f906969103b75" },
             "workflow": { "const": ".github/workflows/seori-auth-image.yml" },
-            "runId": { "type": "integer", "minimum": 1 },
+            "runId": { "const": 33190683201 },
             "platform": { "const": "linux/arm64" },
-            "imageDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+            "imageDigest": { "const": "sha256:b5c5ee63ecc3f16e90013e8f6f8727d6c7dc9f4812ba1a1805165bb7413cd515" }
           }
         },
         "registry": {
@@ -431,10 +431,15 @@
         "canary": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["contractVersion", "kind", "nodeSelector", "activeDeadlineSeconds", "expectedOutputSha256", "idempotency"],
+          "required": ["contractVersion", "kind", "kubernetesContext", "serviceAccountName", "createPolicy", "publicPullBinding", "packagesReaderPullBinding", "nodeSelector", "activeDeadlineSeconds", "expectedOutputSha256", "idempotency"],
           "properties": {
             "contractVersion": { "const": 1 },
             "kind": { "const": "NON_SECRET_BUILTIN" },
+            "kubernetesContext": { "const": "vzyx-cluster" },
+            "serviceAccountName": { "const": "seori-auth-canary" },
+            "createPolicy": { "const": "SERVER_DRY_RUN_THEN_CREATE_IF_ABSENT" },
+            "publicPullBinding": { "const": "NO_IMAGE_PULL_SECRETS" },
+            "packagesReaderPullBinding": { "const": "EXACT_CANONICAL_ONE" },
             "nodeSelector": {
               "type": "object",
               "additionalProperties": false,

@@ -274,6 +274,11 @@ authBroker:
   canary:
     contractVersion: 1
     kind: NON_SECRET_BUILTIN
+    kubernetesContext: vzyx-cluster
+    serviceAccountName: seori-auth-canary
+    createPolicy: SERVER_DRY_RUN_THEN_CREATE_IF_ABSENT
+    publicPullBinding: NO_IMAGE_PULL_SECRETS
+    packagesReaderPullBinding: EXACT_CANONICAL_ONE
     nodeSelector:
       kubernetes.io/hostname: rpi5
     activeDeadlineSeconds: 300

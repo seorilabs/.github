@@ -50,8 +50,10 @@ Registry binding은 다음 두 모드 외에는 허용하지 않습니다.
   Kubernetes Secret은 거부합니다.
 
 `image`의 digest, `imageProvenance.imageDigest`, source SHA, workflow run이 하나의 public
-binding입니다. image를 만든 commit과 digest를 먼저 승격하고 다음 source revision에서 binding을
-갱신하는 two-phase 절차를 사용합니다. 현재 source HEAD를 image source로 추측하지 않습니다.
+binding입니다. 이 tuple은 schema와 `public-image-binding.mjs`가 함께 고정하며 public config가
+다른 유효 SHA/run ID를 자기선언해도 거부합니다. image를 만든 commit과 digest를 먼저 승격하고
+다음 source revision에서 contract와 code를 함께 갱신하는 two-phase 절차를 사용합니다. 현재
+source HEAD를 image source로 추측하지 않습니다.
 
 renderer가 참조하지만 생성하지 않는 외부 객체는 다음뿐입니다.
 
@@ -107,18 +109,26 @@ ACTIVE/VERIFIED로 추측해 바꾸거나 human-gate metadata를 실행 입력�
 node scripts/render-nonsecret-canary-k8s.mjs \
   --config=/absolute/path/to/public-canary.json > /tmp/seori-auth-canary.json
 kubectl apply --dry-run=client --validate=false -f /tmp/seori-auth-canary.json
-kubectl apply --dry-run=server -f /tmp/seori-auth-canary.json
+node scripts/execute-nonsecret-canary-k8s.mjs \
+  --config=/absolute/path/to/public-canary.json
 ```
 
-renderer는 RPI5 node, `restricted` security context, read-only root filesystem, tmpfs runtime,
-ServiceAccount token 미마운트, ingress/egress 전부 차단, `backoffLimit: 0`을 고정합니다. PUBLIC이면
-pull credential이 완전히 사라지고 PACKAGES_READER이면 위 canonical execution copy만 참조합니다.
+render 결과는 검토용이며 `kubectl apply` 대상으로 사용하지 않습니다. executor만
+`vzyx-cluster`에서 ServiceAccount, NetworkPolicy, Job을 exact GET하고, 없는 객체에 한해 server
+dry-run 뒤 `create`합니다. create가 AlreadyExists 또는 결과 불명으로 끝나면 다시 mutation하지 않고
+GET으로 전환합니다. 기존 Job이 있는데 support object가 없거나 하나라도 drift하면 중단합니다.
 
-Job 이름과 `seorilabs.io/idempotency-key`는 image digest, image source provenance, registry binding,
-canary contract version의 canonical SHA-256으로 결정됩니다. 완료·실패·결과 불명 Job이 이미 있으면
-삭제하거나 재생성하지 않고 같은 Job과 Pod를 readback합니다. Job에는 TTL을 두지 않으며 Backoffice가
-occurrence를 기록하기 전까지 marker로 보존합니다. 결과 불명은 `READBACK_FIRST`, 이미 존재하는
-occurrence는 `READBACK_ONLY`입니다.
+renderer는 전용 `seori-auth-canary` ServiceAccount의 empty pull binding, RPI5 node, `restricted`
+security context, read-only root filesystem, tmpfs runtime, ServiceAccount token 미마운트,
+ingress/egress 전부 차단, `backoffLimit: 0`, `podReplacementPolicy: Failed`를 고정합니다. executor는
+실제 admitted Pod도 다시 읽습니다. PUBLIC이면 `imagePullSecrets`와 registry credential annotation이
+없어야 하고 PACKAGES_READER이면 canonical `seori-auth-ghcr-pull` 하나만 있어야 합니다.
+
+Job 이름과 `seorilabs.io/idempotency-key`는 image digest, code-approved image source provenance,
+registry binding, canary contract version의 canonical SHA-256으로 결정됩니다. 완료·실패·결과 불명
+Job이 이미 있으면 삭제·apply·재생성하지 않고 같은 Job과 Pod를 readback합니다. Job에는 TTL을 두지
+않으며 Backoffice가 occurrence를 기록하기 전까지 marker로 보존합니다. 결과 불명은
+`READBACK_FIRST`, 이미 존재하는 occurrence는 `READBACK_ONLY`입니다.
 
 성공 stdout의 유일한 허용값은 아래 문자열 한 줄입니다. raw log를 화면에 출력하거나 변수·파일에
 보관하지 않고 stdin-only verifier로 직접 보내며, verifier의 공개 digest 결과만 기록합니다.
@@ -127,12 +137,9 @@ occurrence는 `READBACK_ONLY`입니다.
 {"state":"CANARY_OK","secretExposed":false}
 ```
 
-```sh
-kubectl logs job/seori-auth-nonsecret-canary-<canary-id> --container=canary \
-  | node scripts/verify-nonsecret-canary-output.mjs
-```
-
-verifier는 argv를 받지 않고 입력을 128 byte로 제한하며 exact 한 줄이 아니면 원문을 반사하지 않은
-`canary_output_not_allowlisted`만 반환합니다.
+executor가 fixed `kubectl` child의 log stdout을 128 byte로 제한한 뒤 code-owned verifier의 stdin으로
+직접 전달합니다. verifier는 argv를 받지 않고 exact 한 줄이 아니면 원문을 반사하지 않은
+`canary_output_not_allowlisted`만 반환합니다. 성공 시 executor stdout에는 공개 state, Job 이름,
+idempotency key, image/output digest만 남습니다.
 
 허용 SHA-256은 `db69575cac8240a6fb6946f05c32a1ad59d6b58b430b62d99fa2dfa1cea05591`입니다.

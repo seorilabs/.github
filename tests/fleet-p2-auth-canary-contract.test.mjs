@@ -7,7 +7,10 @@ import { promisify } from "node:util";
 import Ajv2020 from "ajv/dist/2020.js";
 import { parse } from "yaml";
 
-import { canonicalSha256 } from "../tools/seori-auth/scripts/public-image-binding.mjs";
+import {
+  APPROVED_IMAGE_BINDING,
+  canonicalSha256,
+} from "../tools/seori-auth/scripts/public-image-binding.mjs";
 
 const execFileAsync = promisify(execFile);
 const contract = parse(await readFile("contracts/fleet-p3-runtime.yaml", "utf8"));
@@ -48,6 +51,11 @@ test("Auth Broker registry mode는 PUBLIC 또는 canonical PACKAGES_READER만 �
 });
 
 test("approved image와 source provenance는 immutable public binding 하나로 고정된다", async () => {
+  assert.equal(contract.authBroker.image, APPROVED_IMAGE_BINDING.image);
+  assert.deepEqual(
+    contract.authBroker.imageProvenance,
+    APPROVED_IMAGE_BINDING.imageProvenance,
+  );
   const result = await execFileAsync(process.execPath, [
     "scripts/fleet/render-p3-runtime.mjs",
     "auth-broker-foundation",
@@ -86,11 +94,32 @@ test("approved image와 source provenance는 immutable public binding 하나로 
     canonicalSha256({ z: 1, A: 2, a: { y: 3, B: 4 } }),
     "904c4fcf5a97dc191ba5801fbfa6fb5cffdf67054b99bb4fb40044f24bd9b2af",
   );
+
+  const validate = validator();
+  for (const mutate of [
+    (changed) => { changed.authBroker.imageProvenance.sourceSha = "c".repeat(40); },
+    (changed) => { changed.authBroker.imageProvenance.runId += 1; },
+    (changed) => {
+      changed.authBroker.imageProvenance.imageDigest = `sha256:${"d".repeat(64)}`;
+    },
+    (changed) => { changed.authBroker.imageProvenance.workflow = ".github/workflows/other.yml"; },
+    (changed) => { changed.authBroker.imageProvenance.platform = "linux/amd64"; },
+    (changed) => { changed.authBroker.image = `ghcr.io/seorilabs/seori-auth@sha256:${"e".repeat(64)}`; },
+  ]) {
+    const changed = structuredClone(contract);
+    mutate(changed);
+    assert.equal(validate(changed), false);
+  }
 });
 
 test("non-secret canary 계약은 RPI5, exact output hash와 readback-only marker를 고정한다", () => {
   const canary = contract.authBroker.canary;
   assert.equal(canary.kind, "NON_SECRET_BUILTIN");
+  assert.equal(canary.kubernetesContext, "vzyx-cluster");
+  assert.equal(canary.serviceAccountName, "seori-auth-canary");
+  assert.equal(canary.createPolicy, "SERVER_DRY_RUN_THEN_CREATE_IF_ABSENT");
+  assert.equal(canary.publicPullBinding, "NO_IMAGE_PULL_SECRETS");
+  assert.equal(canary.packagesReaderPullBinding, "EXACT_CANONICAL_ONE");
   assert.deepEqual(canary.nodeSelector, { "kubernetes.io/hostname": "rpi5" });
   assert.equal(
     canary.expectedOutputSha256,

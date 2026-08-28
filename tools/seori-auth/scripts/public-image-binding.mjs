@@ -7,6 +7,17 @@ export const EXPECTED_CANARY_OUTPUT = '{"state":"CANARY_OK","secretExposed":fals
 export const EXPECTED_CANARY_OUTPUT_SHA256 = createHash('sha256')
   .update(EXPECTED_CANARY_OUTPUT)
   .digest('hex');
+export const APPROVED_IMAGE_BINDING = Object.freeze({
+  image: `${IMAGE_REPOSITORY}@sha256:b5c5ee63ecc3f16e90013e8f6f8727d6c7dc9f4812ba1a1805165bb7413cd515`,
+  imageProvenance: Object.freeze({
+    repository: 'seorilabs/.github',
+    sourceSha: '6e18b189d112f23270426cd88b3f906969103b75',
+    workflow: '.github/workflows/seori-auth-image.yml',
+    runId: 33190683201,
+    platform: 'linux/arm64',
+    imageDigest: 'sha256:b5c5ee63ecc3f16e90013e8f6f8727d6c7dc9f4812ba1a1805165bb7413cd515',
+  }),
+});
 
 const IMAGE = /^ghcr\.io\/seorilabs\/seori-auth@sha256:[a-f0-9]{64}$/;
 const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
@@ -41,15 +52,13 @@ export function validateImageProvenance(image, value, fail) {
     'imageDigest', 'platform', 'repository', 'runId', 'sourceSha', 'workflow',
   ])) fail('image provenance fields are invalid');
   if (
-    value.repository !== 'seorilabs/.github' ||
-    value.workflow !== '.github/workflows/seori-auth-image.yml' ||
-    value.platform !== 'linux/arm64' ||
     !SOURCE_SHA.test(value.sourceSha ?? '') ||
     !Number.isSafeInteger(value.runId) ||
     value.runId < 1 ||
     !SHA256_DIGEST.test(value.imageDigest ?? '') ||
-    image !== `${IMAGE_REPOSITORY}@${value.imageDigest}`
-  ) fail('image provenance does not match the immutable image');
+    image !== APPROVED_IMAGE_BINDING.image ||
+    canonicalSha256(value) !== canonicalSha256(APPROVED_IMAGE_BINDING.imageProvenance)
+  ) fail('image provenance does not match the code-approved immutable binding');
   return Object.freeze({ ...value });
 }
 

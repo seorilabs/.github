@@ -233,7 +233,12 @@ fail-closed 검증 명령을 정의합니다. 운영 manifest는 public deployme
 [`scripts/render-production-k8s.mjs`](scripts/render-production-k8s.mjs)가 한 번에 생성하며
 RPI5 built-in image canary는
 [`scripts/render-nonsecret-canary-k8s.mjs`](scripts/render-nonsecret-canary-k8s.mjs)가
-digest/source/registry binding별 보존되는 one-shot Job으로 생성합니다.
+code-owned digest/source/workflow-run binding별 전용 empty-pull ServiceAccount, default-deny policy와
+one-shot Job을 생성합니다. 실제 실행은
+[`scripts/execute-nonsecret-canary-k8s.mjs`](scripts/execute-nonsecret-canary-k8s.mjs)가 기존 객체를
+먼저 exact readback하고 없는 경우에만 server dry-run 뒤 create합니다. AlreadyExists와 결과 불명은
+mutation을 반복하지 않으며 admitted Pod의 PUBLIC no-pull 또는 PACKAGES_READER exact-one binding까지
+검증합니다.
 기존 static production 경로는 comment-only compatibility marker입니다. 이번 구현과 테스트는
 실제 password/TOTP seed/session cookie, provider account 생성, cluster 변경을 수행하지
 않습니다.

@@ -7,6 +7,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { parse } from "yaml";
 
 import {
+  APPROVED_IMAGE_BINDING,
   EXPECTED_CANARY_OUTPUT_SHA256,
   canonicalSha256,
 } from "../../tools/seori-auth/scripts/public-image-binding.mjs";
@@ -92,6 +93,9 @@ function validateSemantics(contract) {
   }
   const { image, imageProvenance, registry, canary } = contract.authBroker;
   if (
+    image !== APPROVED_IMAGE_BINDING.image ||
+    canonicalSha256(imageProvenance) !==
+      canonicalSha256(APPROVED_IMAGE_BINDING.imageProvenance) ||
     image !== `${registry.repository}@${imageProvenance.imageDigest}` ||
     imageProvenance.sourceSha !== registry.packageVersionTag ||
     imageProvenance.repository !== "seorilabs/.github" ||

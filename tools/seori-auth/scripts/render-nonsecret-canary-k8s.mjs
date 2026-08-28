@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
+import { realpathSync } from 'node:fs';
 import { lstat, readFile, realpath } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   EXPECTED_CANARY_OUTPUT_SHA256,
@@ -12,20 +14,38 @@ import {
   validateRegistry,
 } from './public-image-binding.mjs';
 
-function fail(message) {
-  process.stderr.write(`${JSON.stringify({ valid: false, code: 'invalid_canary_config', message })}\n`);
-  process.exit(1);
+export const CANARY_SERVICE_ACCOUNT_NAME = 'seori-auth-canary';
+
+export class InvalidCanaryConfigError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'InvalidCanaryConfigError';
+    this.code = 'invalid_canary_config';
+  }
 }
 
-async function load(path) {
+function fail(message) {
+  throw new InvalidCanaryConfigError(message);
+}
+
+export async function loadCanaryConfig(path) {
   if (!isAbsolute(path)) fail('config path must be absolute');
-  const [entry, canonicalPath] = await Promise.all([lstat(path), realpath(path)]);
+  let entry;
+  let canonicalPath;
+  try {
+    [entry, canonicalPath] = await Promise.all([lstat(path), realpath(path)]);
+  } catch {
+    fail('config path is unavailable');
+  }
   if (!entry.isFile() || entry.isSymbolicLink() || canonicalPath !== path) {
     fail('config path must be canonical and regular');
   }
   const bytes = await readFile(path);
+  if (bytes.length === 0 || bytes.length > 64 * 1024) {
+    bytes.fill(0);
+    fail('config size is invalid');
+  }
   try {
-    if (bytes.length === 0 || bytes.length > 64 * 1024) fail('config size is invalid');
     return JSON.parse(bytes.toString('utf8'));
   } catch {
     fail('config JSON is invalid');
@@ -36,12 +56,18 @@ async function load(path) {
 
 function validateCanary(value) {
   if (!exactKeys(value, [
-    'activeDeadlineSeconds', 'contractVersion', 'expectedOutputSha256', 'idempotency', 'kind',
-    'nodeSelector',
+    'activeDeadlineSeconds', 'contractVersion', 'createPolicy', 'expectedOutputSha256',
+    'idempotency', 'kind', 'kubernetesContext', 'nodeSelector', 'packagesReaderPullBinding',
+    'publicPullBinding', 'serviceAccountName',
   ])) fail('canary contract fields are invalid');
   if (
     value.contractVersion !== 1 ||
     value.kind !== 'NON_SECRET_BUILTIN' ||
+    value.kubernetesContext !== 'vzyx-cluster' ||
+    value.serviceAccountName !== CANARY_SERVICE_ACCOUNT_NAME ||
+    value.createPolicy !== 'SERVER_DRY_RUN_THEN_CREATE_IF_ABSENT' ||
+    value.publicPullBinding !== 'NO_IMAGE_PULL_SECRETS' ||
+    value.packagesReaderPullBinding !== 'EXACT_CANONICAL_ONE' ||
     value.activeDeadlineSeconds !== 300 ||
     value.expectedOutputSha256 !== EXPECTED_CANARY_OUTPUT_SHA256 ||
     !exactKeys(value.nodeSelector, ['kubernetes.io/hostname']) ||
@@ -61,7 +87,7 @@ function validateCanary(value) {
   });
 }
 
-function validate(config) {
+export function validateCanaryConfig(config) {
   if (!exactKeys(config, [
     'canary', 'image', 'imageProvenance', 'namespace', 'registry', 'schemaVersion',
   ]) || config.schemaVersion !== 1 || config.namespace !== 'auth-broker') {
@@ -75,7 +101,7 @@ function validate(config) {
   });
 }
 
-function marker(config) {
+export function canaryOccurrence(config) {
   const idempotencyKey = canonicalSha256({
     canaryContractVersion: config.canary.contractVersion,
     image: config.image,
@@ -130,8 +156,8 @@ function containerSecurityContext() {
   };
 }
 
-function render(config) {
-  const occurrence = marker(config);
+export function renderCanaryManifest(config) {
+  const occurrence = canaryOccurrence(config);
   const pullSecrets = imagePullSecrets(config.registry);
   const publicAnnotations = annotations(config, occurrence);
   const podSpec = {
@@ -144,7 +170,7 @@ function render(config) {
     nodeSelector: config.canary.nodeSelector,
     restartPolicy: 'Never',
     securityContext: podSecurityContext(),
-    serviceAccountName: 'default',
+    serviceAccountName: config.canary.serviceAccountName,
     terminationGracePeriodSeconds: 5,
     containers: [{
       name: 'canary',
@@ -171,9 +197,27 @@ function render(config) {
     kind: 'List',
     items: [
       {
+        apiVersion: 'v1',
+        kind: 'ServiceAccount',
+        metadata: {
+          name: CANARY_SERVICE_ACCOUNT_NAME,
+          namespace: config.namespace,
+          labels: { 'app.kubernetes.io/name': 'seori-auth-nonsecret-canary' },
+          annotations: { 'seorilabs.io/purpose': 'nonsecret-image-canary' },
+        },
+        automountServiceAccountToken: false,
+        imagePullSecrets: [],
+        secrets: [],
+      },
+      {
         apiVersion: 'networking.k8s.io/v1',
         kind: 'NetworkPolicy',
-        metadata: { name: occurrence.networkPolicyName, namespace: config.namespace },
+        metadata: {
+          name: occurrence.networkPolicyName,
+          namespace: config.namespace,
+          labels: occurrence.selector,
+          annotations: publicAnnotations,
+        },
         spec: {
           podSelector: { matchLabels: occurrence.selector },
           policyTypes: ['Ingress', 'Egress'],
@@ -195,6 +239,7 @@ function render(config) {
           backoffLimit: 0,
           completions: 1,
           parallelism: 1,
+          podReplacementPolicy: 'Failed',
           template: {
             metadata: {
               labels: occurrence.selector,
@@ -208,9 +253,34 @@ function render(config) {
   };
 }
 
-const argument = process.argv[2];
-if (process.argv.length !== 3 || !argument?.startsWith('--config=')) {
-  fail('usage: render-nonsecret-canary-k8s.mjs --config=/absolute/path.json');
+function isDirectExecution() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
 }
-const config = validate(await load(argument.slice('--config='.length)));
-process.stdout.write(`${JSON.stringify(render(config), null, 2)}\n`);
+
+if (isDirectExecution()) {
+  try {
+    const argument = process.argv[2];
+    if (process.argv.length !== 3 || !argument?.startsWith('--config=')) {
+      fail('usage: render-nonsecret-canary-k8s.mjs --config=/absolute/path.json');
+    }
+    const config = validateCanaryConfig(
+      await loadCanaryConfig(argument.slice('--config='.length)),
+    );
+    process.stdout.write(`${JSON.stringify(renderCanaryManifest(config), null, 2)}\n`);
+  } catch (error) {
+    const message = error instanceof InvalidCanaryConfigError
+      ? error.message
+      : 'canary config could not be loaded';
+    process.stderr.write(`${JSON.stringify({
+      valid: false,
+      code: 'invalid_canary_config',
+      message,
+    })}\n`);
+    process.exitCode = 1;
+  }
+}

@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import {
+  APPROVED_IMAGE_BINDING,
   EXPECTED_CANARY_OUTPUT,
   EXPECTED_CANARY_OUTPUT_SHA256,
 } from '../scripts/public-image-binding.mjs';
@@ -17,26 +18,23 @@ const renderer = fileURLToPath(new URL('../scripts/render-nonsecret-canary-k8s.m
 const outputVerifier = fileURLToPath(
   new URL('../scripts/verify-nonsecret-canary-output.mjs', import.meta.url),
 );
-const digest = 'a'.repeat(64);
-const sourceSha = 'b'.repeat(40);
+const sourceSha = APPROVED_IMAGE_BINDING.imageProvenance.sourceSha;
 
 function canaryConfig(registry = { mode: 'PUBLIC', visibilityStatus: 'VERIFIED_PUBLIC' }) {
   return {
     schemaVersion: 1,
     namespace: 'auth-broker',
-    image: `ghcr.io/seorilabs/seori-auth@sha256:${digest}`,
-    imageProvenance: {
-      repository: 'seorilabs/.github',
-      sourceSha,
-      workflow: '.github/workflows/seori-auth-image.yml',
-      runId: 123456789,
-      platform: 'linux/arm64',
-      imageDigest: `sha256:${digest}`,
-    },
+    image: APPROVED_IMAGE_BINDING.image,
+    imageProvenance: { ...APPROVED_IMAGE_BINDING.imageProvenance },
     registry,
     canary: {
       contractVersion: 1,
       kind: 'NON_SECRET_BUILTIN',
+      kubernetesContext: 'vzyx-cluster',
+      serviceAccountName: 'seori-auth-canary',
+      createPolicy: 'SERVER_DRY_RUN_THEN_CREATE_IF_ABSENT',
+      publicPullBinding: 'NO_IMAGE_PULL_SECRETS',
+      packagesReaderPullBinding: 'EXACT_CANONICAL_ONE',
       nodeSelector: { 'kubernetes.io/hostname': 'rpi5' },
       activeDeadlineSeconds: 300,
       expectedOutputSha256: EXPECTED_CANARY_OUTPUT_SHA256,
@@ -71,6 +69,7 @@ test('PUBLIC non-secret canary is a deterministic RPI5 Job with no pull credenti
   const job = first.items.find(({ kind }) => kind === 'Job');
   const pod = job.spec.template.spec;
   const container = pod.containers[0];
+  const serviceAccount = first.items.find(({ kind }) => kind === 'ServiceAccount');
 
   assert.deepEqual(first, second);
   assert.match(job.metadata.name, /^seori-auth-nonsecret-canary-[a-f0-9]{16}$/u);
@@ -85,6 +84,7 @@ test('PUBLIC non-secret canary is a deterministic RPI5 Job with no pull credenti
   assert.equal(job.spec.backoffLimit, 0);
   assert.equal(job.spec.completions, 1);
   assert.equal(job.spec.parallelism, 1);
+  assert.equal(job.spec.podReplacementPolicy, 'Failed');
   assert.equal('ttlSecondsAfterFinished' in job.spec, false);
 
   assert.equal(policy.metadata.name.slice(-16), job.metadata.name.slice(-16));
@@ -99,14 +99,14 @@ test('PUBLIC non-secret canary is a deterministic RPI5 Job with no pull credenti
   assert.equal(pod.hostNetwork, false);
   assert.equal(pod.hostPID, false);
   assert.equal(pod.restartPolicy, 'Never');
-  assert.equal(pod.serviceAccountName, 'default');
+  assert.equal(pod.serviceAccountName, 'seori-auth-canary');
   assert.deepEqual(pod.nodeSelector, { 'kubernetes.io/hostname': 'rpi5' });
   assert.equal(pod.securityContext.runAsNonRoot, true);
   assert.equal(pod.securityContext.runAsUser, 65532);
   assert.equal(pod.securityContext.seccompProfile.type, 'RuntimeDefault');
   assert.equal('imagePullSecrets' in pod, false);
 
-  assert.equal(container.image, `ghcr.io/seorilabs/seori-auth@sha256:${digest}`);
+  assert.equal(container.image, APPROVED_IMAGE_BINDING.image);
   assert.equal(container.imagePullPolicy, 'Always');
   assert.deepEqual(container.args, [
     'canary', '--native-helper=/opt/seori-auth/bin/seori-auth-native',
@@ -116,6 +116,10 @@ test('PUBLIC non-secret canary is a deterministic RPI5 Job with no pull credenti
   assert.equal(container.securityContext.readOnlyRootFilesystem, true);
   assert.deepEqual(container.securityContext.capabilities.drop, ['ALL']);
   assert.ok(pod.volumes.every(({ emptyDir }) => emptyDir?.medium === 'Memory'));
+  assert.equal(pod.serviceAccountName, 'seori-auth-canary');
+  assert.equal(serviceAccount.automountServiceAccountToken, false);
+  assert.deepEqual(serviceAccount.imagePullSecrets, []);
+  assert.deepEqual(serviceAccount.secrets, []);
 
   assert.doesNotMatch(serialized, /(?:secretKeyRef|configMapKeyRef|projected|serviceAccountToken)/u);
   assert.doesNotMatch(serialized, /seori-auth-ghcr-pull|shared\/github\/packages-reader/u);
@@ -154,10 +158,18 @@ test('canary renderer rejects implicit pull mode, provenance drift, and relaxed 
   });
 
   const drifted = canaryConfig();
-  drifted.imageProvenance.sourceSha = 'not-a-source-sha';
+  drifted.imageProvenance.sourceSha = 'c'.repeat(40);
   await assert.rejects(render(drifted), (error) => {
     assert.equal(error.code, 1);
-    assert.match(error.stderr, /image provenance does not match/u);
+    assert.match(error.stderr, /code-approved immutable binding/u);
+    return true;
+  });
+
+  const driftedRun = canaryConfig();
+  driftedRun.imageProvenance.runId += 1;
+  await assert.rejects(render(driftedRun), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /code-approved immutable binding/u);
     return true;
   });
 
