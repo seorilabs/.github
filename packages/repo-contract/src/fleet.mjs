@@ -1634,10 +1634,15 @@ export async function promoteWorkflowBundle(
       `WORKFLOW_BUNDLE_INVALID:${prePublishValidation.diagnostics.join(",")}`,
     );
   }
-  const publishedRecord = await registryPublisher(
-    structuredClone(registryRecord),
-    structuredClone(promoted),
-  );
+  let publishedRecord;
+  try {
+    publishedRecord = await registryPublisher(
+      structuredClone(registryRecord),
+      structuredClone(promoted),
+    );
+  } catch {
+    throw new Error("APPROVAL_REGISTRY_PUBLISH_FAILED");
+  }
   if (!registryRecordMatches(publishedRecord, promoted)) {
     throw new Error("APPROVAL_REGISTRY_PUBLISH_FAILED");
   }

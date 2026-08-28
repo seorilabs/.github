@@ -1035,6 +1035,30 @@ test("trusted publisher는 signer와 registry 오류 상세를 정규화한다",
   );
 });
 
+test("저수준 승격도 registry publish 오류 상세를 노출하지 않는다", async () => {
+  const candidate = await createWorkflowBundle({
+    sourceSha: SOURCE_SHA,
+    platformRelease: PLATFORM_RELEASE,
+  });
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const sensitive = `registry-token-detail-${"x".repeat(32)}`;
+
+  await assert.rejects(
+    promoteWorkflowBundle(candidate, EVIDENCE, {
+      trustedWorkflowSourceReadback: trustedSourceReadbackFor(candidate),
+      evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
+      trustedRunnerImageReadback,
+      ...trustedSignerOptions(privateKey, publicKey),
+      registryPublisher: async () => {
+        throw new Error(sensitive);
+      },
+    }),
+    (error) =>
+      error.message === "APPROVAL_REGISTRY_PUBLISH_FAILED" &&
+      !error.message.includes(sensitive),
+  );
+});
+
 test("trusted publisher는 private signing key를 trust configuration으로 받지 않는다", () => {
   const { privateKey } = generateKeyPairSync("ed25519");
   assert.throws(
