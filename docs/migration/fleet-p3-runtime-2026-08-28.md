@@ -47,9 +47,10 @@ receipt, lease token은 기록하지 않는다.
 2. GCP 관리자가 5개 service account와 최소 IAM/WIF binding을 계약대로 생성한다. 정적 key는
    만들지 않고 각 공개 identity와 binding을 API로 readback한다.
 3. RPI5 storage의 encrypted-at-rest를 증명하거나 암호화 storage class를 제공한다.
-4. private GHCR pull identity를 등록된 `shared/github/operator`에서 secret 출력 없이 실행
-   Secret으로 주입하고, renderer가 세 Pod 모두에 exact `imagePullSecrets`를 고정하는지 확인한
-   뒤 provider signer와 egress proxy를 먼저 배포한다.
+4. 개인 `shared/github/operator`는 desired pull identity로 재사용하지 않는다. 조직 전용
+   machine-user packages reader 또는 digest/signature가 검증된 public package 중 하나를 승인한
+   뒤, renderer가 세 Pod 모두에 exact `imagePullSecrets`를 고정하는지 확인하고 provider signer와
+   egress proxy를 먼저 배포한다.
 5. workload와 PVC를 배포한 뒤 건강 상태와 mTLS peer를 readback하고 fake account canary에서
    origin, TTL, 1회성, repository·namespace binding을 검증한다.
 6. 새 App을 만들지 않고 live active `seorilabs-backoffice` App `4124446`, installation
@@ -119,8 +120,11 @@ Security.framework native helper의 exact code identity, unattended ACL, locked/
 exact, 복구 후 backup/restore 검증을 readback해야 완료다. 이번 변경에서는 복호화·등록·cluster
 Secret 생성 등 외부 mutation을 수행하지 않았다.
 
-같은 readback에서 `auth-broker` namespace는 읽을 수 있었지만 `seori-auth-ghcr-pull` Secret은
-존재하지 않았고 workload·PVC도 0개였다. production renderer는 이제 세 Pod에 exact
+같은 readback에서 개인 `shared/github/operator`의 private package metadata 접근은 확인됐지만
+조직 canonical identity로 승격하지 않는다. GitHub의 non-Actions private GHCR pull 경계에 따라
+조직 전용 machine-user PAT classic 또는 digest/signature 검증 후 public package 전환 중 하나를
+별도 승인해야 한다. `auth-broker` namespace에서 `seori-auth-ghcr-pull` Secret은 존재하지 않았고
+workload·PVC도 0개였다. production renderer는 이제 세 Pod에 exact
 `imagePullSecrets`를 필수로 넣어 node cache 의존을 거부하지만, Secret 생성과 workload apply는
 등록 identity·backup/restore 승인 및 공개 readback 뒤 별도 외부 mutation gate로 남아 있다.
 

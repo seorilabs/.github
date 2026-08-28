@@ -52,6 +52,9 @@ function render(command) {
 }
 
 function api(operation, { allowMissing = false } = {}) {
+  if (operation.method !== "GET") {
+    fail("P3_GITHUB_AMBIENT_MUTATION_FORBIDDEN");
+  }
   const args = [
     "api",
     "--method",
@@ -144,21 +147,6 @@ function rulesetSubset(value) {
   };
 }
 
-function ensureRuleset() {
-  const existing = findRuleset();
-  if (existing === null) {
-    api(desiredRuleset);
-    return;
-  }
-  const detail = api({
-    method: "GET",
-    path: `/orgs/${organization}/rulesets/${existing.id}`,
-  });
-  if (!equal(rulesetSubset(detail), rulesetSubset(desiredRuleset.body))) {
-    fail("P3_GITHUB_RULESET_DRIFT");
-  }
-}
-
 function readbackApp() {
   const response = api({
     method: "GET",
@@ -178,18 +166,7 @@ function readbackApp() {
 }
 
 function apply() {
-  if (
-    app.trustedExecution.state !== "ready" ||
-    app.trustedExecution.ambientPersonalTokenAllowed !== false
-  ) {
-    fail("P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED");
-  }
-  const appState = readbackApp();
-  if (!appState.identityExact) fail(appState.code ?? "P3_GITHUB_APP_IDENTITY_MISMATCH");
-  if (!appState.ready) fail("P3_GITHUB_APP_PERMISSION_EXPANSION_REQUIRED");
-  for (const operation of propertyOperations) api(operation);
-  for (const operation of valueOperations) api(operation);
-  ensureRuleset();
+  fail("P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED");
 }
 
 function appReadbackResult(appState) {

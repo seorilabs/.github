@@ -229,10 +229,29 @@ authBroker:
   registry:
     server: ghcr.io
     imagePullSecretName: seori-auth-ghcr-pull
-    credentialId: shared/github/operator
+    credentialId: shared/github/packages-reader
+    credentialKind: github-pat-classic
+    identityRequirement: organization-machine-user
+    personalOperatorReuseAllowed: false
+    publicPackageAlternativeAllowed: true
     requiredScopes: [read:packages]
-    catalogStatus: active
+    catalogStatus: blocked_missing
     kubernetesStatus: blocked_unverified
+    humanGate:
+      type: approval
+      state: HUMAN_APPROVAL_REQUIRED
+      operation: GHCR_PULL_IDENTITY_OR_PUBLIC_PACKAGE_SELECTION
+      requiredRole: organization_owner
+      automaticRetry: false
+      allowedModes:
+        - organization_machine_user_pat_classic
+        - public_digest_verified_package
+      requiredReadback:
+        - selected_mode_exact
+        - organization_controlled_identity_or_public_package
+        - package_access_exact
+        - image_digest_signature_exact
+        - pull_secret_materialized_when_private
   secretManager:
     projectId: seorilabs-ci
     state: blocked_unverified

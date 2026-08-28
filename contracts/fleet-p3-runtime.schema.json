@@ -297,17 +297,52 @@
         "registry": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["server", "imagePullSecretName", "credentialId", "requiredScopes", "catalogStatus", "kubernetesStatus"],
+          "required": ["server", "imagePullSecretName", "credentialId", "credentialKind", "identityRequirement", "personalOperatorReuseAllowed", "publicPackageAlternativeAllowed", "requiredScopes", "catalogStatus", "kubernetesStatus", "humanGate"],
           "properties": {
             "server": { "const": "ghcr.io" },
             "imagePullSecretName": { "const": "seori-auth-ghcr-pull" },
-            "credentialId": { "const": "shared/github/operator" },
+            "credentialId": { "const": "shared/github/packages-reader" },
+            "credentialKind": { "const": "github-pat-classic" },
+            "identityRequirement": { "const": "organization-machine-user" },
+            "personalOperatorReuseAllowed": { "const": false },
+            "publicPackageAlternativeAllowed": { "const": true },
             "requiredScopes": {
               "type": "array", "minItems": 1, "maxItems": 1,
               "prefixItems": [{ "const": "read:packages" }], "items": false
             },
-            "catalogStatus": { "const": "active" },
-            "kubernetesStatus": { "const": "blocked_unverified" }
+            "catalogStatus": { "const": "blocked_missing" },
+            "kubernetesStatus": { "const": "blocked_unverified" },
+            "humanGate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "state", "operation", "requiredRole", "automaticRetry", "allowedModes", "requiredReadback"],
+              "properties": {
+                "type": { "const": "approval" },
+                "state": { "const": "HUMAN_APPROVAL_REQUIRED" },
+                "operation": { "const": "GHCR_PULL_IDENTITY_OR_PUBLIC_PACKAGE_SELECTION" },
+                "requiredRole": { "const": "organization_owner" },
+                "automaticRetry": { "const": false },
+                "allowedModes": {
+                  "type": "array", "minItems": 2, "maxItems": 2,
+                  "prefixItems": [
+                    { "const": "organization_machine_user_pat_classic" },
+                    { "const": "public_digest_verified_package" }
+                  ],
+                  "items": false
+                },
+                "requiredReadback": {
+                  "type": "array", "minItems": 5, "maxItems": 5,
+                  "prefixItems": [
+                    { "const": "selected_mode_exact" },
+                    { "const": "organization_controlled_identity_or_public_package" },
+                    { "const": "package_access_exact" },
+                    { "const": "image_digest_signature_exact" },
+                    { "const": "pull_secret_materialized_when_private" }
+                  ],
+                  "items": false
+                }
+              }
+            }
           }
         },
         "secretManager": {

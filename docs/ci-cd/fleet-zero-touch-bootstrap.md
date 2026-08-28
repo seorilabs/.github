@@ -147,3 +147,5 @@ batch compensation이 검증되기 전에는 `HUMAN_REAUTH_REQUIRED`로 중단�
 전후 backup/restore만 반환한다. GitHub apply는 이 private key로
 short-lived installation token을 발급하는 exact capability executor가 별도 검증되기 전까지
 `P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED`로 중단하며 ambient personal token으로 우회하지 않는다.
+이 CLI의 API client 자체도 GET만 허용하며 contract의 ready flag를 바꿔도 ambient `gh` mutation
+경로가 열리지 않는다.

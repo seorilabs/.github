@@ -117,6 +117,10 @@ Kubernetes provider만 disable한다.
 fd3를 쓰는 native Secret Manager writer의 공개
 identity·CRC32C·backup/restore가 승인되기 전에는 별도 human gate로 남긴다.
 
+private GHCR pull은 개인 `shared/github/operator`를 canonical identity로 사용하지 않는다. 조직
+전용 machine-user packages reader 또는 digest/signature가 검증된 public package 중 하나를 조직
+owner가 고르고 공개 identity/package readback을 완료하기 전까지 pull Secret은 blocked다.
+
 로컬 CLI는 caller를 생성하거나 승인하지 않는다. trusted approval key와 registry readback을
 가진 GitHub App reconciler만 `loadApprovedWorkflowBundle`로 승인 binding을 만든 뒤
 `generateOrgContractCaller`와 `validateOrgContractCaller`를 호출할 수 있다. 임의의 40자리

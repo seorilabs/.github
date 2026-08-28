@@ -72,6 +72,9 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
   );
   assert.equal(contract.authBroker.state.encryptionRequired, true);
   assert.equal(contract.authBroker.state.encryptionStatus, "blocked_unverified");
+  assert.equal(contract.authBroker.registry.credentialId, "shared/github/packages-reader");
+  assert.equal(contract.authBroker.registry.personalOperatorReuseAllowed, false);
+  assert.equal(contract.authBroker.registry.catalogStatus, "blocked_missing");
   assert.equal(contract.github.credentialRecovery.approvalGate.state, "HUMAN_REAUTH_REQUIRED");
   assert.doesNotMatch(
     recoveryModuleSource,
@@ -1048,6 +1051,15 @@ test("GitHub bootstrap은 renderer의 API version과 organization drift를 fail-
   );
   assert.match(source, /P3_GITHUB_CONTRACT_DRIFT/u);
   assert.match(source, /P3_GITHUB_API_RESPONSE_INVALID/u);
+  assert.match(
+    source,
+    /if \(operation\.method !== "GET"\) \{\s*fail\("P3_GITHUB_AMBIENT_MUTATION_FORBIDDEN"\);/u,
+  );
+  assert.match(
+    source,
+    /function apply\(\) \{\s*fail\("P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED"\);\s*\}/u,
+  );
+  assert.doesNotMatch(source, /for \(const operation of (?:property|value)Operations\) api/u);
 });
 
 test("Auth Broker foundation은 RBAC 0권한, exact NetworkPolicy와 cert-manager TLS만 생성한다", async () => {
@@ -1100,7 +1112,11 @@ test("Auth Broker foundation은 RBAC 0권한, exact NetworkPolicy와 cert-manage
   );
   assert.match(
     publicBindings.data["bindings.json"],
-    /"credentialId": "shared\/github\/operator"/u,
+    /"credentialId": "shared\/github\/packages-reader"/u,
+  );
+  assert.match(
+    publicBindings.data["bindings.json"],
+    /"catalogStatus": "blocked_missing"/u,
   );
   assert.match(
     publicBindings.data["bindings.json"],
