@@ -1,6 +1,7 @@
 schemaVersion: 1
 bundleVersion: 4.1.0
 repository: seorilabs/.github
+workflowExecutionSha: c328d9bf55f31ba11f53ef06071cc7b76d283617
 
 quality:
   canonicalScripts:

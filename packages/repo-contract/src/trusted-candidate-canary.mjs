@@ -181,10 +181,11 @@ function candidatePolicyValid(bundle) {
       (profile) =>
         bundle.reusableWorkflows[profile]?.path ===
           STATIC_WORKFLOW_BY_PROFILE[profile] &&
-        bundle.reusableWorkflows[profile]?.sha === bundle.source.sha &&
+        SHA_PATTERN.test(bundle.reusableWorkflows[profile]?.sha ?? "") &&
         bundle.buildWorkflows[profile]?.path ===
           ANDROID_WORKFLOW_BY_PROFILE[profile] &&
-        bundle.buildWorkflows[profile]?.sha === bundle.source.sha &&
+        bundle.buildWorkflows[profile]?.sha ===
+          bundle.reusableWorkflows[profile]?.sha &&
         bundle.buildWorkflows[profile]?.mode === "build-only" &&
         bundle.buildWorkflows[profile]?.platform === "android",
     )
@@ -462,7 +463,7 @@ function renderStaticCaller(bundle, manifest) {
         name: "Org Contract",
         uses:
           `seorilabs/.github/${STATIC_WORKFLOW_BY_PROFILE[manifest.profile]}` +
-          `@${bundle.source.sha}`,
+          `@${bundle.reusableWorkflows[manifest.profile].sha}`,
         with: {
           package_manager: manifest.packageManager,
           working_directory: manifest.workingDirectory,
@@ -499,7 +500,7 @@ function renderAndroidCaller(bundle, manifest) {
         name: "Android Build-only",
         uses:
           `seorilabs/.github/${ANDROID_WORKFLOW_BY_PROFILE[manifest.profile]}` +
-          `@${bundle.source.sha}`,
+          `@${bundle.buildWorkflows[manifest.profile].sha}`,
         with: {
           source_sha: manifest.sourceSha,
           working_directory: manifest.workingDirectory,
@@ -536,7 +537,7 @@ function expectedOperation(bundle, manifest) {
     fullName: manifest.fullName,
     headRef:
       `seori/workflow-bundle-canary/${manifest.repositoryId}/` +
-      bundle.source.sha.slice(0, 12),
+      bundle.buildWorkflows[manifest.profile].sha.slice(0, 12),
     maximumOpenAutonomousPullRequests: 1,
     repositoryId: manifest.repositoryId,
     sourceSha: manifest.sourceSha,
@@ -581,7 +582,7 @@ function expectedWifOperation(bundle, manifest, wifBinding) {
     environment: "internal",
     jobWorkflowRef:
       `seorilabs/.github/${ANDROID_WORKFLOW_BY_PROFILE[manifest.profile]}` +
-      `@${bundle.source.sha}`,
+      `@${bundle.buildWorkflows[manifest.profile].sha}`,
     logicalCredentialId: WIF_LOGICAL_CREDENTIAL_ID,
     organizationId: wifBinding.organizationId,
     repositoryId: manifest.repositoryId,

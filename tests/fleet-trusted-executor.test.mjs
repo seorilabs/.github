@@ -21,6 +21,14 @@ const NOW = Date.parse("2026-08-28T04:00:00.000Z");
 const TOKEN_TEXT = "installation-token-must-not-escape";
 const ORG_CHECK_APP_ID = "31001";
 const SEORI_CHECK_APP_ID = "31002";
+const CLOUD_BUILD_VARIABLES = Object.freeze({
+  GOOGLE_WORKLOAD_IDENTITY_PROVIDER:
+    "projects/123456789/locations/global/workloadIdentityPools/seorilabs/providers/github",
+  SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT:
+    "seori-cloud-build-executor@seorilabs-ci.iam.gserviceaccount.com",
+  SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT:
+    "seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+});
 
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -682,7 +690,7 @@ test("stale generation completion은 성공으로 기록하지 않는다", async
   );
 });
 
-test("secret/WIF adapter 설정은 공개 exact catalog 필드만 허용한다", () => {
+test("공개 environment variable과 secret/WIF adapter는 exact catalog 필드만 허용한다", async () => {
   const noOpGitHubProvider = {
     addSecretRepositoryAccess() {},
     applyOperation() {},
@@ -711,6 +719,71 @@ test("secret/WIF adapter 설정은 공개 exact catalog 필드만 허용한다",
         ],
       }),
     /GITHUB_APP_ADAPTER_CONFIGURATION_INVALID/u,
+  );
+  assert.throws(
+    () =>
+      createGitHubAppTrustedAdapter({
+        organizationId: ORGANIZATION_ID,
+        installationId: INSTALLATION_ID,
+        issueInstallationToken() {},
+        provider: noOpGitHubProvider,
+        environmentVariableBindings: [
+          {
+            bindingRevision: 1,
+            environment: "internal",
+            logicalCredentialId: "shared/gcp/cloud-build",
+            variables: CLOUD_BUILD_VARIABLES,
+            password: "must-not-be-accepted",
+          },
+        ],
+      }),
+    /GITHUB_APP_ADAPTER_CONFIGURATION_INVALID/u,
+  );
+  const environmentAdapter = createGitHubAppTrustedAdapter({
+    organizationId: ORGANIZATION_ID,
+    installationId: INSTALLATION_ID,
+    now: () => NOW,
+    issueInstallationToken: async (request) => ({
+      accountId: ORGANIZATION_ID,
+      accountLogin: "seorilabs",
+      expiresAt: new Date(NOW + 4 * 60 * 1000).toISOString(),
+      installationId: INSTALLATION_ID,
+      permissions: structuredClone(request.permissions),
+      repositoryIds: [REPOSITORY_ID],
+      token: Buffer.from(TOKEN_TEXT.repeat(2), "utf8"),
+    }),
+    provider: noOpGitHubProvider,
+    environmentVariableBindings: [
+      {
+        bindingRevision: 1,
+        environment: "internal",
+        logicalCredentialId: "shared/gcp/cloud-build",
+        variables: CLOUD_BUILD_VARIABLES,
+      },
+    ],
+  });
+  await assert.rejects(
+    environmentAdapter.readOperation(
+      {
+        kind: "github.environment-variables.ensure",
+        payload: {
+          bindingRevision: 1,
+          environment: "internal",
+          logicalCredentialId: "shared/gcp/cloud-build",
+          variables: {
+            ...CLOUD_BUILD_VARIABLES,
+            GOOGLE_WORKLOAD_IDENTITY_PROVIDER:
+              "projects/987654321/locations/global/workloadIdentityPools/seorilabs/providers/github",
+          },
+        },
+      },
+      {
+        fullName: FULL_NAME,
+        repositoryId: REPOSITORY_ID,
+        sourceSha: SOURCE_SHA,
+      },
+    ),
+    /GITHUB_ENVIRONMENT_VARIABLE_BINDING_UNTRUSTED/u,
   );
   assert.throws(
     () =>

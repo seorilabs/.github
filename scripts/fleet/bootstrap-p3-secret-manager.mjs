@@ -112,17 +112,14 @@ function gcloudRun(args, code) {
 }
 
 function githubCondition() {
-  const workflows = cloud.wif.repositories.map(
-    ({ workflow }) =>
-      `assertion.job_workflow_ref == 'seorilabs/.github/${workflow}@${cloud.wif.workflowSourceSha}'`,
-  );
-  const repositories = cloud.wif.repositories.map(
-    ({ repositoryId }) => `assertion.repository_id == '${repositoryId}'`,
+  const repositoryWorkflowClauses = cloud.wif.repositories.map(
+    ({ repositoryId, workflow }) =>
+      `(assertion.repository_id == '${repositoryId}' && ` +
+      `assertion.job_workflow_ref == 'seorilabs/.github/${workflow}@${cloud.wif.workflowExecutionSha}')`,
   );
   return [
     `assertion.repository_owner_id == '${cloud.wif.organizationId}'`,
-    `(${repositories.join(" || ")})`,
-    `(${workflows.join(" || ")})`,
+    `(${repositoryWorkflowClauses.join(" || ")})`,
   ].join(" && ");
 }
 
@@ -334,7 +331,8 @@ function publicPlan() {
     mode: "DRY_RUN",
     project: { id: manager.projectId, number: cloud.projectNumber },
     contractDigest,
-    workflowSourceSha: cloud.wif.workflowSourceSha,
+    workflowBundleSourceSha: cloud.wif.workflowBundleSourceSha,
+    workflowExecutionSha: cloud.wif.workflowExecutionSha,
     confirmation: expectedConfirmation,
     rollbackConfirmation: expectedRollback,
     resources: manager.resources,

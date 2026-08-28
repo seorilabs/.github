@@ -33,6 +33,8 @@ import { CANARY_BUILD_BY_PROFILE } from "./helpers/workflow-bundle-fixtures.mjs"
 
 const BUNDLE_SHA = "a".repeat(40);
 const SOURCE_SHA = "d".repeat(40);
+const WORKFLOW_EXECUTION_SHA =
+  "c328d9bf55f31ba11f53ef06071cc7b76d283617";
 const DIGEST = `sha256:${"b".repeat(64)}`;
 const PLATFORM_RELEASE = Object.freeze({
   sourceSha: "c".repeat(40),
@@ -134,8 +136,8 @@ function verifiedEvidence(record, bundle) {
     cloudBuildConfigSha256: record.cloudBuildConfigSha256,
     staticConclusion: "success",
     buildConclusion: "success",
-    staticWorkflowRef: `seorilabs/.github/${bundle.reusableWorkflows[record.profile].path}@${bundle.source.sha}`,
-    buildWorkflowRef: `seorilabs/.github/${bundle.buildWorkflows[record.profile].path}@${bundle.source.sha}`,
+    staticWorkflowRef: `seorilabs/.github/${bundle.reusableWorkflows[record.profile].path}@${bundle.reusableWorkflows[record.profile].sha}`,
+    buildWorkflowRef: `seorilabs/.github/${bundle.buildWorkflows[record.profile].path}@${bundle.buildWorkflows[record.profile].sha}`,
     marketUpload: false,
     artifactSha256: record.artifactSha256,
   };
@@ -216,6 +218,18 @@ async function approvedContext(profile = "react-native") {
 test("v4 bundle은 고정 action, Android Cloud Build, Xcode Cloud와 shadow 경계를 묶는다", async () => {
   const bundle = await createWorkflowBundle({ sourceSha: BUNDLE_SHA });
   assert.equal(bundle.bundleVersion, "4.1.0");
+  assert.equal(bundle.source.sha, BUNDLE_SHA);
+  assert.ok(
+    Object.values(bundle.reusableWorkflows).every(
+      ({ sha }) => sha === WORKFLOW_EXECUTION_SHA,
+    ),
+  );
+  assert.ok(
+    Object.values(bundle.buildWorkflows).every(
+      ({ sha }) => sha === WORKFLOW_EXECUTION_SHA,
+    ),
+  );
+  assert.notEqual(bundle.source.sha, WORKFLOW_EXECUTION_SHA);
   assert.deepEqual(bundle.quality.requiredCanaryGates, ["static", "build-only"]);
   assert.deepEqual(Object.keys(bundle.actions).sort(), [
     "checkout",
@@ -427,6 +441,9 @@ test("v4 runtime asset 추가 뒤에도 buildWorkflows가 없던 signed v3 bundl
     platformRelease: PLATFORM_RELEASE,
   });
   legacy.bundleVersion = "3.0.0";
+  for (const workflow of Object.values(legacy.reusableWorkflows)) {
+    workflow.sha = BUNDLE_SHA;
+  }
   delete legacy.buildWorkflows;
   delete legacy.callerPolicies;
   delete legacy.delivery;
@@ -661,7 +678,7 @@ test("Android caller generator는 full SHA, 최소 권한, 고정 concurrency와
   assert.equal(validation.enforcement, "SHADOW");
   assert.match(
     caller,
-    /rn-build-android-cloud-v1\.yml@a{40}/u,
+    new RegExp(`rn-build-android-cloud-v1\\.yml@${WORKFLOW_EXECUTION_SHA}`, "u"),
   );
   assert.match(caller, new RegExp(`source_sha: ${SOURCE_SHA}`, "u"));
   assert.deepEqual(parse(caller).permissions, {
@@ -672,7 +689,7 @@ test("Android caller generator는 full SHA, 최소 권한, 고정 concurrency와
   assert.doesNotMatch(caller, /secrets:|runs-on:|@main|inputs\.source_sha/u);
 
   const mutations = [
-    caller.replace(`@${BUNDLE_SHA}`, "@main"),
+    caller.replace(`@${WORKFLOW_EXECUTION_SHA}`, "@main"),
     caller.replace(
       "    with:",
       "    secrets: inherit\n    with:",

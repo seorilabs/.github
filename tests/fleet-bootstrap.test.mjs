@@ -36,6 +36,14 @@ const INSTALLATION_ID = "9001";
 const REPOSITORY_ID = "7001";
 const SOURCE_SHA = "d".repeat(40);
 const BUNDLE_SHA = "a".repeat(40);
+const CLOUD_BUILD_VARIABLES = Object.freeze({
+  GOOGLE_WORKLOAD_IDENTITY_PROVIDER:
+    "projects/123456789/locations/global/workloadIdentityPools/seorilabs/providers/github",
+  SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT:
+    "seori-cloud-build-executor@seorilabs-ci.iam.gserviceaccount.com",
+  SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT:
+    "seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+});
 const DIGEST = `sha256:${"b".repeat(64)}`;
 const SECRET = Buffer.from("fleet-webhook-secret-material-00001", "utf8");
 const PROTECTION_POLICY = Object.freeze({
@@ -151,8 +159,8 @@ test.before(async () => {
       cloudBuildConfigSha256: record.cloudBuildConfigSha256,
       staticConclusion: "success",
       buildConclusion: "success",
-      staticWorkflowRef: `seorilabs/.github/${bundle.reusableWorkflows[record.profile].path}@${bundle.source.sha}`,
-      buildWorkflowRef: `seorilabs/.github/${bundle.buildWorkflows[record.profile].path}@${bundle.source.sha}`,
+      staticWorkflowRef: `seorilabs/.github/${bundle.reusableWorkflows[record.profile].path}@${bundle.reusableWorkflows[record.profile].sha}`,
+      buildWorkflowRef: `seorilabs/.github/${bundle.buildWorkflows[record.profile].path}@${bundle.buildWorkflows[record.profile].sha}`,
       marketUpload: false,
       artifactSha256: record.artifactSha256,
     }),
@@ -233,7 +241,9 @@ function provisioningExecutionHarness(plan) {
   const controlPlaneApplied = new Set();
   const completed = new Map();
   const approvals = new Map();
+  const environmentVariables = {};
   const secretSelectedRepositoryIds = new Set();
+  let environmentVariableApplyCount = 0;
   let secretApplyCount = 0;
   let wifApplyCount = 0;
   let wifBound = false;
@@ -243,6 +253,14 @@ function provisioningExecutionHarness(plan) {
   const githubAppAdapter = createGitHubAppTrustedAdapter({
     organizationId: ORGANIZATION_ID,
     installationId: INSTALLATION_ID,
+    environmentVariableBindings: [
+      {
+        bindingRevision: 3,
+        environment: "internal",
+        logicalCredentialId: "shared/gcp/cloud-build",
+        variables: CLOUD_BUILD_VARIABLES,
+      },
+    ],
     secretBindings: [
       {
         bindingRevision: 4,
@@ -273,7 +291,14 @@ function provisioningExecutionHarness(plan) {
           state: "UPDATED",
         };
       },
-      applyOperation() {},
+      applyOperation({ operation }) {
+        assert.equal(operation.kind, "github.environment-variables.ensure");
+        environmentVariableApplyCount += 1;
+        Object.assign(
+          environmentVariables,
+          structuredClone(operation.payload.variables),
+        );
+      },
       applyProtection() {},
       async readIdentity() {
         return {
@@ -287,7 +312,26 @@ function provisioningExecutionHarness(plan) {
           sourceSha: SOURCE_SHA,
         };
       },
-      readOperation() {},
+      readOperation({ operation }) {
+        assert.equal(operation.kind, "github.environment-variables.ensure");
+        const satisfied = Object.entries(operation.payload.variables).every(
+          ([name, value]) => environmentVariables[name] === value,
+        );
+        return satisfied
+          ? {
+              bindingRevision: operation.payload.bindingRevision,
+              environment: operation.payload.environment,
+              kind: operation.kind,
+              logicalCredentialId: operation.payload.logicalCredentialId,
+              repositoryId: REPOSITORY_ID,
+              variables: structuredClone(environmentVariables),
+            }
+          : {
+              kind: operation.kind,
+              repositoryId: REPOSITORY_ID,
+              state: "NOT_APPLIED",
+            };
+      },
       readProtection() {},
       readProtectionCapability() {},
       async readProvisioningGate({ gate }) {
@@ -489,6 +533,7 @@ function provisioningExecutionHarness(plan) {
   return {
     execute: () => execute(plan),
     expandSharedState() {
+      environmentVariables.UNRELATED_PUBLIC_VARIABLE = "preserved";
       secretSelectedRepositoryIds.add("7002");
       providerEtag = "provider-etag-shared-change";
       serviceAccountPolicyEtag = "policy-etag-shared-change";
@@ -496,6 +541,7 @@ function provisioningExecutionHarness(plan) {
     revokeWif() {
       wifBound = false;
     },
+    environmentVariableApplyCount: () => environmentVariableApplyCount,
     secretApplyCount: () => secretApplyCount,
     wifApplyCount: () => wifApplyCount,
   };
@@ -943,6 +989,14 @@ test("ACTIVE 보호 뒤 credential provisioning은 별도 1회용 승인 receipt
     approvedBundleBinding,
     organizationId: ORGANIZATION_ID,
     provisioningGate,
+    environmentVariableBindings: [
+      {
+        bindingRevision: 3,
+        environment: "internal",
+        logicalCredentialId: "shared/gcp/cloud-build",
+        variables: CLOUD_BUILD_VARIABLES,
+      },
+    ],
     secretBindings: [
       {
         bindingRevision: 4,
@@ -964,6 +1018,7 @@ test("ACTIVE 보호 뒤 credential provisioning은 별도 1회용 승인 receipt
     provisioned.operations.map(({ kind }) => kind),
     [
       "control-plane.repository.observe",
+      "github.environment-variables.ensure",
       "github.org-secret-visibility.ensure",
       "gcp.wif-binding.ensure",
     ],
@@ -980,10 +1035,14 @@ test("ACTIVE 보호 뒤 credential provisioning은 별도 1회용 승인 receipt
   const execution = provisioningExecutionHarness(provisioned);
   const firstExecution = await execution.execute();
   assert.equal(firstExecution.state, "COMPLETED");
+  assert.equal(execution.environmentVariableApplyCount(), 1);
   assert.equal(execution.secretApplyCount(), 1);
   assert.equal(execution.wifApplyCount(), 1);
   const firstSecretReceipt = firstExecution.operations.find(
     ({ kind }) => kind === "github.org-secret-visibility.ensure",
+  );
+  const firstEnvironmentVariablesReceipt = firstExecution.operations.find(
+    ({ kind }) => kind === "github.environment-variables.ensure",
   );
   const firstWifReceipt = firstExecution.operations.find(
     ({ kind }) => kind === "gcp.wif-binding.ensure",
@@ -992,13 +1051,25 @@ test("ACTIVE 보호 뒤 credential provisioning은 별도 1회용 승인 receipt
   execution.expandSharedState();
   const replay = await execution.execute();
   assert.ok(replay.operations.every(({ outcome }) => outcome === "REPLAYED"));
+  assert.equal(execution.environmentVariableApplyCount(), 1);
   assert.equal(execution.secretApplyCount(), 1);
   assert.equal(execution.wifApplyCount(), 1);
   const replaySecretReceipt = replay.operations.find(
     ({ kind }) => kind === "github.org-secret-visibility.ensure",
   );
+  const replayEnvironmentVariablesReceipt = replay.operations.find(
+    ({ kind }) => kind === "github.environment-variables.ensure",
+  );
   const replayWifReceipt = replay.operations.find(
     ({ kind }) => kind === "gcp.wif-binding.ensure",
+  );
+  assert.equal(
+    replayEnvironmentVariablesReceipt.observationDigest,
+    firstEnvironmentVariablesReceipt.observationDigest,
+  );
+  assert.notEqual(
+    replayEnvironmentVariablesReceipt.readbackDigest,
+    firstEnvironmentVariablesReceipt.readbackDigest,
   );
   assert.equal(
     replaySecretReceipt.observationDigest,
@@ -1023,6 +1094,7 @@ test("ACTIVE 보호 뒤 credential provisioning은 별도 1회용 승인 receipt
     /FLEET_EXECUTOR_COMPLETED_OPERATION_MISSING/u,
   );
   assert.equal(execution.secretApplyCount(), 1);
+  assert.equal(execution.environmentVariableApplyCount(), 1);
   assert.equal(execution.wifApplyCount(), 1);
 
   await assert.rejects(

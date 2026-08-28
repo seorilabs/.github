@@ -71,6 +71,7 @@
           { "$ref": "#/$defs/ensurePullRequestOperation" },
           { "$ref": "#/$defs/updatePullRequestOperation" },
           { "$ref": "#/$defs/protectionOperation" },
+          { "$ref": "#/$defs/environmentVariablesOperation" },
           { "$ref": "#/$defs/secretVisibilityOperation" },
           { "$ref": "#/$defs/wifBindingOperation" }
         ]
@@ -408,6 +409,76 @@
               }
             }
           ]
+        }
+      }
+    },
+    "environmentVariablesOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "idempotencyKey", "payload"],
+      "properties": {
+        "kind": { "const": "github.environment-variables.ensure" },
+        "idempotencyKey": { "$ref": "#/$defs/idempotencyKey" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repositoryId",
+            "repositoryFullName",
+            "approvedBundleDigest",
+            "bindingRevision",
+            "environment",
+            "logicalCredentialId",
+            "variables",
+            "provisioningGate"
+          ],
+          "properties": {
+            "repositoryId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,31}$"
+            },
+            "repositoryFullName": {
+              "type": "string",
+              "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+            },
+            "approvedBundleDigest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "bindingRevision": { "type": "integer", "minimum": 1 },
+            "environment": { "const": "internal" },
+            "logicalCredentialId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+){2,7}$"
+            },
+            "variables": {
+              "type": "object",
+              "description": "Cloud Build submitter와 executor는 서로 다른 service account여야 하며 runtime validator가 동일 identity를 거부합니다.",
+              "additionalProperties": false,
+              "required": [
+                "GOOGLE_WORKLOAD_IDENTITY_PROVIDER",
+                "SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT",
+                "SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT"
+              ],
+              "properties": {
+                "GOOGLE_WORKLOAD_IDENTITY_PROVIDER": {
+                  "type": "string",
+                  "pattern": "^projects/[1-9][0-9]{0,31}/locations/global/workloadIdentityPools/[a-z][a-z0-9-]{3,31}/providers/[a-z][a-z0-9-]{3,31}$"
+                },
+                "SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{4,29}@[a-z][a-z0-9-]{4,29}\\.iam\\.gserviceaccount\\.com$"
+                },
+                "SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{4,29}@[a-z][a-z0-9-]{4,29}\\.iam\\.gserviceaccount\\.com$"
+                }
+              }
+            },
+            "provisioningGate": {
+              "$ref": "#/$defs/provisioningAuthorizationGate"
+            }
+          }
         }
       }
     },

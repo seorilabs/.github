@@ -29,6 +29,8 @@ import {
 import { CANARY_BUILD_BY_PROFILE } from "./helpers/workflow-bundle-fixtures.mjs";
 
 const SOURCE_SHA = "a".repeat(40);
+const WORKFLOW_EXECUTION_SHA =
+  "c328d9bf55f31ba11f53ef06071cc7b76d283617";
 const STALE_SHA = "9".repeat(40);
 const DIGEST = `sha256:${"b".repeat(64)}`;
 const KEY_ID = "fleet-root-2026-01";
@@ -139,8 +141,8 @@ function verifiedEvidence(record, bundle) {
     cloudBuildConfigSha256: record.cloudBuildConfigSha256,
     staticConclusion: "success",
     buildConclusion: "success",
-    staticWorkflowRef: `seorilabs/.github/${bundle.reusableWorkflows[record.profile].path}@${bundle.source.sha}`,
-    buildWorkflowRef: `seorilabs/.github/${bundle.buildWorkflows[record.profile].path}@${bundle.source.sha}`,
+    staticWorkflowRef: `seorilabs/.github/${bundle.reusableWorkflows[record.profile].path}@${bundle.reusableWorkflows[record.profile].sha}`,
+    buildWorkflowRef: `seorilabs/.github/${bundle.buildWorkflows[record.profile].path}@${bundle.buildWorkflows[record.profile].sha}`,
     marketUpload: false,
     artifactSha256: record.artifactSha256,
   };
@@ -263,11 +265,13 @@ test("candidate bundle은 static, build-only workflow와 실행 asset의 실제 
     "scripts/fleet/write-provenance.mjs",
   ]);
   for (const workflow of Object.values(bundle.reusableWorkflows)) {
-    assert.equal(workflow.sha, SOURCE_SHA);
+    assert.equal(workflow.sha, WORKFLOW_EXECUTION_SHA);
   }
   for (const workflow of Object.values(bundle.buildWorkflows)) {
-    assert.equal(workflow.sha, SOURCE_SHA);
+    assert.equal(workflow.sha, WORKFLOW_EXECUTION_SHA);
   }
+  assert.equal(bundle.source.sha, SOURCE_SHA);
+  assert.notEqual(bundle.source.sha, WORKFLOW_EXECUTION_SHA);
   const source = await readFile("contracts/workflow-bundle-source.yaml", "utf8");
   assert.match(source, /buildWorkflows:[\s\S]*build-android-cloud/u);
   assert.doesNotMatch(source, /builders:/u);
@@ -935,7 +939,7 @@ test("registry await 중 원본 bundle을 바꿔도 검증 snapshot과 caller SH
     approvedBundleBinding: binding,
     callerBinding: callerState.callerBinding,
   });
-  assert.match(caller, new RegExp(`@${SOURCE_SHA}`, "u"));
+  assert.match(caller, new RegExp(`@${WORKFLOW_EXECUTION_SHA}`, "u"));
   assert.doesNotMatch(caller, new RegExp(`@${STALE_SHA}`, "u"));
 });
 
@@ -1150,10 +1154,10 @@ test("generator와 validator는 trusted APPROVED bundle의 exact path와 SHA만 
     });
     assert.equal(result.ok, true, `${profile}: ${result.diagnostics}`);
     assert.equal(result.profile, profile);
-    assert.equal(result.workflowSha, SOURCE_SHA);
+    assert.equal(result.workflowSha, WORKFLOW_EXECUTION_SHA);
     assert.doesNotMatch(caller, /secrets:|runs-on:/u);
 
-    const stale = caller.replace(`@${SOURCE_SHA}`, `@${STALE_SHA}`);
+    const stale = caller.replace(`@${WORKFLOW_EXECUTION_SHA}`, `@${STALE_SHA}`);
     const staleResult = await validateOrgContractCaller(stale, {
       approvedBundleBinding: binding,
       callerBinding: callerState.callerBinding,

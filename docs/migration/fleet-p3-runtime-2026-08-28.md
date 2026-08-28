@@ -1,6 +1,6 @@
 # Fleet P3 runtime 전환 기록
 
-최신 기준 source는 `origin/main@61545c46d122b8b40fa7e2f61bf62cacae10c69b`이다. 이 문서는
+최신 기준 source는 `origin/main@6e18b189d112f23270426cd88b3f906969103b75`이다. 이 문서는
 2026-08-28~29 KST live readback과 P3 공개 계약을 분리해 기록한다. secret, capability, 승인
 receipt, lease token은 기록하지 않는다.
 
@@ -128,9 +128,13 @@ workload·PVC도 0개였다. production renderer는 이제 세 Pod에 exact
 `imagePullSecrets`를 필수로 넣어 node cache 의존을 거부하지만, Secret 생성과 workload apply는
 등록 identity·backup/restore 승인 및 공개 readback 뒤 별도 외부 mutation gate로 남아 있다.
 
-GitHub 조직 변경도 기본 dry-run이다. apply confirmation은 더 이상 workflow source
-`c328d9b`가 아니라 canonical App/operation plan digest에 결합한다. workflow source SHA는 WIF의
-immutable blob pin으로 별도 유지한다. 조직 owner는 permission expansion approval을 먼저
+GitHub 조직 변경도 기본 dry-run이다. apply confirmation은 reusable workflow execution pin
+`c328d9b`가 아니라 canonical App/operation plan digest에 결합한다. WorkflowBundle provenance는
+현재 source `6e18b18`에, reusable workflow execution은 동일 bytes가 검증된 `c328d9b`에 각각
+고정한다. GitHub WIF condition은 numeric owner ID와 Happy Farm/RN, Lizard Tycoon/Godot의
+`repository_id + job_workflow_ref` 쌍만 허용하며 교차 조합을 허용하지 않는다. `internal`
+Environment에는 중앙 desired state의 공개 WIF provider와 Cloud Build submitter/executor SA를
+같은 binding revision으로 reconcile한다. 조직 owner는 permission expansion approval을 먼저
 처리해야 하며, 복구 private key로 short-lived installation token을 만드는 trusted executor와
 exact capability readback이 검증되기 전에는 ambient personal token apply가 항상 차단된다.
 

@@ -72,9 +72,11 @@ WorkflowBundle v4 Android build-only 경로는 GitHub secret을 받지 않는다
 Environment에서 공개 identity인 `GOOGLE_WORKLOAD_IDENTITY_PROVIDER`,
 `SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT`,
 `SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT` 변수만 읽고 WIF로 `seorilabs-ci`에 제출한다.
+중앙 zero-touch reconciler는 세 변수를 trusted public catalog와 exact match한 뒤 WIF binding과
+같은 logical credential revision으로 먼저 설정하고 provider readback까지 완료한다.
 Cloud Build 실행 SA의 Secret Manager 단위 IAM은 별도 credential binding이 관리하며 Play
 publisher 권한을 가져서는 안 된다. GitHub OIDC 조건은 숫자 repository ID와 중앙
-`job_workflow_ref`의 full SHA를 모두 제한한다.
+`job_workflow_ref`의 full SHA를 pilot별 쌍으로 제한해 교차 조합을 거부한다.
 
 ## caller 표준 contract (repo가 제공)
 
@@ -172,7 +174,7 @@ CANDIDATE bundle은 일반 generator에 넣지 않는다. 전용 trusted canary 
 먼저 exact candidate central `job_workflow_ref`와 repo/source/plan에 묶인
 `CANDIDATE_WIF_PREBIND` 5분·1회 승인을 CAS로 소비하고 shared WIF binding의 etag CAS와
 readback을 완료한다. 중앙 callee는 일반 `main` caller 또는 고정 repository ID의 same-repo
-canary PR, exact base source·merge ref·candidate SHA suffix만 허용한다.
+canary PR, exact base source·merge ref·workflow execution SHA suffix만 허용한다.
 
 ### Xcode Cloud build-only contract
 
