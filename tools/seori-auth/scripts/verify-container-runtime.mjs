@@ -162,7 +162,8 @@ try {
     state: 'CONTAINER_RUNTIME_OK',
     secretExposed: false,
     projectedTokenFdReusable: false,
-    unsafeProjectedModesBlocked: ['0450', '0460'],
+    unsafeProjectedModesBlocked: [...unsafeProjectedVolumes.keys()]
+      .map((mode) => mode.toString(8).padStart(4, '0')),
     escapeBlocked: true,
     digestMismatchBlocked: true,
     duplicateBlocked: true,
