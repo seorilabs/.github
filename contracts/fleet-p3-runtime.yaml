@@ -1,0 +1,186 @@
+schemaVersion: 1
+
+github:
+  apiVersion: "2026-03-10"
+  organization: seorilabs
+  app:
+    name: Seorilabs Fleet Control Plane
+    description: Seorilabs 저장소의 중앙 계약과 bootstrap 작업을 exact readback으로 조정한다.
+    homepageUrl: https://github.com/seorilabs/.github/blob/main/docs/fleet-control-plane.md
+    webhookUrl: https://backoffice.vzyx.xyz/api/webhooks/github/fleet
+    public: false
+    webhookActive: true
+    permissions:
+      metadata: read
+      contents: write
+      pull_requests: write
+      workflows: write
+      repository_custom_properties: write
+      environments: write
+      administration: write
+      organization_administration: write
+      organization_custom_properties: admin
+    events:
+      - repository
+      - push
+    humanGate:
+      type: approval
+      state: HUMAN_REAUTH_REQUIRED
+      operation: GITHUB_APP_BOOTSTRAP
+      requiredRole: organization_owner
+      automaticRetry: false
+      requiredReadback:
+        - app_id
+        - client_id
+        - slug
+        - installation_id
+        - webhook_active
+  webhook:
+    credentialId: shared/github/fleet-app-webhook
+    signatureHeader: x-hub-signature-256
+    eventHeader: x-github-event
+    deliveryHeader: x-github-delivery
+    algorithm: hmac-sha256
+    maxPayloadBytes: 1048576
+  customProperties:
+    - property_name: fleet-managed
+      value_type: single_select
+      required: false
+      description: Fleet 중앙 관리 대상 여부
+      allowed_values: ["true", "false"]
+      values_editable_by: org_actors
+      require_explicit_values: true
+    - property_name: fleet-profile
+      value_type: single_select
+      required: false
+      description: 중앙 WorkflowBundle stack profile
+      allowed_values: [react-native, godot]
+      values_editable_by: org_actors
+      require_explicit_values: true
+    - property_name: fleet-ruleset
+      value_type: single_select
+      required: false
+      description: Fleet 보호 정책 전환 상태
+      allowed_values: [shadow, active]
+      values_editable_by: org_actors
+      require_explicit_values: true
+    - property_name: fleet-state
+      value_type: single_select
+      required: false
+      description: Fleet repository lifecycle 상태
+      allowed_values: [active, archived, needs_input]
+      values_editable_by: org_actors
+      require_explicit_values: true
+  pilotValues:
+    - repository: happy-farm
+      values:
+        fleet-managed: "true"
+        fleet-profile: react-native
+        fleet-ruleset: shadow
+        fleet-state: active
+    - repository: lizard-tycoon
+      values:
+        fleet-managed: "true"
+        fleet-profile: godot
+        fleet-ruleset: shadow
+        fleet-state: active
+  ruleset:
+    name: Fleet Org Contract shadow
+    target: branch
+    enforcement: evaluate
+    repositories: [happy-farm, lizard-tycoon]
+    requiredStatusCheck: Org Contract / Org Contract
+
+cloudBuild:
+  projectId: seorilabs-ci
+  projectNumber: "321365398093"
+  region: asia-northeast3
+  provider: projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
+  wif:
+    pool: fleet-p3
+    githubProvider: github-cloud-build
+    kubernetesProvider: microk8s-auth
+    githubIssuer: https://token.actions.githubusercontent.com
+    kubernetesIssuer: https://kubernetes.default.svc
+    githubAudience: https://github.com/seorilabs
+    organizationId: "283115031"
+    workflowSourceSha: c328d9bf55f31ba11f53ef06071cc7b76d283617
+    repositories:
+      - fullName: seorilabs/happy-farm
+        repositoryId: "1250442131"
+        workflow: .github/workflows/rn-build-android-cloud-v1.yml
+        sha256: c5263a9521a398f5c5ae17b692e22be67dc2feeb9b7da4f8758622c7a29f4bd0
+      - fullName: seorilabs/lizard-tycoon
+        repositoryId: "1265192029"
+        workflow: .github/workflows/godot-build-android-cloud-v1.yml
+        sha256: 372b565a69de01e59a0570b05e8b49c681abd02114df8e7ba9c29c98c0807db3
+  submitter:
+    logicalCredentialId: shared/gcp/cloud-build/submitter
+    serviceAccountEmail: seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com
+    bindings:
+      - resource: projects/seorilabs-ci
+        role: roles/cloudbuild.builds.editor
+      - resource: projects/seorilabs-ci
+        role: roles/serviceusage.serviceUsageConsumer
+      - resource: gs://seorilabs-ci_cloudbuild
+        role: roles/storage.objectAdmin
+      - resource: gs://seorilabs-ci-build-artifacts
+        role: roles/storage.objectViewer
+      - resource: seori-cloud-build-executor@seorilabs-ci.iam.gserviceaccount.com
+        role: roles/iam.serviceAccountUser
+  executor:
+    logicalCredentialId: shared/gcp/cloud-build/executor
+    serviceAccountEmail: seori-cloud-build-executor@seorilabs-ci.iam.gserviceaccount.com
+    bindings:
+      - resource: projects/seorilabs-ci
+        role: roles/logging.logWriter
+      - resource: gs://seorilabs-ci_cloudbuild
+        role: roles/storage.objectViewer
+      - resource: gs://seorilabs-ci-build-artifacts
+        role: roles/storage.objectAdmin
+      - resource: projects/seorilabs-ci/locations/asia-northeast3/repositories/builders
+        role: roles/artifactregistry.reader
+
+authBroker:
+  namespace: auth-broker
+  image: ghcr.io/seorilabs/seori-auth@sha256:d8fabaa5e79711d2a4cddd4d70af8d8f17e96143a5b281bccf3f0ee89a1ea457
+  wifAudience: //iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/microk8s-auth
+  state:
+    claimName: seori-auth-state
+    storageClassName: microk8s-hostpath
+    size: 10Gi
+    encryptionRequired: true
+    encryptionStatus: blocked_unverified
+  trustedWorkers:
+    namespaceLabel: release-workers
+    podLabel: "true"
+  providerControlPlane:
+    backofficeClientSpiffeId: spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer
+    endpointScope: /internal/control-plane/provider-grants
+    peer:
+      namespaceLabel: platform
+      podLabel: provider-execution-signer
+  egressProxy:
+    peer:
+      namespaceLabel: auth-egress
+      podLabel: seori-auth-egress-proxy
+    port: 8443
+  roles:
+    - name: broker
+      serviceAccount: auth-broker
+      googleServiceAccount: seori-auth-broker@seorilabs-ci.iam.gserviceaccount.com
+      servicePort: 8443
+      tlsSecretName: seori-auth-broker-tls
+      egressTlsSecretName: seori-auth-broker-egress-tls
+    - name: password-loader
+      serviceAccount: password-loader
+      googleServiceAccount: seori-auth-password-loader@seorilabs-ci.iam.gserviceaccount.com
+      servicePort: 9443
+      tlsSecretName: seori-auth-password-tls
+      egressTlsSecretName: seori-auth-password-egress-tls
+    - name: totp-signer
+      serviceAccount: totp-signer
+      googleServiceAccount: seori-auth-totp-signer@seorilabs-ci.iam.gserviceaccount.com
+      servicePort: 9443
+      tlsSecretName: seori-auth-totp-tls
+      egressTlsSecretName: seori-auth-totp-egress-tls
