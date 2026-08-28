@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import {
+  constants as cryptoConstants,
+  createCipheriv,
+  createHash,
+  generateKeyPairSync,
+  publicEncrypt,
+  randomBytes,
+} from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,11 +16,15 @@ import test from "node:test";
 import { promisify } from "node:util";
 
 import Ajv2020 from "ajv/dist/2020.js";
-import { parse } from "yaml";
+import { parse, stringify } from "yaml";
+
+import { githubAppReadback } from "../scripts/fleet/github-app-readback.mjs";
+import { recoverGithubAppCredentials } from "../scripts/fleet/github-credential-recovery.mjs";
 
 const execFileAsync = promisify(execFile);
 const script = "scripts/fleet/render-p3-runtime.mjs";
 const gcpBootstrap = "scripts/fleet/bootstrap-p3-gcp.mjs";
+const secretManagerBootstrap = "scripts/fleet/bootstrap-p3-secret-manager.mjs";
 const gcloudMock = fileURLToPath(
   new URL("./fixtures/p3-gcloud-mock.mjs", import.meta.url),
 );
@@ -20,6 +32,28 @@ const contract = parse(await readFile("contracts/fleet-p3-runtime.yaml", "utf8")
 const schema = JSON.parse(
   await readFile("contracts/fleet-p3-runtime.schema.json", "utf8"),
 );
+const recoveryModuleSource = await readFile(
+  "scripts/fleet/github-credential-recovery.mjs",
+  "utf8",
+);
+const activeBackofficeInstallation = {
+  app_id: 4124446,
+  app_slug: "seorilabs-backoffice",
+  id: 142120077,
+  target_type: "Organization",
+  repository_selection: "all",
+  suspended_at: null,
+  permissions: {
+    actions: "write",
+    checks: "read",
+    contents: "write",
+    issues: "write",
+    members: "read",
+    metadata: "read",
+    pull_requests: "read",
+  },
+  events: ["issues", "issue_comment", "pull_request", "push", "workflow_run"],
+};
 
 async function render(command) {
   const result = await execFileAsync(process.execPath, [script, command]);
@@ -38,37 +72,367 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
   );
   assert.equal(contract.authBroker.state.encryptionRequired, true);
   assert.equal(contract.authBroker.state.encryptionStatus, "blocked_unverified");
+  assert.equal(contract.authBroker.registry.credentialId, "shared/github/packages-reader");
+  assert.equal(contract.authBroker.registry.personalOperatorReuseAllowed, false);
+  assert.equal(contract.authBroker.registry.catalogStatus, "blocked_missing");
+  assert.equal(contract.github.credentialRecovery.approvalGate.state, "HUMAN_REAUTH_REQUIRED");
+  assert.doesNotMatch(
+    recoveryModuleSource,
+    /\/usr\/bin\/security|add-generic-password|find-generic-password/u,
+  );
+  assert.deepEqual(
+    contract.authBroker.secretManager.provisioning.values.map(
+      ({ secretId, encoding, entropyBytes }) => ({ secretId, encoding, entropyBytes }),
+    ),
+    [
+      { secretId: "seori-auth-journal-mac", encoding: "raw", entropyBytes: 32 },
+      { secretId: "seori-auth-browser-vault", encoding: "raw", entropyBytes: 32 },
+      { secretId: "seori-auth-canary-password", encoding: "base64url", entropyBytes: 32 },
+      { secretId: "seori-auth-canary-totp-seed", encoding: "base32-no-padding", entropyBytes: 20 },
+    ],
+  );
 });
 
-test("GitHub App bootstrap은 secret 없는 사람 전용 등록 URL과 webhook 계약만 만든다", async () => {
+test("GitHub App bootstrap은 active Backoffice App을 재사용하고 새 App을 등록하지 않는다", async () => {
   const output = await render("github-app");
-  const url = new URL(output.registrationUrl);
-  assert.equal(url.origin, "https://github.com");
-  assert.equal(url.pathname, "/organizations/seorilabs/settings/apps/new");
-  assert.equal(url.searchParams.get("public"), "false");
-  assert.equal(url.searchParams.get("webhook_active"), "true");
-  assert.equal(url.searchParams.get("request_oauth_on_install"), "false");
-  assert.deepEqual(url.searchParams.getAll("events[]"), ["repository", "push"]);
-  assert.equal(url.searchParams.get("organization_custom_properties"), "admin");
-  assert.equal(url.searchParams.get("organization_administration"), "write");
-  assert.equal(url.searchParams.has("webhook_secret"), false);
-  assert.equal(output.humanOnly, true);
-  assert.deepEqual(output.approvalGate, {
+  assert.equal("registrationUrl" in output, false);
+  assert.equal(output.reuseExisting, true);
+  assert.deepEqual(output.identity, {
+    appId: 4124446,
+    slug: "seorilabs-backoffice",
+    installationId: 142120077,
+    targetType: "Organization",
+    repositorySelection: "all",
+  });
+  assert.equal(output.requiredPermissions.organization_custom_properties, "admin");
+  assert.equal(output.requiredPermissions.organization_administration, "write");
+  assert.deepEqual(output.requiredEvents, ["repository", "push"]);
+  assert.deepEqual(output.permissionExpansionGate, {
     type: "approval",
     state: "HUMAN_REAUTH_REQUIRED",
-    operation: "GITHUB_APP_BOOTSTRAP",
+    operation: "GITHUB_APP_PERMISSION_EXPANSION_AND_INSTALLATION_ACCEPTANCE",
     requiredRole: "organization_owner",
     automaticRetry: false,
     requiredReadback: [
       "app_id",
-      "client_id",
       "slug",
       "installation_id",
-      "webhook_active",
+      "repository_selection",
+      "suspended_at",
+      "permissions",
+      "events",
     ],
   });
-  assert.equal(output.webhookSecretRequired, true);
-  assert.equal(output.webhookCredentialId, "shared/github/fleet-app-webhook");
+  assert.equal(output.webhook.appPrivateKeyCredentialId, "shared/github/backoffice-app-private-key");
+  assert.equal(output.webhook.credentialId, "shared/github/backoffice-app-webhook");
+  assert.equal(output.webhook.url, "https://backoffice.vzyx.xyz/api/webhooks");
+  assert.equal(output.credentialRecovery.trustedAdapter.state, "blocked_unverified");
+  assert.equal(
+    output.credentialRecovery.trustedAdapter.credentialStore,
+    "security-framework-native-helper",
+  );
+  assert.equal(output.credentialRecovery.plaintextPolicy.newKeyGenerationAllowed, false);
+  assert.deepEqual(
+    output.credentialRecovery.mappings.map(({ targetCredentialId }) => targetCredentialId),
+    [
+      "shared/github/backoffice-app-private-key",
+      "shared/github/backoffice-app-webhook",
+    ],
+  );
+  assert.equal(output.credentialRecovery.approvalGate.automaticRetry, false);
+  assert.equal(output.staticKeysCreated, false);
+  assert.doesNotMatch(JSON.stringify(output), /-----BEGIN|gh[opusr]_|github_pat_/u);
+});
+
+test("GitHub App readback은 기존 permission/event를 보존한 최소 union만 계산한다", () => {
+  const state = githubAppReadback(
+    {
+      ...contract.github.app,
+    },
+    [activeBackofficeInstallation],
+  );
+  assert.equal(state.identityExact, true);
+  assert.equal(state.ready, false);
+  assert.deepEqual(state.permissionChanges, [
+    { permission: "administration", current: null, required: "write" },
+    { permission: "environments", current: null, required: "write" },
+    { permission: "organization_administration", current: null, required: "write" },
+    { permission: "organization_custom_properties", current: null, required: "admin" },
+    { permission: "pull_requests", current: "read", required: "write" },
+    { permission: "repository_custom_properties", current: null, required: "write" },
+    { permission: "workflows", current: null, required: "write" },
+  ]);
+  assert.equal(state.permissionUnion.actions, "write");
+  assert.equal(state.permissionUnion.checks, "read");
+  assert.equal(state.permissionUnion.issues, "write");
+  assert.equal(state.permissionUnion.members, "read");
+  assert.deepEqual(state.eventAdditions, ["repository"]);
+  assert.deepEqual(state.eventUnion, [
+    "issue_comment",
+    "issues",
+    "pull_request",
+    "push",
+    "repository",
+    "workflow_run",
+  ]);
+
+  const accepted = githubAppReadback(
+    { ...contract.github.app },
+    [{
+      ...activeBackofficeInstallation,
+      permissions: state.permissionUnion,
+      events: state.eventUnion,
+    }],
+  );
+  assert.equal(accepted.ready, true);
+  assert.equal(accepted.installationAcceptanceRequired, false);
+});
+
+function sealForRecovery(plaintext, publicKey, label) {
+  const sessionKey = randomBytes(32);
+  const nonce = randomBytes(12);
+  try {
+    const rsa = publicEncrypt(
+      {
+        key: publicKey,
+        oaepHash: "sha256",
+        oaepLabel: label,
+        padding: cryptoConstants.RSA_PKCS1_OAEP_PADDING,
+      },
+      sessionKey,
+    );
+    const cipher = createCipheriv("aes-256-gcm", sessionKey, nonce);
+    const encrypted = Buffer.concat([
+      nonce,
+      cipher.update(plaintext),
+      cipher.final(),
+      cipher.getAuthTag(),
+    ]);
+    const size = Buffer.alloc(2);
+    size.writeUInt16BE(rsa.length);
+    return Buffer.concat([size, rsa, encrypted]).toString("base64");
+  } finally {
+    sessionKey.fill(0);
+    nonce.fill(0);
+  }
+}
+
+function tamperSealedNonce(ciphertextBase64) {
+  const bytes = Buffer.from(ciphertextBase64, "base64");
+  const rsaLength = bytes.readUInt16BE(0);
+  bytes[2 + rsaLength] ^= 0x01;
+  return bytes.toString("base64");
+}
+
+test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하고 backup/readback을 강제한다", async () => {
+  const recoveryPair = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const appPair = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const appPrivateKey = Buffer.from(
+    appPair.privateKey.export({ format: "pem", type: "pkcs8" }),
+  );
+  const webhook = randomBytes(48);
+  const label = Buffer.from("platformbackoffice-secrets");
+  const source = {
+    apiVersion: "bitnami.com/v1alpha1",
+    kind: "SealedSecret",
+    metadata: { name: "backoffice-secrets", namespace: "platform" },
+    spec: {
+      template: {
+        metadata: { name: "backoffice-secrets", namespace: "platform" },
+      },
+      encryptedData: {
+        GITHUB_PRIVATE_KEY: sealForRecovery(
+          appPrivateKey,
+          recoveryPair.publicKey,
+          label,
+        ),
+        GITHUB_WEBHOOK_SECRET: sealForRecovery(
+          webhook,
+          recoveryPair.publicKey,
+          label,
+        ),
+      },
+    },
+  };
+  const sourceBytes = Buffer.from(stringify(source));
+  const recoveryDocument = {
+    apiVersion: "v1",
+    kind: "List",
+    items: [{
+      apiVersion: "v1",
+      kind: "Secret",
+      metadata: { name: "recovery", namespace: "kube-system" },
+      data: {
+        "tls.key": Buffer.from(
+          recoveryPair.privateKey.export({ format: "pem", type: "pkcs8" }),
+        ).toString("base64"),
+      },
+    }],
+  };
+  const recoveryBytes = Buffer.from(stringify(recoveryDocument));
+  const syntheticContract = structuredClone(contract);
+  syntheticContract.github.credentialRecovery.trustedAdapter.state = "ready";
+  syntheticContract.github.credentialRecovery.source.manifestSha256 =
+    createHash("sha256").update(sourceBytes).digest("hex");
+  const phases = [];
+  const storedEntries = [];
+  const registered = [];
+  const result = await recoverGithubAppCredentials({
+    contract: syntheticContract,
+    sourceBytes,
+    recoveryBytes,
+    adapters: {
+      approval: { authorize: async () => true },
+      appIdentity: {
+        read: async () => ({
+          appId: 4124446,
+          slug: "seorilabs-backoffice",
+          installationId: 142120077,
+          targetType: "Organization",
+          repositorySelection: "all",
+          suspendedAt: null,
+        }),
+      },
+      backupRestore: {
+        verify: async (phase) => {
+          phases.push(phase);
+          return true;
+        },
+      },
+      catalog: {
+        targetsAbsent: async () => true,
+        registerBatch: async (entries) => registered.push(...entries),
+        removeBatch: async () => assert.fail("successful recovery must not rollback catalog"),
+      },
+      credentialStore: {
+        writeBatch: async (entries) => {
+          assert.deepEqual(entries.map(({ secret }) => secret), [appPrivateKey, webhook]);
+          storedEntries.push(...entries);
+        },
+        removeBatch: async () => assert.fail("successful recovery must not rollback keychain"),
+      },
+    },
+  });
+  assert.equal(result.state, "RECOVERED");
+  assert.deepEqual(phases, ["pre-recovery", "post-recovery"]);
+  assert.deepEqual(
+    result.logicalCredentials.map(({ id }) => id),
+    [
+      "shared/github/backoffice-app-private-key",
+      "shared/github/backoffice-app-webhook",
+    ],
+  );
+  assert.equal(registered.length, 2);
+  assert.ok(storedEntries.every(({ secret }) => secret.every((byte) => byte === 0)));
+  assert.ok(sourceBytes.every((byte) => byte === 0));
+  assert.ok(recoveryBytes.every((byte) => byte === 0));
+  assert.doesNotMatch(JSON.stringify(result), /BEGIN PRIVATE|github_pat_|webhook-secret/u);
+
+  const tamperedSource = structuredClone(source);
+  tamperedSource.spec.encryptedData.GITHUB_WEBHOOK_SECRET = tamperSealedNonce(
+    tamperedSource.spec.encryptedData.GITHUB_WEBHOOK_SECRET,
+  );
+  const tamperedBytes = Buffer.from(stringify(tamperedSource));
+  const tamperedContract = structuredClone(syntheticContract);
+  tamperedContract.github.credentialRecovery.source.manifestSha256 =
+    createHash("sha256").update(tamperedBytes).digest("hex");
+  const mutationCountBeforeTamper = storedEntries.length;
+  await assert.rejects(
+    recoverGithubAppCredentials({
+      contract: tamperedContract,
+      sourceBytes: tamperedBytes,
+      recoveryBytes: Buffer.from(stringify(recoveryDocument)),
+      adapters: {
+        approval: { authorize: async () => true },
+        appIdentity: { read: async () => result.appIdentity },
+        backupRestore: { verify: async () => true },
+        catalog: {
+          targetsAbsent: async () => true,
+          registerBatch: async () => assert.fail("tampered payload must not register"),
+          removeBatch: async () => assert.fail("tampered payload must not rollback catalog"),
+        },
+        credentialStore: {
+          writeBatch: async () => assert.fail("tampered payload must not write"),
+          removeBatch: async () => assert.fail("tampered payload must not rollback store"),
+        },
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, "P3_GITHUB_CIPHERTEXT_DECRYPT_FAILED");
+      return true;
+    },
+  );
+  assert.equal(storedEntries.length, mutationCountBeforeTamper);
+
+  const blockedSource = Buffer.from("not-read");
+  const blockedRecovery = Buffer.from("not-read");
+  await assert.rejects(
+    recoverGithubAppCredentials({
+      contract,
+      sourceBytes: blockedSource,
+      recoveryBytes: blockedRecovery,
+      adapters: {
+        approval: { authorize: async () => true },
+        appIdentity: { read: async () => result.appIdentity },
+        backupRestore: { verify: async () => true },
+        catalog: {
+          targetsAbsent: async () => true,
+          registerBatch: async () => {},
+          removeBatch: async () => {},
+        },
+        credentialStore: {
+          writeBatch: async () => {},
+          removeBatch: async () => {},
+        },
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, "P3_GITHUB_RECOVERY_NATIVE_HELPER_REQUIRED");
+      return true;
+    },
+  );
+  assert.ok(blockedSource.every((byte) => byte === 0));
+  assert.ok(blockedRecovery.every((byte) => byte === 0));
+
+  const cleanup = { catalog: 0, store: 0 };
+  await assert.rejects(
+    recoverGithubAppCredentials({
+      contract: syntheticContract,
+      sourceBytes: Buffer.from(stringify(source)),
+      recoveryBytes: Buffer.from(stringify(recoveryDocument)),
+      adapters: {
+        approval: { authorize: async () => true },
+        appIdentity: { read: async () => result.appIdentity },
+        backupRestore: { verify: async () => true },
+        catalog: {
+          targetsAbsent: async () => true,
+          registerBatch: async () => {
+            throw new Error("provider detail must not escape");
+          },
+          removeBatch: async () => {
+            cleanup.catalog += 1;
+            throw new Error("cleanup detail must not escape");
+          },
+        },
+        credentialStore: {
+          writeBatch: async () => {},
+          removeBatch: async () => {
+            cleanup.store += 1;
+          },
+        },
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, "P3_GITHUB_RECOVERY_TRUSTED_ADAPTER_FAILED");
+      assert.equal(error.compensationFailed, true);
+      assert.doesNotMatch(error.message, /provider detail|cleanup detail/u);
+      return true;
+    },
+  );
+  assert.deepEqual(cleanup, { catalog: 1, store: 1 });
+  appPrivateKey.fill(0);
+  webhook.fill(0);
+  label.fill(0);
 });
 
 test("custom property와 Evaluate ruleset payload는 pilot 두 repo만 겨냥한다", async () => {
@@ -101,7 +465,7 @@ test("custom property와 Evaluate ruleset payload는 pilot 두 repo만 겨냥한
   );
 });
 
-test("GitHub bootstrap 기본 실행은 사람 전용 App gate와 additive org dry-run만 출력한다", async () => {
+test("GitHub bootstrap 기본 실행은 App 재사용 gate와 additive org dry-run만 출력한다", async () => {
   const result = await execFileAsync(process.execPath, [
     "scripts/fleet/bootstrap-p3-github.mjs",
   ]);
@@ -109,14 +473,25 @@ test("GitHub bootstrap 기본 실행은 사람 전용 App gate와 additive org d
   const output = JSON.parse(result.stdout);
   assert.equal(output.mode, "DRY_RUN");
   assert.equal(output.organization, "seorilabs");
-  assert.equal(output.app.approvalGate.state, "HUMAN_REAUTH_REQUIRED");
-  assert.equal(output.app.approvalGate.automaticRetry, false);
+  assert.equal(output.app.reuseExisting, true);
+  assert.equal(output.app.identity.appId, 4124446);
+  assert.equal(output.app.permissionExpansionGate.state, "HUMAN_REAUTH_REQUIRED");
+  assert.equal(output.app.permissionExpansionGate.automaticRetry, false);
+  assert.equal(output.app.trustedExecution.state, "blocked_unverified");
+  assert.equal(output.app.trustedExecution.ambientPersonalTokenAllowed, false);
+  assert.equal("registrationUrl" in output.app, false);
+  assert.match(output.contractPlanDigest, /^[a-f0-9]{64}$/u);
+  assert.match(
+    output.apply,
+    new RegExp(`fleet-github-${output.contractPlanDigest.slice(0, 12)}$`, "u"),
+  );
+  assert.doesNotMatch(output.apply, /c328d9bf55f3/u);
   assert.equal(output.operations.filter(({ method }) => method === "PUT").length, 4);
   assert.equal(output.operations.filter(({ method }) => method === "PATCH").length, 2);
   assert.equal(output.operations.filter(({ method }) => method === "POST").length, 1);
   assert.doesNotMatch(
     JSON.stringify(output),
-    /webhook_secret|private.?key|access.?token|refresh.?token/iu,
+    /-----BEGIN|gh[opusr]_|github_pat_|access.?token.?value|refresh.?token.?value/iu,
   );
 });
 
@@ -126,6 +501,27 @@ test("GitHub bootstrap apply는 exact 공개 confirmation 없이는 실패한다
     (error) => {
       assert.equal(error.code, 1);
       assert.match(error.stderr, /P3_GITHUB_APPLY_CONFIRMATION_REQUIRED/u);
+      assert.doesNotMatch(error.stderr, /token|password|private.?key/iu);
+      return true;
+    },
+  );
+});
+
+test("GitHub bootstrap은 valid confirmation도 trusted App executor 전에는 mutation 없이 거부한다", async () => {
+  const planResult = await execFileAsync(process.execPath, [
+    "scripts/fleet/bootstrap-p3-github.mjs",
+  ]);
+  const plan = JSON.parse(planResult.stdout);
+  const confirmation = plan.apply.split(" ").at(-1);
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      "scripts/fleet/bootstrap-p3-github.mjs",
+      "apply",
+      confirmation,
+    ]),
+    (error) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr, /P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED/u);
       assert.doesNotMatch(error.stderr, /token|password|private.?key/iu);
       return true;
     },
@@ -169,6 +565,16 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   assert.equal(output.serviceAccounts.length, 5);
   assert.equal(new Set(output.serviceAccounts.map(({ email }) => email)).size, 5);
   assert.equal(output.staticKeysCreated, false);
+  assert.match(output.contractDigest, /^[a-f0-9]{64}$/u);
+  assert.match(
+    output.confirmation,
+    new RegExp(`fleet-p3-${output.contractDigest.slice(0, 12)}$`, "u"),
+  );
+  assert.doesNotMatch(output.confirmation, /c328d9bf55f3/u);
+  assert.equal(
+    output.workflowSourceSha,
+    "c328d9bf55f31ba11f53ef06071cc7b76d283617",
+  );
   assert.deepEqual(
     contract.cloudBuild.wif.repositories.map(({ sha256 }) => sha256),
     [
@@ -424,6 +830,179 @@ test("GCP apply와 rollback은 두 provider를 preflight하고 기존 IAM을 보
   }
 });
 
+test("Secret Manager bootstrap은 role partition을 two-phase 적용하고 rollback에서 IAM을 보존한다", async () => {
+  const [secretPlanResult, gcpPlanResult] = await Promise.all([
+    execFileAsync(process.execPath, [secretManagerBootstrap, "plan"]),
+    execFileAsync(process.execPath, [gcpBootstrap, "plan"]),
+  ]);
+  const plan = JSON.parse(secretPlanResult.stdout);
+  const gcpPlan = JSON.parse(gcpPlanResult.stdout);
+  assert.equal(plan.resources.length, 4);
+  assert.equal(plan.secretValuesCreated, false);
+  assert.equal(plan.provisioning.state, "blocked_unverified");
+  assert.equal(plan.provisioning.plaintextTransport, "fd3");
+  assert.match(plan.confirmation, /^fleet-p3-secrets-[a-f0-9]{12}$/u);
+  assert.doesNotMatch(plan.confirmation, /c328d9bf55f3/u);
+  assert.deepEqual(
+    plan.resources.map(({ consumerRole }) => consumerRole),
+    ["broker", "broker", "password-loader", "totp-signer"],
+  );
+
+  const directory = await mkdtemp(join(tmpdir(), "seori-p3-secret-mock-"));
+  const statePath = join(directory, "state.json");
+  const mappingObject = (mapping) =>
+    Object.fromEntries(
+      mapping.split(",").map((entry) => entry.split(/=(.*)/su).slice(0, 2)),
+    );
+  const providerState = ({ attributeCondition, attributeMapping, issuer, audience }) => ({
+    attributeCondition,
+    attributeMapping: mappingObject(attributeMapping),
+    disabled: false,
+    oidc: { allowedAudiences: [audience], issuerUri: issuer },
+  });
+  const initial = {
+    projectNumber: plan.project.number,
+    serviceAccounts: {},
+    providers: {
+      [gcpPlan.workloadIdentity.github.provider]: providerState(
+        gcpPlan.workloadIdentity.github,
+      ),
+      [gcpPlan.workloadIdentity.kubernetes.provider]: providerState(
+        gcpPlan.workloadIdentity.kubernetes,
+      ),
+    },
+    secrets: Object.fromEntries(
+      plan.resources.map(({ secretId, version }) => [secretId, {
+        name: `projects/${plan.project.number}/secrets/${secretId}`,
+        versions: [{
+          name: `projects/${plan.project.number}/secrets/${secretId}/versions/${version}`,
+          state: "ENABLED",
+        }],
+      }]),
+    ),
+    bindings: [{
+      resourceType: "secret",
+      resource: "projects/seorilabs-ci/secrets/unrelated",
+      role: "roles/secretmanager.secretAccessor",
+      member: "serviceAccount:unrelated@seorilabs-ci.iam.gserviceaccount.com",
+    }],
+    history: [],
+  };
+  const environment = {
+    ...process.env,
+    SEORILABS_GCLOUD_CLI: gcloudMock,
+    P3_GCLOUD_MOCK_STATE: statePath,
+  };
+  const bootstrap = async (command, confirmation) => {
+    const args = [secretManagerBootstrap, command];
+    if (confirmation) args.push(confirmation);
+    const result = await execFileAsync(process.execPath, args, { env: environment });
+    return JSON.parse(result.stdout);
+  };
+  const readState = async () => JSON.parse(await readFile(statePath, "utf8"));
+  const writeState = async (state) =>
+    writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+
+  try {
+    const drifted = structuredClone(initial);
+    drifted.providers[gcpPlan.workloadIdentity.kubernetes.provider]
+      .attributeCondition += " && false";
+    await writeState(drifted);
+    await assert.rejects(
+      bootstrap("apply", plan.confirmation),
+      (error) => {
+        assert.match(error.stderr, /P3_SECRET_MANAGER_WIF_PROVIDER_DRIFT/u);
+        return true;
+      },
+    );
+    assert.deepEqual((await readState()).history, []);
+
+    const projectWide = structuredClone(initial);
+    projectWide.bindings.push({
+      resourceType: "project",
+      resource: "projects/seorilabs-ci",
+      role: "roles/secretmanager.secretAccessor",
+      member: "serviceAccount:seori-auth-broker@seorilabs-ci.iam.gserviceaccount.com",
+    });
+    await writeState(projectWide);
+    await assert.rejects(
+      bootstrap("apply", plan.confirmation),
+      (error) => {
+        assert.match(error.stderr, /P3_SECRET_MANAGER_PROJECT_ACCESSOR_PRESENT/u);
+        return true;
+      },
+    );
+    assert.deepEqual((await readState()).history, []);
+
+    const crossRole = structuredClone(initial);
+    crossRole.bindings.push({
+      resourceType: "secret",
+      resource: "projects/seorilabs-ci/secrets/seori-auth-canary-password",
+      role: "roles/secretmanager.secretAccessor",
+      member: "serviceAccount:seori-auth-totp-signer@seorilabs-ci.iam.gserviceaccount.com",
+    });
+    await writeState(crossRole);
+    await assert.rejects(
+      bootstrap("apply", plan.confirmation),
+      (error) => {
+        assert.match(error.stderr, /P3_SECRET_MANAGER_UNEXPECTED_ACCESSOR_PRESENT/u);
+        return true;
+      },
+    );
+    assert.deepEqual((await readState()).history, []);
+
+    await writeState(initial);
+    const applied = await bootstrap("apply", plan.confirmation);
+    assert.equal(applied.ready, true);
+    assert.ok(applied.resources.every(({ crossRoleAccessDenied }) => crossRoleAccessDenied));
+    assert.equal(applied.canary.state, "BLOCKED_LIVE_RUNTIME");
+    const appliedState = await readState();
+    const bindingSnapshot = structuredClone(appliedState.bindings);
+    assert.equal(
+      appliedState.history.filter((item) => item === "iam:add").length,
+      4,
+    );
+
+    appliedState.history = [];
+    const emergencyProjectBinding = {
+      resourceType: "project",
+      resource: "projects/seorilabs-ci",
+      role: "roles/secretmanager.secretAccessor",
+      member: "serviceAccount:seori-auth-broker@seorilabs-ci.iam.gserviceaccount.com",
+    };
+    appliedState.bindings.push(emergencyProjectBinding);
+    const rollbackBindingSnapshot = structuredClone(appliedState.bindings);
+    const missingDuringRollback = plan.resources[0].secretId;
+    const restoredSecret = appliedState.secrets[missingDuringRollback];
+    delete appliedState.secrets[missingDuringRollback];
+    await writeState(appliedState);
+    const rolledBack = await bootstrap("rollback", plan.rollbackConfirmation);
+    assert.equal(rolledBack.providerDisabled, true);
+    assert.equal(rolledBack.iamBindingsMutated, false);
+    const rolledBackState = await readState();
+    assert.deepEqual(rolledBackState.bindings, rollbackBindingSnapshot);
+    assert.deepEqual(rolledBackState.history, [
+      `provider:disable:${gcpPlan.workloadIdentity.kubernetes.provider}`,
+    ]);
+
+    rolledBackState.history = [];
+    rolledBackState.bindings = rolledBackState.bindings.filter(
+      (binding) => JSON.stringify(binding) !== JSON.stringify(emergencyProjectBinding),
+    );
+    rolledBackState.secrets[missingDuringRollback] = restoredSecret;
+    await writeState(rolledBackState);
+    const reapplied = await bootstrap("apply", plan.confirmation);
+    assert.equal(reapplied.ready, true);
+    const reappliedState = await readState();
+    assert.deepEqual(reappliedState.bindings, bindingSnapshot);
+    assert.deepEqual(reappliedState.history, [
+      `provider:enable:${gcpPlan.workloadIdentity.kubernetes.provider}`,
+    ]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("GCP bootstrap은 canonical wrapper override를 검증하고 public 오류 code만 사용한다", async () => {
   const source = await readFile("scripts/fleet/bootstrap-p3-gcp.mjs", "utf8");
   assert.doesNotMatch(source, /\/Users\//u);
@@ -472,6 +1051,15 @@ test("GitHub bootstrap은 renderer의 API version과 organization drift를 fail-
   );
   assert.match(source, /P3_GITHUB_CONTRACT_DRIFT/u);
   assert.match(source, /P3_GITHUB_API_RESPONSE_INVALID/u);
+  assert.match(
+    source,
+    /if \(operation\.method !== "GET"\) \{\s*fail\("P3_GITHUB_AMBIENT_MUTATION_FORBIDDEN"\);/u,
+  );
+  assert.match(
+    source,
+    /function apply\(\) \{\s*fail\("P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED"\);\s*\}/u,
+  );
+  assert.doesNotMatch(source, /for \(const operation of (?:property|value)Operations\) api/u);
 });
 
 test("Auth Broker foundation은 RBAC 0권한, exact NetworkPolicy와 cert-manager TLS만 생성한다", async () => {
@@ -517,6 +1105,22 @@ test("Auth Broker foundation은 RBAC 0권한, exact NetworkPolicy와 cert-manage
   assert.match(
     publicBindings.data["bindings.json"],
     /"encryptionStatus": "blocked_unverified"/u,
+  );
+  assert.match(
+    publicBindings.data["bindings.json"],
+    /"imagePullSecretName": "seori-auth-ghcr-pull"/u,
+  );
+  assert.match(
+    publicBindings.data["bindings.json"],
+    /"credentialId": "shared\/github\/packages-reader"/u,
+  );
+  assert.match(
+    publicBindings.data["bindings.json"],
+    /"catalogStatus": "blocked_missing"/u,
+  );
+  assert.match(
+    publicBindings.data["bindings.json"],
+    /"operation": "AUTH_BROKER_SECRET_MANAGER_ROLE_BINDING"/u,
   );
   assert.doesNotMatch(serialized, /"kind":"Secret"|"stringData"/u);
   assert.doesNotMatch(serialized, /"kind":"(?:Deployment|StatefulSet|PersistentVolumeClaim)"/u);

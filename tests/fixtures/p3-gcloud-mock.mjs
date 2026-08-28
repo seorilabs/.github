@@ -71,12 +71,19 @@ function bindingTarget() {
         `/repositories/${args[3]}`,
     };
   }
+  if (args[0] === "secrets") {
+    return {
+      resourceType: "secret",
+      resource: `projects/${flag("--project")}/secrets/${args[2]}`,
+    };
+  }
   fail();
 }
 
 function bindingVerb() {
   if (args[0] === "projects") return args[1];
   if (["storage", "iam", "artifacts"].includes(args[0])) return args[2];
+  if (args[0] === "secrets") return args[1];
   fail();
 }
 
@@ -97,6 +104,24 @@ function policyFor(target) {
 
 if (args[0] === "projects" && args[1] === "describe") {
   output(state.projectNumber);
+  process.exit(0);
+}
+
+if (args[0] === "secrets" && args[1] === "describe") {
+  const secret = state.secrets?.[args[2]];
+  if (!secret) notFound();
+  output({ name: secret.name });
+  process.exit(0);
+}
+
+if (
+  args[0] === "secrets" &&
+  args[1] === "versions" &&
+  args[2] === "list"
+) {
+  const secret = state.secrets?.[args[3]];
+  if (!secret) notFound();
+  output(secret.versions ?? []);
   process.exit(0);
 }
 

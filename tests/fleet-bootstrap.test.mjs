@@ -836,7 +836,7 @@ test("public repo는 ARC bootstrap 없이 명시적 정책 입력을 요구한�
 test("public output은 logical credential ID만 가지며 secret export API가 없다", () => {
   assert.equal(
     fleetBootstrapContract.webhookCredentialId,
-    "shared/github/fleet-app-webhook",
+    "shared/github/backoffice-app-webhook",
   );
   assert.deepEqual(Object.keys(fleetBootstrapContract).sort(), [
     "defaultBranch",

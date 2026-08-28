@@ -10,7 +10,7 @@
 
 ## 신뢰 경계
 
-1. trusted loader가 `shared/github/fleet-app-webhook` logical credential을 Buffer로 대여한다.
+1. trusted loader가 `shared/github/backoffice-app-webhook` logical credential을 Buffer로 대여한다.
 2. HMAC SHA-256을 constant-time 비교하고 secret Buffer를 즉시 zeroize한다.
 3. webhook의 숫자 organization·installation·repository ID와 `seorilabs` owner를 검증한다.
 4. GitHub provider readback으로 repository ID, 현재 이름, visibility, archive, default branch와 exact HEAD SHA를 다시 확인한다.
@@ -126,10 +126,26 @@ Android caller는 생성 PR의 해당 파일 변경에만 반응한다. 중앙 r
 - ARC live Pod imageID와 signed WorkflowBundle runner digest 일치 확인
 - 두 번의 shadow parity 전에는 ruleset Active 전환 금지
 
-P3 GitHub App bootstrap의 공개 요청 계약은 `contracts/fleet-p3-runtime.yaml`에 고정한다.
-GitHub 공식 등록 URL은 webhook secret을 받을 수 없으므로 App 생성과 secret 입력은 사람 전용
-gate로 유지하고, credential 값은 URL·manifest·로그에 넣지 않는다. App을 만든 뒤에도 조직
-custom property schema와 Evaluate ruleset은 각각 admin 권한으로 적용하고 API readback이 exact
-계약과 일치해야 완료다. 공식 API 경계는 [URL parameter 등록](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-using-url-parameters),
+P3 GitHub App bootstrap의 공개 요청 계약은 `contracts/fleet-p3-runtime.yaml`에 고정한다. 새
+Fleet App은 만들지 않고 active `seorilabs-backoffice` App `4124446`, installation
+`142120077`을 재사용한다. 기존 permission/event union을 줄이거나 대체하지 않으며 필요한 최소
+증설과 installation acceptance만 조직 owner gate로 둔다. 두 credential은 기존 SealedSecret
+ciphertext와 `shared/k8s/sealed-secrets-recovery`에서 신규 key 생성 없이 offline 복구하고
+`shared/github/backoffice-app-private-key`, `shared/github/backoffice-app-webhook`으로 분리 등록하는
+별도 backup/restore 승인 gate다. credential 값은 URL·manifest·로그·파일에 넣지 않는다. App
+identity와 permission/event union이 exact해진 뒤에도 조직 custom property schema와 Evaluate
+ruleset은 각각 admin 권한으로 적용하고 API readback이 exact 계약과 일치해야 완료다. 공식 API
+경계는 [GitHub App permissions](https://docs.github.com/en/apps/creating-github-apps/setting-up-a-github-app/choosing-permissions-for-a-github-app),
 [조직 custom properties](https://docs.github.com/en/rest/orgs/custom-properties),
 [조직 rulesets](https://docs.github.com/en/rest/orgs/rules)를 따른다.
+
+offline recovery는 `scripts/fleet/github-credential-recovery.mjs`의 trusted adapter만 허용한다.
+adapter는 Sealed Secrets nonce-prefixed payload를 process-local memory에서만 해제한다. signed
+Security.framework native helper의 exact code identity, unattended ACL, item-not-found/readback,
+batch compensation이 검증되기 전에는 `HUMAN_REAUTH_REQUIRED`로 중단하고 raw value나
+`security -w` CLI를 사용하지 않는다. 검증 뒤에도 App public identity, 공개 fingerprint, 복구
+전후 backup/restore만 반환한다. GitHub apply는 이 private key로
+short-lived installation token을 발급하는 exact capability executor가 별도 검증되기 전까지
+`P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED`로 중단하며 ambient personal token으로 우회하지 않는다.
+이 CLI의 API client 자체도 GET만 허용하며 contract의 ready flag를 바꿔도 ambient `gh` mutation
+경로가 열리지 않는다.

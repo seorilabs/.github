@@ -70,8 +70,9 @@ webhook 검증, durable delivery, operation별 최소 권한과 운영 전 gate�
 현재 구현은 secret-free 계획 코어이며 trusted mutation adapter를 배포한 상태가 아니다.
 
 P3 운영 객체의 공개 정본은 `contracts/fleet-p3-runtime.yaml`과 strict schema다. 아래
-renderer는 GitHub App 사람 전용 등록 URL, 조직 custom property·Evaluate ruleset 요청,
-Cloud Build keyless identity/IAM 계획, Auth Broker 기반 manifest만 출력한다. secret·승인
+renderer는 active `seorilabs-backoffice` GitHub App의 exact identity·최소 permission/event 증설,
+조직 custom property·Evaluate ruleset 요청, Cloud Build keyless identity/IAM 계획, Auth Broker
+기반 manifest만 출력한다. secret·승인
 receipt·capability·lease token을 입력받거나 출력하지 않으며 외부 mutation도 수행하지 않는다.
 
 ```bash
@@ -84,6 +85,7 @@ node scripts/fleet/render-p3-runtime.mjs auth-broker-foundation
 node scripts/fleet/render-p3-runtime.mjs auth-broker-foundation-rollback
 node scripts/fleet/bootstrap-p3-github.mjs
 node scripts/fleet/bootstrap-p3-gcp.mjs
+node scripts/fleet/bootstrap-p3-secret-manager.mjs
 ```
 
 Auth Broker foundation은 restricted namespace, API 권한이 없는 세 workload identity, exact
@@ -93,8 +95,31 @@ NetworkPolicy, cert-manager 내부 TLS와 공개 binding만 생성한다. GCP se
 [Fleet P3 runtime 전환 기록](migration/fleet-p3-runtime-2026-08-28.md)에 고정한다.
 rollback renderer는 namespace를 보존하며 foundation이 소유한 객체만 반환한다.
 GitHub와 GCP bootstrap은 기본 실행이 dry-run이며 exact 공개 confirmation 없이는 mutation을
-거부한다. GitHub App 생성은 `HUMAN_REAUTH_REQUIRED` approval gate로 분리하고 자동 retry하지
-않는다.
+거부한다. GitHub bootstrap은 새 App을 만들지 않는다. App `4124446`, installation
+`142120077`의 public identity를 먼저 읽고 기존 permission/event union을 보존한 최소 증설과
+installation acceptance만 `HUMAN_REAUTH_REQUIRED` gate로 분리한다. 기존 SealedSecret의 두
+encrypted field를 신규 key 생성 없이 offline 복구해 분리 logical ID로 등록하는 작업은 별도
+backup/restore approval gate이며 자동 retry하지 않는다.
+복구 adapter는 nonce-prefixed ciphertext와 recovery key를 process-local memory에서 직접 해제한다.
+signed Security.framework native helper의 code identity와 unattended Keychain ACL이 아직 없으므로
+실제 write는 `HUMAN_REAUTH_REQUIRED`로 차단한다. `security -w`, stdout, argv, environment, 평문
+파일을 사용하지 않으며 helper 검증 뒤에도 App private key의 공개 SPKI fingerprint와 logical ID
+상태만 반환한다. GitHub 조직 mutation은
+복구 key로 만든 short-lived installation token과 exact capability adapter가 아직 검증되지 않아
+ambient personal token apply를 명시적으로 차단한다.
+
+Auth Broker의 Secret Manager 계획은 broker 전용 journal MAC/Browser Vault, password-loader
+전용 fake password, TOTP signer 전용 fake seed의 네 numeric version을 서로 다른 secret-level
+accessor binding으로 고정한다. 전용 bootstrap은 기본 dry-run이고 두 WIF provider와 네 resource를
+모두 read-only preflight한 뒤에만 IAM을 추가한다. rollback은 IAM을 제거하지 않고 exact
+Kubernetes provider만 disable한다.
+네 값 생성은 raw key, base64url fake password, canonical base32 fake TOTP의 entropy만 계약에 두고,
+fd3를 쓰는 native Secret Manager writer의 공개
+identity·CRC32C·backup/restore가 승인되기 전에는 별도 human gate로 남긴다.
+
+private GHCR pull은 개인 `shared/github/operator`를 canonical identity로 사용하지 않는다. 조직
+전용 machine-user packages reader 또는 digest/signature가 검증된 public package 중 하나를 조직
+owner가 고르고 공개 identity/package readback을 완료하기 전까지 pull Secret은 blocked다.
 
 로컬 CLI는 caller를 생성하거나 승인하지 않는다. trusted approval key와 registry readback을
 가진 GitHub App reconciler만 `loadApprovedWorkflowBundle`로 승인 binding을 만든 뒤

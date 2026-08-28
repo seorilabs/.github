@@ -10,21 +10,21 @@
     "github": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["apiVersion", "organization", "app", "webhook", "customProperties", "pilotValues", "ruleset"],
+      "required": ["apiVersion", "organization", "app", "trustedExecution", "webhook", "credentialRecovery", "customProperties", "pilotValues", "ruleset"],
       "properties": {
         "apiVersion": { "const": "2026-03-10" },
         "organization": { "const": "seorilabs" },
         "app": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["name", "description", "homepageUrl", "webhookUrl", "public", "webhookActive", "permissions", "events", "humanGate"],
+          "required": ["reuseExisting", "appId", "slug", "installationId", "targetType", "repositorySelection", "permissions", "events", "humanGate"],
           "properties": {
-            "name": { "type": "string", "minLength": 1 },
-            "description": { "type": "string", "minLength": 1 },
-            "homepageUrl": { "$ref": "#/$defs/httpsUrl" },
-            "webhookUrl": { "$ref": "#/$defs/httpsUrl" },
-            "public": { "const": false },
-            "webhookActive": { "const": true },
+            "reuseExisting": { "const": true },
+            "appId": { "const": 4124446 },
+            "slug": { "const": "seorilabs-backoffice" },
+            "installationId": { "const": 142120077 },
+            "targetType": { "const": "Organization" },
+            "repositorySelection": { "const": "all" },
             "permissions": {
               "type": "object",
               "additionalProperties": false,
@@ -55,19 +55,68 @@
               "properties": {
                 "type": { "const": "approval" },
                 "state": { "const": "HUMAN_REAUTH_REQUIRED" },
-                "operation": { "const": "GITHUB_APP_BOOTSTRAP" },
+                "operation": { "const": "GITHUB_APP_PERMISSION_EXPANSION_AND_INSTALLATION_ACCEPTANCE" },
                 "requiredRole": { "const": "organization_owner" },
                 "automaticRetry": { "const": false },
                 "requiredReadback": {
                   "type": "array",
-                  "minItems": 5,
-                  "maxItems": 5,
+                  "minItems": 7,
+                  "maxItems": 7,
                   "prefixItems": [
                     { "const": "app_id" },
-                    { "const": "client_id" },
                     { "const": "slug" },
                     { "const": "installation_id" },
-                    { "const": "webhook_active" }
+                    { "const": "repository_selection" },
+                    { "const": "suspended_at" },
+                    { "const": "permissions" },
+                    { "const": "events" }
+                  ],
+                  "items": false
+                }
+              }
+            }
+          }
+        },
+        "trustedExecution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "adapterMode", "ambientPersonalTokenAllowed", "readOnlyAmbientAllowed", "appPrivateKeyCredentialId", "appId", "installationId", "requiredCapabilities", "humanGate"],
+          "properties": {
+            "state": { "const": "blocked_unverified" },
+            "adapterMode": { "const": "github-app-installation-token" },
+            "ambientPersonalTokenAllowed": { "const": false },
+            "readOnlyAmbientAllowed": { "const": true },
+            "appPrivateKeyCredentialId": { "const": "shared/github/backoffice-app-private-key" },
+            "appId": { "const": 4124446 },
+            "installationId": { "const": 142120077 },
+            "requiredCapabilities": {
+              "type": "array", "minItems": 3, "maxItems": 3,
+              "prefixItems": [
+                { "const": "organization_custom_properties_schema_write" },
+                { "const": "repository_custom_properties_values_write" },
+                { "const": "organization_rulesets_write" }
+              ],
+              "items": false
+            },
+            "humanGate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "state", "operation", "requiredRole", "automaticRetry", "requiredReadback"],
+              "properties": {
+                "type": { "const": "approval" },
+                "state": { "const": "HUMAN_APPROVAL_REQUIRED" },
+                "operation": { "const": "GITHUB_APP_TRUSTED_EXECUTOR_ACTIVATION" },
+                "requiredRole": { "const": "organization_owner" },
+                "automaticRetry": { "const": false },
+                "requiredReadback": {
+                  "type": "array", "minItems": 6, "maxItems": 6,
+                  "prefixItems": [
+                    { "const": "app_identity_exact" },
+                    { "const": "webhook_url_exact" },
+                    { "const": "installation_permissions_accepted" },
+                    { "const": "private_key_logical_id_active" },
+                    { "const": "short_lived_installation_token" },
+                    { "const": "exact_capability_scope" }
                   ],
                   "items": false
                 }
@@ -78,14 +127,93 @@
         "webhook": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["credentialId", "signatureHeader", "eventHeader", "deliveryHeader", "algorithm", "maxPayloadBytes"],
+          "required": ["url", "appPrivateKeyCredentialId", "credentialId", "signatureHeader", "eventHeader", "deliveryHeader", "algorithm", "maxPayloadBytes"],
           "properties": {
-            "credentialId": { "const": "shared/github/fleet-app-webhook" },
+            "url": { "const": "https://backoffice.vzyx.xyz/api/webhooks" },
+            "appPrivateKeyCredentialId": { "const": "shared/github/backoffice-app-private-key" },
+            "credentialId": { "const": "shared/github/backoffice-app-webhook" },
             "signatureHeader": { "const": "x-hub-signature-256" },
             "eventHeader": { "const": "x-github-event" },
             "deliveryHeader": { "const": "x-github-delivery" },
             "algorithm": { "const": "hmac-sha256" },
             "maxPayloadBytes": { "const": 1048576 }
+          }
+        },
+        "credentialRecovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["trustedAdapter", "source", "mappings", "plaintextPolicy", "approvalGate"],
+          "properties": {
+            "trustedAdapter": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["state", "module", "entrypoint", "credentialStore", "plaintextTransport", "requiredReadback"],
+              "properties": {
+                "state": { "const": "blocked_unverified" },
+                "module": { "const": "scripts/fleet/github-credential-recovery.mjs" },
+                "entrypoint": { "const": "recoverGithubAppCredentials" },
+                "credentialStore": { "const": "security-framework-native-helper" },
+                "plaintextTransport": { "const": "process-local-buffer-to-native-helper" },
+                "requiredReadback": {
+                  "type": "array", "minItems": 5, "maxItems": 5,
+                  "prefixItems": [
+                    { "const": "signed_helper_code_identity" },
+                    { "const": "unattended_acl_exact" },
+                    { "const": "keychain_readback_without_prompt" },
+                    { "const": "item_not_found_exact" },
+                    { "const": "batch_compensation_verified" }
+                  ],
+                  "items": false
+                }
+              }
+            },
+            "source": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["repository", "sourceSha", "manifestPath", "manifestSha256", "kind", "name", "namespace", "recoveryCredentialId"],
+              "properties": {
+                "repository": { "const": "seorilabs/seorilabs-backoffice" },
+                "sourceSha": { "const": "8d7162f352454b892ff749ac0d4061c492d7781f" },
+                "manifestPath": { "const": "k8s/backoffice-sealedsecret.yaml" },
+                "manifestSha256": { "const": "21c61c243e5124c24d2c1a15ea385375ffefff9a5fe8877b10bb750cc4234aaf" },
+                "kind": { "const": "SealedSecret" },
+                "name": { "const": "backoffice-secrets" },
+                "namespace": { "const": "platform" },
+                "recoveryCredentialId": { "const": "shared/k8s/sealed-secrets-recovery" }
+              }
+            },
+            "mappings": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                { "$ref": "#/$defs/githubPrivateKeyRecovery" },
+                { "$ref": "#/$defs/githubWebhookRecovery" }
+              ],
+              "items": false
+            },
+            "plaintextPolicy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["offlineOnly", "newKeyGenerationAllowed", "forbiddenSurfaces"],
+              "properties": {
+                "offlineOnly": { "const": true },
+                "newKeyGenerationAllowed": { "const": false },
+                "forbiddenSurfaces": {
+                  "type": "array",
+                  "minItems": 7,
+                  "maxItems": 7,
+                  "prefixItems": [
+                    { "const": "stdout" }, { "const": "argv" },
+                    { "const": "environment" }, { "const": "logs" },
+                    { "const": "files" }, { "const": "commits" },
+                    { "const": "pull_requests" }
+                  ],
+                  "items": false
+                }
+              }
+            },
+            "approvalGate": { "$ref": "#/$defs/githubCredentialRecoveryGate" }
           }
         },
         "customProperties": {
@@ -162,10 +290,168 @@
     "authBroker": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["namespace", "image", "wifAudience", "state", "trustedWorkers", "providerControlPlane", "egressProxy", "roles"],
+      "required": ["namespace", "image", "registry", "secretManager", "wifAudience", "state", "trustedWorkers", "providerControlPlane", "egressProxy", "roles"],
       "properties": {
         "namespace": { "const": "auth-broker" },
         "image": { "type": "string", "pattern": "^ghcr\\.io/seorilabs/seori-auth@sha256:[0-9a-f]{64}$" },
+        "registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["server", "imagePullSecretName", "credentialId", "credentialKind", "identityRequirement", "personalOperatorReuseAllowed", "publicPackageAlternativeAllowed", "requiredScopes", "catalogStatus", "kubernetesStatus", "humanGate"],
+          "properties": {
+            "server": { "const": "ghcr.io" },
+            "imagePullSecretName": { "const": "seori-auth-ghcr-pull" },
+            "credentialId": { "const": "shared/github/packages-reader" },
+            "credentialKind": { "const": "github-pat-classic" },
+            "identityRequirement": { "const": "organization-machine-user" },
+            "personalOperatorReuseAllowed": { "const": false },
+            "publicPackageAlternativeAllowed": { "const": true },
+            "requiredScopes": {
+              "type": "array", "minItems": 1, "maxItems": 1,
+              "prefixItems": [{ "const": "read:packages" }], "items": false
+            },
+            "catalogStatus": { "const": "blocked_missing" },
+            "kubernetesStatus": { "const": "blocked_unverified" },
+            "humanGate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "state", "operation", "requiredRole", "automaticRetry", "allowedModes", "requiredReadback"],
+              "properties": {
+                "type": { "const": "approval" },
+                "state": { "const": "HUMAN_APPROVAL_REQUIRED" },
+                "operation": { "const": "GHCR_PULL_IDENTITY_OR_PUBLIC_PACKAGE_SELECTION" },
+                "requiredRole": { "const": "organization_owner" },
+                "automaticRetry": { "const": false },
+                "allowedModes": {
+                  "type": "array", "minItems": 2, "maxItems": 2,
+                  "prefixItems": [
+                    { "const": "organization_machine_user_pat_classic" },
+                    { "const": "public_digest_verified_package" }
+                  ],
+                  "items": false
+                },
+                "requiredReadback": {
+                  "type": "array", "minItems": 5, "maxItems": 5,
+                  "prefixItems": [
+                    { "const": "selected_mode_exact" },
+                    { "const": "organization_controlled_identity_or_public_package" },
+                    { "const": "package_access_exact" },
+                    { "const": "image_digest_signature_exact" },
+                    { "const": "pull_secret_materialized_when_private" }
+                  ],
+                  "items": false
+                }
+              }
+            }
+          }
+        },
+        "secretManager": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["projectId", "state", "provisioning", "resources", "humanGate"],
+          "properties": {
+            "projectId": { "const": "seorilabs-ci" },
+            "state": { "const": "blocked_unverified" },
+            "provisioning": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["state", "adapterMode", "plaintextTransport", "values", "humanGate"],
+              "properties": {
+                "state": { "const": "blocked_unverified" },
+                "adapterMode": { "const": "native-secret-manager-writer" },
+                "plaintextTransport": { "const": "fd3" },
+                "values": {
+                  "type": "array", "minItems": 4, "maxItems": 4,
+                  "prefixItems": [
+                    { "$ref": "#/$defs/journalMacProvisioning" },
+                    { "$ref": "#/$defs/browserVaultProvisioning" },
+                    { "$ref": "#/$defs/canaryPasswordProvisioning" },
+                    { "$ref": "#/$defs/canaryTotpProvisioning" }
+                  ],
+                  "items": false
+                },
+                "humanGate": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["type", "state", "operation", "requiredRole", "automaticRetry", "requiredReadback"],
+                  "properties": {
+                    "type": { "const": "approval" },
+                    "state": { "const": "HUMAN_APPROVAL_REQUIRED" },
+                    "operation": { "const": "AUTH_BROKER_FAKE_SECRET_PROVISIONING" },
+                    "requiredRole": { "const": "gcp_security_admin" },
+                    "automaticRetry": { "const": false },
+                    "requiredReadback": {
+                      "type": "array", "minItems": 5, "maxItems": 5,
+                      "prefixItems": [
+                        { "const": "native_writer_identity_exact" },
+                        { "const": "secret_values_absent_from_argv_env_stdout_files" },
+                        { "const": "four_numeric_versions_active" },
+                        { "const": "public_crc32c_verified" },
+                        { "const": "backup_restore_verified" }
+                      ],
+                      "items": false
+                    }
+                  }
+                }
+              }
+            },
+            "resources": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["secretId", "resource", "version", "versionResource", "logicalCredentialId", "consumerRole", "googleServiceAccount"],
+                "properties": {
+                  "secretId": { "enum": ["seori-auth-journal-mac", "seori-auth-browser-vault", "seori-auth-canary-password", "seori-auth-canary-totp-seed"] },
+                  "resource": { "type": "string", "pattern": "^projects/seorilabs-ci/secrets/seori-auth-[a-z-]+$" },
+                  "version": { "const": 1 },
+                  "versionResource": { "type": "string", "pattern": "^projects/seorilabs-ci/secrets/seori-auth-[a-z-]+/versions/1$" },
+                  "logicalCredentialId": { "type": "string", "pattern": "^shared/seori-auth/(journal-mac|browser-vault|canary-password|canary-totp-seed)$" },
+                  "consumerRole": { "enum": ["broker", "password-loader", "totp-signer"] },
+                  "googleServiceAccount": { "type": "string", "pattern": "^seori-auth-(broker|password-loader|totp-signer)@seorilabs-ci\\.iam\\.gserviceaccount\\.com$" }
+                }
+              }
+            },
+            "humanGate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "state", "operation", "requiredRole", "automaticRetry", "requiredPreconditions", "requiredReadback"],
+              "properties": {
+                "type": { "const": "approval" },
+                "state": { "const": "HUMAN_APPROVAL_REQUIRED" },
+                "operation": { "const": "AUTH_BROKER_SECRET_MANAGER_ROLE_BINDING" },
+                "requiredRole": { "const": "gcp_security_admin" },
+                "automaticRetry": { "const": false },
+                "requiredPreconditions": {
+                  "type": "array", "minItems": 5, "maxItems": 5,
+                  "prefixItems": [
+                    { "const": "project_iam_visible" },
+                    { "const": "four_secret_resources_active" },
+                    { "const": "numeric_versions_pinned" },
+                    { "const": "logical_credentials_backed_up" },
+                    { "const": "kubernetes_provider_exact" }
+                  ],
+                  "items": false
+                },
+                "requiredReadback": {
+                  "type": "array", "minItems": 7, "maxItems": 7,
+                  "prefixItems": [
+                    { "const": "four_secret_level_accessor_bindings_exact" },
+                    { "const": "cross_role_access_denied" },
+                    { "const": "secret_access_config_digests_exact" },
+                    { "const": "fake_password_execution_copy_verified" },
+                    { "const": "fake_totp_execution_copy_verified" },
+                    { "const": "journal_mac_replay_verified" },
+                    { "const": "browser_vault_round_trip_verified" }
+                  ],
+                  "items": false
+                }
+              }
+            }
+          }
+        },
         "wifAudience": { "type": "string", "pattern": "^//iam\\.googleapis\\.com/projects/[1-9][0-9]*/locations/global/workloadIdentityPools/[a-z0-9-]+/providers/[a-z0-9-]+$" },
         "state": {
           "type": "object",
@@ -283,6 +569,106 @@
           "items": false
         },
         "requiredStatusCheck": { "const": "Org Contract / Org Contract" }
+      }
+    },
+    "journalMacProvisioning": {
+      "type": "object", "additionalProperties": false,
+      "required": ["secretId", "generation", "encoding", "entropyBytes"],
+      "properties": {
+        "secretId": { "const": "seori-auth-journal-mac" },
+        "generation": { "const": "cryptographic-random" },
+        "encoding": { "const": "raw" },
+        "entropyBytes": { "const": 32 }
+      }
+    },
+    "browserVaultProvisioning": {
+      "type": "object", "additionalProperties": false,
+      "required": ["secretId", "generation", "encoding", "entropyBytes"],
+      "properties": {
+        "secretId": { "const": "seori-auth-browser-vault" },
+        "generation": { "const": "cryptographic-random" },
+        "encoding": { "const": "raw" },
+        "entropyBytes": { "const": 32 }
+      }
+    },
+    "canaryPasswordProvisioning": {
+      "type": "object", "additionalProperties": false,
+      "required": ["secretId", "generation", "encoding", "entropyBytes"],
+      "properties": {
+        "secretId": { "const": "seori-auth-canary-password" },
+        "generation": { "const": "cryptographic-random" },
+        "encoding": { "const": "base64url" },
+        "entropyBytes": { "const": 32 }
+      }
+    },
+    "canaryTotpProvisioning": {
+      "type": "object", "additionalProperties": false,
+      "required": ["secretId", "generation", "encoding", "entropyBytes"],
+      "properties": {
+        "secretId": { "const": "seori-auth-canary-totp-seed" },
+        "generation": { "const": "cryptographic-random" },
+        "encoding": { "const": "base32-no-padding" },
+        "entropyBytes": { "const": 20 }
+      }
+    },
+    "githubPrivateKeyRecovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["encryptedKey", "targetCredentialId", "targetKind", "keychainService", "catalogPath"],
+      "properties": {
+        "encryptedKey": { "const": "GITHUB_PRIVATE_KEY" },
+        "targetCredentialId": { "const": "shared/github/backoffice-app-private-key" },
+        "targetKind": { "const": "macos-keychain-password" },
+        "keychainService": { "const": "com.seorilabs.github.backoffice-app-private-key" },
+        "catalogPath": { "const": "github/backoffice-app-private-key.keychain-ref" }
+      }
+    },
+    "githubWebhookRecovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["encryptedKey", "targetCredentialId", "targetKind", "keychainService", "catalogPath"],
+      "properties": {
+        "encryptedKey": { "const": "GITHUB_WEBHOOK_SECRET" },
+        "targetCredentialId": { "const": "shared/github/backoffice-app-webhook" },
+        "targetKind": { "const": "macos-keychain-password" },
+        "keychainService": { "const": "com.seorilabs.github.backoffice-app-webhook" },
+        "catalogPath": { "const": "github/backoffice-app-webhook.keychain-ref" }
+      }
+    },
+    "githubCredentialRecoveryGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "state", "operation", "requiredRole", "automaticRetry", "requiredPreconditions", "requiredReadback"],
+      "properties": {
+        "type": { "const": "reauth" },
+        "state": { "const": "HUMAN_REAUTH_REQUIRED" },
+        "operation": { "const": "GITHUB_APP_CREDENTIAL_OFFLINE_RECOVERY" },
+        "requiredRole": { "const": "credential_custodian" },
+        "automaticRetry": { "const": false },
+        "requiredPreconditions": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "prefixItems": [
+            { "const": "source_digest_exact" },
+            { "const": "encrypted_keys_present" },
+            { "const": "recovery_credential_active" },
+            { "const": "target_logical_ids_absent" },
+            { "const": "pre_recovery_backup_restore_verified" }
+          ],
+          "items": false
+        },
+        "requiredReadback": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            { "const": "logical_ids_active" },
+            { "const": "app_identity_exact" },
+            { "const": "post_recovery_backup_restore_verified" }
+          ],
+          "items": false
+        }
       }
     },
     "reactNativeWifRepository": {

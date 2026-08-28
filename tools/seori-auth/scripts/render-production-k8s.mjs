@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 
@@ -14,6 +15,18 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const WIF_AUDIENCE = /^\/\/iam\.googleapis\.com\/projects\/[1-9][0-9]*\/locations\/global\/workloadIdentityPools\/[A-Za-z0-9_-]+\/providers\/[A-Za-z0-9_-]+$/;
 const GOOGLE_IDENTITY = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.iam\.gserviceaccount\.com$/;
 const ROLES = Object.freeze(['broker', 'passwordLoader', 'totpSigner']);
+const SECRET_MANAGER_RESOURCES = Object.freeze({
+  broker: Object.freeze([
+    'projects/seorilabs-ci/secrets/seori-auth-browser-vault/versions/1',
+    'projects/seorilabs-ci/secrets/seori-auth-journal-mac/versions/1',
+  ]),
+  passwordLoader: Object.freeze([
+    'projects/seorilabs-ci/secrets/seori-auth-canary-password/versions/1',
+  ]),
+  totpSigner: Object.freeze([
+    'projects/seorilabs-ci/secrets/seori-auth-canary-totp-seed/versions/1',
+  ]),
+});
 const PROVIDER_NAMESPACE_SELECTOR = Object.freeze({
   'kubernetes.io/metadata.name': 'platform',
 });
@@ -67,8 +80,8 @@ async function load(path) {
 
 function roleConfig(value, role) {
   if (!exactKeys(value, [
-    'configMapName', 'egressTlsSecretName', 'googleServiceAccount', 'secretAccessConfigSha256',
-    'tlsSecretName', 'wifAudience',
+    'allowedSecretManagerResources', 'configMapName', 'egressTlsSecretName', 'googleServiceAccount',
+    'secretAccessConfigSha256', 'tlsSecretName', 'wifAudience',
   ])) fail(`${role} binding fields are invalid`);
   if (
     !GOOGLE_IDENTITY.test(value.googleServiceAccount ?? '') ||
@@ -77,7 +90,15 @@ function roleConfig(value, role) {
   ) {
     fail(`${role} workload identity is invalid`);
   }
+  if (
+    !Array.isArray(value.allowedSecretManagerResources) ||
+    value.allowedSecretManagerResources.toSorted().join('\0') !==
+      SECRET_MANAGER_RESOURCES[role].join('\0')
+  ) fail(`${role} Secret Manager partition is invalid`);
   return Object.freeze({
+    allowedSecretManagerResources: Object.freeze([
+      ...value.allowedSecretManagerResources,
+    ]),
     configMapName: dns(value.configMapName, `${role}.configMapName`),
     egressTlsSecretName: dns(value.egressTlsSecretName, `${role}.egressTlsSecretName`),
     googleServiceAccount: value.googleServiceAccount,
@@ -89,7 +110,7 @@ function roleConfig(value, role) {
 
 function validate(config) {
   if (!exactKeys(config, [
-    'egressProxy', 'image', 'imagePullPolicy', 'namespace', 'nodeSelector', 'roles',
+    'egressProxy', 'image', 'imagePullPolicy', 'imagePullSecretName', 'namespace', 'nodeSelector', 'roles',
     'providerControlPlane', 'schemaVersion', 'stateClaimName', 'trustedWorkers',
   ]) || config.schemaVersion !== 1 || config.namespace !== 'auth-broker') {
     fail('top-level deployment fields are invalid');
@@ -133,6 +154,7 @@ function validate(config) {
   ) fail('provider control-plane network identity is invalid');
   return Object.freeze({
     ...config,
+    imagePullSecretName: dns(config.imagePullSecretName, 'imagePullSecretName'),
     nodeSelector: labels(config.nodeSelector, 'nodeSelector'),
     stateClaimName: dns(config.stateClaimName, 'stateClaimName'),
     trustedWorkers: Object.freeze({
@@ -251,6 +273,9 @@ function probe(role) {
 
 function workload(role, config) {
   const binding = config.roles[role];
+  const resourcePartitionSha256 = createHash('sha256')
+    .update(JSON.stringify(binding.allowedSecretManagerResources.toSorted()))
+    .digest('hex');
   const labels = { 'app.kubernetes.io/name': appName(role) };
   const container = {
     name: runtimeRole(role),
@@ -281,6 +306,7 @@ function workload(role, config) {
       annotations: {
         'seorilabs.io/google-service-account': binding.googleServiceAccount,
         'seorilabs.io/secret-access-sha256': binding.secretAccessConfigSha256,
+        'seorilabs.io/secret-resource-partition-sha256': resourcePartitionSha256,
         'seorilabs.io/provider-control-plane-spiffe': config.providerControlPlane.backofficeClientSpiffeId,
         'seorilabs.io/provider-endpoint-scope': config.providerControlPlane.endpointScope,
       },
@@ -291,6 +317,7 @@ function workload(role, config) {
       hostIPC: false,
       hostNetwork: false,
       hostPID: false,
+      imagePullSecrets: [{ name: config.imagePullSecretName }],
       nodeSelector: config.nodeSelector,
       securityContext: podSecurityContext(),
       serviceAccountName: serviceAccountName(role),

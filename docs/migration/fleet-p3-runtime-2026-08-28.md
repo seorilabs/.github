@@ -1,7 +1,7 @@
 # Fleet P3 runtime 전환 기록
 
-기준 source는 `origin/main@c328d9bf55f31ba11f53ef06071cc7b76d283617`이다. 이 문서는
-2026-08-28 KST live readback과 P3 공개 계약을 분리해 기록한다. secret, capability, 승인
+최신 기준 source는 `origin/main@61545c46d122b8b40fa7e2f61bf62cacae10c69b`이다. 이 문서는
+2026-08-28~29 KST live readback과 P3 공개 계약을 분리해 기록한다. secret, capability, 승인
 receipt, lease token은 기록하지 않는다.
 
 ## 적용 전 readback
@@ -30,8 +30,13 @@ receipt, lease token은 기록하지 않는다.
 - `scripts/fleet/bootstrap-p3-gcp.mjs`: 기본 dry-run, exact 5 service accounts, dedicated GitHub와
   MicroK8s WIF condition, 최소 resource IAM, idempotent resume, pool/provider drift readback과
   provider disable 기반 권한 회수 rollback
-- `scripts/fleet/bootstrap-p3-github.mjs`: 사람 전용 App approval gate, additive custom property,
-  pilot 값, Evaluate ruleset의 기본 dry-run과 exact readback
+- `scripts/fleet/bootstrap-p3-github.mjs`: 기존 Backoffice App exact identity와 permission/event
+  union readback, 사람 전용 최소 증설 gate, additive custom property, pilot 값, Evaluate ruleset의
+  기본 dry-run과 exact readback
+- `scripts/fleet/github-credential-recovery.mjs`: nonce-prefixed SealedSecret hybrid ciphertext를
+  process-local memory에서 해제하되 signed native Keychain helper 전에는 write를 차단하는 adapter
+- `scripts/fleet/bootstrap-p3-secret-manager.mjs`: broker/password/TOTP별 네 exact secret version과
+  secret-level accessor binding의 기본 dry-run, two-phase apply, readback, provider-disable rollback
 - `tests/fleet-p3-runtime.test.mjs`: strict schema, 최소 권한 분리, secret 비노출, RBAC 0권한,
   exact pilot과 fail-closed manifest 검증
 
@@ -42,12 +47,16 @@ receipt, lease token은 기록하지 않는다.
 2. GCP 관리자가 5개 service account와 최소 IAM/WIF binding을 계약대로 생성한다. 정적 key는
    만들지 않고 각 공개 identity와 binding을 API로 readback한다.
 3. RPI5 storage의 encrypted-at-rest를 증명하거나 암호화 storage class를 제공한다.
-4. private GHCR pull identity를 등록된 shared credential에서 secret 출력 없이 주입하고,
-   provider signer와 egress proxy를 먼저 배포한다.
+4. 개인 `shared/github/operator`는 desired pull identity로 재사용하지 않는다. 조직 전용
+   machine-user packages reader 또는 digest/signature가 검증된 public package 중 하나를 승인한
+   뒤, renderer가 세 Pod 모두에 exact `imagePullSecrets`를 고정하는지 확인하고 provider signer와
+   egress proxy를 먼저 배포한다.
 5. workload와 PVC를 배포한 뒤 건강 상태와 mTLS peer를 readback하고 fake account canary에서
    origin, TTL, 1회성, repository·namespace binding을 검증한다.
-6. 조직 owner가 공식 URL로 GitHub App을 만들고 webhook secret을 입력한다. App installation
-   identity와 webhook delivery를 readback한 뒤 custom properties와 Evaluate ruleset을 적용한다.
+6. 새 App을 만들지 않고 live active `seorilabs-backoffice` App `4124446`, installation
+   `142120077`을 재사용한다. 조직 owner는 기존 permission/event union을 보존한 최소 증설과
+   installation acceptance만 처리한다. App identity와 union readback 뒤 custom properties와
+   Evaluate ruleset을 적용한다.
 7. 두 pilot에서 두 번의 shadow parity와 rollback rehearsal이 끝날 때까지 ruleset은 Active로
    바꾸지 않는다.
 
@@ -78,20 +87,75 @@ condition, private Kubernetes issuer의 공개 JWKS upload는 각각 Google 공�
 
 ```bash
 node scripts/fleet/bootstrap-p3-gcp.mjs
-node scripts/fleet/bootstrap-p3-gcp.mjs apply fleet-p3-c328d9bf55f3
+node scripts/fleet/bootstrap-p3-gcp.mjs apply '<plan이 반환한 contract digest confirmation>'
 node scripts/fleet/bootstrap-p3-gcp.mjs readback
-node scripts/fleet/bootstrap-p3-gcp.mjs rollback fleet-p3-rollback-c328d9bf55f3
+node scripts/fleet/bootstrap-p3-gcp.mjs rollback '<plan이 반환한 rollback confirmation>'
 ```
 
-현재 provisioner에는 apply 권한이 없어 GCP 객체는 아직 생성되지 않았다. 2~6번은 권한 또는
-선행 보안 gate가 충족되기 전까지 완료로 기록하지 않는다.
+현재 provisioner의 project IAM readback은 권한 부족으로 실패하므로 GCP 객체의 존재나 정합성을
+판정하지 않는다. 2~6번은 권한 또는 선행 보안 gate가 충족되기 전까지 완료로 기록하지 않는다.
 
-GitHub 조직 변경도 기본 dry-run이며 App 생성은 자동화하지 않는다. 조직 owner는 아래 App
-approval gate를 먼저 처리하고, `admin:org` 권한으로 additive property/ruleset bootstrap을 한
-번 승인한 뒤 readback한다.
+2026-08-29 readback에서 App은 active·unsuspended, organization 전체 저장소 installation이었다.
+현재 permission은 `actions:write`, `checks:read`, `contents:write`, `issues:write`, `members:read`,
+`metadata:read`, `pull_requests:read`이고 event는 `issues`, `issue_comment`, `pull_request`, `push`,
+`workflow_run`이다. 계약은 이 상태를 줄이지 않고 `pull_requests:write`, `workflows:write`,
+`repository_custom_properties:write`, `environments:write`, `administration:write`,
+`organization_administration:write`, `organization_custom_properties:admin` 및 `repository` event만
+union에 추가한다. 증설 및 installation acceptance 뒤 exact readback 전에는 GitHub bootstrap
+apply가 custom property/ruleset을 변경하지 않는다.
+
+private key와 webhook의 local canonical source는 현재 없다. exact source
+`seorilabs/seorilabs-backoffice@8d7162f352454b892ff749ac0d4061c492d7781f`의
+`k8s/backoffice-sealedsecret.yaml` ciphertext와 active
+`shared/k8s/sealed-secrets-recovery`만 복구 근거다. `GITHUB_PRIVATE_KEY`와
+`GITHUB_WEBHOOK_SECRET`을 각각 `shared/github/backoffice-app-private-key`,
+`shared/github/backoffice-app-webhook`으로 분리 등록하는 작업은 새 key를 생성하지 않는 offline
+사람 승인 gate다. source digest 및 encrypted key 존재, recovery credential active, target ID
+부재, 복구 전 backup/restore 검증을 모두 확인해야 시작할 수 있다. plaintext는 stdout, argv,
+environment, log, 파일, commit, PR을 통과할 수 없다. trusted adapter는 nonce-prefixed
+AES-256-GCM/RSA-OAEP ciphertext와 recovery key를 process-local memory에서 처리한다. signed
+Security.framework native helper의 exact code identity, unattended ACL, locked/permission/item-not-found
+분리, batch compensation이 검증되기 전에는 `HUMAN_REAUTH_REQUIRED`이며 `security -w` CLI로
+우회하지 않는다. 등록 후 logical ID active, App identity
+exact, 복구 후 backup/restore 검증을 readback해야 완료다. 이번 변경에서는 복호화·등록·cluster
+Secret 생성 등 외부 mutation을 수행하지 않았다.
+
+같은 readback에서 개인 `shared/github/operator`의 private package metadata 접근은 확인됐지만
+조직 canonical identity로 승격하지 않는다. GitHub의 non-Actions private GHCR pull 경계에 따라
+조직 전용 machine-user PAT classic 또는 digest/signature 검증 후 public package 전환 중 하나를
+별도 승인해야 한다. `auth-broker` namespace에서 `seori-auth-ghcr-pull` Secret은 존재하지 않았고
+workload·PVC도 0개였다. production renderer는 이제 세 Pod에 exact
+`imagePullSecrets`를 필수로 넣어 node cache 의존을 거부하지만, Secret 생성과 workload apply는
+등록 identity·backup/restore 승인 및 공개 readback 뒤 별도 외부 mutation gate로 남아 있다.
+
+GitHub 조직 변경도 기본 dry-run이다. apply confirmation은 더 이상 workflow source
+`c328d9b`가 아니라 canonical App/operation plan digest에 결합한다. workflow source SHA는 WIF의
+immutable blob pin으로 별도 유지한다. 조직 owner는 permission expansion approval을 먼저
+처리해야 하며, 복구 private key로 short-lived installation token을 만드는 trusted executor와
+exact capability readback이 검증되기 전에는 ambient personal token apply가 항상 차단된다.
 
 ```bash
 node scripts/fleet/bootstrap-p3-github.mjs
-node scripts/fleet/bootstrap-p3-github.mjs apply fleet-github-c328d9bf55f3
+node scripts/fleet/bootstrap-p3-github.mjs apply '<plan이 반환한 contract plan digest confirmation>'
 node scripts/fleet/bootstrap-p3-github.mjs readback
 ```
+
+Auth Broker Secret Manager apply는 별도 role-change 승인이다. 네 secret은 각각 version `1`만
+허용하고 broker는 journal MAC/Browser Vault, password-loader는 fake password, TOTP signer는
+fake seed만 읽는다. 값은 raw key, base64url fake password, canonical base32 fake TOTP로 생성한다.
+fd3 native writer의 공개 identity, CRC32C, backup/restore를 승인한
+별도 gate이며 이 저장소는 raw value를 생성하거나 전달하지 않는다. apply는 GitHub/Kubernetes
+provider와 네 secret/version을 먼저 읽고 drift나 cross-role accessor가 하나라도 있으면 mutation
+0건으로 중단한다. rollback은 두 provider만 preflight하고, secret이 사라진 비상 상황에도
+pre-existing 여부를 알 수 없는 IAM을 제거하지 않은 채 Kubernetes provider를 disable한다.
+
+```bash
+node scripts/fleet/bootstrap-p3-secret-manager.mjs
+node scripts/fleet/bootstrap-p3-secret-manager.mjs apply '<plan이 반환한 confirmation>'
+node scripts/fleet/bootstrap-p3-secret-manager.mjs readback
+node scripts/fleet/bootstrap-p3-secret-manager.mjs rollback '<plan이 반환한 rollback confirmation>'
+```
+
+현재 provisioner의 project IAM readback은 `PERMISSION_DENIED`이므로 resource 부재로 판단하지
+않는다. 실제 네 secret/version, secret-level IAM, WIF 활성화, workload와 fake canary는 모두
+미적용·미검증 상태다.

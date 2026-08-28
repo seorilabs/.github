@@ -65,6 +65,26 @@ function validateSemantics(contract) {
     ),
   ];
   if (!unique(serviceAccounts)) fail("P3_WORKLOAD_IDENTITY_REUSED");
+  const secretManagerBindings = contract.authBroker.secretManager.resources.map(
+    ({ secretId, logicalCredentialId, consumerRole, googleServiceAccount, resource, versionResource }) =>
+      [secretId, logicalCredentialId, consumerRole, googleServiceAccount, resource, versionResource].join("\0"),
+  );
+  const expectedSecretManagerBindings = [
+    ["seori-auth-journal-mac", "shared/seori-auth/journal-mac", "broker", "seori-auth-broker@seorilabs-ci.iam.gserviceaccount.com"],
+    ["seori-auth-browser-vault", "shared/seori-auth/browser-vault", "broker", "seori-auth-broker@seorilabs-ci.iam.gserviceaccount.com"],
+    ["seori-auth-canary-password", "shared/seori-auth/canary-password", "password-loader", "seori-auth-password-loader@seorilabs-ci.iam.gserviceaccount.com"],
+    ["seori-auth-canary-totp-seed", "shared/seori-auth/canary-totp-seed", "totp-signer", "seori-auth-totp-signer@seorilabs-ci.iam.gserviceaccount.com"],
+  ].map((entry) => {
+    const resource = `projects/seorilabs-ci/secrets/${entry[0]}`;
+    return [...entry, resource, `${resource}/versions/1`].join("\0");
+  });
+  if (
+    !unique(secretManagerBindings) ||
+    secretManagerBindings.toSorted().join("\n") !==
+      expectedSecretManagerBindings.toSorted().join("\n")
+  ) {
+    fail("P3_SECRET_MANAGER_PARTITION_INVALID");
+  }
   for (const identity of [
     contract.cloudBuild.submitter,
     contract.cloudBuild.executor,
@@ -105,32 +125,31 @@ async function loadContract() {
 }
 
 function githubApp(contract) {
-  const { organization, app, webhook } = contract.github;
-  const url = new URL(
-    `https://github.com/organizations/${organization}/settings/apps/new`,
-  );
-  const parameters = {
-    name: app.name,
-    description: app.description,
-    url: app.homepageUrl,
-    public: String(app.public),
-    webhook_active: String(app.webhookActive),
-    webhook_url: app.webhookUrl,
-    request_oauth_on_install: "false",
-    ...app.permissions,
-  };
-  for (const [name, value] of Object.entries(parameters)) {
-    url.searchParams.set(name, value);
-  }
-  for (const event of app.events) url.searchParams.append("events[]", event);
+  const {
+    organization,
+    app,
+    trustedExecution,
+    webhook,
+    credentialRecovery,
+  } = contract.github;
   return {
     apiVersion: contract.github.apiVersion,
     organization,
-    registrationUrl: url.toString(),
-    humanOnly: true,
-    approvalGate: app.humanGate,
-    webhookSecretRequired: true,
-    webhookCredentialId: webhook.credentialId,
+    reuseExisting: app.reuseExisting,
+    identity: {
+      appId: app.appId,
+      slug: app.slug,
+      installationId: app.installationId,
+      targetType: app.targetType,
+      repositorySelection: app.repositorySelection,
+    },
+    requiredPermissions: app.permissions,
+    requiredEvents: app.events,
+    permissionExpansionGate: app.humanGate,
+    trustedExecution,
+    webhook: { ...webhook },
+    credentialRecovery,
+    staticKeysCreated: false,
   };
 }
 

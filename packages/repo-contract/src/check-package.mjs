@@ -230,7 +230,7 @@ try {
         'if (typeof installed.createFleetWebhookHandler !== "function") process.exit(1);',
         'if (typeof installed.attachFleetProvisioningOperations !== "function") process.exit(1);',
         'if (typeof installed.validateFleetBootstrapPlan !== "function") process.exit(1);',
-        'if (installed.fleetBootstrapContract?.webhookCredentialId !== "shared/github/fleet-app-webhook") process.exit(1);',
+        'if (installed.fleetBootstrapContract?.webhookCredentialId !== "shared/github/backoffice-app-webhook") process.exit(1);',
         'process.stdout.write("Fleet bootstrap public export 검증 통과\\n");',
       ].join("\n"),
     ],

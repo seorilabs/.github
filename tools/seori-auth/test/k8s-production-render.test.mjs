@@ -18,6 +18,7 @@ function deploymentConfig() {
     namespace: 'auth-broker',
     image: `ghcr.io/seorilabs/seori-auth@sha256:${digest}`,
     imagePullPolicy: 'IfNotPresent',
+    imagePullSecretName: 'seori-auth-ghcr-pull',
     nodeSelector: { 'seorilabs.io/node-role': 'auth' },
     stateClaimName: 'seori-auth-state',
     trustedWorkers: {
@@ -37,6 +38,10 @@ function deploymentConfig() {
     },
     roles: {
       broker: {
+        allowedSecretManagerResources: [
+          'projects/seorilabs-ci/secrets/seori-auth-browser-vault/versions/1',
+          'projects/seorilabs-ci/secrets/seori-auth-journal-mac/versions/1',
+        ],
         configMapName: 'seori-auth-broker-config',
         tlsSecretName: 'seori-auth-broker-tls',
         egressTlsSecretName: 'seori-auth-broker-egress-tls',
@@ -45,6 +50,9 @@ function deploymentConfig() {
         wifAudience: audience,
       },
       passwordLoader: {
+        allowedSecretManagerResources: [
+          'projects/seorilabs-ci/secrets/seori-auth-canary-password/versions/1',
+        ],
         configMapName: 'seori-auth-password-config',
         tlsSecretName: 'seori-auth-password-tls',
         egressTlsSecretName: 'seori-auth-password-egress-tls',
@@ -53,6 +61,9 @@ function deploymentConfig() {
         wifAudience: audience,
       },
       totpSigner: {
+        allowedSecretManagerResources: [
+          'projects/seorilabs-ci/secrets/seori-auth-canary-totp-seed/versions/1',
+        ],
         configMapName: 'seori-auth-totp-config',
         tlsSecretName: 'seori-auth-totp-tls',
         egressTlsSecretName: 'seori-auth-totp-egress-tls',
@@ -117,6 +128,7 @@ test('production renderer emits immutable separated workloads without Kubernetes
     const tokenProjection = projected.projected.sources[0].serviceAccountToken;
     const tokenMount = container.volumeMounts.find((mount) => mount.name === 'projected-identity');
     assert.equal(container.image, `ghcr.io/seorilabs/seori-auth@sha256:${digest}`);
+    assert.deepEqual(pod.imagePullSecrets, [{ name: 'seori-auth-ghcr-pull' }]);
     const role = item.metadata.name === 'seori-auth-broker'
       ? 'broker'
       : item.metadata.name === 'seori-password-loader' ? 'passwordLoader' : 'totpSigner';
@@ -131,6 +143,10 @@ test('production renderer emits immutable separated workloads without Kubernetes
       '--expected-provider-endpoint-scope=/internal/control-plane/provider-grants',
     ));
     assert.equal(item.spec.template.metadata.annotations['seorilabs.io/secret-access-sha256'], binding.secretAccessConfigSha256);
+    assert.match(
+      item.spec.template.metadata.annotations['seorilabs.io/secret-resource-partition-sha256'],
+      /^[a-f0-9]{64}$/,
+    );
     assert.equal(
       item.spec.template.metadata.annotations['seorilabs.io/provider-control-plane-spiffe'],
       'spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer',
@@ -212,6 +228,31 @@ test('production renderer rejects mutable images and shared factor identities', 
   await assert.rejects(render(shared), (error) => {
     assert.equal(error.code, 1);
     assert.match(error.stderr, /must be distinct/);
+    return true;
+  });
+
+  const missingImagePullIdentity = deploymentConfig();
+  delete missingImagePullIdentity.imagePullSecretName;
+  await assert.rejects(render(missingImagePullIdentity), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /top-level deployment fields are invalid/);
+    return true;
+  });
+
+  const crossRoleSecret = deploymentConfig();
+  crossRoleSecret.roles.passwordLoader.allowedSecretManagerResources =
+    crossRoleSecret.roles.totpSigner.allowedSecretManagerResources;
+  await assert.rejects(render(crossRoleSecret), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /passwordLoader Secret Manager partition is invalid/);
+    return true;
+  });
+
+  const invalidImagePullIdentity = deploymentConfig();
+  invalidImagePullIdentity.imagePullSecretName = 'INVALID_NAME';
+  await assert.rejects(render(invalidImagePullIdentity), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /imagePullSecretName is invalid/);
     return true;
   });
 
