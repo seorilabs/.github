@@ -763,6 +763,34 @@ test("APPROVED bundle은 source, Ed25519 key와 registry readback이 모두 있�
   assert.equal(result.ok, true, result.diagnostics.join(","));
 });
 
+test("primitive trusted approval keys는 정규화된 오류로 거부한다", async () => {
+  const candidate = await createWorkflowBundle({
+    sourceSha: SOURCE_SHA,
+    platformRelease: PLATFORM_RELEASE,
+  });
+  const validation = await validateWorkflowBundle(candidate, {
+    trustedApprovalKeys: "not-an-object",
+  });
+  assert.equal(validation.ok, false);
+  assert.ok(validation.diagnostics.includes("APPROVAL_TRUSTED_KEYS_INVALID"));
+
+  await assert.rejects(
+    promoteWorkflowBundle(candidate, EVIDENCE, {
+      trustedApprovalKeys: 42,
+    }),
+    /APPROVAL_TRUSTED_KEYS_INVALID/u,
+  );
+
+  const { approved, trust } = await approvedFixture();
+  await assert.rejects(
+    loadApprovedWorkflowBundle(approved, {
+      ...trust,
+      trustedApprovalKeys: true,
+    }),
+    /APPROVAL_TRUSTED_KEYS_INVALID/u,
+  );
+});
+
 test("과거 APPROVED bundle은 current repoRoot runtime asset과 비교하지 않는다", async () => {
   const { approved, trust } = await approvedFixture();
   const root = await mkdtemp(join(tmpdir(), "fleet-old-approved-"));

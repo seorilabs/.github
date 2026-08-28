@@ -860,12 +860,17 @@ function snapshotTrustedApprovalKeys(trustedApprovalKeys) {
   if (trustedApprovalKeys === undefined || trustedApprovalKeys === null) {
     return Object.freeze({});
   }
+  if (
+    !(trustedApprovalKeys instanceof Map) &&
+    (typeof trustedApprovalKeys !== "object" ||
+      Object.getPrototypeOf(trustedApprovalKeys) !== Object.prototype)
+  ) {
+    throw new Error("APPROVAL_TRUSTED_KEYS_INVALID");
+  }
   const entries =
     trustedApprovalKeys instanceof Map
       ? [...trustedApprovalKeys.entries()]
-      : Object.getPrototypeOf(trustedApprovalKeys) === Object.prototype
-        ? Object.entries(trustedApprovalKeys)
-        : undefined;
+      : Object.entries(trustedApprovalKeys);
   if (
     !entries ||
     entries.some(
