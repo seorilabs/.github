@@ -77,6 +77,11 @@ if (!modes.has(mode) || process.argv.length > 4) fail("P3_GCP_COMMAND_INVALID");
 
 const expectedConfirmation = `fleet-p3-${cloud.wif.workflowSourceSha.slice(0, 12)}`;
 const expectedRollback = `fleet-p3-rollback-${cloud.wif.workflowSourceSha.slice(0, 12)}`;
+const poolDisplayName = "Seorilabs Fleet P3";
+const poolDescription =
+  "Dedicated keyless identities for Fleet Cloud Build and Auth Broker";
+const poolName =
+  `projects/${cloud.projectNumber}/locations/global/workloadIdentityPools/${cloud.wif.pool}`;
 if (mode === "apply" && confirmation !== expectedConfirmation) {
   fail("P3_GCP_APPLY_CONFIRMATION_REQUIRED");
 }
@@ -278,7 +283,10 @@ function publicPlan() {
     apply: `node scripts/fleet/bootstrap-p3-gcp.mjs apply ${expectedConfirmation}`,
     readback: "node scripts/fleet/bootstrap-p3-gcp.mjs readback",
     rollback: `node scripts/fleet/bootstrap-p3-gcp.mjs rollback ${expectedRollback}`,
-    resume: "같은 apply 명령을 다시 실행하면 exact-existing 객체는 no-op하고 미완료 단계만 진행한다.",
+    resume:
+      "같은 apply 명령은 exact-existing 객체를 보존하고 rollback으로 disabled된 exact provider만 다시 활성화한다.",
+    rollbackStrategy:
+      "IAM binding은 변경하지 않고 exact provider만 disable해 신규 token exchange를 차단한다.",
   };
 }
 
@@ -323,8 +331,8 @@ function ensureServiceAccounts() {
   }
 }
 
-function ensurePool() {
-  const existing = gcloudRun(
+function poolRead() {
+  const raw = gcloudRun(
     [
       "iam",
       "workload-identity-pools",
@@ -332,10 +340,33 @@ function ensurePool() {
       cloud.wif.pool,
       `--project=${cloud.projectId}`,
       "--location=global",
-      "--format=value(name)",
+      "--format=json(name,displayName,description,disabled,state)",
     ],
     "P3_GCP_WIF_POOL_READ_FAILED",
   );
+  return raw === null
+    ? null
+    : parsePublicJson(raw, "P3_GCP_WIF_POOL_RESPONSE_INVALID");
+}
+
+function poolConfigurationMatches(actual) {
+  return (
+    actual?.name === poolName &&
+    actual?.displayName === poolDisplayName &&
+    actual?.description === poolDescription
+  );
+}
+
+function poolActive(actual) {
+  return (
+    actual !== null &&
+    actual?.disabled !== true &&
+    actual?.state === "ACTIVE"
+  );
+}
+
+function ensurePool() {
+  let existing = poolRead();
   if (existing === null) {
     gcloudRun(
       [
@@ -345,13 +376,17 @@ function ensurePool() {
         cloud.wif.pool,
         `--project=${cloud.projectId}`,
         "--location=global",
-        "--display-name=Seorilabs Fleet P3",
-        "--description=Dedicated keyless identities for Fleet Cloud Build and Auth Broker",
+        `--display-name=${poolDisplayName}`,
+        `--description=${poolDescription}`,
         "--format=none",
       ],
       "P3_GCP_WIF_POOL_CREATE_FAILED",
     );
+    existing = poolRead();
   }
+  if (!poolConfigurationMatches(existing)) fail("P3_GCP_WIF_POOL_DRIFT");
+  if (existing.disabled === true) fail("P3_GCP_WIF_POOL_DISABLED");
+  if (existing.state !== "ACTIVE") fail("P3_GCP_WIF_POOL_STATE_INVALID");
 }
 
 function providerRead(provider) {
@@ -378,7 +413,7 @@ function mappingObject(mapping) {
   return Object.fromEntries(mapping.split(",").map((entry) => entry.split(/=(.*)/su).slice(0, 2)));
 }
 
-function providerMatches(actual, { condition, mapping, issuer, audience }) {
+function providerConfigurationMatches(actual, { condition, mapping, issuer, audience }) {
   const actualMapping = Object.entries(actual?.attributeMapping ?? {}).toSorted(
     ([left], [right]) => left.localeCompare(right),
   );
@@ -386,13 +421,41 @@ function providerMatches(actual, { condition, mapping, issuer, audience }) {
     ([left], [right]) => left.localeCompare(right),
   );
   return (
-    actual?.disabled === false &&
     actual?.attributeCondition === condition &&
     JSON.stringify(actualMapping) === JSON.stringify(expectedMapping) &&
     actual?.oidc?.issuerUri === issuer &&
     Array.isArray(actual?.oidc?.allowedAudiences) &&
     actual.oidc.allowedAudiences.length === 1 &&
     actual.oidc.allowedAudiences[0] === audience
+  );
+}
+
+function providerMatches(actual, expected) {
+  return (
+    providerConfigurationMatches(actual, expected) &&
+    providerActive(actual)
+  );
+}
+
+function providerActive(actual) {
+  return actual !== null && actual?.disabled !== true;
+}
+
+function updateProviderDisabled(provider, disabled, code) {
+  gcloudRun(
+    [
+      "iam",
+      "workload-identity-pools",
+      "providers",
+      "update-oidc",
+      provider,
+      `--project=${cloud.projectId}`,
+      "--location=global",
+      `--workload-identity-pool=${cloud.wif.pool}`,
+      disabled ? "--disabled" : "--no-disabled",
+      "--format=none",
+    ],
+    code,
   );
 }
 
@@ -441,7 +504,19 @@ function ensureGithubProvider() {
   };
   const existing = providerRead(cloud.wif.githubProvider);
   if (existing !== null) {
-    if (!providerMatches(existing, expected)) fail("P3_GITHUB_WIF_PROVIDER_DRIFT");
+    if (!providerConfigurationMatches(existing, expected)) {
+      fail("P3_GITHUB_WIF_PROVIDER_DRIFT");
+    }
+    if (existing.disabled === true) {
+      updateProviderDisabled(
+        cloud.wif.githubProvider,
+        false,
+        "P3_GITHUB_WIF_PROVIDER_ENABLE_FAILED",
+      );
+      if (!providerMatches(providerRead(cloud.wif.githubProvider), expected)) {
+        fail("P3_GITHUB_WIF_PROVIDER_ENABLE_FAILED");
+      }
+    }
     return;
   }
   gcloudRun(
@@ -473,7 +548,19 @@ function ensureKubernetesProvider() {
   };
   const existing = providerRead(cloud.wif.kubernetesProvider);
   if (existing !== null) {
-    if (!providerMatches(existing, expected)) fail("P3_KUBERNETES_WIF_PROVIDER_DRIFT");
+    if (!providerConfigurationMatches(existing, expected)) {
+      fail("P3_KUBERNETES_WIF_PROVIDER_DRIFT");
+    }
+    if (existing.disabled === true) {
+      updateProviderDisabled(
+        cloud.wif.kubernetesProvider,
+        false,
+        "P3_KUBERNETES_WIF_PROVIDER_ENABLE_FAILED",
+      );
+      if (!providerMatches(providerRead(cloud.wif.kubernetesProvider), expected)) {
+        fail("P3_KUBERNETES_WIF_PROVIDER_ENABLE_FAILED");
+      }
+    }
     return;
   }
   const directory = mkdtempSync(join(tmpdir(), "seori-p3-jwks-"));
@@ -504,20 +591,25 @@ function ensureKubernetesProvider() {
   }
 }
 
-function bindingCommand(action, item) {
-  const verb = action === "add" ? "add-iam-policy-binding" : "remove-iam-policy-binding";
+function bindingCommand(item) {
   const common = [`--member=${item.member}`, `--role=${item.role}`, "--format=none"];
   if (item.resourceType === "project") {
-    return ["projects", verb, cloud.projectId, ...common];
+    return ["projects", "add-iam-policy-binding", cloud.projectId, ...common];
   }
   if (item.resourceType === "bucket") {
-    return ["storage", "buckets", verb, item.resource, ...common];
+    return [
+      "storage",
+      "buckets",
+      "add-iam-policy-binding",
+      item.resource,
+      ...common,
+    ];
   }
   if (item.resourceType === "serviceAccount") {
     return [
       "iam",
       "service-accounts",
-      verb,
+      "add-iam-policy-binding",
       item.resource,
       `--project=${cloud.projectId}`,
       ...common,
@@ -527,7 +619,7 @@ function bindingCommand(action, item) {
   return [
     "artifacts",
     "repositories",
-    verb,
+    "add-iam-policy-binding",
     segments.at(-1),
     `--project=${cloud.projectId}`,
     `--location=${segments[3]}`,
@@ -537,7 +629,7 @@ function bindingCommand(action, item) {
 
 function applyBindings() {
   for (const item of bindings) {
-    gcloudRun(bindingCommand("add", item), "P3_GCP_IAM_BINDING_APPLY_FAILED");
+    gcloudRun(bindingCommand(item), "P3_GCP_IAM_BINDING_APPLY_FAILED");
   }
 }
 
@@ -615,69 +707,104 @@ function readback() {
           exists: true,
         };
   });
+  const pool = poolRead();
   const github = providerRead(cloud.wif.githubProvider);
   const kubernetes = providerRead(cloud.wif.kubernetesProvider);
+  const githubExpected = {
+    condition: githubCondition(), mapping: githubMapping,
+    issuer: cloud.wif.githubIssuer, audience: cloud.wif.githubAudience,
+  };
+  const kubernetesExpected = {
+    condition: kubernetesCondition(), mapping: kubernetesMapping,
+    issuer: cloud.wif.kubernetesIssuer, audience: auth.wifAudience,
+  };
   const bindingState = bindings.map((item) => ({ ...item, present: bindingPresent(item) }));
   return {
     project: { id: cloud.projectId, number: cloud.projectNumber },
     serviceAccounts: accountState,
+    workloadIdentityPool: {
+      exists: pool !== null,
+      configurationExact: poolConfigurationMatches(pool),
+      disabled: pool?.disabled === true,
+      state: pool?.state ?? null,
+      active: poolActive(pool),
+    },
     providers: {
-      github: { exists: github !== null, exact: providerMatches(github, {
-        condition: githubCondition(), mapping: githubMapping,
-        issuer: cloud.wif.githubIssuer, audience: cloud.wif.githubAudience,
-      }) },
-      kubernetes: { exists: kubernetes !== null, exact: providerMatches(kubernetes, {
-        condition: kubernetesCondition(), mapping: kubernetesMapping,
-        issuer: cloud.wif.kubernetesIssuer, audience: auth.wifAudience,
-      }) },
+      github: {
+        exists: github !== null,
+        configurationExact: providerConfigurationMatches(github, githubExpected),
+        disabled: github?.disabled === true,
+        active: providerActive(github),
+      },
+      kubernetes: {
+        exists: kubernetes !== null,
+        configurationExact: providerConfigurationMatches(kubernetes, kubernetesExpected),
+        disabled: kubernetes?.disabled === true,
+        active: providerActive(kubernetes),
+      },
     },
     iamBindings: bindingState,
     ready:
       accountState.every(({ exists, disabled }) => exists && disabled !== true) &&
-      providerMatches(github, {
-        condition: githubCondition(), mapping: githubMapping,
-        issuer: cloud.wif.githubIssuer, audience: cloud.wif.githubAudience,
-      }) &&
-      providerMatches(kubernetes, {
-        condition: kubernetesCondition(), mapping: kubernetesMapping,
-        issuer: cloud.wif.kubernetesIssuer, audience: auth.wifAudience,
-      }) &&
+      poolConfigurationMatches(pool) &&
+      poolActive(pool) &&
+      providerMatches(github, githubExpected) &&
+      providerMatches(kubernetes, kubernetesExpected) &&
       bindingState.every(({ present }) => present),
     staticKeysCreated: false,
   };
 }
 
 function rollback() {
-  for (const item of bindings.toReversed()) {
-    if (bindingPresent(item)) {
-      gcloudRun(bindingCommand("remove", item), "P3_GCP_IAM_BINDING_ROLLBACK_FAILED");
+  const expectedProviders = [
+    {
+      id: cloud.wif.githubProvider,
+      expected: {
+        condition: githubCondition(), mapping: githubMapping,
+        issuer: cloud.wif.githubIssuer, audience: cloud.wif.githubAudience,
+      },
+      driftCode: "P3_GITHUB_WIF_PROVIDER_DRIFT",
+    },
+    {
+      id: cloud.wif.kubernetesProvider,
+      expected: {
+        condition: kubernetesCondition(), mapping: kubernetesMapping,
+        issuer: cloud.wif.kubernetesIssuer, audience: auth.wifAudience,
+      },
+      driftCode: "P3_KUBERNETES_WIF_PROVIDER_DRIFT",
+    },
+  ];
+  const providersDisabled = [];
+  const providersAbsent = [];
+  for (const { id, expected, driftCode } of expectedProviders) {
+    const existing = providerRead(id);
+    if (existing === null) {
+      providersAbsent.push(id);
+      continue;
     }
-  }
-  for (const provider of [cloud.wif.githubProvider, cloud.wif.kubernetesProvider]) {
-    if (providerRead(provider) !== null) {
-      gcloudRun(
-        [
-          "iam",
-          "workload-identity-pools",
-          "providers",
-          "update-oidc",
-          provider,
-          `--project=${cloud.projectId}`,
-          "--location=global",
-          `--workload-identity-pool=${cloud.wif.pool}`,
-          "--disabled",
-          "--format=none",
-        ],
-        "P3_GCP_WIF_PROVIDER_DISABLE_FAILED",
-      );
+    if (!providerConfigurationMatches(existing, expected)) fail(driftCode);
+    if (existing.disabled !== true) {
+      updateProviderDisabled(id, true, "P3_GCP_WIF_PROVIDER_DISABLE_FAILED");
     }
+    const disabled = providerRead(id);
+    if (
+      !providerConfigurationMatches(disabled, expected) ||
+      disabled?.disabled !== true
+    ) {
+      fail("P3_GCP_WIF_PROVIDER_DISABLE_FAILED");
+    }
+    providersDisabled.push(id);
   }
   return {
-    state: "ACCESS_REVOKED",
+    state: "NEW_TOKEN_EXCHANGE_REVOKED",
     serviceAccountsDeleted: false,
     staticKeysDeleted: false,
-    providersDisabled: [cloud.wif.githubProvider, cloud.wif.kubernetesProvider],
-    exactBindingsRemoved: bindings.length,
+    existingAccessTokensRevoked: false,
+    providersDisabled,
+    providersAbsent,
+    iamBindingsMutated: false,
+    exactBindingsPreserved: bindings.length,
+    exactBindingsRemoved: 0,
   };
 }
 

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
@@ -9,6 +12,10 @@ import { parse } from "yaml";
 
 const execFileAsync = promisify(execFile);
 const script = "scripts/fleet/render-p3-runtime.mjs";
+const gcpBootstrap = "scripts/fleet/bootstrap-p3-gcp.mjs";
+const gcloudMock = fileURLToPath(
+  new URL("./fixtures/p3-gcloud-mock.mjs", import.meta.url),
+);
 const contract = parse(await readFile("contracts/fleet-p3-runtime.yaml", "utf8"));
 const schema = JSON.parse(
   await readFile("contracts/fleet-p3-runtime.schema.json", "utf8"),
@@ -196,6 +203,191 @@ test("GCP bootstrap apply와 rollback은 exact 공개 confirmation 없이는 실
         return true;
       },
     );
+  }
+});
+
+test("GCP rollback은 기존 IAM을 보존하고 disabled provider만 재활성화한다", async () => {
+  const bootstrapSource = await readFile(gcpBootstrap, "utf8");
+  assert.doesNotMatch(bootstrapSource, /remove-iam-policy-binding/u);
+  const planResult = await execFileAsync(process.execPath, [gcpBootstrap, "plan"]);
+  const plan = JSON.parse(planResult.stdout);
+  const directory = await mkdtemp(join(tmpdir(), "seori-p3-gcloud-mock-"));
+  const statePath = join(directory, "state.json");
+  const mappingObject = (mapping) =>
+    Object.fromEntries(
+      mapping.split(",").map((entry) => entry.split(/=(.*)/su).slice(0, 2)),
+    );
+  const providerState = ({ attributeCondition, attributeMapping, issuer, audience }) => ({
+    attributeCondition,
+    attributeMapping: mappingObject(attributeMapping),
+    disabled: false,
+    oidc: { allowedAudiences: [audience], issuerUri: issuer },
+  });
+  const initialState = {
+    projectNumber: plan.project.number,
+    serviceAccounts: Object.fromEntries(
+      plan.serviceAccounts.map(({ email }) => [email, { email, disabled: false }]),
+    ),
+    pool: {
+      name:
+        `projects/${plan.project.number}/locations/global/workloadIdentityPools/` +
+        plan.workloadIdentity.pool,
+      displayName: "Seorilabs Fleet P3",
+      description:
+        "Dedicated keyless identities for Fleet Cloud Build and Auth Broker",
+      disabled: false,
+      state: "ACTIVE",
+    },
+    providers: {
+      [plan.workloadIdentity.github.provider]: providerState(
+        plan.workloadIdentity.github,
+      ),
+      [plan.workloadIdentity.kubernetes.provider]: providerState(
+        plan.workloadIdentity.kubernetes,
+      ),
+    },
+    bindings: [
+      plan.iamBindings[0],
+      {
+        resourceType: "project",
+        resource: "projects/seorilabs-ci",
+        role: "roles/logging.viewer",
+        member: "serviceAccount:unrelated@seorilabs-ci.iam.gserviceaccount.com",
+      },
+    ],
+    history: [],
+  };
+  const environment = {
+    ...process.env,
+    SEORILABS_GCLOUD_CLI: gcloudMock,
+    P3_GCLOUD_MOCK_STATE: statePath,
+  };
+  const bootstrap = async (command, confirmation) => {
+    const args = [gcpBootstrap, command];
+    if (confirmation) args.push(confirmation);
+    const result = await execFileAsync(process.execPath, args, { env: environment });
+    return JSON.parse(result.stdout);
+  };
+  const readState = async () => JSON.parse(await readFile(statePath, "utf8"));
+  const writeState = async (state) =>
+    writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+
+  try {
+    await writeState(initialState);
+    const applied = await bootstrap("apply", plan.confirmation);
+    assert.equal(applied.ready, true);
+    const appliedState = await readState();
+    assert.equal(
+      appliedState.bindings.filter(
+        (item) => JSON.stringify(item) === JSON.stringify(plan.iamBindings[0]),
+      ).length,
+      1,
+    );
+    const bindingSnapshot = structuredClone(appliedState.bindings);
+
+    const rolledBack = await bootstrap("rollback", plan.rollbackConfirmation);
+    assert.equal(rolledBack.state, "NEW_TOKEN_EXCHANGE_REVOKED");
+    assert.equal(rolledBack.iamBindingsMutated, false);
+    assert.equal(rolledBack.existingAccessTokensRevoked, false);
+    assert.equal(rolledBack.exactBindingsRemoved, 0);
+    assert.equal(rolledBack.exactBindingsPreserved, plan.iamBindings.length);
+    const rolledBackState = await readState();
+    assert.deepEqual(rolledBackState.bindings, bindingSnapshot);
+    assert.equal(rolledBackState.history.includes("iam:remove"), false);
+    assert.ok(
+      Object.values(rolledBackState.providers).every(
+        ({ disabled }) => disabled === true,
+      ),
+    );
+
+    const disabledReadback = await bootstrap("readback");
+    assert.equal(disabledReadback.ready, false);
+    assert.deepEqual(disabledReadback.workloadIdentityPool, {
+      exists: true,
+      configurationExact: true,
+      disabled: false,
+      state: "ACTIVE",
+      active: true,
+    });
+    assert.ok(
+      Object.values(disabledReadback.providers).every(
+        ({ configurationExact, disabled, active }) =>
+          configurationExact === true && disabled === true && active === false,
+      ),
+    );
+
+    const githubProvider = plan.workloadIdentity.github.provider;
+    rolledBackState.providers[githubProvider].attributeCondition += " && false";
+    await writeState(rolledBackState);
+    await assert.rejects(
+      bootstrap("apply", plan.confirmation),
+      (error) => {
+        assert.match(error.stderr, /P3_GITHUB_WIF_PROVIDER_DRIFT/u);
+        return true;
+      },
+    );
+    rolledBackState.providers[githubProvider] = providerState({
+      ...plan.workloadIdentity.github,
+      disabled: true,
+    });
+    rolledBackState.providers[githubProvider].disabled = true;
+    await writeState(rolledBackState);
+
+    const reapplied = await bootstrap("apply", plan.confirmation);
+    assert.equal(reapplied.ready, true);
+    const reappliedState = await readState();
+    assert.deepEqual(reappliedState.bindings, bindingSnapshot);
+    assert.ok(
+      Object.values(reappliedState.providers).every(
+        ({ disabled }) => disabled === false,
+      ),
+    );
+
+    reappliedState.pool.disabled = true;
+    await writeState(reappliedState);
+    const poolDisabledReadback = await bootstrap("readback");
+    assert.equal(poolDisabledReadback.ready, false);
+    assert.equal(poolDisabledReadback.workloadIdentityPool.disabled, true);
+    assert.equal(poolDisabledReadback.workloadIdentityPool.active, false);
+    await assert.rejects(
+      bootstrap("apply", plan.confirmation),
+      (error) => {
+        assert.match(error.stderr, /P3_GCP_WIF_POOL_DISABLED/u);
+        return true;
+      },
+    );
+
+    reappliedState.pool.disabled = false;
+    reappliedState.pool.displayName = "drifted";
+    await writeState(reappliedState);
+    const poolDriftReadback = await bootstrap("readback");
+    assert.equal(poolDriftReadback.ready, false);
+    assert.equal(poolDriftReadback.workloadIdentityPool.configurationExact, false);
+    await assert.rejects(
+      bootstrap("apply", plan.confirmation),
+      (error) => {
+        assert.match(error.stderr, /P3_GCP_WIF_POOL_DRIFT/u);
+        return true;
+      },
+    );
+
+    reappliedState.pool.displayName = "Seorilabs Fleet P3";
+    reappliedState.pool.state = "DELETED";
+    await writeState(reappliedState);
+    const poolStateReadback = await bootstrap("readback");
+    assert.equal(poolStateReadback.ready, false);
+    assert.equal(poolStateReadback.workloadIdentityPool.configurationExact, true);
+    assert.equal(poolStateReadback.workloadIdentityPool.state, "DELETED");
+    assert.equal(poolStateReadback.workloadIdentityPool.active, false);
+    await assert.rejects(
+      bootstrap("apply", plan.confirmation),
+      (error) => {
+        assert.match(error.stderr, /P3_GCP_WIF_POOL_STATE_INVALID/u);
+        return true;
+      },
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
 
