@@ -186,6 +186,10 @@ function withIntegrity(bundle) {
 
 async function readYaml(path) {
   const text = await readFile(path, "utf8");
+  return parseYamlText(text, path);
+}
+
+function parseYamlText(text, path) {
   const document = parseDocument(text, {
     maxAliasCount: 20,
     prettyErrors: false,
@@ -1208,9 +1212,9 @@ function canaryEvidenceReadbackMatches(verified, record, canary, bundle) {
     verified.buildConclusion === "success" &&
     verified.marketUpload === false &&
     verified.staticWorkflowRef ===
-      `seorilabs/.github/${bundle?.reusableWorkflows?.[record.profile]?.path}@${bundle?.source?.sha}` &&
+      `seorilabs/.github/${bundle?.reusableWorkflows?.[record.profile]?.path}@${bundle?.reusableWorkflows?.[record.profile]?.sha}` &&
     verified.buildWorkflowRef ===
-      `seorilabs/.github/${bundle?.buildWorkflows?.[record.profile]?.path}@${bundle?.source?.sha}` &&
+      `seorilabs/.github/${bundle?.buildWorkflows?.[record.profile]?.path}@${bundle?.buildWorkflows?.[record.profile]?.sha}` &&
     verified.builderImage ===
       bundle?.delivery?.android?.builderImages?.[record.profile] &&
     verified.cloudBuildConfigSha256 ===
@@ -1246,16 +1250,19 @@ export async function createWorkflowBundle({
   if (source.bundleVersion !== CURRENT_BUNDLE_VERSION) {
     throw new Error("CANDIDATE_BUNDLE_VERSION_UNSUPPORTED");
   }
+  if (!SHA_PATTERN.test(source.workflowExecutionSha ?? "")) {
+    throw new Error("WORKFLOW_EXECUTION_SHA_INVALID");
+  }
   const workflows = Object.fromEntries(
     Object.entries(source.reusableWorkflows).map(([profile, workflow]) => [
       profile,
-      { ...workflow, sha: sourceSha },
+      { ...workflow, sha: source.workflowExecutionSha },
     ]),
   );
   const buildWorkflows = Object.fromEntries(
     Object.entries(source.buildWorkflows).map(([profile, workflow]) => [
       profile,
-      { ...workflow, sha: sourceSha },
+      { ...workflow, sha: source.workflowExecutionSha },
     ]),
   );
 
@@ -1375,8 +1382,26 @@ export async function validateWorkflowBundle(
     ...Object.values(bundle?.reusableWorkflows ?? {}),
     ...Object.values(bundle?.buildWorkflows ?? {}),
   ].map((workflow) => workflow.sha);
-  if (workflowShas.some((sha) => sha !== bundle?.source?.sha)) {
-    diagnostics.push("WORKFLOW_SOURCE_SHA_MISMATCH");
+  let expectedWorkflowExecutionSha = bundle?.source?.sha;
+  if (isWorkflowBundleV4(bundle)) {
+    try {
+      const sourceDefinition = approvedSourceReadback?.snapshot
+        ? parseYamlText(
+            approvedSourceReadback.snapshot.contractAssetContents[SOURCE_PATH],
+            SOURCE_PATH,
+          )
+        : await readYaml(resolve(repoRoot, SOURCE_PATH));
+      expectedWorkflowExecutionSha =
+        sourceDefinition.workflowExecutionSha ?? bundle?.source?.sha;
+    } catch {
+      diagnostics.push("WORKFLOW_EXECUTION_SOURCE_UNREADABLE");
+    }
+  }
+  if (
+    !SHA_PATTERN.test(expectedWorkflowExecutionSha ?? "") ||
+    workflowShas.some((sha) => sha !== expectedWorkflowExecutionSha)
+  ) {
+    diagnostics.push("WORKFLOW_EXECUTION_SHA_MISMATCH");
   }
   if (
     Object.entries(bundle?.reusableWorkflows ?? {}).some(

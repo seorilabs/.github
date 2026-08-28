@@ -26,15 +26,17 @@
 - `fleet-managed`, `fleet-profile`, `fleet-state`, `fleet-ruleset=shadow|active` custom property 정합화
 - protected branch만 허용하는 `internal` Environment 정합화
 - `.github/workflows/org-contract.yml` bootstrap PR 생성 또는 기존 PR 갱신
+- `internal` Environment의 공개 WIF provider, Cloud Build submitter/executor identity 정합화
 - 이미 등록된 조직 secret의 selected repository visibility 연결
 - 숫자 repository ID와 중앙 `job_workflow_ref@full-sha`를 compound principal로 고정한 shared-provider WIF binding
 - Enterprise 조직 ruleset 또는 Team 저장소별 branch protection의 SHADOW/ACTIVE reconciliation
 
-`attachFleetProvisioningOperations`는 secret 값 대신 logical credential ID와 GitHub Secret 이름만 받는다. WIF도 shared provider resource name, service account email, exact 중앙 workflow SHA만 받는다. unknown field, secret 값, 중복 binding은 schema 이전에 거부한다. 보호 강화 승인과 credential provisioning 승인은 서로 다른 1회용 receipt여야 한다.
+`attachFleetProvisioningOperations`는 secret 값 대신 logical credential ID와 GitHub Secret 이름만 받는다. WIF도 shared provider resource name, service account email, exact 중앙 workflow SHA만 받는다. callee가 읽는 세 GitHub Actions 변수는 비밀이 아닌 공개 identity지만 중앙 desired state의 exact catalog binding으로만 받는다. Environment variable binding과 WIF binding은 같은 logical credential, revision, `internal` Environment를 가져야 하며 하나만 누락되면 계획을 거부한다. unknown field, secret 값, 중복 binding은 schema 이전에 거부한다. 보호 강화 승인과 credential provisioning 승인은 서로 다른 1회용 receipt여야 한다.
 
 WorkflowBundle v4는 Android build-only caller와 Xcode Cloud run envelope의 중앙
 generator/validator도 제공하지만, webhook의 기본 zero-touch plan은 static
-`org-contract.yml`까지만 자동 생성한다. secret visibility와 WIF operation은 Backoffice의
+`org-contract.yml`까지만 자동 생성한다. Environment variable, secret visibility와 WIF
+operation은 Backoffice의
 ACTIVE desired state를 읽은 trusted reconciler가 `attachFleetProvisioningOperations`로 별도
 추가한다. non-promotable contract fixture probe와 실제 pilot의 두 번 연속 shadow parity,
 WIF·Cloud Build IAM readback, Xcode Cloud workflow readback이 끝난 뒤 별도 wave에서 추가한다.
@@ -68,7 +70,7 @@ WIF·Cloud Build IAM readback, Xcode Cloud workflow readback이 끝난 뒤 별�
 
 apply 성공 여부가 불명확하거나 source SHA가 바뀌면 완료하지 않는다. 같은 idempotency key로 provider readback부터 재개한다. 이미 완료한 operation도 provider 상태가 없으면 성공으로 간주하지 않는다.
 
-durable receipt는 현재 target의 충족 사실만 고정한다. shared WIF provider/service-account의 etag, 조직 secret의 다른 selected repository, custom property의 다른 key처럼 다른 fleet 작업이 늘릴 수 있는 superset 상태는 stable satisfaction witness에서 제외한다. 대신 현재 provider 전체 observation은 별도 `readbackDigest`로 남긴다. 따라서 다른 repo를 추가해도 기존 완료 작업은 mutation 없이 replay되지만 target binding 자체가 사라지면 fail-closed한다.
+durable receipt는 현재 target의 충족 사실만 고정한다. shared WIF provider/service-account의 etag, 조직 secret의 다른 selected repository, custom property의 다른 key, Environment의 관련 없는 공개 변수처럼 다른 fleet 작업이 늘릴 수 있는 superset 상태는 stable satisfaction witness에서 제외한다. 대신 현재 provider 전체 observation은 별도 `readbackDigest`로 남긴다. 따라서 다른 repo를 추가해도 기존 완료 작업은 mutation 없이 replay되지만 target binding 자체가 사라지면 fail-closed한다.
 
 ## 운영 adapter 권한
 
@@ -77,14 +79,14 @@ GitHub App installation token은 매 operation마다 숫자 repository ID 한 �
 - repository readback: Metadata read, Contents read
 - bootstrap PR: Contents write, Pull requests write, Workflows write
 - repository custom property: Repository custom properties write
-- Environment: Environments write
+- Environment와 Environment variables: Environments write
 - 조직 secret selected repository: Organization secrets write
 - Enterprise ruleset capability/readback: Organization administration read
 - Team branch protection readback/apply: Repository administration read/write
 
 readback token은 같은 permission의 `read`만 사용하고 mutation token과 분리한다. WIF mutation은 GitHub token을 전달하지 않고 별도 trusted GCP adapter가 수행한다.
 
-정적 caller는 secret을 받지 않으므로 조직 secret 가시성이나 WIF를 bootstrap 단계에서 추가하지 않는다. release workflow가 중앙 desired state에 활성화된 뒤 별도 승인된 adapter가 named secret visibility와 `job_workflow_ref`·숫자 repository ID 조건의 WIF를 구성한다. `secrets: inherit`는 허용하지 않는다.
+정적 caller는 secret을 받지 않으므로 조직 secret 가시성이나 WIF를 bootstrap 단계에서 추가하지 않는다. release workflow가 중앙 desired state에 활성화된 뒤 별도 승인된 adapter가 세 공개 Environment variable과 named secret visibility를 설정하고, 숫자 owner ID와 `(job_workflow_ref, 숫자 repository ID)` 쌍으로 WIF를 구성한다. `secrets: inherit`는 허용하지 않는다.
 
 공식 API 근거:
 
@@ -92,6 +94,7 @@ readback token은 같은 permission의 `read`만 사용하고 mutation token과 
 - [GitHub App installation token scoping](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
 - [Repository custom properties](https://docs.github.com/en/rest/repos/custom-properties)
 - [Deployment environments](https://docs.github.com/en/rest/deployments/environments)
+- [Actions environment variables](https://docs.github.com/en/rest/actions/variables#create-or-update-an-environment-variable)
 - [OIDC with reusable workflows](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-with-reusable-workflows)
 
 ## WorkflowBundle 승인 경계
@@ -110,7 +113,7 @@ readback token은 같은 permission의 `read`만 사용하고 mutation token과 
 
 PR mutation 전에 `CANDIDATE_WIF_PREBIND` 목적의 5분·1회 승인 receipt를 CAS로 소비한다. 승인은 organization·repo·app source SHA·candidate bundle digest·candidate source SHA·central `job_workflow_ref`·plan digest를 모두 고정한다. shared WIF provider의 기존 binding과 두 etag를 먼저 읽고, exact etag CAS 적용 뒤 다시 `BOUND`인지 확인한 경우에만 GitHub App이 PR을 생성한다. 완료 replay는 같은 consumed approval과 WIF/PR exact readback을 사용하며 이미 존재하는 IAM binding이나 PR을 중복 생성하지 않는다.
 
-Android caller는 생성 PR의 해당 파일 변경에만 반응한다. 중앙 reusable workflow는 일반 경로에서는 exact `main` caller만, candidate 경로에서는 고정 repository ID·same-repo head·exact base source SHA·`refs/pull/<number>/merge`·candidate SHA suffix가 모두 맞는 PR만 허용한다. repository-scoped GitHub App token, plan generation, 5분 operation lease, idempotent readback을 모두 통과해야 완료된다.
+Android caller는 생성 PR의 해당 파일 변경에만 반응한다. 중앙 reusable workflow는 일반 경로에서는 exact `main` caller만, candidate 경로에서는 고정 repository ID·same-repo head·exact base source SHA·`refs/pull/<number>/merge`·workflow execution SHA suffix가 모두 맞는 PR만 허용한다. repository-scoped GitHub App token, plan generation, 5분 operation lease, idempotent readback을 모두 통과해야 완료된다.
 
 ## 운영 전 필수 gate
 

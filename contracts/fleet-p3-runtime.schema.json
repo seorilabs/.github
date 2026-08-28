@@ -252,7 +252,7 @@
     "cloudBuild": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["projectId", "projectNumber", "region", "provider", "wif", "submitter", "executor"],
+      "required": ["projectId", "projectNumber", "region", "provider", "wif", "submitter", "executor", "githubActions"],
       "properties": {
         "projectId": { "const": "seorilabs-ci" },
         "projectNumber": { "const": "321365398093" },
@@ -261,7 +261,7 @@
         "wif": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["pool", "githubProvider", "kubernetesProvider", "githubIssuer", "kubernetesIssuer", "githubAudience", "organizationId", "workflowSourceSha", "repositories"],
+          "required": ["pool", "githubProvider", "kubernetesProvider", "githubIssuer", "kubernetesIssuer", "githubAudience", "organizationId", "workflowBundleSourceSha", "workflowExecutionSha", "repositories"],
           "properties": {
             "pool": { "const": "fleet-p3" },
             "githubProvider": { "const": "github-cloud-build" },
@@ -270,7 +270,8 @@
             "kubernetesIssuer": { "const": "https://kubernetes.default.svc" },
             "githubAudience": { "const": "https://github.com/seorilabs" },
             "organizationId": { "const": "283115031" },
-            "workflowSourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "workflowBundleSourceSha": { "const": "6e18b189d112f23270426cd88b3f906969103b75" },
+            "workflowExecutionSha": { "const": "c328d9bf55f31ba11f53ef06071cc7b76d283617" },
             "repositories": {
               "type": "array",
               "minItems": 2,
@@ -284,7 +285,27 @@
           }
         },
         "submitter": { "$ref": "#/$defs/identity" },
-        "executor": { "$ref": "#/$defs/identity" }
+        "executor": { "$ref": "#/$defs/identity" },
+        "githubActions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bindingRevision", "environment", "logicalCredentialId", "variables"],
+          "properties": {
+            "bindingRevision": { "const": 1 },
+            "environment": { "const": "internal" },
+            "logicalCredentialId": { "const": "shared/gcp/cloud-build" },
+            "variables": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["GOOGLE_WORKLOAD_IDENTITY_PROVIDER", "SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT", "SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT"],
+              "properties": {
+                "GOOGLE_WORKLOAD_IDENTITY_PROVIDER": { "const": "projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build" },
+                "SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT": { "const": "seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com" },
+                "SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT": { "const": "seori-cloud-build-executor@seorilabs-ci.iam.gserviceaccount.com" }
+              }
+            }
+          }
+        }
       }
     },
     "authBroker": {

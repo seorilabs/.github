@@ -572,9 +572,14 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   );
   assert.doesNotMatch(output.confirmation, /c328d9bf55f3/u);
   assert.equal(
-    output.workflowSourceSha,
+    output.workflowBundleSourceSha,
+    "6e18b189d112f23270426cd88b3f906969103b75",
+  );
+  assert.equal(
+    output.workflowExecutionSha,
     "c328d9bf55f31ba11f53ef06071cc7b76d283617",
   );
+  assert.deepEqual(output.githubActions, contract.cloudBuild.githubActions);
   assert.deepEqual(
     contract.cloudBuild.wif.repositories.map(({ sha256 }) => sha256),
     [
@@ -585,9 +590,8 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   assert.equal(
     output.workloadIdentity.github.attributeCondition,
     "assertion.repository_owner_id == '283115031' && " +
-      "(assertion.repository_id == '1250442131' || assertion.repository_id == '1265192029') && " +
-      "(assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v1.yml@c328d9bf55f31ba11f53ef06071cc7b76d283617' || " +
-      "assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v1.yml@c328d9bf55f31ba11f53ef06071cc7b76d283617')",
+      "((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v1.yml@c328d9bf55f31ba11f53ef06071cc7b76d283617') || " +
+      "(assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v1.yml@c328d9bf55f31ba11f53ef06071cc7b76d283617'))",
   );
   assert.match(
     output.workloadIdentity.kubernetes.attributeCondition,
@@ -841,6 +845,14 @@ test("Secret Manager bootstrap은 role partition을 two-phase 적용하고 rollb
   assert.equal(plan.secretValuesCreated, false);
   assert.equal(plan.provisioning.state, "blocked_unverified");
   assert.equal(plan.provisioning.plaintextTransport, "fd3");
+  assert.equal(
+    plan.workflowBundleSourceSha,
+    "6e18b189d112f23270426cd88b3f906969103b75",
+  );
+  assert.equal(
+    plan.workflowExecutionSha,
+    "c328d9bf55f31ba11f53ef06071cc7b76d283617",
+  );
   assert.match(plan.confirmation, /^fleet-p3-secrets-[a-f0-9]{12}$/u);
   assert.doesNotMatch(plan.confirmation, /c328d9bf55f3/u);
   assert.deepEqual(
@@ -1012,7 +1024,8 @@ test("GCP bootstrap은 canonical wrapper override를 검증하고 public 오류 
   assert.match(source, /P3_GCP_CONTRACT_PARSE_FAILED/u);
   assert.match(source, /P3_GCP_WIF_PROVIDER_RESPONSE_INVALID/u);
   assert.match(source, /P3_GCP_IAM_RESPONSE_INVALID/u);
-  assert.match(source, /git", \["show", object\]/u);
+  assert.match(source, /git", \["show", executionObject\]/u);
+  assert.match(source, /git", \["show", provenanceObject\]/u);
   assert.match(source, /P3_WORKFLOW_SOURCE_DIGEST_MISMATCH/u);
   const contractChecks = await readFile(
     ".github/workflows/contract-checks.yml",

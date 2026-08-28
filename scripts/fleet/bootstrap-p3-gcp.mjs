@@ -129,10 +129,12 @@ function localSourcePreflight() {
     fail("P3_GIT_REMOTE_MISMATCH");
   }
   for (const { workflow, sha256 } of cloud.wif.repositories) {
-    const object = `${cloud.wif.workflowSourceSha}:${workflow}`;
-    let bytes;
+    const executionObject = `${cloud.wif.workflowExecutionSha}:${workflow}`;
+    const provenanceObject = `${cloud.wif.workflowBundleSourceSha}:${workflow}`;
+    let executionBytes;
+    let provenanceBytes;
     try {
-      bytes = execFileSync("git", ["show", object], {
+      executionBytes = execFileSync("git", ["show", executionObject], {
         cwd: repositoryRoot,
         encoding: null,
         maxBuffer: 4 * 1024 * 1024,
@@ -141,23 +143,41 @@ function localSourcePreflight() {
     } catch {
       fail("P3_WORKFLOW_SOURCE_MISSING");
     }
-    const actual = createHash("sha256").update(bytes).digest("hex");
-    if (actual !== sha256) fail("P3_WORKFLOW_SOURCE_DIGEST_MISMATCH");
+    try {
+      provenanceBytes = execFileSync("git", ["show", provenanceObject], {
+        cwd: repositoryRoot,
+        encoding: null,
+        maxBuffer: 4 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch {
+      fail("P3_WORKFLOW_SOURCE_MISSING");
+    }
+    const executionDigest = createHash("sha256")
+      .update(executionBytes)
+      .digest("hex");
+    const provenanceDigest = createHash("sha256")
+      .update(provenanceBytes)
+      .digest("hex");
+    if (
+      executionDigest !== sha256 ||
+      provenanceDigest !== sha256 ||
+      !executionBytes.equals(provenanceBytes)
+    ) {
+      fail("P3_WORKFLOW_SOURCE_DIGEST_MISMATCH");
+    }
   }
 }
 
 function githubCondition() {
-  const workflowClauses = cloud.wif.repositories.map(
-    ({ workflow }) =>
-      `assertion.job_workflow_ref == 'seorilabs/.github/${workflow}@${cloud.wif.workflowSourceSha}'`,
-  );
-  const repositoryClauses = cloud.wif.repositories.map(
-    ({ repositoryId }) => `assertion.repository_id == '${repositoryId}'`,
+  const repositoryWorkflowClauses = cloud.wif.repositories.map(
+    ({ repositoryId, workflow }) =>
+      `(assertion.repository_id == '${repositoryId}' && ` +
+      `assertion.job_workflow_ref == 'seorilabs/.github/${workflow}@${cloud.wif.workflowExecutionSha}')`,
   );
   return [
     `assertion.repository_owner_id == '${cloud.wif.organizationId}'`,
-    `(${repositoryClauses.join(" || ")})`,
-    `(${workflowClauses.join(" || ")})`,
+    `(${repositoryWorkflowClauses.join(" || ")})`,
   ].join(" && ");
 }
 
@@ -272,7 +292,9 @@ function publicPlan() {
     mode: "DRY_RUN",
     project: { id: cloud.projectId, number: cloud.projectNumber },
     contractDigest,
-    workflowSourceSha: cloud.wif.workflowSourceSha,
+    workflowBundleSourceSha: cloud.wif.workflowBundleSourceSha,
+    workflowExecutionSha: cloud.wif.workflowExecutionSha,
+    githubActions: cloud.githubActions,
     confirmation: expectedConfirmation,
     rollbackConfirmation: expectedRollback,
     staticKeysCreated: false,

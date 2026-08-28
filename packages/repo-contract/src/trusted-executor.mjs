@@ -20,6 +20,15 @@ const ISO_DATE_PATTERN =
 const LOGICAL_ID_PATTERN =
   /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){2,7}$/u;
 const SECRET_NAME_PATTERN = /^[A-Z][A-Z0-9_]{1,99}$/u;
+const CLOUD_BUILD_VARIABLE_NAMES = Object.freeze([
+  "GOOGLE_WORKLOAD_IDENTITY_PROVIDER",
+  "SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT",
+  "SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT",
+]);
+const WIF_PROVIDER_VARIABLE_PATTERN =
+  /^projects\/[1-9][0-9]{0,31}\/locations\/global\/workloadIdentityPools\/[a-z][a-z0-9-]{3,31}\/providers\/[a-z][a-z0-9-]{3,31}$/u;
+const SERVICE_ACCOUNT_EMAIL_PATTERN =
+  /^[a-z][a-z0-9-]{4,29}@[a-z][a-z0-9-]{4,29}\.iam\.gserviceaccount\.com$/u;
 const JOB_WORKFLOW_REF_PATTERN =
   /^seorilabs\/\.github\/\.github\/workflows\/[a-z0-9-]+\.yml@[0-9a-f]{40}$/u;
 const ETAG_PATTERN = /^[A-Za-z0-9_+=\/-]{4,512}$/u;
@@ -53,6 +62,10 @@ const GITHUB_OPERATION_WRITE_PERMISSIONS = Object.freeze({
     pull_requests: "write",
     workflows: "write",
   }),
+  "github.environment-variables.ensure": Object.freeze({
+    environments: "write",
+    metadata: "read",
+  }),
   "github.org-secret-visibility.ensure": Object.freeze({
     metadata: "read",
     organization_secrets: "write",
@@ -74,6 +87,10 @@ const GITHUB_OPERATION_READ_PERMISSIONS = Object.freeze({
     contents: "read",
     metadata: "read",
     pull_requests: "read",
+  }),
+  "github.environment-variables.ensure": Object.freeze({
+    environments: "read",
+    metadata: "read",
   }),
   "github.org-secret-visibility.ensure": Object.freeze({
     metadata: "read",
@@ -104,8 +121,9 @@ const OPERATION_ORDER = Object.freeze({
   "github.bootstrap-pull-request.ensure": 3,
   "github.bootstrap-pull-request.update": 3,
   "github.protection.reconcile": 4,
-  "github.org-secret-visibility.ensure": 5,
-  "gcp.wif-binding.ensure": 6,
+  "github.environment-variables.ensure": 5,
+  "github.org-secret-visibility.ensure": 6,
+  "gcp.wif-binding.ensure": 7,
 });
 
 function canonicalize(value) {
@@ -228,6 +246,52 @@ function snapshotSecretBindings(bindings) {
   return Object.freeze(byKey);
 }
 
+function validCloudBuildVariables(value) {
+  return (
+    exactKeys(value, CLOUD_BUILD_VARIABLE_NAMES) &&
+    WIF_PROVIDER_VARIABLE_PATTERN.test(
+      value.GOOGLE_WORKLOAD_IDENTITY_PROVIDER ?? "",
+    ) &&
+    SERVICE_ACCOUNT_EMAIL_PATTERN.test(
+      value.SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT ?? "",
+    ) &&
+    SERVICE_ACCOUNT_EMAIL_PATTERN.test(
+      value.SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT ?? "",
+    ) &&
+    value.SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT !==
+      value.SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT
+  );
+}
+
+function snapshotEnvironmentVariableBindings(bindings) {
+  const kind = "GITHUB_APP_ADAPTER";
+  if (!Array.isArray(bindings)) throw new Error(`${kind}_CONFIGURATION_INVALID`);
+  const byKey = Object.create(null);
+  for (const binding of bindings) {
+    if (
+      !exactKeys(binding, [
+        "bindingRevision",
+        "environment",
+        "logicalCredentialId",
+        "variables",
+      ]) ||
+      !Number.isSafeInteger(binding?.bindingRevision) ||
+      binding.bindingRevision < 1 ||
+      binding.environment !== "internal" ||
+      !LOGICAL_ID_PATTERN.test(binding.logicalCredentialId ?? "") ||
+      !validCloudBuildVariables(binding.variables)
+    ) {
+      throw new Error(`${kind}_CONFIGURATION_INVALID`);
+    }
+    const key =
+      `${binding.logicalCredentialId}@${binding.bindingRevision}:` +
+      binding.environment;
+    if (byKey[key]) throw new Error(`${kind}_CONFIGURATION_INVALID`);
+    byKey[key] = deepFreeze(structuredClone(binding));
+  }
+  return Object.freeze(byKey);
+}
+
 function snapshotWifBindings(bindings) {
   const kind = "WIF_ADAPTER";
   if (!Array.isArray(bindings)) throw new Error(`${kind}_CONFIGURATION_INVALID`);
@@ -267,6 +331,23 @@ function secretBindingForOperation(operation, bindings) {
     !SECRET_NAME_PATTERN.test(binding.secretName ?? "")
   ) {
     throw new Error("GITHUB_SECRET_BINDING_UNTRUSTED");
+  }
+  return binding;
+}
+
+function environmentVariableBindingForOperation(operation, bindings) {
+  const payload = operation?.payload;
+  const key =
+    `${payload?.logicalCredentialId}@${payload?.bindingRevision}:` +
+    payload?.environment;
+  const binding = bindings[key];
+  if (
+    operation?.kind !== "github.environment-variables.ensure" ||
+    !binding ||
+    canonicalJson(binding.variables) !== canonicalJson(payload.variables) ||
+    !validCloudBuildVariables(binding.variables)
+  ) {
+    throw new Error("GITHUB_ENVIRONMENT_VARIABLE_BINDING_UNTRUSTED");
   }
   return binding;
 }
@@ -513,12 +594,17 @@ export function createGitHubAppTrustedAdapter({
   organizationId,
   installationId,
   issueInstallationToken,
+  environmentVariableBindings = [],
   secretBindings = [],
   provider,
   now = () => Date.now(),
 } = {}) {
+  let trustedEnvironmentVariableBindings;
   let trustedSecretBindings;
   try {
+    trustedEnvironmentVariableBindings = snapshotEnvironmentVariableBindings(
+      environmentVariableBindings,
+    );
     trustedSecretBindings = snapshotSecretBindings(secretBindings);
   } catch {
     throw new Error("GITHUB_APP_ADAPTER_CONFIGURATION_INVALID");
@@ -641,6 +727,12 @@ export function createGitHubAppTrustedAdapter({
         GITHUB_OPERATION_WRITE_PERMISSIONS[operation?.kind] ??
         protectionPermissions(operation, true);
       if (!permissions) throw new Error("GITHUB_OPERATION_NOT_MUTABLE");
+      if (operation.kind === "github.environment-variables.ensure") {
+        environmentVariableBindingForOperation(
+          operation,
+          trustedEnvironmentVariableBindings,
+        );
+      }
       if (operation.kind === "github.org-secret-visibility.ensure") {
         secretBindingForOperation(operation, trustedSecretBindings);
       }
@@ -728,6 +820,12 @@ export function createGitHubAppTrustedAdapter({
       }
       const permissions = GITHUB_OPERATION_READ_PERMISSIONS[operation?.kind];
       if (!permissions) throw new Error("GITHUB_OPERATION_READBACK_UNSUPPORTED");
+      if (operation.kind === "github.environment-variables.ensure") {
+        environmentVariableBindingForOperation(
+          operation,
+          trustedEnvironmentVariableBindings,
+        );
+      }
       if (operation.kind === "github.org-secret-visibility.ensure") {
         secretBindingForOperation(operation, trustedSecretBindings);
       }
@@ -1284,6 +1382,29 @@ function validateGitHubObservation(observation, operation, repository) {
       observation.state === "OPEN"
     );
   }
+  if (operation.kind === "github.environment-variables.ensure") {
+    return (
+      exactKeys(observation, [
+        "bindingRevision",
+        "environment",
+        "kind",
+        "logicalCredentialId",
+        "repositoryId",
+        "variables",
+      ]) &&
+      observation.kind === operation.kind &&
+      observation.repositoryId === repository.id &&
+      observation.bindingRevision === payload.bindingRevision &&
+      observation.environment === payload.environment &&
+      observation.logicalCredentialId === payload.logicalCredentialId &&
+      observation.variables !== null &&
+      typeof observation.variables === "object" &&
+      !Array.isArray(observation.variables) &&
+      Object.entries(payload.variables).every(
+        ([name, value]) => observation.variables[name] === value,
+      )
+    );
+  }
   if (operation.kind === "github.org-secret-visibility.ensure") {
     return (
       exactKeys(observation, [
@@ -1456,6 +1577,7 @@ function validatePlanSemantics(plan) {
     NEEDS_INPUT: ["control-plane.repository.observe"],
     PROVISIONING_READY: [
       "control-plane.repository.observe",
+      "github.environment-variables.ensure",
       "github.org-secret-visibility.ensure",
       "gcp.wif-binding.ensure",
     ],
@@ -1511,6 +1633,7 @@ function validatePlanSemantics(plan) {
   if (plan.outcome === "PROVISIONING_READY") {
     const provisioning = plan.operations.filter(
       ({ kind }) =>
+        kind === "github.environment-variables.ensure" ||
         kind === "github.org-secret-visibility.ensure" ||
         kind === "gcp.wif-binding.ensure",
     );
@@ -1607,6 +1730,21 @@ function stableObservationWitness(operation, observation) {
       repositoryId: observation.repositoryId,
       secretName: observation.secretName,
       visibility: observation.visibility,
+    };
+  }
+  if (operation.kind === "github.environment-variables.ensure") {
+    return {
+      bindingRevision: observation.bindingRevision,
+      environment: observation.environment,
+      kind: observation.kind,
+      logicalCredentialId: observation.logicalCredentialId,
+      repositoryId: observation.repositoryId,
+      variables: Object.fromEntries(
+        CLOUD_BUILD_VARIABLE_NAMES.map((name) => [
+          name,
+          observation.variables[name],
+        ]),
+      ),
     };
   }
   if (operation.kind === "gcp.wif-binding.ensure") {

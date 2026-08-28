@@ -19,7 +19,8 @@ ruleset은 계약 상수 `EVALUATE`에 머문다.
 
 `contracts/workflow-bundle-source.yaml`과 schema는 다음을 한 digest에 묶는다.
 
-- RN/Godot static reusable workflow와 Android Cloud Build reusable workflow의 full source SHA
+- bundle을 생성하고 감사한 provenance source SHA
+- RN/Godot static reusable workflow와 Android Cloud Build reusable workflow의 full execution SHA
 - checkout, Node, artifact, Google auth, gcloud action의 공식 stable commit SHA와 gcloud 582.0.0
 - private static/Android submit ARC label과 live Pod에서 확인한 runner image digest, public PR GitHub-hosted 경계
 - Node, pnpm, Godot checksum과 Android builder image digest
@@ -28,6 +29,12 @@ ruleset은 계약 상수 `EVALUATE`에 머문다.
 - Android RPI submit/fetch와 `seorilabs-ci` x64 Cloud Build 경로
 - Apple Xcode Cloud `ciBuildRuns.create`와 profile별 `ci_scripts`
 - Platform static shadow와 release fail-closed receipt 계약
+
+provenance와 execution pin은 같은 의미가 아니다. 현재 bundle source는
+`6e18b189d112f23270426cd88b3f906969103b75`, reusable workflow execution pin은
+`c328d9bf55f31ba11f53ef06071cc7b76d283617`이다. P3 preflight는 두 commit에서 WIF 대상인 두
+Android workflow의 bytes와 SHA-256이 모두 같을 때만 이 분리를 허용한다. 이후 workflow bytes가
+달라지면 새 execution pin을 승인하기 전까지 fail-closed한다.
 
 APPROVED bundle의 과거 source를 검증할 때는 현재 파일 목록을 강제하지 않는다. 서명된 bundle
 자체의 contract/runtime digest path를 fixed GitHub origin의 exact commit에서 다시 읽는다.
@@ -130,12 +137,15 @@ durable CAS가 성공한 경우에만 소비한다. WeakMap은 프로세스 내�
 1. candidate workflow의 npm test와 non-promotable RN/Godot contract fixture probe 성공
 2. `happy-farm`와 `lizard-tycoon` pilot 각각 별도 static + build-only run 성공
 3. source SHA, builder digest, Cloud Build ID, AAB checksum readback
-4. WIF condition이 numeric repo ID와 중앙 `job_workflow_ref` full SHA를 제한함을 확인
-5. managed Android caller main ref 보호와 runtime caller-ref 거부 테스트
-6. ARC scale set의 live imageID가 bundle의 signed digest와 일치함을 readback
-7. Cloud Build executor에 market 권한이 없고 secret 단위 IAM만 있음을 readback
-8. Xcode Cloud product/workflow ID와 build-only distribution 설정 readback
-9. 두 번 연속 legacy/new shadow parity
-10. rollback용 이전 bundle SHA와 registry/schema snapshot 복구 검증
+4. WIF condition이 numeric owner ID와 `(numeric repo ID, 중앙 job_workflow_ref full SHA)`
+   쌍을 제한하고 다른 pilot workflow와의 교차 조합을 거부함을 확인
+5. `internal` Environment의 WIF provider, submitter SA, executor SA 공개 변수가 중앙 desired
+   state와 exact readback되고 WIF binding과 같은 revision으로 함께 reconcile됨을 확인
+6. managed Android caller main ref 보호와 runtime caller-ref 거부 테스트
+7. ARC scale set의 live imageID가 bundle의 signed digest와 일치함을 readback
+8. Cloud Build executor에 market 권한이 없고 secret 단위 IAM만 있음을 readback
+9. Xcode Cloud product/workflow ID와 build-only distribution 설정 readback
+10. 두 번 연속 legacy/new shadow parity
+11. rollback용 이전 bundle SHA와 registry/schema snapshot 복구 검증
 
 이후에도 ruleset Active와 기존 caller 정리는 wave별 별도 승인 작업이다.

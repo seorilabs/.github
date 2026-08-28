@@ -22,6 +22,8 @@ import {
 const ORGANIZATION_ID = "1001";
 const INSTALLATION_ID = "2001";
 const CANDIDATE_SOURCE_SHA = "a".repeat(40);
+const WORKFLOW_EXECUTION_SHA =
+  "c328d9bf55f31ba11f53ef06071cc7b76d283617";
 const APP_SOURCE_SHA = "d".repeat(40);
 const DIGEST = `sha256:${"b".repeat(64)}`;
 const TOKEN_TEXT = "candidate-canary-token-must-not-escape";
@@ -481,7 +483,7 @@ function executorHarness(
 }
 
 for (const profile of ["react-native", "godot"]) {
-  test(`${profile} 고정 canary만 candidate SHA의 두 thin caller를 설치한다`, async () => {
+  test(`${profile} 고정 canary만 workflow execution SHA의 두 thin caller를 설치한다`, async () => {
     const fixture = await planFixture(profile);
     const harness = executorHarness(fixture.repository);
 
@@ -503,7 +505,7 @@ for (const profile of ["react-native", "godot"]) {
         profile === "react-native"
           ? ".github/workflows/rn-build-android-cloud-v1.yml"
           : ".github/workflows/godot-build-android-cloud-v1.yml"
-      }@${CANDIDATE_SOURCE_SHA}`,
+      }@${WORKFLOW_EXECUTION_SHA}`,
     );
 
     const operation = harness.capturedOperations[0];
@@ -523,7 +525,7 @@ for (const profile of ["react-native", "godot"]) {
 
     for (const file of operation.payload.files) {
       assert.equal(file.contentDigest, digest(file.content));
-      assert.equal(file.content.includes(`@${CANDIDATE_SOURCE_SHA}`), true);
+      assert.equal(file.content.includes(`@${WORKFLOW_EXECUTION_SHA}`), true);
       assert.equal(/secrets\s*:/u.test(file.content), false);
       assert.equal(/\binherit\b/u.test(file.content), false);
       assert.equal(/runs-on\s*:/u.test(file.content), false);
@@ -898,7 +900,7 @@ test("중앙 Android reusable workflow는 main과 두 exact same-repo canary PR�
     ).run;
     const candidateHead =
       `seori/workflow-bundle-canary/${repository.repositoryId}/` +
-      CANDIDATE_SOURCE_SHA.slice(0, 12);
+      WORKFLOW_EXECUTION_SHA.slice(0, 12);
     const common = {
       SOURCE_SHA: repository.sourceSha,
       WORKING_DIRECTORY: repository.workingDirectory,
@@ -951,14 +953,14 @@ test("중앙 Android reusable workflow는 main과 두 exact same-repo canary PR�
       );
     }
 
-    const workflowRef = `seorilabs/.github/${path}@${CANDIDATE_SOURCE_SHA}`;
+    const workflowRef = `seorilabs/.github/${path}@${WORKFLOW_EXECUTION_SHA}`;
     const exactIdentity = runGuard(identityGuard, {
       EVENT_NAME: "pull_request",
       GITHUB_OUTPUT: "/dev/null",
       JOB_CONTEXT_JSON: JSON.stringify({
         workflow_ref: workflowRef,
         workflow_repository: "seorilabs/.github",
-        workflow_sha: CANDIDATE_SOURCE_SHA,
+        workflow_sha: WORKFLOW_EXECUTION_SHA,
       }),
       PR_HEAD_REF: candidateHead,
     });
@@ -970,7 +972,7 @@ test("중앙 Android reusable workflow는 main과 두 exact same-repo canary PR�
         JOB_CONTEXT_JSON: JSON.stringify({
           workflow_ref: workflowRef,
           workflow_repository: "seorilabs/.github",
-          workflow_sha: CANDIDATE_SOURCE_SHA,
+          workflow_sha: WORKFLOW_EXECUTION_SHA,
         }),
         PR_HEAD_REF:
           `seori/workflow-bundle-canary/${repository.repositoryId}/` +

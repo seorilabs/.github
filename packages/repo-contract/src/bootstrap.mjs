@@ -39,6 +39,15 @@ const FULL_NAME_PATTERN = /^seorilabs\/[A-Za-z0-9._-]+$/u;
 const LOGICAL_CREDENTIAL_ID_PATTERN =
   /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){2,7}$/u;
 const SECRET_NAME_PATTERN = /^[A-Z][A-Z0-9_]{1,99}$/u;
+const CLOUD_BUILD_VARIABLE_NAMES = Object.freeze([
+  "GOOGLE_WORKLOAD_IDENTITY_PROVIDER",
+  "SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT",
+  "SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT",
+]);
+const WIF_PROVIDER_VARIABLE_PATTERN =
+  /^projects\/[1-9][0-9]{0,31}\/locations\/global\/workloadIdentityPools\/[a-z][a-z0-9-]{3,31}\/providers\/[a-z][a-z0-9-]{3,31}$/u;
+const SERVICE_ACCOUNT_EMAIL_PATTERN =
+  /^[a-z][a-z0-9-]{4,29}@[a-z][a-z0-9-]{4,29}\.iam\.gserviceaccount\.com$/u;
 const JOB_WORKFLOW_REF_PATTERN =
   /^seorilabs\/\.github\/\.github\/workflows\/[a-z0-9-]+\.yml@[0-9a-f]{40}$/u;
 const BRANCH_PATTERN = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._\/-]{1,255}$/u;
@@ -387,10 +396,46 @@ function validateProvisioningGate(value, repository, protectionOperation) {
   );
 }
 
-function validateProvisioningBindings(secretBindings, wifBindings) {
+function validCloudBuildVariables(value) {
+  return (
+    exactKeys(value, CLOUD_BUILD_VARIABLE_NAMES) &&
+    WIF_PROVIDER_VARIABLE_PATTERN.test(
+      value.GOOGLE_WORKLOAD_IDENTITY_PROVIDER ?? "",
+    ) &&
+    SERVICE_ACCOUNT_EMAIL_PATTERN.test(
+      value.SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT ?? "",
+    ) &&
+    SERVICE_ACCOUNT_EMAIL_PATTERN.test(
+      value.SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT ?? "",
+    ) &&
+    value.SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT !==
+      value.SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT
+  );
+}
+
+function validateProvisioningBindings(
+  environmentVariableBindings,
+  secretBindings,
+  wifBindings,
+) {
   if (
+    !Array.isArray(environmentVariableBindings) ||
     !Array.isArray(secretBindings) ||
     !Array.isArray(wifBindings) ||
+    environmentVariableBindings.some(
+      (binding) =>
+        !exactKeys(binding, [
+          "bindingRevision",
+          "environment",
+          "logicalCredentialId",
+          "variables",
+        ]) ||
+        !Number.isSafeInteger(binding.bindingRevision) ||
+        binding.bindingRevision < 1 ||
+        binding.environment !== "internal" ||
+        !LOGICAL_CREDENTIAL_ID_PATTERN.test(binding.logicalCredentialId ?? "") ||
+        !validCloudBuildVariables(binding.variables),
+    ) ||
     secretBindings.some(
       (binding) =>
         !exactKeys(binding, [
@@ -418,7 +463,30 @@ function validateProvisioningBindings(secretBindings, wifBindings) {
   ) {
     throw new Error("FLEET_PROVISIONING_BINDING_INVALID");
   }
+  const variableBindingKeys = new Set(
+    environmentVariableBindings.map(
+      ({ bindingRevision, environment, logicalCredentialId }) =>
+        `${logicalCredentialId}@${bindingRevision}:${environment}`,
+    ),
+  );
+  const wifBindingKeys = new Set(
+    wifBindings.map(
+      ({ bindingRevision, environment, logicalCredentialId }) =>
+        `${logicalCredentialId}@${bindingRevision}:${environment}`,
+    ),
+  );
+  if (
+    variableBindingKeys.size !== environmentVariableBindings.length ||
+    wifBindingKeys.size !== wifBindings.length ||
+    canonicalJson([...variableBindingKeys].sort()) !==
+      canonicalJson([...wifBindingKeys].sort())
+  ) {
+    throw new Error("FLEET_PROVISIONING_BINDING_INVALID");
+  }
   const bindingKeys = [
+    ...environmentVariableBindings.map(
+      ({ environment }) => `github.environment-variables.ensure:${environment}`,
+    ),
     ...secretBindings.map(
       ({ secretName }) => `github.org-secret-visibility.ensure:${secretName}`,
     ),
@@ -438,6 +506,7 @@ export async function attachFleetProvisioningOperations(
     approvedBundleBinding,
     organizationId,
     provisioningGate,
+    environmentVariableBindings = [],
     secretBindings = [],
     wifBindings = [],
   } = {},
@@ -446,6 +515,7 @@ export async function attachFleetProvisioningOperations(
   try {
     snapshot = structuredClone(plan);
     provisioningGate = structuredClone(provisioningGate);
+    environmentVariableBindings = structuredClone(environmentVariableBindings);
     secretBindings = structuredClone(secretBindings);
     wifBindings = structuredClone(wifBindings);
   } catch {
@@ -486,8 +556,16 @@ export async function attachFleetProvisioningOperations(
   ) {
     throw new Error("FLEET_PROVISIONING_PLAN_INVALID");
   }
-  validateProvisioningBindings(secretBindings, wifBindings);
-  if (secretBindings.length === 0 && wifBindings.length === 0) {
+  validateProvisioningBindings(
+    environmentVariableBindings,
+    secretBindings,
+    wifBindings,
+  );
+  if (
+    environmentVariableBindings.length === 0 &&
+    secretBindings.length === 0 &&
+    wifBindings.length === 0
+  ) {
     throw new Error("FLEET_PROVISIONING_BINDING_REQUIRED");
   }
   const buildWorkflow = await resolveApprovedBuildWorkflowBinding(
@@ -500,6 +578,30 @@ export async function attachFleetProvisioningOperations(
   }
   snapshot.operations = [activeObservation];
   snapshot.outcome = "PROVISIONING_READY";
+  for (const binding of environmentVariableBindings.toSorted((left, right) =>
+    left.environment.localeCompare(right.environment),
+  )) {
+    const next = operation(
+      "github.environment-variables.ensure",
+      repository.id,
+      {
+        repositoryId: repository.id,
+        repositoryFullName: repository.fullName,
+        approvedBundleDigest: buildWorkflow.bundleDigest,
+        bindingRevision: binding.bindingRevision,
+        environment: binding.environment,
+        logicalCredentialId: binding.logicalCredentialId,
+        variables: binding.variables,
+        provisioningGate,
+      },
+    );
+    appendProvisioningOperation(
+      next,
+      (item) =>
+        item.kind === next.kind &&
+        item.payload?.environment === binding.environment,
+    );
+  }
   for (const binding of secretBindings.toSorted((left, right) =>
     left.secretName.localeCompare(right.secretName),
   )) {
