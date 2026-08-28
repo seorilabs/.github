@@ -69,6 +69,33 @@ webhook 검증, durable delivery, operation별 최소 권한과 운영 전 gate�
 [Fleet zero-touch repository bootstrap](ci-cd/fleet-zero-touch-bootstrap.md)에 고정한다.
 현재 구현은 secret-free 계획 코어이며 trusted mutation adapter를 배포한 상태가 아니다.
 
+P3 운영 객체의 공개 정본은 `contracts/fleet-p3-runtime.yaml`과 strict schema다. 아래
+renderer는 GitHub App 사람 전용 등록 URL, 조직 custom property·Evaluate ruleset 요청,
+Cloud Build keyless identity/IAM 계획, Auth Broker 기반 manifest만 출력한다. secret·승인
+receipt·capability·lease token을 입력받거나 출력하지 않으며 외부 mutation도 수행하지 않는다.
+
+```bash
+node scripts/fleet/render-p3-runtime.mjs github-app
+node scripts/fleet/render-p3-runtime.mjs custom-properties
+node scripts/fleet/render-p3-runtime.mjs pilot-values
+node scripts/fleet/render-p3-runtime.mjs ruleset
+node scripts/fleet/render-p3-runtime.mjs cloud-build
+node scripts/fleet/render-p3-runtime.mjs auth-broker-foundation
+node scripts/fleet/render-p3-runtime.mjs auth-broker-foundation-rollback
+node scripts/fleet/bootstrap-p3-github.mjs
+node scripts/fleet/bootstrap-p3-gcp.mjs
+```
+
+Auth Broker foundation은 restricted namespace, API 권한이 없는 세 workload identity, exact
+NetworkPolicy, cert-manager 내부 TLS와 공개 binding만 생성한다. GCP service account와 WIF가
+실제 생성·readback되고 encrypted-at-rest storage 및 private GHCR pull identity가 확인되기
+전에는 workload와 PVC를 만들지 않는다. 현재 적용 및 blocker 근거는
+[Fleet P3 runtime 전환 기록](migration/fleet-p3-runtime-2026-08-28.md)에 고정한다.
+rollback renderer는 namespace를 보존하며 foundation이 소유한 객체만 반환한다.
+GitHub와 GCP bootstrap은 기본 실행이 dry-run이며 exact 공개 confirmation 없이는 mutation을
+거부한다. GitHub App 생성은 `HUMAN_REAUTH_REQUIRED` approval gate로 분리하고 자동 retry하지
+않는다.
+
 로컬 CLI는 caller를 생성하거나 승인하지 않는다. trusted approval key와 registry readback을
 가진 GitHub App reconciler만 `loadApprovedWorkflowBundle`로 승인 binding을 만든 뒤
 `generateOrgContractCaller`와 `validateOrgContractCaller`를 호출할 수 있다. 임의의 40자리

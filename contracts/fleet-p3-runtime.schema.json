@@ -1,0 +1,309 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/seorilabs/.github/contracts/fleet-p3-runtime.schema.json",
+  "title": "Seorilabs Fleet P3 runtime bootstrap contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "github", "cloudBuild", "authBroker"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "github": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["apiVersion", "organization", "app", "webhook", "customProperties", "pilotValues", "ruleset"],
+      "properties": {
+        "apiVersion": { "const": "2026-03-10" },
+        "organization": { "const": "seorilabs" },
+        "app": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "description", "homepageUrl", "webhookUrl", "public", "webhookActive", "permissions", "events", "humanGate"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "description": { "type": "string", "minLength": 1 },
+            "homepageUrl": { "$ref": "#/$defs/httpsUrl" },
+            "webhookUrl": { "$ref": "#/$defs/httpsUrl" },
+            "public": { "const": false },
+            "webhookActive": { "const": true },
+            "permissions": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["metadata", "contents", "pull_requests", "workflows", "repository_custom_properties", "environments", "administration", "organization_administration", "organization_custom_properties"],
+              "properties": {
+                "metadata": { "const": "read" },
+                "contents": { "const": "write" },
+                "pull_requests": { "const": "write" },
+                "workflows": { "const": "write" },
+                "repository_custom_properties": { "const": "write" },
+                "environments": { "const": "write" },
+                "administration": { "const": "write" },
+                "organization_administration": { "const": "write" },
+                "organization_custom_properties": { "const": "admin" }
+              }
+            },
+            "events": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [{ "const": "repository" }, { "const": "push" }],
+              "items": false
+            },
+            "humanGate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "state", "operation", "requiredRole", "automaticRetry", "requiredReadback"],
+              "properties": {
+                "type": { "const": "approval" },
+                "state": { "const": "HUMAN_REAUTH_REQUIRED" },
+                "operation": { "const": "GITHUB_APP_BOOTSTRAP" },
+                "requiredRole": { "const": "organization_owner" },
+                "automaticRetry": { "const": false },
+                "requiredReadback": {
+                  "type": "array",
+                  "minItems": 5,
+                  "maxItems": 5,
+                  "prefixItems": [
+                    { "const": "app_id" },
+                    { "const": "client_id" },
+                    { "const": "slug" },
+                    { "const": "installation_id" },
+                    { "const": "webhook_active" }
+                  ],
+                  "items": false
+                }
+              }
+            }
+          }
+        },
+        "webhook": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["credentialId", "signatureHeader", "eventHeader", "deliveryHeader", "algorithm", "maxPayloadBytes"],
+          "properties": {
+            "credentialId": { "const": "shared/github/fleet-app-webhook" },
+            "signatureHeader": { "const": "x-hub-signature-256" },
+            "eventHeader": { "const": "x-github-event" },
+            "deliveryHeader": { "const": "x-github-delivery" },
+            "algorithm": { "const": "hmac-sha256" },
+            "maxPayloadBytes": { "const": 1048576 }
+          }
+        },
+        "customProperties": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/customProperty" }
+        },
+        "pilotValues": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["repository", "values"],
+            "properties": {
+              "repository": { "enum": ["happy-farm", "lizard-tycoon"] },
+              "values": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["fleet-managed", "fleet-profile", "fleet-ruleset", "fleet-state"],
+                "properties": {
+                  "fleet-managed": { "const": "true" },
+                  "fleet-profile": { "enum": ["react-native", "godot"] },
+                  "fleet-ruleset": { "const": "shadow" },
+                  "fleet-state": { "const": "active" }
+                }
+              }
+            }
+          }
+        },
+        "ruleset": { "$ref": "#/$defs/ruleset" }
+      }
+    },
+    "cloudBuild": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "projectNumber", "region", "provider", "wif", "submitter", "executor"],
+      "properties": {
+        "projectId": { "const": "seorilabs-ci" },
+        "projectNumber": { "const": "321365398093" },
+        "region": { "const": "asia-northeast3" },
+        "provider": { "const": "projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build" },
+        "wif": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pool", "githubProvider", "kubernetesProvider", "githubIssuer", "kubernetesIssuer", "githubAudience", "organizationId", "workflowSourceSha", "repositories"],
+          "properties": {
+            "pool": { "const": "fleet-p3" },
+            "githubProvider": { "const": "github-cloud-build" },
+            "kubernetesProvider": { "const": "microk8s-auth" },
+            "githubIssuer": { "const": "https://token.actions.githubusercontent.com" },
+            "kubernetesIssuer": { "const": "https://kubernetes.default.svc" },
+            "githubAudience": { "const": "https://github.com/seorilabs" },
+            "organizationId": { "const": "283115031" },
+            "workflowSourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "repositories": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                { "$ref": "#/$defs/reactNativeWifRepository" },
+                { "$ref": "#/$defs/godotWifRepository" }
+              ],
+              "items": false
+            }
+          }
+        },
+        "submitter": { "$ref": "#/$defs/identity" },
+        "executor": { "$ref": "#/$defs/identity" }
+      }
+    },
+    "authBroker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "image", "wifAudience", "state", "trustedWorkers", "providerControlPlane", "egressProxy", "roles"],
+      "properties": {
+        "namespace": { "const": "auth-broker" },
+        "image": { "type": "string", "pattern": "^ghcr\\.io/seorilabs/seori-auth@sha256:[0-9a-f]{64}$" },
+        "wifAudience": { "type": "string", "pattern": "^//iam\\.googleapis\\.com/projects/[1-9][0-9]*/locations/global/workloadIdentityPools/[a-z0-9-]+/providers/[a-z0-9-]+$" },
+        "state": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["claimName", "storageClassName", "size", "encryptionRequired", "encryptionStatus"],
+          "properties": {
+            "claimName": { "const": "seori-auth-state" },
+            "storageClassName": { "type": "string", "minLength": 1 },
+            "size": { "type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$" },
+            "encryptionRequired": { "const": true },
+            "encryptionStatus": { "enum": ["verified", "blocked_unverified"] }
+          }
+        },
+        "trustedWorkers": { "$ref": "#/$defs/peer" },
+        "providerControlPlane": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["backofficeClientSpiffeId", "endpointScope", "peer"],
+          "properties": {
+            "backofficeClientSpiffeId": { "const": "spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer" },
+            "endpointScope": { "const": "/internal/control-plane/provider-grants" },
+            "peer": { "$ref": "#/$defs/peer" }
+          }
+        },
+        "egressProxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["peer", "port"],
+          "properties": {
+            "peer": { "$ref": "#/$defs/peer" },
+            "port": { "type": "integer", "minimum": 1024, "maximum": 65535 }
+          }
+        },
+        "roles": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "serviceAccount", "googleServiceAccount", "servicePort", "tlsSecretName", "egressTlsSecretName"],
+            "properties": {
+              "name": { "enum": ["broker", "password-loader", "totp-signer"] },
+              "serviceAccount": { "enum": ["auth-broker", "password-loader", "totp-signer"] },
+              "googleServiceAccount": { "type": "string", "pattern": "^[A-Za-z0-9._%+-]+@seorilabs-ci\\.iam\\.gserviceaccount\\.com$" },
+              "servicePort": { "enum": [8443, 9443] },
+              "tlsSecretName": { "type": "string", "minLength": 1 },
+              "egressTlsSecretName": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "httpsUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logicalCredentialId", "serviceAccountEmail", "bindings"],
+      "properties": {
+        "logicalCredentialId": { "type": "string", "pattern": "^shared/gcp/cloud-build/(submitter|executor)$" },
+        "serviceAccountEmail": { "type": "string", "pattern": "^[A-Za-z0-9._%+-]+@seorilabs-ci\\.iam\\.gserviceaccount\\.com$" },
+        "bindings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["resource", "role"],
+            "properties": {
+              "resource": { "type": "string", "minLength": 1 },
+              "role": { "type": "string", "pattern": "^roles/[A-Za-z0-9.]+$" }
+            }
+          }
+        }
+      }
+    },
+    "customProperty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["property_name", "value_type", "required", "description", "allowed_values", "values_editable_by", "require_explicit_values"],
+      "properties": {
+        "property_name": { "enum": ["fleet-managed", "fleet-profile", "fleet-ruleset", "fleet-state"] },
+        "value_type": { "const": "single_select" },
+        "required": { "const": false },
+        "description": { "type": "string", "minLength": 1 },
+        "allowed_values": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "values_editable_by": { "const": "org_actors" },
+        "require_explicit_values": { "const": true }
+      }
+    },
+    "peer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespaceLabel", "podLabel"],
+      "properties": {
+        "namespaceLabel": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
+        "podLabel": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" }
+      }
+    },
+    "ruleset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "target", "enforcement", "repositories", "requiredStatusCheck"],
+      "properties": {
+        "name": { "const": "Fleet Org Contract shadow" },
+        "target": { "const": "branch" },
+        "enforcement": { "const": "evaluate" },
+        "repositories": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [{ "const": "happy-farm" }, { "const": "lizard-tycoon" }],
+          "items": false
+        },
+        "requiredStatusCheck": { "const": "Org Contract / Org Contract" }
+      }
+    },
+    "reactNativeWifRepository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fullName", "repositoryId", "workflow"],
+      "properties": {
+        "fullName": { "const": "seorilabs/happy-farm" },
+        "repositoryId": { "const": "1250442131" },
+        "workflow": { "const": ".github/workflows/rn-build-android-cloud-v1.yml" }
+      }
+    },
+    "godotWifRepository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fullName", "repositoryId", "workflow"],
+      "properties": {
+        "fullName": { "const": "seorilabs/lizard-tycoon" },
+        "repositoryId": { "const": "1265192029" },
+        "workflow": { "const": ".github/workflows/godot-build-android-cloud-v1.yml" }
+      }
+    }
+  }
+}

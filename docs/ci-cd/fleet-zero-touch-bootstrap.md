@@ -125,3 +125,11 @@ Android caller는 생성 PR의 해당 파일 변경에만 반응한다. 중앙 r
 - APPROVED Android caller는 `.github/workflows/android-build-only.yml@refs/heads/main`, CANDIDATE canary caller는 allowlisted PR branch로 구분해 runtime ref 검증
 - ARC live Pod imageID와 signed WorkflowBundle runner digest 일치 확인
 - 두 번의 shadow parity 전에는 ruleset Active 전환 금지
+
+P3 GitHub App bootstrap의 공개 요청 계약은 `contracts/fleet-p3-runtime.yaml`에 고정한다.
+GitHub 공식 등록 URL은 webhook secret을 받을 수 없으므로 App 생성과 secret 입력은 사람 전용
+gate로 유지하고, credential 값은 URL·manifest·로그에 넣지 않는다. App을 만든 뒤에도 조직
+custom property schema와 Evaluate ruleset은 각각 admin 권한으로 적용하고 API readback이 exact
+계약과 일치해야 완료다. 공식 API 경계는 [URL parameter 등록](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-using-url-parameters),
+[조직 custom properties](https://docs.github.com/en/rest/orgs/custom-properties),
+[조직 rulesets](https://docs.github.com/en/rest/orgs/rules)를 따른다.
