@@ -159,7 +159,7 @@ schema/admission dry-run과 실제 binding을 read-only로 확인합니다. conf
 들어갑니다. RPI4에는 신규 workload를 배치하지 않고 검증된 RPI5 label을 node selector로
 지정합니다. 기존 `k8s/production/*.yaml`은 적용할 객체가 없는 compatibility marker입니다.
 `providerControlPlane`은 exact `backofficeClientSpiffeId`, 고정
-`endpointScope=/internal/control-plane/provider-grants`, Backoffice worker 전용 namespace/pod
+`endpointScope=/internal/control-plane/provider-grants`, Backoffice signer Pod 전용 namespace/pod
 exact selector를 가지며 runtime config, container startup argument, Pod annotation과
 NetworkPolicy peer가 모두 같아야 합니다.
 
@@ -184,7 +184,7 @@ done
 - 모든 container non-root, read-only root, RuntimeDefault seccomp, capabilities ALL drop
 - automount token false, explicit short-lived WIF audience만 mount
 - projected token은 고정 mount root와 leaf `token`만 사용하며 native `openat2` 검증을 통과
-- default deny 후 일반 trusted worker와 provider control-plane worker의 서로 분리된 exact ingress,
+- default deny 후 일반 trusted worker와 provider control-plane signer의 서로 분리된 exact ingress,
   factor-service 내부 통신, DNS와 egress proxy만 허용
 - egress proxy가 exact provider hostname/TLS identity를 검증하고 direct Internet은 차단
 - state/Vault PVC는 worker와 factor service에 mount되지 않고 storage encryption이 활성

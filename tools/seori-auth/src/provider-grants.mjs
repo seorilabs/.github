@@ -277,7 +277,12 @@ function actionClass(command) {
 }
 
 export function providerGrantRequiresPerRunApproval(command) {
-  return command.resource.environment === 'production' || actionClass(command) === 'other_mutation';
+  const classified = actionClass(command);
+  // Production readback uses the separately bound fleet inventory identity and is
+  // the recovery gate after an uncertain mutation. Requiring a per-run approval
+  // here would prevent READBACK_FIRST from resolving the uncertainty at all.
+  return classified === 'other_mutation' ||
+    (command.resource.environment === 'production' && classified !== 'read_only');
 }
 
 function singleton(value, expected, label) {
@@ -568,4 +573,6 @@ export function providerGrantActionClass(command) {
 }
 
 export const PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE = '/internal/control-plane/provider-grants';
+export const PROVIDER_CONTROL_PLANE_CLIENT_SPIFFE_ID =
+  'spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer';
 export const PROVIDER_GRANT_MAX_TTL_MS = PROVIDER_GRANT_TTL_MS;

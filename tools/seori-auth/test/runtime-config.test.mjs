@@ -12,7 +12,7 @@ const entrypoint = fileURLToPath(new URL('../runtime/entrypoint.mjs', import.met
 const configDigest = 'd'.repeat(64);
 const googleServiceAccount = 'seori-auth-password@example-project.iam.gserviceaccount.com';
 const wifAudience = '//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seori-auth/providers/microk8s';
-const backofficeSpiffeId = 'spiffe://seorilabs.local/ns/platform/sa/provider-execution-worker';
+const backofficeSpiffeId = 'spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer';
 const providerEndpointScope = '/internal/control-plane/provider-grants';
 
 function passwordConfig() {
@@ -203,7 +203,7 @@ test('broker runtime exact-binds the Backoffice SPIFFE identity and internal pro
     (error) => {
       assert.equal(error.code, 1);
       assert.match(error.stderr, /runtime_error/);
-      assert.doesNotMatch(error.stderr, /other-worker|provider-execution-worker/);
+      assert.doesNotMatch(error.stderr, /other-worker|provider-execution-signer/);
       return true;
     },
   );

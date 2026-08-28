@@ -182,7 +182,7 @@ caller가 제출하지 않고 trusted `readBrowserIdentity` callback이 provider
 ### Backoffice 전용 provider control-plane
 
 다음 경로는 공개 auth API가 아닙니다. broker runtime에 고정된 단 하나의
-`providerControlPlane.backofficeClientSpiffeId`와
+signer ServiceAccount에 고정된 `providerControlPlane.backofficeClientSpiffeId`와
 `/internal/control-plane/provider-grants` scope에서만 열립니다. 모든 요청은 같은
 run/repo/worker를 증명하는 1회용 Ed25519 attestation을 추가로 요구합니다.
 

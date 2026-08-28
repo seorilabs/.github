@@ -46,6 +46,7 @@ export {
   providerGrantActionClass,
   providerGrantLeaseRequest,
   providerGrantRequiresPerRunApproval,
+  PROVIDER_CONTROL_PLANE_CLIENT_SPIFFE_ID,
   PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE,
   PROVIDER_GRANT_MAX_TTL_MS,
   publicJsonDigest,
