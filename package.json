@@ -7,7 +7,8 @@
   },
   "packageManager": "npm@11.13.0",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "tools/seori-auth"
   ],
   "scripts": {
     "pack:check": "node packages/repo-contract/src/check-package.mjs",
