@@ -288,21 +288,23 @@
     "reactNativeWifRepository": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["fullName", "repositoryId", "workflow"],
+      "required": ["fullName", "repositoryId", "workflow", "sha256"],
       "properties": {
         "fullName": { "const": "seorilabs/happy-farm" },
         "repositoryId": { "const": "1250442131" },
-        "workflow": { "const": ".github/workflows/rn-build-android-cloud-v1.yml" }
+        "workflow": { "const": ".github/workflows/rn-build-android-cloud-v1.yml" },
+        "sha256": { "const": "c5263a9521a398f5c5ae17b692e22be67dc2feeb9b7da4f8758622c7a29f4bd0" }
       }
     },
     "godotWifRepository": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["fullName", "repositoryId", "workflow"],
+      "required": ["fullName", "repositoryId", "workflow", "sha256"],
       "properties": {
         "fullName": { "const": "seorilabs/lizard-tycoon" },
         "repositoryId": { "const": "1265192029" },
-        "workflow": { "const": ".github/workflows/godot-build-android-cloud-v1.yml" }
+        "workflow": { "const": ".github/workflows/godot-build-android-cloud-v1.yml" },
+        "sha256": { "const": "372b565a69de01e59a0570b05e8b49c681abd02114df8e7ba9c29c98c0807db3" }
       }
     }
   }

@@ -162,6 +162,13 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   assert.equal(output.serviceAccounts.length, 5);
   assert.equal(new Set(output.serviceAccounts.map(({ email }) => email)).size, 5);
   assert.equal(output.staticKeysCreated, false);
+  assert.deepEqual(
+    contract.cloudBuild.wif.repositories.map(({ sha256 }) => sha256),
+    [
+      "c5263a9521a398f5c5ae17b692e22be67dc2feeb9b7da4f8758622c7a29f4bd0",
+      "372b565a69de01e59a0570b05e8b49c681abd02114df8e7ba9c29c98c0807db3",
+    ],
+  );
   assert.equal(
     output.workloadIdentity.github.attributeCondition,
     "assertion.repository_owner_id == '283115031' && " +

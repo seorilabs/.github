@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,7 @@ import { parse } from "yaml";
 const contractPath = fileURLToPath(
   new URL("../../contracts/fleet-p3-runtime.yaml", import.meta.url),
 );
+const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 const gcloud = "/Users/syous/.config/seorilabs/scripts/gcloud-cli.sh";
 const contract = parse(readFileSync(contractPath, "utf8"));
 const cloud = contract.cloudBuild;
@@ -60,10 +62,18 @@ function localSourcePreflight() {
   if (!/(?:github\.com[:/])seorilabs\/\.github(?:\.git)?$/u.test(remote)) {
     fail("P3_GIT_REMOTE_MISMATCH");
   }
-  for (const { workflow } of cloud.wif.repositories) {
+  for (const { workflow, sha256 } of cloud.wif.repositories) {
     const object = `${cloud.wif.workflowSourceSha}:${workflow}`;
-    const result = run("git", ["cat-file", "-e", object], "P3_WORKFLOW_SOURCE_MISSING");
-    if (result === null) fail("P3_WORKFLOW_SOURCE_MISSING");
+    try {
+      execFileSync("git", ["cat-file", "-e", object], {
+        cwd: repositoryRoot,
+        stdio: "ignore",
+      });
+    } catch {
+      const bytes = readFileSync(join(repositoryRoot, workflow));
+      const actual = createHash("sha256").update(bytes).digest("hex");
+      if (actual !== sha256) fail("P3_WORKFLOW_SOURCE_MISSING");
+    }
   }
 }
 
