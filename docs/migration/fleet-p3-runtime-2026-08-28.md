@@ -28,7 +28,8 @@ receipt, lease token은 기록하지 않는다.
   fail-closed 상태의 strict schema
 - `scripts/fleet/render-p3-runtime.mjs`: secret-free 공개 payload와 Kubernetes foundation renderer
 - `scripts/fleet/bootstrap-p3-gcp.mjs`: 기본 dry-run, exact 5 service accounts, dedicated GitHub와
-  MicroK8s WIF condition, 최소 resource IAM, idempotent resume, 공개 readback과 권한 회수 rollback
+  MicroK8s WIF condition, 최소 resource IAM, idempotent resume, pool/provider drift readback과
+  provider disable 기반 권한 회수 rollback
 - `scripts/fleet/bootstrap-p3-github.mjs`: 사람 전용 App approval gate, additive custom property,
   pilot 값, Evaluate ruleset의 기본 dry-run과 exact readback
 - `tests/fleet-p3-runtime.test.mjs`: strict schema, 최소 권한 분리, secret 비노출, RBAC 0권한,
@@ -61,8 +62,14 @@ node scripts/fleet/render-p3-runtime.mjs auth-broker-foundation-rollback |
 ```
 
 GCP bootstrap의 기본 실행은 mutation 없는 plan이다. 적용은 아래 공개 confirmation을 요구하고,
-부분 실패 뒤 같은 명령을 재실행하면 existing exact 객체는 no-op한다. readback은 5개 공개
-identity, 두 provider condition, 15개 exact binding이 모두 일치할 때만 `ready: true`다.
+부분 실패 뒤 같은 명령을 재실행하면 existing exact 객체는 no-op한다. rollback은 apply 전부터
+존재했는지 구분할 수 없는 IAM binding을 제거하지 않고 두 exact provider만 disable한다. 신규
+token exchange는 차단되지만 이미 발급된 access token은 자체 만료까지 유효하다. 이후
+같은 apply는 configuration이 exact인 disabled provider를 안전하게 re-enable하며 provider drift,
+pool disabled·metadata/state drift에서는 fail-closed한다. readback은 pool active 상태, 5개 공개
+identity, 두 active provider condition, 15개 exact binding이 모두 일치할 때만 `ready: true`다.
+apply와 rollback은 GitHub와 Kubernetes provider를 모두 read-only preflight한 뒤에만 provider
+mutation 단계로 넘어가므로 두 번째 provider drift에서도 첫 번째 provider를 변경하지 않는다.
 Cloud Build service agent의 user-specified executor token 생성, GitHub multi-tenant issuer의 조직
 condition, private Kubernetes issuer의 공개 JWKS upload는 각각 Google 공식
 [user-specified service account](https://cloud.google.com/build/docs/securing-builds/configure-user-specified-service-accounts),
