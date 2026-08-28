@@ -453,6 +453,7 @@
             },
             "variables": {
               "type": "object",
+              "description": "Cloud Build submitter와 executor는 서로 다른 service account여야 하며 runtime validator가 동일 identity를 거부합니다.",
               "additionalProperties": false,
               "required": [
                 "GOOGLE_WORKLOAD_IDENTITY_PROVIDER",
