@@ -24,6 +24,10 @@ function deploymentConfig() {
       namespaceSelector: { 'kubernetes.io/metadata.name': 'release-workers' },
       podSelector: { 'seorilabs.io/auth-client': 'true' },
     },
+    providerControlPlane: {
+      backofficeClientSpiffeId: 'spiffe://seorilabs.local/ns/platform/sa/provider-execution-worker',
+      endpointScope: '/internal/control-plane/provider-grants',
+    },
     egressProxy: {
       namespaceSelector: { 'kubernetes.io/metadata.name': 'auth-egress' },
       podSelector: { 'app.kubernetes.io/name': 'seori-auth-egress-proxy' },
@@ -107,7 +111,21 @@ test('production renderer emits immutable separated workloads without Kubernetes
     assert.ok(container.args.includes(`--expected-secret-access-sha256=${binding.secretAccessConfigSha256}`));
     assert.ok(container.args.includes(`--expected-google-service-account=${binding.googleServiceAccount}`));
     assert.ok(container.args.includes(`--expected-wif-audience=${binding.wifAudience}`));
+    assert.ok(container.args.includes(
+      '--expected-backoffice-spiffe-id=spiffe://seorilabs.local/ns/platform/sa/provider-execution-worker',
+    ));
+    assert.ok(container.args.includes(
+      '--expected-provider-endpoint-scope=/internal/control-plane/provider-grants',
+    ));
     assert.equal(item.spec.template.metadata.annotations['seorilabs.io/secret-access-sha256'], binding.secretAccessConfigSha256);
+    assert.equal(
+      item.spec.template.metadata.annotations['seorilabs.io/provider-control-plane-spiffe'],
+      'spiffe://seorilabs.local/ns/platform/sa/provider-execution-worker',
+    );
+    assert.equal(
+      item.spec.template.metadata.annotations['seorilabs.io/provider-endpoint-scope'],
+      '/internal/control-plane/provider-grants',
+    );
     assert.equal(pod.automountServiceAccountToken, false);
     assert.equal(tokenProjection.path, 'token');
     assert.equal(tokenProjection.expirationSeconds, 600);
@@ -159,6 +177,14 @@ test('production renderer rejects mutable images and shared factor identities', 
   await assert.rejects(render(longLabel), (error) => {
     assert.equal(error.code, 1);
     assert.match(error.stderr, /nodeSelector is invalid/);
+    return true;
+  });
+
+  const driftedProviderScope = deploymentConfig();
+  driftedProviderScope.providerControlPlane.endpointScope = '/auth/policy-grants';
+  await assert.rejects(render(driftedProviderScope), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /provider control-plane binding is invalid/);
     return true;
   });
 });

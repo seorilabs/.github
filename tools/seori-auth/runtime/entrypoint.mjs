@@ -14,6 +14,8 @@ import {
   MtlsRunAttestor,
   NativeSecurityBoundary,
   NativeSecretManagerExecutionStore,
+  PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE,
+  requireExactMtlsPeer,
   SecretManagerPasswordLoader,
   SecretManagerTotpSigner,
   SeoriAuthBroker,
@@ -138,6 +140,12 @@ function validateFactorRuntime(config, credentials) {
 function validateBrokerRuntime(config, credentials) {
   if (!SHA256.test(config.expectedJournalHeadMac ?? '')) fail('expected journal head MAC is invalid');
   uniqueStrings(config.allowedClientSpiffeIds, SPIFFE_ID, 'allowed client SPIFFE ids');
+  if (
+    !exactKeys(config.providerControlPlane, ['backofficeClientSpiffeId', 'endpointScope']) ||
+    !SPIFFE_ID.test(config.providerControlPlane.backofficeClientSpiffeId ?? '') ||
+    config.providerControlPlane.endpointScope !== PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE ||
+    !config.allowedClientSpiffeIds.includes(config.providerControlPlane.backofficeClientSpiffeId)
+  ) fail('Backoffice provider control-plane binding is invalid');
   for (const [field, expected] of [
     ['stateDirectory', '/var/lib/seori-auth/state'],
     ['vaultDirectory', '/var/lib/seori-auth/browser-vault'],
@@ -170,7 +178,7 @@ function validateRuntimeConfig(config) {
     ? [
         'allowedClientSpiffeIds', 'bootstrapCredentials', 'browserRuntimeDirectory',
         'expectedJournalHeadMac', 'policyPath', 'runAttestationPublicKeyPath',
-        'stateDirectory', 'vaultDirectory',
+        'stateDirectory', 'vaultDirectory', 'providerControlPlane',
       ]
     : ['allowedBrokerSpiffeIds', 'factorBindings'];
   if (!exactKeys(config, [...common, ...roleFields])) fail('runtime config fields are invalid');
@@ -181,7 +189,10 @@ function validateRuntimeConfig(config) {
 }
 
 function deploymentBinding(options) {
-  const expected = ['config', 'expected-google-service-account', 'expected-secret-access-sha256', 'expected-wif-audience'];
+  const expected = [
+    'config', 'expected-backoffice-spiffe-id', 'expected-google-service-account',
+    'expected-provider-endpoint-scope', 'expected-secret-access-sha256', 'expected-wif-audience',
+  ];
   if (options.size !== expected.length || expected.some((key) => !options.has(key))) {
     fail('runtime deployment binding arguments are invalid');
   }
@@ -190,17 +201,32 @@ function deploymentBinding(options) {
     googleServiceAccount: options.get('expected-google-service-account'),
     secretAccessSha256: options.get('expected-secret-access-sha256'),
     wifAudience: options.get('expected-wif-audience'),
+    backofficeClientSpiffeId: options.get('expected-backoffice-spiffe-id'),
+    providerEndpointScope: options.get('expected-provider-endpoint-scope'),
   };
   if (
     !GOOGLE_IDENTITY.test(binding.googleServiceAccount ?? '') ||
     !SHA256.test(binding.secretAccessSha256 ?? '') ||
-    !WIF_AUDIENCE.test(binding.wifAudience ?? '')
+    !WIF_AUDIENCE.test(binding.wifAudience ?? '') ||
+    !SPIFFE_ID.test(binding.backofficeClientSpiffeId ?? '') ||
+    binding.providerEndpointScope !== PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE
   ) fail('runtime deployment identity binding is invalid');
   return Object.freeze(binding);
 }
 
-async function validateMountedSecretAccess(config, binding) {
+function validateRuntimeDeploymentBinding(config, binding) {
+  if (
+    config.role === 'broker' &&
+    (
+      config.providerControlPlane.backofficeClientSpiffeId !== binding.backofficeClientSpiffeId ||
+      config.providerControlPlane.endpointScope !== binding.providerEndpointScope
+    )
+  ) fail('Backoffice provider control-plane deployment binding is invalid');
   if (config.secretAccess.configSha256 !== binding.secretAccessSha256) fail('Secret Manager config checksum binding is invalid');
+}
+
+async function validateMountedSecretAccess(config, binding) {
+  validateRuntimeDeploymentBinding(config, binding);
   const [entry, canonical] = await Promise.all([lstat(SECRET_ACCESS_CONFIG), realpath(SECRET_ACCESS_CONFIG)]);
   if (
     !entry.isFile() || entry.isSymbolicLink() || canonical !== SECRET_ACCESS_CONFIG ||
@@ -406,6 +432,10 @@ async function serveBroker(config, nativeBoundary) {
         terminate: async () => ({ terminated: true }),
       }),
       reconcileBrowserSession: async () => fail('browser adapter is not activated'),
+      authorizeInternalPrincipal: (socket) => requireExactMtlsPeer(
+        socket,
+        [config.providerControlPlane.backofficeClientSpiffeId],
+      ),
     });
     daemon = tlsDaemon(application, config);
     await daemon.start();
@@ -534,7 +564,7 @@ try {
   } else if (command === 'validate-config') {
     const binding = deploymentBinding(options);
     const config = validateRuntimeConfig(await readConfig(binding.configPath));
-    if (config.secretAccess.configSha256 !== binding.secretAccessSha256) fail('Secret Manager config checksum binding is invalid');
+    validateRuntimeDeploymentBinding(config, binding);
     process.stdout.write(`${JSON.stringify({ valid: true, schemaVersion: 1, role: config.role })}\n`);
   } else if (command === 'healthcheck' && options.size === 1 && options.has('readiness-file')) {
     await healthcheck(options.get('readiness-file'));

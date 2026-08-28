@@ -11,10 +11,17 @@ import {
   normalizePublicIdentity,
 } from './durable-state.mjs';
 import { SeoriAuthError, fail } from './errors.mjs';
-import { executeConsumedLease } from './executor.mjs';
+import { executeConsumedLease, executeConsumedProviderLease } from './executor.mjs';
 import { NATIVE_BROWSER_ADAPTER_BRAND } from './native-browser-adapter-brand.mjs';
 import { NATIVE_LAUNCHER_BRAND } from './native-launcher-brand.mjs';
 import { PolicyEngine } from './policy.mjs';
+import {
+  normalizeProviderGrantExpectation,
+  normalizeProviderGrantRegistration,
+  providerGrantLeaseRequest,
+  providerGrantRequiresPerRunApproval,
+  PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE,
+} from './provider-grants.mjs';
 import { classifyReauth } from './reauth.mjs';
 import { normalizeLeaseRequest } from './validation.mjs';
 
@@ -22,6 +29,7 @@ const MAX_BODY_BYTES = 64 * 1024;
 const IDENTITY_READBACK_TIMEOUT_MS = 10_000;
 const PUBLIC_PATH_ID = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$/;
 const RECONCILIATION_OUTCOMES = new Set(['SUCCEEDED', 'NOT_APPLIED', 'UNKNOWN']);
+const PROVIDER_ROUTE = new RegExp(`^${PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE.replaceAll('/', '\\/')}\/([^/]+)\/(verify|consume|result|observation)$`);
 
 function assertExactBody(value, keys) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -78,10 +86,11 @@ function normalizeReconciliation(value) {
 }
 
 function errorStatus(code) {
-  if (['lease_not_found', 'browser_session_not_found'].includes(code)) return 404;
+  if (['lease_not_found', 'browser_session_not_found', 'provider_grant_not_found'].includes(code)) return 404;
   if (
     ['capability_forbidden', 'per_run_approval_required', 'lease_binding_mismatch', 'browser_session_binding_mismatch',
-      'identity_readback_mismatch', 'principal_unauthenticated', 'principal_binding_mismatch'].includes(code)
+      'identity_readback_mismatch', 'principal_unauthenticated', 'principal_binding_mismatch',
+      'provider_grant_binding_mismatch', 'provider_observation_binding_mismatch'].includes(code)
   ) return 403;
   if (['lease_expired', 'browser_capability_expired', 'approval_expired'].includes(code)) return 410;
   if (code === 'HUMAN_REAUTH_REQUIRED') return 409;
@@ -90,7 +99,7 @@ function errorStatus(code) {
       'browser_session_exists', 'stale_credential_generation', 'stale_policy_generation',
       'approval_already_used', 'idempotency_conflict', 'browser_reconciliation_required',
       'browser_reconciliation_not_applied', 'lease_invalidated_by_reauth',
-      'auth_strategy_evidence_required'].includes(code)
+      'auth_strategy_evidence_required', 'provider_grant_exists', 'provider_grant_already_used'].includes(code)
   ) return 409;
   if (
     code.startsWith('invalid_') || code === 'unknown_reauth_classification' ||
@@ -109,6 +118,15 @@ function sendJson(response, status, value) {
     connection: 'close',
   });
   response.end(body);
+}
+
+function sendNoContent(response) {
+  response.writeHead(204, {
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+    connection: 'close',
+  });
+  response.end();
 }
 
 async function readJson(request) {
@@ -250,6 +268,7 @@ export class LocalAuthDaemon {
   #browserVault;
   #browserAdapter;
   #reconcileBrowserSession;
+  #authorizeInternalPrincipal;
   #server;
   #socketIdentity;
 
@@ -265,6 +284,7 @@ export class LocalAuthDaemon {
     browserVault,
     browserAdapter,
     reconcileBrowserSession,
+    authorizeInternalPrincipal,
   }) {
     if (typeof socketPath !== 'string' || !isAbsolute(socketPath)) {
       throw new TypeError('socketPath must be an absolute Unix domain socket path');
@@ -315,6 +335,19 @@ export class LocalAuthDaemon {
     this.#authenticatePrincipal = authenticatePrincipal;
     this.#browserVault = browserVault;
     this.#reconcileBrowserSession = reconcileBrowserSession;
+    if (authorizeInternalPrincipal !== undefined && typeof authorizeInternalPrincipal !== 'function') {
+      throw new TypeError('authorizeInternalPrincipal must enforce the exact Backoffice mTLS SPIFFE identity');
+    }
+    if (
+      authorizeInternalPrincipal !== undefined &&
+      [
+        'registerProviderGrant', 'verifyProviderGrant', 'resolveProviderGrantCommand', 'consumeProviderGrant',
+        'recordProviderGrantResult', 'readProviderGrantResult', 'readProviderGrantObservation',
+      ].some((method) => typeof state[method] !== 'function')
+    ) {
+      throw new TypeError('state must provide the durable provider grant control-plane contract');
+    }
+    this.#authorizeInternalPrincipal = authorizeInternalPrincipal;
   }
 
   async start() {
@@ -405,8 +438,98 @@ export class LocalAuthDaemon {
     if (url.search !== '') {
       fail('invalid_request', 'query parameters are not supported');
     }
+    const providerRoute = url.pathname === PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE
+      ? { action: 'register' }
+      : (() => {
+          const match = url.pathname.match(PROVIDER_ROUTE);
+          return match ? { id: pathId(match[1]), action: match[2] } : null;
+        })();
+    if (providerRoute && this.#authorizeInternalPrincipal === undefined) {
+      sendJson(response, 404, { error: { code: 'route_not_found' } });
+      return;
+    }
     const principal = await this.#attestPrincipal(request);
     const body = await readJson(request);
+
+    if (providerRoute) {
+      await this.#authorizeProviderControlPlanePeer(request.socket);
+      if (providerRoute.action === 'register') {
+        const registration = normalizeProviderGrantRegistration(body, { subject: principal.subject });
+        assertAttestedPrincipal(principal, {
+          subject: registration.subject,
+          runId: registration.grant.command.executionId,
+          repository: registration.grant.command.repository,
+          workerId: registration.workerId,
+        });
+        // Registration is a usable capability check, not a passive metadata write.
+        // Resolve only public bindings here and repeat every mutable CAS immediately
+        // before consume; no credential value is loaded at registration time.
+        await this.#prepareProviderExecution(registration.grant.command, principal);
+        const policyGrant = await this.#state.registerProviderGrant({
+          registration,
+          executionBinding: principal,
+        });
+        sendJson(response, 201, { policyGrant });
+        return;
+      }
+      if (providerRoute.action === 'verify') {
+        const expectation = normalizeProviderGrantExpectation(body);
+        assertAttestedPrincipal(principal, { ...principal, workerId: expectation.workerId });
+        const policyGrant = await this.#state.verifyProviderGrant({
+          id: providerRoute.id,
+          expectation,
+          executionBinding: principal,
+        });
+        sendJson(response, 200, { policyGrant });
+        return;
+      }
+      const expectation = normalizeProviderGrantExpectation(body, {
+        includeGeneration: true,
+        includeIdempotencyKey: providerRoute.action === 'consume',
+      });
+      assertAttestedPrincipal(principal, { ...principal, workerId: expectation.workerId });
+      if (providerRoute.action === 'consume') {
+        const resolved = await this.#state.resolveProviderGrantCommand({
+          id: providerRoute.id,
+          expectation,
+          executionBinding: principal,
+        });
+        if (resolved.replay) {
+          const replay = await this.#state.readProviderGrantResult({
+            id: providerRoute.id,
+            expectation,
+            executionBinding: principal,
+          });
+          sendJson(response, 200, replay);
+          return;
+        }
+        const execution = await this.#executeProviderGrant({
+          id: providerRoute.id,
+          expectation,
+          command: resolved.command,
+          principal,
+        });
+        sendJson(response, 200, execution);
+        return;
+      }
+      if (providerRoute.action === 'result') {
+        const result = await this.#state.readProviderGrantResult({
+          id: providerRoute.id,
+          expectation,
+          executionBinding: principal,
+        });
+        sendJson(response, 200, result);
+        return;
+      }
+      const observed = await this.#state.readProviderGrantObservation({
+        id: providerRoute.id,
+        expectation,
+        executionBinding: principal,
+      });
+      if (observed === null) sendNoContent(response);
+      else sendJson(response, 200, observed);
+      return;
+    }
 
     if (url.pathname === '/auth/leases') {
       assertExactBody(body, ['idempotencyKey', 'workerId', 'request']);
@@ -728,6 +851,162 @@ export class LocalAuthDaemon {
     }
 
     sendJson(response, 404, { error: { code: 'route_not_found' } });
+  }
+
+  async #authorizeProviderControlPlanePeer(socket) {
+    try {
+      await this.#authorizeInternalPrincipal(socket);
+    } catch {
+      fail('principal_unauthenticated', 'internal control-plane mTLS peer is not the exact Backoffice identity');
+    }
+  }
+
+  async #prepareProviderExecution(command, principal) {
+    const request = providerGrantLeaseRequest(command, principal.subject);
+    if (request.policyGeneration !== this.#policy.generation) {
+      fail('stale_policy_generation', 'provider grant policy generation is stale');
+    }
+    if (Date.now() >= Date.parse(request.approval.expiresAt)) {
+      fail('approval_expired', 'provider execution approval has expired');
+    }
+    if (providerGrantRequiresPerRunApproval(command) && request.approval.mode !== 'per_run') {
+      fail('per_run_approval_required', 'protected provider actions require per-run approval');
+    }
+    if (request.authFactors.some((factor) => ['password', 'session', 'totp'].includes(factor))) {
+      fail('capability_forbidden', 'browser and interactive factors must use the existing isolated browser/factor boundary');
+    }
+    const account = this.#policy.accounts.require({
+      provider: request.provider,
+      accountId: request.accountId,
+      credentialRefs: [request.credentialRef],
+    });
+    // Registry lookup occurs before the one-use grant transition. The request can
+    // select only an adapter already fixed in the root-owned runtime config.
+    this.#registry.require(request.adapterId, request);
+    const currentCredentialGeneration = await this.#currentCredentialGeneration(request.credentialRef);
+    if (currentCredentialGeneration !== request.credentialGeneration) {
+      fail('stale_credential_generation', 'provider credential generation is stale');
+    }
+    return Object.freeze({
+      request,
+      currentCredentialGeneration,
+      authorized: Object.freeze({
+        request,
+        ruleId: command.bindingHash.slice(0, 63),
+        account,
+        actionClass: command.operation === 'READBACK'
+          ? 'read_only'
+          : command.operation === 'UPLOAD_INTERNAL' ? 'internal_upload' : 'other_mutation',
+        authStrategyIndex: 0,
+        authStrategies: Object.freeze([request.authFactors]),
+      }),
+    });
+  }
+
+  async #executeProviderGrant({ id, expectation, command, principal }) {
+    const prepared = await this.#prepareProviderExecution(command, principal);
+    const consumedGrant = await this.#state.consumeProviderGrant({
+      id,
+      expectation,
+      executionBinding: principal,
+    });
+    if (!consumedGrant.shouldExecute) {
+      return Object.freeze({
+        policyGrant: consumedGrant.policyGrant,
+        execution: consumedGrant.execution,
+      });
+    }
+
+    let consumedLease;
+    let credentialExecutionRecorded = false;
+    try {
+      const checkout = await this.#state.issueCredentialCheckout({
+        authorized: prepared.authorized,
+        workerId: principal.workerId,
+        idempotencyKey: `provider-lease:${id}`,
+        currentCredentialGeneration: prepared.currentCredentialGeneration,
+        currentPolicyGeneration: this.#policy.generation,
+      });
+      consumedLease = await this.#state.consumeCredentialCheckout({
+        id: checkout.id,
+        expectedGeneration: checkout.generation,
+        context: prepared.request,
+        workerId: principal.workerId,
+        currentCredentialGeneration: prepared.currentCredentialGeneration,
+        currentPolicyGeneration: this.#policy.generation,
+      });
+      const executed = await executeConsumedProviderLease({
+        consumed: consumedLease,
+        registry: this.#registry,
+        loadSecret: this.#loadSecret,
+        command,
+      });
+      const credentialOutcome = executed.adapterResult.outcome === 'SUCCESS'
+        ? 'SUCCESS'
+        : executed.adapterResult.outcome === 'FAILED' ? 'ADAPTER_FAILED' : HUMAN_REAUTH_REQUIRED;
+      await this.#state.recordCredentialExecution({
+        consumed: consumedLease,
+        outcome: credentialOutcome,
+        ...(Number.isInteger(executed.exitCode) ? { exitCode: executed.exitCode } : {}),
+        signal: executed.signal,
+      });
+      credentialExecutionRecorded = true;
+      const recorded = await this.#state.recordProviderGrantResult({
+        id,
+        executionBinding: principal,
+        result: executed.adapterResult,
+      });
+      if (executed.adapterResult.outcome === 'HUMAN_REAUTH_REQUIRED') {
+        fail(HUMAN_REAUTH_REQUIRED, 'provider requires human reauthentication', { reason: 'mfa_required' });
+      }
+      return recorded;
+    } catch (error) {
+      const code = error instanceof SeoriAuthError ? error.code : 'adapter_failed';
+      if (consumedLease && !credentialExecutionRecorded) {
+        await this.#state.recordCredentialExecution({
+          consumed: consumedLease,
+          outcome: [
+            'secret_load_failed', 'adapter_start_failed', 'adapter_timeout', 'adapter_output_limit',
+            'invalid_adapter_result', 'adapter_result_secret_detected',
+          ].includes(code) ? code.toUpperCase() : 'ADAPTER_FAILED',
+        }).catch(() => {});
+      }
+      if (code === HUMAN_REAUTH_REQUIRED) {
+        await this.#recordProviderReauth(command, principal).catch(() => {});
+        throw error;
+      }
+      if (['secret_load_failed', 'adapter_start_failed'].includes(code)) {
+        return this.#state.recordProviderGrantResult({
+          id,
+          executionBinding: principal,
+          result: { schemaVersion: 1, outcome: 'FAILED', errorCode: code.toUpperCase() },
+        });
+      }
+      // Once the grant has transitioned to CONSUMED, uncertain failures are never
+      // retried. The result endpoint reports RESULT_UNKNOWN and the worker must use
+      // a separately approved readback execution.
+      return Object.freeze({
+        policyGrant: consumedGrant.policyGrant,
+        execution: {
+          generation: command.generation,
+          outcome: 'RESULT_UNKNOWN',
+        },
+      });
+    }
+  }
+
+  async #recordProviderReauth(command, principal) {
+    return this.#state.createReauthRequest({
+      reason: 'mfa_required',
+      executionBinding: principal,
+      publicIdentity: normalizePublicIdentity({
+        provider: command.provider,
+        accountId: command.credential.publicAccountId,
+        teamId: null,
+        workspaceId: null,
+        appId: command.resource.id,
+      }),
+    });
   }
 
   async #finishBrowserRecovery({

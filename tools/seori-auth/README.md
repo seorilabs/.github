@@ -31,10 +31,15 @@ daemon, MAC-chain durable state, native OS 경계, encrypted Browser Vault를 �
   exact-match합니다. 외부 동작 전 `CHECKED_OUT -> CLAIMED` generation CAS를 먼저 fsync하며,
   crash 또는 불명 결과 뒤에는 provider readback으로만 `COMPLETED`/`AVAILABLE`을 결정하고
   adapter를 재실행하지 않습니다.
-- `CredentialCheckout`, `BrowserSessionBinding`, `ReauthRequest`, `AuthAuditEvent`는
+- `CredentialCheckout`, `BrowserSessionBinding`, `ReauthRequest`, `ProviderGrant`, `AuthAuditEvent`는
   권한 `0600` append-only journal에 기록되고 재시작 시 replay됩니다. 운영 모드의
   schema v2 record는 broker-held 32-byte key의 HMAC-SHA256 chain으로 인증하며,
   외부에 보관한 head MAC을 함께 주면 tail rollback도 탐지합니다.
+- Backoffice의 provider 실행은 일반 `/auth/*` surface를 늘리지 않습니다. exact Backoffice
+  SPIFFE mTLS peer와 Ed25519 run attestation을 모두 통과한 내부 경계에서만 5분·1회용
+  `ProviderGrant`를 등록합니다. grant는 run/repo/source/provider/resource/action/environment,
+  artifact, logical credential generation/public identity, policy generation, approval과
+  `bindingHash` 전체에 고정됩니다.
 - trusted adapter는 secret을 argv, 환경변수, stdin으로 받지 않고 전용 file
   descriptor 3으로만 받습니다.
 - child stdout/stderr는 exact-match redaction에 의존하지 않고 broker 경계에서 전부
@@ -165,13 +170,41 @@ browser adapter는 `NativeSecurityBoundary.browserAdapter`가 만든 AbortSignal
 | `/auth/browser-sessions/{id}/complete` | durable `CLAIMED` CAS 뒤 trusted adapter를 한 번만 실행하고, crash retry는 provider readback만으로 종결 |
 | `/auth/reauth-requests` | 자동화 중단 사유를 `HUMAN_REAUTH_REQUIRED`로 기록 |
 
-요청·응답과 네 가지 durable record의 JSON 계약은
+공개 auth 요청·응답과 기존 durable record의 JSON 계약은
 [`schemas/local-broker.schema.json`](schemas/local-broker.schema.json)에 있습니다.
 browser session은 신뢰 가능한 control plane이 daemon 시작 전 또는 같은 프로세스
 안에서 `registerBrowserSession`으로 공개 binding만 등록합니다. 실제 profile과 cookie를
 이 journal이나 HTTP 경계에 전달해서는 안 됩니다. `/complete`의 공개 identity는 HTTP
 caller가 제출하지 않고 trusted `readBrowserIdentity` callback이 provider session에서
 독립적으로 읽습니다.
+
+### Backoffice 전용 provider control-plane
+
+다음 경로는 공개 auth API가 아닙니다. broker runtime에 고정된 단 하나의
+`providerControlPlane.backofficeClientSpiffeId`와
+`/internal/control-plane/provider-grants` scope에서만 열립니다. 모든 요청은 같은
+run/repo/worker를 증명하는 1회용 Ed25519 attestation을 추가로 요구합니다.
+
+| route | exact body | 응답 |
+| --- | --- | --- |
+| `/internal/control-plane/provider-grants` | `idempotencyKey`, `workerId`, `grant`, `digest` | `201 { policyGrant }` |
+| `/internal/control-plane/provider-grants/{id}/verify` | `workerId`, `expectedDigest`, `expectedBindingHash`, `expectedCommandDigest`, `expectedPolicyGeneration` | `200 { policyGrant }` |
+| `/internal/control-plane/provider-grants/{id}/consume` | verify body + `expectedExecutionGeneration`, `idempotencyKey` | `200 { policyGrant, execution }` |
+| `/internal/control-plane/provider-grants/{id}/result` | verify body + `expectedExecutionGeneration` | `200 { policyGrant, execution }` |
+| `/internal/control-plane/provider-grants/{id}/observation` | verify body + `expectedExecutionGeneration` | `200 { policyGrant, observation }` 또는 관측 전 `204` |
+
+`policyGrant`는 `{id,digest,bindingHash,commandDigest,policyGeneration,state:"ACTIVE"}`만
+반환합니다. `execution`은 `{generation,outcome,errorCode?}`이고 outcome은 `SUCCESS`,
+`ADAPTER_FAILED`, `HUMAN_REAUTH_REQUIRED`, `RESULT_UNKNOWN` 중 하나입니다. 오류는 기존과
+같이 `{error:{code}}`만 반환하며 protected action의 미승인은 정확히
+`per_run_approval_required`, 사람 재인증은 정확히 `HUMAN_REAUTH_REQUIRED`입니다.
+
+등록된 `bindingHash`는 secret 없는 strict command envelope 하나로만 해석됩니다. 실행 전에
+grant를 durable `CONSUMED`로 CAS하고, root-owned runtime config에 미리 등록된 native adapter
+하나만 선택합니다. credential은 기존 checkout/Secret Manager 경계에서 fd3으로, canonical
+public command는 fd4로, strict public result는 fd5로 전달합니다. adapter 결과가 불명확하면
+`RESULT_UNKNOWN`을 기록하고 같은 grant로 재실행하지 않습니다. 별도 readback identity와 새
+`READBACK_FIRST` grant를 발급한 뒤 observation으로만 상태를 확정합니다.
 
 ## 운영 활성화 gate
 

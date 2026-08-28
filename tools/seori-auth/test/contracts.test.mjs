@@ -162,10 +162,14 @@ test('legacy production Kubernetes paths cannot deploy stale placeholder objects
   }
 });
 
-test('local daemon declares only the five approved POST route shapes and no secret getter route', async () => {
+test('local daemon keeps the five public auth route shapes and isolates provider control-plane routes', async () => {
   const daemonSource = await read('src/local-daemon.mjs');
-  const routeLiterals = [...daemonSource.matchAll(/url\.pathname === '([^']+)'/g)].map((match) => match[1]);
-  const routePatterns = [...daemonSource.matchAll(/url\.pathname\.match\((\/\^.*\$\/)\)/g)].map((match) => match[1]);
+  const routeLiterals = [...daemonSource.matchAll(/url\.pathname === '([^']+)'/g)]
+    .map((match) => match[1])
+    .filter((path) => path.startsWith('/auth/'));
+  const routePatterns = [...daemonSource.matchAll(/url\.pathname\.match\((\/\^.*\$\/)\)/g)]
+    .map((match) => match[1])
+    .filter((pattern) => pattern.includes('auth\\/'));
 
   assert.deepEqual(routeLiterals, ['/auth/leases', '/auth/reauth-requests']);
   assert.equal(routePatterns.length, 3);
@@ -175,5 +179,8 @@ test('local daemon declares only the five approved POST route shapes and no secr
   assert.doesNotMatch(daemonSource, /\/auth\/(?:secrets|export|print|credentials)/);
   assert.doesNotMatch(daemonSource, /request\.headers\[['"]authorization['"]\]|bearer/i);
   assert.match(daemonSource, /#authenticatePrincipal/);
+  assert.match(daemonSource, /PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE/);
+  assert.match(daemonSource, /#authorizeProviderControlPlanePeer/);
+  assert.doesNotMatch(daemonSource, /\/auth\/(?:policy-grants|provider-grants)/);
   assert.doesNotMatch(daemonSource, /\.listen\(\s*\d|hostname|host:/);
 });

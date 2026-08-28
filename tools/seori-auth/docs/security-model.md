@@ -18,6 +18,8 @@
 - 검토된 native helper binary와 UID/GID/PID를 scheduler principal로 해석하는 resolver
 - 서로 다른 workload identity의 password loader와 TOTP signer
 - Kubernetes mTLS CA, exact SPIFFE URI SAN, scheduler Ed25519 run-attestation signer
+- internal provider control-plane을 호출하는 exact Backoffice SPIFFE identity와 root-owned
+  endpoint scope/runtime adapter registry
 
 에이전트 prompt, 웹페이지 텍스트, repository 입력, artifact 이름, child process 출력은
 신뢰하지 않습니다. 특히 웹페이지의 prompt injection은 policy나 secret export 기능을
@@ -66,6 +68,12 @@
 - ordered auth fallback은 같은 run의 앞선 전략 실패를 journal의 non-secret digest로 증명
 - signed `actionClass` 또는 production environment가 capability 문자열과 무관하게
   `per_run` approval을 강제
+- provider grant 등록·검증·소비·결과·observation readback을 run/repo/SHA/binding hash와
+  generation CAS에 고정하고 HMAC journal 없이 provider grant 등록을 거부
+- provider grant를 외부 동작 전에 한 번 소비하며 불명 결과 뒤 같은 command를 재실행하지
+  않고 새 `READBACK_FIRST` execution만 허용
+- provider native adapter에는 secret fd3, canonical public command fd4, strict public result
+  fd5만 제공하고 stdout/stderr, argv, environment에는 secret을 전달하지 않음
 
 ## 보장하지 않는 것
 
@@ -96,6 +104,9 @@ Kubernetes runtime은 TLS 1.3 mutual authentication을 사용하며 certificate�
 exact SPIFFE allowlist와 비교합니다. broker 요청은 여기에 scheduler가 서명한 5분 이하
 run/repo/worker attestation을 추가로 요구하고 nonce를 한 번 소비합니다. password loader와
 TOTP signer는 broker SPIFFE ID만 받으며 secret 조회·export route가 없습니다.
+내부 provider control-plane route는 이 공통 검증 뒤에도 runtime에 고정된 exact Backoffice
+SPIFFE ID를 한 번 더 요구합니다. 일반 worker certificate로는 경로가 존재해도 접근할 수
+없고, internal authorizer가 없는 local daemon에서는 route 자체를 `404`로 숨깁니다.
 
 ## 중단 조건
 
@@ -112,13 +123,16 @@ TOTP signer는 broker SPIFFE ID만 받으며 secret 조회·export route가 없�
 
 ## 로컬 HTTP 경계
 
-daemon은 Unix domain socket 이외의 listener를 만들지 않으며 `POST` 다섯 route만
-처리합니다. JSON 오류 응답은 machine code만 반환해 입력값이나 내부 오류를 반사하지
+daemon의 공개 auth surface는 Unix domain socket의 `POST` 다섯 route로 유지됩니다.
+Backoffice 전용 `/internal/control-plane/provider-grants` 하위 경로는 exact mTLS SPIFFE와
+Ed25519 attestation을 동시에 통과한 production broker에서만 활성화됩니다. JSON 오류 응답은
+machine code만 반환해 입력값이나 내부 오류를 반사하지
 않습니다. body는 64 KiB로 제한되고 임의 query, executable, argument, environment,
 profile path는 입력 계약에 없습니다.
 
 상태 journal은 owner-only regular file 하나에 sequence가 연속인 JSONL envelope를
-append하고 각 envelope에 non-secret state mutation과 `AuthAuditEvent`를 함께
+append하고 각 envelope에 `ProviderGrant`를 포함한 non-secret state mutation과
+`AuthAuditEvent`를 함께
 기록합니다. 호환 모드 schema v1은 sequence만 검사합니다. production은 32-byte
 broker-held key와 `requireIntegrity: true`를 사용해 schema v2 HMAC/hash chain만
 허용합니다. 중간에 잘린 record, sequence 역행, MAC/previous-MAC 불일치, symlink,

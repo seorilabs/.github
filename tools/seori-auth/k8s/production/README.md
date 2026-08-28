@@ -19,6 +19,7 @@ renderer는 secret 값을 읽거나 출력하지 않고 하나의 JSON `List`만
 | `nodeSelector` | 검증된 RPI5를 고르는 label 한 개 |
 | `stateClaimName` | 사전에 검증된 encrypted PVC 이름 |
 | `trustedWorkers` | namespace/pod exact match label을 각각 한 개씩 가진 selector |
+| `providerControlPlane` | exact `backofficeClientSpiffeId`와 고정 `/internal/control-plane/provider-grants` scope |
 | `egressProxy` | namespace/pod exact selector와 TLS proxy port |
 | `roles` | `broker`, `passwordLoader`, `totpSigner` 세 binding |
 
@@ -29,6 +30,10 @@ renderer는 GSA, audience, digest를 container의 public startup binding으로 �
 마운트된 `secret-access.json`의 digest와 impersonation target을 다시 읽어 일치하지 않으면
 readiness 전에 중단합니다. 같은 WIF provider audience를 쓰더라도 IAM subject는 Kubernetes
 namespace와 ServiceAccount까지 고정합니다.
+provider control-plane의 SPIFFE ID와 endpoint scope도 runtime config, immutable startup
+argument, Pod annotation에 각각 고정합니다. broker client allowlist에 exact Backoffice
+SPIFFE가 없거나 scope가 `/auth/*`로 바뀌면 readiness 전에 중단합니다. 이 binding은
+ServiceAccount에 Kubernetes API 권한을 추가하지 않으며 생성되는 Role은 계속 `rules: []`입니다.
 
 renderer가 참조하지만 생성하지 않는 외부 객체는 다음뿐입니다.
 
