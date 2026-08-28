@@ -3,14 +3,23 @@
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 
+import {
+  PROVIDER_CONTROL_PLANE_CLIENT_SPIFFE_ID,
+  PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE,
+} from '../src/provider-grants.mjs';
+
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
 const IMAGE = /^[a-z0-9][a-z0-9._\/-]*(?::[0-9]+)?\/[a-z0-9][a-z0-9._\/-]*@sha256:[a-f0-9]{64}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const WIF_AUDIENCE = /^\/\/iam\.googleapis\.com\/projects\/[1-9][0-9]*\/locations\/global\/workloadIdentityPools\/[A-Za-z0-9_-]+\/providers\/[A-Za-z0-9_-]+$/;
 const GOOGLE_IDENTITY = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.iam\.gserviceaccount\.com$/;
-const SPIFFE_ID = /^spiffe:\/\/seorilabs\.local\/ns\/[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?\/sa\/[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$/;
-const PROVIDER_ENDPOINT_SCOPE = '/internal/control-plane/provider-grants';
 const ROLES = Object.freeze(['broker', 'passwordLoader', 'totpSigner']);
+const PROVIDER_NAMESPACE_SELECTOR = Object.freeze({
+  'kubernetes.io/metadata.name': 'platform',
+});
+const PROVIDER_POD_SELECTOR = Object.freeze({
+  'app.kubernetes.io/component': 'provider-execution-signer',
+});
 
 function fail(message) {
   process.stderr.write(`${JSON.stringify({ valid: false, code: 'invalid_deployment_config', message })}\n`);
@@ -34,6 +43,11 @@ function labels(value, label) {
   const [[key, content]] = Object.entries(value);
   if (!/^[A-Za-z0-9./_-]+$/.test(key) || content.length > 63 || !DNS_LABEL.test(content)) fail(`${label} is invalid`);
   return Object.freeze({ [key]: content });
+}
+
+function sameLabels(actual, expected) {
+  return Object.keys(actual).length === Object.keys(expected).length &&
+    Object.entries(expected).every(([key, value]) => actual[key] === value);
 }
 
 async function load(path) {
@@ -89,8 +103,8 @@ function validate(config) {
     !exactKeys(config.providerControlPlane, [
       'backofficeClientSpiffeId', 'endpointScope', 'namespaceSelector', 'podSelector',
     ]) ||
-    !SPIFFE_ID.test(config.providerControlPlane.backofficeClientSpiffeId ?? '') ||
-    config.providerControlPlane.endpointScope !== PROVIDER_ENDPOINT_SCOPE
+    config.providerControlPlane.backofficeClientSpiffeId !== PROVIDER_CONTROL_PLANE_CLIENT_SPIFFE_ID ||
+    config.providerControlPlane.endpointScope !== PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE
   ) fail('provider control-plane binding is invalid');
   if (!Number.isSafeInteger(config.egressProxy.port) || config.egressProxy.port < 1_024 || config.egressProxy.port > 65_535) {
     fail('egress proxy port is invalid');
@@ -105,6 +119,18 @@ function validate(config) {
       fail(`${field} must be distinct for every workload role`);
     }
   }
+  const providerNamespaceSelector = labels(
+    config.providerControlPlane.namespaceSelector,
+    'providerControlPlane.namespaceSelector',
+  );
+  const providerPodSelector = labels(
+    config.providerControlPlane.podSelector,
+    'providerControlPlane.podSelector',
+  );
+  if (
+    !sameLabels(providerNamespaceSelector, PROVIDER_NAMESPACE_SELECTOR) ||
+    !sameLabels(providerPodSelector, PROVIDER_POD_SELECTOR)
+  ) fail('provider control-plane network identity is invalid');
   return Object.freeze({
     ...config,
     nodeSelector: labels(config.nodeSelector, 'nodeSelector'),
@@ -116,11 +142,8 @@ function validate(config) {
     providerControlPlane: Object.freeze({
       backofficeClientSpiffeId: config.providerControlPlane.backofficeClientSpiffeId,
       endpointScope: config.providerControlPlane.endpointScope,
-      namespaceSelector: labels(
-        config.providerControlPlane.namespaceSelector,
-        'providerControlPlane.namespaceSelector',
-      ),
-      podSelector: labels(config.providerControlPlane.podSelector, 'providerControlPlane.podSelector'),
+      namespaceSelector: providerNamespaceSelector,
+      podSelector: providerPodSelector,
     }),
     egressProxy: Object.freeze({
       namespaceSelector: labels(config.egressProxy.namespaceSelector, 'egressProxy.namespaceSelector'),

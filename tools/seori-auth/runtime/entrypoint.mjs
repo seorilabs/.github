@@ -14,6 +14,7 @@ import {
   MtlsRunAttestor,
   NativeSecurityBoundary,
   NativeSecretManagerExecutionStore,
+  PROVIDER_CONTROL_PLANE_CLIENT_SPIFFE_ID,
   PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE,
   requireExactMtlsPeer,
   SecretManagerPasswordLoader,
@@ -142,7 +143,7 @@ function validateBrokerRuntime(config, credentials) {
   uniqueStrings(config.allowedClientSpiffeIds, SPIFFE_ID, 'allowed client SPIFFE ids');
   if (
     !exactKeys(config.providerControlPlane, ['backofficeClientSpiffeId', 'endpointScope']) ||
-    !SPIFFE_ID.test(config.providerControlPlane.backofficeClientSpiffeId ?? '') ||
+    config.providerControlPlane.backofficeClientSpiffeId !== PROVIDER_CONTROL_PLANE_CLIENT_SPIFFE_ID ||
     config.providerControlPlane.endpointScope !== PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE ||
     !config.allowedClientSpiffeIds.includes(config.providerControlPlane.backofficeClientSpiffeId)
   ) fail('Backoffice provider control-plane binding is invalid');
@@ -208,7 +209,7 @@ function deploymentBinding(options) {
     !GOOGLE_IDENTITY.test(binding.googleServiceAccount ?? '') ||
     !SHA256.test(binding.secretAccessSha256 ?? '') ||
     !WIF_AUDIENCE.test(binding.wifAudience ?? '') ||
-    !SPIFFE_ID.test(binding.backofficeClientSpiffeId ?? '') ||
+    binding.backofficeClientSpiffeId !== PROVIDER_CONTROL_PLANE_CLIENT_SPIFFE_ID ||
     binding.providerEndpointScope !== PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE
   ) fail('runtime deployment identity binding is invalid');
   return Object.freeze(binding);

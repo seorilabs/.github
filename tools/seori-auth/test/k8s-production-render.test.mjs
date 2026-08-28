@@ -25,10 +25,10 @@ function deploymentConfig() {
       podSelector: { 'seorilabs.io/auth-client': 'true' },
     },
     providerControlPlane: {
-      backofficeClientSpiffeId: 'spiffe://seorilabs.local/ns/platform/sa/provider-execution-worker',
+      backofficeClientSpiffeId: 'spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer',
       endpointScope: '/internal/control-plane/provider-grants',
       namespaceSelector: { 'kubernetes.io/metadata.name': 'platform' },
-      podSelector: { 'app.kubernetes.io/name': 'provider-execution-worker' },
+      podSelector: { 'app.kubernetes.io/component': 'provider-execution-signer' },
     },
     egressProxy: {
       namespaceSelector: { 'kubernetes.io/metadata.name': 'auth-egress' },
@@ -125,7 +125,7 @@ test('production renderer emits immutable separated workloads without Kubernetes
     assert.ok(container.args.includes(`--expected-google-service-account=${binding.googleServiceAccount}`));
     assert.ok(container.args.includes(`--expected-wif-audience=${binding.wifAudience}`));
     assert.ok(container.args.includes(
-      '--expected-backoffice-spiffe-id=spiffe://seorilabs.local/ns/platform/sa/provider-execution-worker',
+      '--expected-backoffice-spiffe-id=spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer',
     ));
     assert.ok(container.args.includes(
       '--expected-provider-endpoint-scope=/internal/control-plane/provider-grants',
@@ -133,7 +133,7 @@ test('production renderer emits immutable separated workloads without Kubernetes
     assert.equal(item.spec.template.metadata.annotations['seorilabs.io/secret-access-sha256'], binding.secretAccessConfigSha256);
     assert.equal(
       item.spec.template.metadata.annotations['seorilabs.io/provider-control-plane-spiffe'],
-      'spiffe://seorilabs.local/ns/platform/sa/provider-execution-worker',
+      'spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer',
     );
     assert.equal(
       item.spec.template.metadata.annotations['seorilabs.io/provider-endpoint-scope'],
@@ -177,21 +177,21 @@ test('production renderer emits immutable separated workloads without Kubernetes
   assert.equal(ingressAllows(
     brokerTraffic,
     { 'kubernetes.io/metadata.name': 'platform' },
-    { 'app.kubernetes.io/name': 'provider-execution-worker' },
+    { 'app.kubernetes.io/component': 'provider-execution-signer' },
     8443,
   ), true);
   for (const [namespaceLabels, podLabels] of [
     [
       { 'kubernetes.io/metadata.name': 'platform-lookalike' },
-      { 'app.kubernetes.io/name': 'provider-execution-worker' },
+      { 'app.kubernetes.io/component': 'provider-execution-signer' },
     ],
     [
       { 'kubernetes.io/metadata.name': 'platform' },
-      { 'app.kubernetes.io/name': 'provider-execution-worker-lookalike' },
+      { 'app.kubernetes.io/component': 'provider-execution-signer-lookalike' },
     ],
     [
       { 'kubernetes.io/metadata.name': 'release-workers' },
-      { 'app.kubernetes.io/name': 'provider-execution-worker' },
+      { 'app.kubernetes.io/component': 'provider-execution-signer' },
     ],
   ]) {
     assert.equal(ingressAllows(brokerTraffic, namespaceLabels, podLabels, 8443), false);
@@ -228,6 +228,25 @@ test('production renderer rejects mutable images and shared factor identities', 
   await assert.rejects(render(driftedProviderScope), (error) => {
     assert.equal(error.code, 1);
     assert.match(error.stderr, /provider control-plane binding is invalid/);
+    return true;
+  });
+
+  const workerSpiffe = deploymentConfig();
+  workerSpiffe.providerControlPlane.backofficeClientSpiffeId =
+    'spiffe://seorilabs.local/ns/platform/sa/provider-execution-worker';
+  await assert.rejects(render(workerSpiffe), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /provider control-plane binding is invalid/);
+    return true;
+  });
+
+  const workerPod = deploymentConfig();
+  workerPod.providerControlPlane.podSelector = {
+    'app.kubernetes.io/component': 'provider-execution-worker',
+  };
+  await assert.rejects(render(workerPod), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /provider control-plane network identity is invalid/);
     return true;
   });
 

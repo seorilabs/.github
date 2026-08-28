@@ -276,6 +276,38 @@ test('P5 provider grant shape is five-minute exact-bound and protected actions r
     (error) => error instanceof SeoriAuthError && error.code === 'per_run_approval_required',
   );
 
+  const productionReadback = rawRegistration(now, {
+    command: {
+      resumeMode: 'READBACK_FIRST',
+      operation: 'READBACK',
+      resource: {
+        type: 'market-release',
+        id: 'example-app',
+        environment: 'production',
+        expectedPublicIdentity: 'example-app',
+      },
+    },
+  });
+  assert.equal(
+    normalizeProviderGrantRegistration(productionReadback, { subject, now }).grant.command.operation,
+    'READBACK',
+  );
+
+  const productionUpload = rawRegistration(now, {
+    command: {
+      resource: {
+        type: 'market-release',
+        id: 'example-app',
+        environment: 'production',
+        expectedPublicIdentity: 'example-app',
+      },
+    },
+  });
+  assert.throws(
+    () => normalizeProviderGrantRegistration(productionUpload, { subject, now }),
+    (error) => error instanceof SeoriAuthError && error.code === 'per_run_approval_required',
+  );
+
   const longLived = rawRegistration(now, {
     command: {
       approval: {
