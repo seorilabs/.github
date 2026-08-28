@@ -23,6 +23,7 @@ import { recoverGithubAppCredentials } from "../scripts/fleet/github-credential-
 import {
   createTrustedWifAdapter,
   createTrustedWifProviderPolicy,
+  trustedFleetExecutorContract,
 } from "../packages/repo-contract/src/trusted-executor.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -70,6 +71,10 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
     schema,
   );
   assert.equal(validate(contract), true, JSON.stringify(validate.errors));
+  assert.equal(
+    trustedFleetExecutorContract.githubApiVersion,
+    contract.github.apiVersion,
+  );
   assert.deepEqual(
     contract.github.pilotValues.map(({ repository }) => repository),
     ["happy-farm", "lizard-tycoon"],
@@ -706,7 +711,7 @@ test("GCP bootstrap apply와 rollback은 exact 공개 confirmation 없이는 실
   }
 });
 
-test("GCP apply와 rollback은 두 provider를 preflight하고 기존 IAM을 보존한다", async () => {
+test("GCP apply는 exact legacy GitHub provider만 단조 축소하고 rollback은 IAM을 보존한다", async () => {
   const bootstrapSource = await readFile(gcpBootstrap, "utf8");
   assert.doesNotMatch(bootstrapSource, /remove-iam-policy-binding/u);
   const planResult = await execFileAsync(process.execPath, [gcpBootstrap, "plan"]);
@@ -729,6 +734,21 @@ test("GCP apply와 rollback은 두 provider를 preflight하고 기존 IAM을 보
     disabled,
     oidc: { allowedAudiences: [audience], issuerUri: issuer },
   });
+  const legacyGithubCondition = [
+    `assertion.repository_owner_id == '${contract.cloudBuild.wif.organizationId}'`,
+    `(${contract.cloudBuild.wif.repositories
+      .map(
+        ({ repositoryId }) =>
+          `assertion.repository_id == '${repositoryId}'`,
+      )
+      .join(" || ")})`,
+    `(${contract.cloudBuild.wif.repositories
+      .map(
+        ({ workflow }) =>
+          `assertion.job_workflow_ref == 'seorilabs/.github/${workflow}@${contract.cloudBuild.wif.workflowExecutionSha}'`,
+      )
+      .join(" || ")})`,
+  ].join(" && ");
   const initialState = {
     projectNumber: plan.project.number,
     serviceAccounts: Object.fromEntries(
@@ -746,7 +766,10 @@ test("GCP apply와 rollback은 두 provider를 preflight하고 기존 IAM을 보
     },
     providers: {
       [plan.workloadIdentity.github.provider]: providerState(
-        plan.workloadIdentity.github,
+        {
+          ...plan.workloadIdentity.github,
+          attributeCondition: legacyGithubCondition,
+        },
       ),
       [plan.workloadIdentity.kubernetes.provider]: providerState(
         plan.workloadIdentity.kubernetes,
@@ -779,10 +802,46 @@ test("GCP apply와 rollback은 두 provider를 preflight하고 기존 IAM을 보
     writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 
   try {
+    for (const drift of ["condition", "mapping"]) {
+      const unknownGithubDrift = structuredClone(initialState);
+      const githubState =
+        unknownGithubDrift.providers[
+          plan.workloadIdentity.github.provider
+        ];
+      if (drift === "condition") {
+        githubState.attributeCondition += " && false";
+      } else {
+        githubState.attributeMapping["attribute.environment"] =
+          "assertion.environment";
+      }
+      await writeState(unknownGithubDrift);
+      await assert.rejects(
+        bootstrap("apply", plan.confirmation),
+        (error) => {
+          assert.match(error.stderr, /P3_GITHUB_WIF_PROVIDER_DRIFT/u);
+          return true;
+        },
+      );
+      assert.deepEqual((await readState()).history, []);
+    }
+
     await writeState(initialState);
     const applied = await bootstrap("apply", plan.confirmation);
     assert.equal(applied.ready, true);
     const appliedState = await readState();
+    const githubProvider = plan.workloadIdentity.github.provider;
+    assert.deepEqual(
+      appliedState.history.filter((entry) => entry.includes(githubProvider)),
+      [
+        `provider:disable:${githubProvider}`,
+        `provider:update:${githubProvider}`,
+        `provider:enable:${githubProvider}`,
+      ],
+    );
+    assert.equal(
+      appliedState.providers[githubProvider].attributeCondition,
+      plan.workloadIdentity.github.attributeCondition,
+    );
     assert.equal(
       appliedState.bindings.filter(
         (item) => JSON.stringify(item) === JSON.stringify(plan.iamBindings[0]),

@@ -9,7 +9,7 @@ import {
 
 const ORGANIZATION_LOGIN = "seorilabs";
 const GITHUB_API_ORIGIN = "https://api.github.com";
-const GITHUB_API_VERSION = "2022-11-28";
+const GITHUB_API_VERSION = "2026-03-10";
 const GCP_IAM_API_ORIGIN = "https://iam.googleapis.com";
 const GCP_IAM_API_VERSION = "v1";
 const ID_PATTERN = /^[1-9][0-9]{0,31}$/u;

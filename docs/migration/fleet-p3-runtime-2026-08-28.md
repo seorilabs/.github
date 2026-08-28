@@ -143,6 +143,14 @@ bootstrap과 trusted executor는 같은 공개 policy generator를 사용한다.
 condition이 두 exact pair만 token exchange하도록 제한한다. 별도의
 `environment/seorilabs_capability` mapping이나 generic workflow regex를 같은 provider에
 덮어쓰는 경로는 제거했다.
+기존 cross-product condition은 알려진 legacy condition, mapping, issuer, audience가 모두 exact일
+때만 이관한다. active provider는 먼저 disable하고 legacy 상태를 다시 읽은 뒤 pairwise condition으로
+축소하며, disabled exact readback을 통과한 뒤에만 다시 enable한다. 알 수 없는 drift는 provider를
+수정하지 않고 중단한다.
+
+GitHub App bootstrap, trusted executor, candidate canary와 exact-source readback의 REST header는
+모두 `2026-03-10`으로 통일했다. 이 값은 내부 계약 날짜만이 아니라 GitHub가 현재 지원하는 REST
+API version이다. [GitHub REST API versions](https://docs.github.com/en/rest/about-the-rest-api/api-versions?apiVersion=2026-03-10)
 
 ```bash
 node scripts/fleet/bootstrap-p3-github.mjs

@@ -13,7 +13,7 @@ import {
 const CONTRACT = "seorilabs-candidate-canary-v1";
 const ORGANIZATION_LOGIN = "seorilabs";
 const GITHUB_API_ORIGIN = "https://api.github.com";
-const GITHUB_API_VERSION = "2022-11-28";
+const GITHUB_API_VERSION = "2026-03-10";
 const DEFAULT_REF = "refs/heads/main";
 const BINDING_TTL_MS = 5 * 60 * 1000;
 

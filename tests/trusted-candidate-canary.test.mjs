@@ -294,7 +294,7 @@ function executorHarness(
     provider: {
       async readIdentity({ apiOrigin, apiVersion, context, credential }) {
         assert.equal(apiOrigin, "https://api.github.com");
-        assert.equal(apiVersion, "2022-11-28");
+        assert.equal(apiVersion, "2026-03-10");
         assert.equal(credential.includes(Buffer.from("candidate-canary-token")), true);
         assert.equal(context.repositoryId, repository.repositoryId);
         return {

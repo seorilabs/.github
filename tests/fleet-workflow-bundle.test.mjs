@@ -382,6 +382,7 @@ test("GitHub source adapter는 fixed public origin의 exact commit Contents만 d
     assert.equal(options.method, "GET");
     assert.equal(options.redirect, "error");
     assert.equal(options.headers.Authorization, undefined);
+    assert.equal(options.headers["X-GitHub-Api-Version"], "2026-03-10");
     if (url.pathname.endsWith(`/commits/${SOURCE_SHA}`)) {
       return { ok: true, status: 200, json: async () => ({ sha: SOURCE_SHA }) };
     }

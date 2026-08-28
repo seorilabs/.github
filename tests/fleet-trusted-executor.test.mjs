@@ -260,7 +260,7 @@ function harness({
       },
       async readIdentity({ apiOrigin, apiVersion, credential }) {
         assert.equal(apiOrigin, "https://api.github.com");
-        assert.equal(apiVersion, "2022-11-28");
+        assert.equal(apiVersion, "2026-03-10");
         assert.equal(credential.includes(Buffer.from("installation-token")), true);
         return {
           archived: false,
