@@ -704,6 +704,12 @@ function runtimeDeclarationsMatchTexts(bundle, runtimeTextByPath) {
         "quality",
         "Reject product Godot diagnostics",
       );
+      const expectedDiagnosticGateRun = [
+        "node .seorilabs-org/scripts/fleet/godot-diagnostic-gate.mjs \\",
+        '  --toolchain-log "$RUNNER_TEMP/godot-toolchain.log" \\',
+        '  --application-log "$RUNNER_TEMP/godot-import.log" \\',
+        '  --summary "$GITHUB_STEP_SUMMARY"',
+      ].join("\n");
       if (
         Object.hasOwn(probeStep ?? {}, "continue-on-error") ||
         !probeStep?.run?.includes(
@@ -711,12 +717,9 @@ function runtimeDeclarationsMatchTexts(bundle, runtimeTextByPath) {
         ) ||
         !probeStep?.run?.includes('tee "$RUNNER_TEMP/godot-toolchain.log"') ||
         Object.hasOwn(diagnosticGateStep ?? {}, "continue-on-error") ||
-        !diagnosticGateStep?.run?.includes(
-          "node .seorilabs-org/scripts/fleet/godot-diagnostic-gate.mjs",
-        ) ||
-        !diagnosticGateStep?.run?.includes(
-          '--application-log "$RUNNER_TEMP/godot-import.log"',
-        )
+        !hasExactKeys(diagnosticGateStep, ["name", "shell", "run"]) ||
+        diagnosticGateStep.shell !== "bash" ||
+        diagnosticGateStep.run.trim() !== expectedDiagnosticGateRun
       ) {
         return false;
       }

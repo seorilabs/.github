@@ -729,6 +729,37 @@ test("bundle action 또는 toolchain 선언이 실제 workflow와 다르면 거�
     createWorkflowBundle({ repoRoot: semanticRoot, sourceSha: SOURCE_SHA }),
     /RUNTIME_DECLARATION_MISMATCH/u,
   );
+
+  const diagnosticRoot = await mkdtemp(
+    join(tmpdir(), "fleet-bundle-godot-diagnostic-"),
+  );
+  temporaryRoots.push(diagnosticRoot);
+  for (const directory of [
+    "contracts",
+    "profiles",
+    "scripts/fleet",
+    "fixtures",
+    ".github/cloud-build",
+    ".github/workflows",
+  ]) {
+    await cp(directory, join(diagnosticRoot, directory), { recursive: true });
+  }
+  const godotWorkflowPath = join(
+    diagnosticRoot,
+    ".github/workflows/godot-checks-v2.yml",
+  );
+  const godotWorkflow = await readFile(godotWorkflowPath, "utf8");
+  await writeFile(
+    godotWorkflowPath,
+    godotWorkflow.replace(
+      '--toolchain-log "$RUNNER_TEMP/godot-toolchain.log"',
+      '--toolchain-log "$RUNNER_TEMP/godot-import.log"',
+    ),
+  );
+  await assert.rejects(
+    createWorkflowBundle({ repoRoot: diagnosticRoot, sourceSha: SOURCE_SHA }),
+    /RUNTIME_DECLARATION_MISMATCH/u,
+  );
 });
 
 test("APPROVED bundle은 source, Ed25519 key와 registry readback이 모두 있어야 소비된다", async () => {
