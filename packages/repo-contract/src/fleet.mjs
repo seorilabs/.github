@@ -2477,7 +2477,7 @@ export async function validateXcodeCloudRunContract(
       );
     }
   } catch {
-    diagnostics.push("XCODE_SIGNED_SCHEMA_UNREADABLE");
+    if (trustedBundle) diagnostics.push("XCODE_SIGNED_SCHEMA_UNREADABLE");
   }
   if (
     trustedBundle &&

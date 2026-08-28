@@ -840,6 +840,22 @@ test("Xcode Cloud generator는 ASC ciBuildRuns build-only 계약만 만들고 Gi
     ),
   );
 
+  const untrustedBundle = await validateXcodeCloudRunContract(contract, {
+    callerBinding: context.callerBinding,
+    repositoryContext: context.repositoryContext,
+    trustedXcodeCloudTargetReadback: targetReadback,
+  });
+  assert.equal(untrustedBundle.ok, false);
+  assert.ok(
+    untrustedBundle.diagnostics.includes(
+      "APPROVED_BUNDLE_BINDING_REQUIRED",
+    ),
+  );
+  assert.equal(
+    untrustedBundle.diagnostics.includes("XCODE_SIGNED_SCHEMA_UNREADABLE"),
+    false,
+  );
+
   const wrongTarget = await validateXcodeCloudRunContract(contract, {
     approvedBundleBinding: context.bundleBinding,
     callerBinding: context.callerBinding,
