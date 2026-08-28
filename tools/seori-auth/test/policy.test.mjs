@@ -124,6 +124,7 @@ test('approval expiry and max-use are fixed by signed policy rather than caller 
 test('password/TOTP is limited to canonical dedicated bot accounts and TOTP needs policy approval', () => {
   const policy = makePolicy({
     allowTotp: true,
+    authStrategies: [['password', 'totp']],
   });
   const engine = new PolicyEngine(policy);
 
@@ -136,7 +137,7 @@ test('password/TOTP is limited to canonical dedicated bot accounts and TOTP need
     (error) => error instanceof SeoriAuthError && error.code === 'capability_forbidden',
   );
   const human = new PolicyEngine(makePolicy(
-    {},
+    { allowTotp: true, authStrategies: [['password'], ['password', 'totp']] },
     {
       accounts: [{
         provider: 'apps-in-toss',
@@ -155,5 +156,61 @@ test('password/TOTP is limited to canonical dedicated bot accounts and TOTP need
   assert.throws(
     () => engine.authorize(makeRequest({ accountKind: 'dedicated_bot' })),
     (error) => error instanceof SeoriAuthError && error.code === 'invalid_request',
+  );
+});
+
+test('authentication factors are an ordered exact policy strategy', () => {
+  const engine = new PolicyEngine(makePolicy({
+    authStrategies: [['api_key'], ['oidc', 'certificate']],
+  }));
+  assert.equal(engine.authorize(makeRequest({ authFactors: ['api_key'] })).ruleId, 'private-upload');
+  assert.equal(
+    engine.authorize(makeRequest({ authFactors: ['oidc', 'certificate'] })).ruleId,
+    'private-upload',
+  );
+  for (const authFactors of [
+    ['password'],
+    ['session'],
+    ['certificate', 'oidc'],
+    ['api_key', 'oidc'],
+  ]) {
+    assert.throws(
+      () => engine.authorize(makeRequest({ authFactors })),
+      (error) => error instanceof SeoriAuthError && error.code === 'capability_forbidden',
+    );
+  }
+});
+
+test('protected actions always require an exact per-run approval', () => {
+  for (const capability of [
+    'ait.release.public',
+    'store.review.submit',
+    'account.role.update',
+    'account.permission.change',
+    'credential.key.rotate',
+    'credential.api-key.issue',
+    'signing.certificate.issue',
+    'account.roles.assign',
+    'account.testers.invite',
+    'production.rollout.start',
+  ]) {
+    const preapproved = new PolicyEngine(makePolicy({ capabilities: [capability] }));
+    assert.throws(
+      () => preapproved.authorize(makeRequest({ capability })),
+      (error) => error instanceof SeoriAuthError && error.code === 'per_run_approval_required',
+    );
+    const approval = {
+      id: `approval-${capability.replaceAll('.', '-')}`,
+      mode: 'per_run',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      maxUses: 1,
+    };
+    const perRun = new PolicyEngine(makePolicy({ capabilities: [capability], approvals: [approval] }));
+    assert.equal(perRun.authorize(makeRequest({ capability, approval })).ruleId, 'private-upload');
+  }
+  const readOnly = 'production.status.read';
+  assert.equal(
+    new PolicyEngine(makePolicy({ capabilities: [readOnly] })).authorize(makeRequest({ capability: readOnly })).ruleId,
+    'private-upload',
   );
 });

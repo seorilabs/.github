@@ -136,10 +136,9 @@ test('trusted adapter runs behind native non-dumpable launcher without secret ar
         launcher: boundary.launcher(),
         buildArgs: () => [fixture],
       }],
-      requireNativeLauncher: true,
       loadSecret: async () => secret,
     });
-    const lease = broker.issueLease(request);
+    const lease = broker.issueLease(request, { idempotencyKey: 'native-boundary' });
     const result = await broker.execute({
       leaseId: lease.leaseId,
       context: request,

@@ -4,6 +4,7 @@ import { fail } from './errors.mjs';
 import { equalBinding, normalizeLeaseRequest } from './validation.mjs';
 
 export const LEASE_TTL_MS = 5 * 60 * 1_000;
+const IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/;
 
 export class LeaseStore {
   #clock;
@@ -13,7 +14,22 @@ export class LeaseStore {
     this.#clock = clock;
   }
 
-  issue({ request, ruleId }) {
+  issue({ request, ruleId, idempotencyKey }) {
+    if (typeof idempotencyKey !== 'string' || !IDEMPOTENCY_KEY.test(idempotencyKey)) {
+      fail('invalid_request', 'idempotencyKey must be a log-safe public identifier');
+    }
+    const sameKey = [...this.#leases.values()].find((candidate) => candidate.idempotencyKey === idempotencyKey);
+    if (sameKey) {
+      if (!equalBinding(sameKey.binding, request) || sameKey.ruleId !== ruleId) {
+        fail('idempotency_conflict', 'idempotency key is already bound to another approval request');
+      }
+      return this.#view(sameKey);
+    }
+    if ([...this.#leases.values()].some(
+      (candidate) => candidate.binding.approval.id === request.approval.id,
+    )) {
+      fail('approval_already_used', 'approval maximum use count has already been reserved');
+    }
     const now = this.#clock();
     const lease = {
       id: randomUUID(),
@@ -22,16 +38,21 @@ export class LeaseStore {
       state: 'issued',
       ruleId,
       binding: request,
+      idempotencyKey,
     };
     this.#leases.set(lease.id, lease);
 
+    return this.#view(lease);
+  }
+
+  #view(lease) {
     return Object.freeze({
       leaseId: lease.id,
       issuedAt: new Date(lease.issuedAt).toISOString(),
       expiresAt: new Date(lease.expiresAt).toISOString(),
       maxUses: 1,
-      ruleId,
-      adapterId: request.adapterId,
+      ruleId: lease.ruleId,
+      adapterId: lease.binding.adapterId,
       secretExportable: false,
     });
   }

@@ -28,6 +28,8 @@ test('example policy and JSON schemas are parseable', async () => {
     policySchema.properties.rules.items.properties.approvals.items.required,
     ['id', 'mode', 'expiresAt', 'maxUses'],
   );
+  assert.equal(policySchema.properties.rules.items.required.includes('authStrategies'), true);
+  assert.deepEqual(brokerSchema.$defs.leaseCreateRequest.required, ['idempotencyKey', 'workerId', 'request']);
   assert.equal(brokerSchema.$defs.executionBinding.additionalProperties, false);
   assert.equal(brokerSchema.oneOf.length, 5);
   assert.deepEqual(
@@ -75,6 +77,8 @@ test('example policy and JSON schemas are parseable', async () => {
   assert.equal(brokerSchema.$defs.authAuditEvent.properties.commitSha.pattern, '^[0-9a-f]{40}$');
   assert.equal(brokerSchema.$defs.authAuditEvent.properties.capabilityId.$ref, '#/$defs/opaqueId');
   assert.equal(brokerSchema.$defs.authAuditEvent.properties.ruleId.$ref, '#/$defs/publicId');
+  assert.equal(brokerSchema.$defs.authAuditEvent.properties.idempotencyKey.$ref, '#/$defs/publicId');
+  assert.equal(brokerSchema.$defs.browserSessionBinding.properties.state.enum.includes('CLAIMED'), true);
   assert.ok(
     [
       'subject',

@@ -19,6 +19,19 @@ export async function makeNativeLockProvider() {
   return boundary.lockProvider();
 }
 
+export async function makeNativeLauncher() {
+  const boundary = await NativeSecurityBoundary.open({
+    helperPath: NATIVE_HELPER,
+    resolvePrincipal: async () => ({
+      subject: 'fixture',
+      runId: 'fixture',
+      repository: 'seorilabs/fixture',
+      workerId: 'fixture',
+    }),
+  });
+  return boundary.launcher();
+}
+
 export function makePolicy(ruleOverrides = {}, policyOverrides = {}) {
   return {
     schemaVersion: 1,
@@ -51,6 +64,7 @@ export function makePolicy(ruleOverrides = {}, policyOverrides = {}) {
         resources: [{ kind: 'miniapp', id: 'example-app', environment: 'private' }],
         adapters: ['test-adapter'],
         accountIds: ['operator-account'],
+        authStrategies: [['api_key']],
         requiresArtifact: true,
         artifactSha256s: [ARTIFACT_SHA],
         allowTotp: false,

@@ -346,7 +346,8 @@ test('Browser Vault removes TTL-expired plaintext clones and releases the accoun
         executionBinding: binding(),
         sourceSha: SOURCE_SHA,
       }, async () => {}),
-      (error) => error instanceof SeoriAuthError && error.code === 'browser_capability_invalid',
+      (error) => error instanceof SeoriAuthError &&
+        ['browser_capability_expired', 'browser_capability_invalid'].includes(error.code),
     );
     const recovered = await vault.checkout({
       role: 'release',

@@ -112,6 +112,15 @@ function leaseBinding(request, workerId) {
   });
 }
 
+function reauthMatches(candidate, executionBinding, request) {
+  return (
+    isDeepStrictEqual(candidate.executionBinding, executionBinding) &&
+    candidate.publicIdentity.provider === request.provider &&
+    candidate.publicIdentity.accountId === request.accountId &&
+    (candidate.publicIdentity.appId === null || candidate.publicIdentity.appId === request.resource.id)
+  );
+}
+
 function normalizeBrowserAuthorization(value) {
   const keys = new Set(['leaseId', 'profileGeneration', 'request', 'role', 'ruleId']);
   assertExactKeys(value, keys, 'browser authorization');
@@ -162,6 +171,7 @@ function auditFrom({ idFactory, now, eventType, outcome, entityType, entity, det
       leaseId: entity.authorization.leaseId,
       ruleId: entity.authorization.ruleId,
     } : entity.ruleId ? { ruleId: entity.ruleId } : {}),
+    ...(entity.idempotencyKey ? { idempotencyKey: entity.idempotencyKey } : {}),
     ...details,
   });
 }
@@ -182,6 +192,7 @@ function validateReplayedEntity(type, entity) {
     const keys = [
       'id', 'generation', 'state', 'issuedAt', 'expiresAt', 'maxUses', 'useCount', 'ruleId',
       'credentialRef', 'credentialGeneration', 'policyGeneration', 'executionBinding', 'request',
+      'idempotencyKey', 'issuedSequence',
       ...(entity.state === 'CONSUMED' ? ['consumedAt'] : []),
     ];
     if (
@@ -193,6 +204,8 @@ function validateReplayedEntity(type, entity) {
       !CREDENTIAL_REF.test(entity.credentialRef ?? '')
     ) throw new Error('invalid credential checkout');
     publicId(entity.ruleId, 'rule id');
+    publicId(entity.idempotencyKey, 'idempotency key');
+    positiveInteger(entity.issuedSequence, 'issued sequence');
     positiveInteger(entity.credentialGeneration, 'credential generation');
     positiveInteger(entity.policyGeneration, 'policy generation');
     const request = normalizeLeaseRequest(entity.request);
@@ -209,15 +222,17 @@ function validateReplayedEntity(type, entity) {
     const transitionKeys = entity.state === 'AVAILABLE'
       ? []
       : ['capabilityId', 'checkedOutAt', 'expiresAt', 'authorization'];
+    const claimedKeys = ['CLAIMED', 'COMPLETED'].includes(entity.state) ? ['claimedAt'] : [];
     const completedKeys = entity.state === 'COMPLETED' ? ['completedAt'] : [];
     const keys = [
       'id', 'generation', 'state', 'registeredAt', 'executionBinding', 'publicIdentity',
-      'maxUses', 'useCount', ...transitionKeys, ...completedKeys,
+      'maxUses', 'useCount', ...transitionKeys, ...claimedKeys, ...completedKeys,
     ];
     if (
-      !exactRecordKeys(entity, keys) || !['AVAILABLE', 'CHECKED_OUT', 'COMPLETED'].includes(entity.state) ||
+      !exactRecordKeys(entity, keys) || !['AVAILABLE', 'CHECKED_OUT', 'CLAIMED', 'COMPLETED'].includes(entity.state) ||
       !validIso(entity.registeredAt) ||
       (entity.checkedOutAt !== undefined && !validIso(entity.checkedOutAt)) ||
+      (entity.claimedAt !== undefined && !validIso(entity.claimedAt)) ||
       (entity.expiresAt !== undefined && !validIso(entity.expiresAt)) ||
       (entity.completedAt !== undefined && !validIso(entity.completedAt)) ||
       entity.maxUses !== 1 || ![0, 1].includes(entity.useCount) ||
@@ -246,13 +261,19 @@ function validateReplayedEntity(type, entity) {
     return;
   }
   const reauthKeys = [
-    'id', 'generation', 'state', 'reason', 'requestedAt', 'executionBinding', 'publicIdentity',
+    'id', 'generation', 'state', 'reason', 'requestedAt', 'requestedSequence',
+    'executionBinding', 'publicIdentity',
+    ...(entity.state === 'RESOLVED' ? ['resolvedAt'] : []),
   ];
   if (
-    type !== 'ReauthRequest' || !exactRecordKeys(entity, reauthKeys) || entity.generation !== 1 ||
-    entity.state !== HUMAN_REAUTH_REQUIRED || !validIso(entity.requestedAt)
+    type !== 'ReauthRequest' || !exactRecordKeys(entity, reauthKeys) ||
+    ![HUMAN_REAUTH_REQUIRED, 'RESOLVED'].includes(entity.state) ||
+    entity.generation !== (entity.state === 'RESOLVED' ? 2 : 1) ||
+    !validIso(entity.requestedAt) ||
+    (entity.resolvedAt !== undefined && !validIso(entity.resolvedAt))
   ) throw new Error('invalid reauth request');
   publicId(entity.reason, 'reauth reason');
+  positiveInteger(entity.requestedSequence, 'requested sequence');
   classifyReauth(entity.reason);
   normalizeExecutionBinding(entity.executionBinding);
   normalizePublicIdentity(entity.publicIdentity);
@@ -262,7 +283,7 @@ function validateReplayedAudit(audit) {
   const allowed = [
     'id', 'eventType', 'outcome', 'entityType', 'entityId', 'generation', 'recordedAt',
     'executionBinding', 'credentialRef', 'publicIdentity', 'reason', 'exitCode', 'signal',
-    'commitSha', 'capability', 'capabilityId', 'leaseId', 'ruleId',
+    'commitSha', 'capability', 'capabilityId', 'leaseId', 'ruleId', 'idempotencyKey',
   ];
   if (
     !Object.keys(audit).every((key) => allowed.includes(key)) ||
@@ -287,6 +308,7 @@ function validateReplayedAudit(audit) {
   if (audit.capabilityId !== undefined) opaqueId(audit.capabilityId, 'audit capability id');
   if (audit.leaseId !== undefined) opaqueId(audit.leaseId, 'audit lease id');
   if (audit.ruleId !== undefined) publicId(audit.ruleId, 'audit rule id');
+  if (audit.idempotencyKey !== undefined) publicId(audit.idempotencyKey, 'audit idempotency key');
 }
 
 function canonicalJson(value) {
@@ -408,6 +430,7 @@ export class DurableAuthState {
   #browserSessionBindings = new Map();
   #reauthRequests = new Map();
   #auditEvents = [];
+  #recoveredBrowserClaims = new Set();
 
   static async open({
     directory,
@@ -445,6 +468,7 @@ export class DurableAuthState {
     });
     try {
       await state.#replay();
+      await state.#reconcileBrowserSessionsAtStartup();
     } catch (error) {
       state.#closed = true;
       state.#zeroIntegrityKey();
@@ -491,6 +515,36 @@ export class DurableAuthState {
     }
     if (this.#expectedJournalHeadMac !== undefined && this.#lastMac !== this.#expectedJournalHeadMac) {
       fail('invalid_state_journal', 'durable auth journal head does not match the trusted checkpoint');
+    }
+  }
+
+  async #reconcileBrowserSessionsAtStartup() {
+    const now = this.#clock();
+    for (const entity of [...this.#browserSessionBindings.values()]) {
+      if (entity.state === 'CLAIMED') {
+        this.#recoveredBrowserClaims.add(entity.id);
+        continue;
+      }
+      if (entity.state !== 'CHECKED_OUT' || now < Date.parse(entity.expiresAt)) continue;
+      const available = freezeRecord({
+        id: entity.id,
+        generation: entity.generation + 1,
+        state: 'AVAILABLE',
+        registeredAt: entity.registeredAt,
+        executionBinding: entity.executionBinding,
+        publicIdentity: entity.publicIdentity,
+        maxUses: 1,
+        useCount: 0,
+      });
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'BROWSER_SESSION_EXPIRED_RECLAIMED',
+        outcome: 'RECLAIMED',
+        entityType: 'BrowserSessionBinding',
+        entity,
+      });
+      await this.#append({ entityType: 'BrowserSessionBinding', entity: available, audit });
     }
   }
 
@@ -562,15 +616,56 @@ export class DurableAuthState {
     await this.#append({ entityType: null, entity: null, audit });
   }
 
-  issueCredentialCheckout({ authorized, workerId, currentCredentialGeneration, currentPolicyGeneration }) {
+  issueCredentialCheckout({
+    authorized,
+    workerId,
+    idempotencyKey,
+    currentCredentialGeneration,
+    currentPolicyGeneration,
+  }) {
     return this.#serialize(async () => {
       const request = normalizeLeaseRequest(authorized?.request);
       const normalizedWorkerId = publicId(workerId, 'workerId');
+      const normalizedIdempotencyKey = publicId(idempotencyKey, 'idempotencyKey');
+      const executionBinding = leaseBinding(request, normalizedWorkerId);
       if (currentPolicyGeneration !== request.policyGeneration) {
         fail('stale_policy_generation', 'policy generation changed before lease issuance');
       }
       if (currentCredentialGeneration !== request.credentialGeneration) {
         fail('stale_credential_generation', 'credential generation changed before lease issuance');
+      }
+      const relatedReauth = [...this.#reauthRequests.values()].filter(
+        (candidate) => reauthMatches(candidate, executionBinding, request),
+      );
+      if (relatedReauth.some((candidate) => candidate.state === HUMAN_REAUTH_REQUIRED)) {
+        fail(
+          HUMAN_REAUTH_REQUIRED,
+          'an unresolved human reauthentication request blocks new credential checkouts',
+          { reason: 'policy_blocked' },
+        );
+      }
+      const sameIdempotencyKey = [...this.#credentialCheckouts.values()].find(
+        (candidate) => candidate.idempotencyKey === normalizedIdempotencyKey,
+      );
+      if (sameIdempotencyKey) {
+        if (
+          sameIdempotencyKey.request.approval.id !== request.approval.id ||
+          !isDeepStrictEqual(sameIdempotencyKey.request, request) ||
+          !isDeepStrictEqual(sameIdempotencyKey.executionBinding, executionBinding)
+        ) {
+          fail('idempotency_conflict', 'idempotency key is already bound to another approval request');
+        }
+        if (relatedReauth.some(
+          (candidate) => candidate.requestedSequence > sameIdempotencyKey.issuedSequence,
+        )) {
+          fail('lease_invalidated_by_reauth', 'credential checkout predates a reauthentication gate');
+        }
+        return this.credentialCheckoutView(sameIdempotencyKey);
+      }
+      if ([...this.#credentialCheckouts.values()].some(
+        (candidate) => candidate.request.approval.id === request.approval.id,
+      )) {
+        fail('approval_already_used', 'approval maximum use count has already been reserved');
       }
       const now = this.#clock();
       const entity = freezeRecord({
@@ -585,7 +680,9 @@ export class DurableAuthState {
         credentialRef: request.credentialRef,
         credentialGeneration: request.credentialGeneration,
         policyGeneration: request.policyGeneration,
-        executionBinding: leaseBinding(request, normalizedWorkerId),
+        executionBinding,
+        idempotencyKey: normalizedIdempotencyKey,
+        issuedSequence: this.#sequence + 1,
         request,
       });
       const audit = auditFrom({
@@ -649,6 +746,28 @@ export class DurableAuthState {
           entityType: 'CredentialCheckout', entity,
         });
         fail('lease_binding_mismatch', 'execution context does not exactly match the issued lease');
+      }
+      const invalidatingReauth = [...this.#reauthRequests.values()].filter((candidate) =>
+        reauthMatches(candidate, normalizedBinding, normalizedContext) &&
+        candidate.requestedSequence > entity.issuedSequence,
+      );
+      if (invalidatingReauth.some((candidate) => candidate.state === HUMAN_REAUTH_REQUIRED)) {
+        await this.#recordFailure({
+          eventType: 'CREDENTIAL_CHECKOUT_CONSUME', outcome: HUMAN_REAUTH_REQUIRED,
+          entityType: 'CredentialCheckout', entity,
+        });
+        fail(
+          HUMAN_REAUTH_REQUIRED,
+          'an unresolved human reauthentication request blocks credential execution',
+          { reason: 'policy_blocked' },
+        );
+      }
+      if (invalidatingReauth.length > 0) {
+        await this.#recordFailure({
+          eventType: 'CREDENTIAL_CHECKOUT_CONSUME', outcome: 'INVALIDATED_BY_REAUTH',
+          entityType: 'CredentialCheckout', entity,
+        });
+        fail('lease_invalidated_by_reauth', 'credential checkout predates a reauthentication gate');
       }
       if (currentPolicyGeneration !== entity.policyGeneration) {
         fail('stale_policy_generation', 'policy generation changed after lease issuance');
@@ -779,8 +898,8 @@ export class DurableAuthState {
       const now = this.#clock();
       const accountBusy = [...this.#browserSessionBindings.values()].some((candidate) =>
         candidate.id !== entity.id &&
-        candidate.state === 'CHECKED_OUT' &&
-        Date.parse(candidate.expiresAt) > now &&
+        ['CHECKED_OUT', 'CLAIMED'].includes(candidate.state) &&
+        (candidate.state === 'CLAIMED' || Date.parse(candidate.expiresAt) > now) &&
         candidate.publicIdentity.provider === identity.provider &&
         candidate.publicIdentity.accountId === identity.accountId,
       );
@@ -810,7 +929,7 @@ export class DurableAuthState {
     });
   }
 
-  authorizeBrowserSessionExecution({
+  claimBrowserSessionExecution({
     sessionId,
     capabilityId,
     expectedGeneration,
@@ -823,16 +942,53 @@ export class DurableAuthState {
       positiveInteger(expectedGeneration, 'expectedGeneration');
       const binding = normalizeExecutionBinding(executionBinding);
       const authorized = normalizeBrowserAuthorization(authorization);
+      const capability = opaqueId(capabilityId, 'capability id');
+      const recoveredClaim = entity.state === 'CLAIMED' && this.#recoveredBrowserClaims.has(entity.id);
+      if (recoveredClaim) {
+        if (
+          ![entity.generation - 1, entity.generation].includes(expectedGeneration) ||
+          entity.capabilityId !== capability ||
+          !isDeepStrictEqual(entity.executionBinding, binding) ||
+          !isDeepStrictEqual(entity.authorization, authorized)
+        ) {
+          fail('browser_session_binding_mismatch', 'recovered browser claim binding does not exactly match');
+        }
+        return freezeRecord({
+          mode: 'RECOVERY_READBACK_ONLY',
+          generation: entity.generation,
+          publicIdentity: entity.publicIdentity,
+        });
+      }
       if (entity.generation !== expectedGeneration) {
         fail('generation_conflict', 'browser session generation does not match');
       }
       if (
         entity.state !== 'CHECKED_OUT' ||
-        entity.capabilityId !== opaqueId(capabilityId, 'capability id')
+        entity.capabilityId !== capability
       ) {
         fail('browser_capability_invalid', 'browser capability is invalid or already used');
       }
       if (this.#clock() >= Date.parse(entity.expiresAt)) {
+        const reclaimedAt = this.#clock();
+        const available = freezeRecord({
+          id: entity.id,
+          generation: entity.generation + 1,
+          state: 'AVAILABLE',
+          registeredAt: entity.registeredAt,
+          executionBinding: entity.executionBinding,
+          publicIdentity: entity.publicIdentity,
+          maxUses: 1,
+          useCount: 0,
+        });
+        const audit = auditFrom({
+          idFactory: this.#idFactory,
+          now: reclaimedAt,
+          eventType: 'BROWSER_SESSION_EXPIRED_RECLAIMED',
+          outcome: 'RECLAIMED',
+          entityType: 'BrowserSessionBinding',
+          entity,
+        });
+        await this.#append({ entityType: 'BrowserSessionBinding', entity: available, audit });
         fail('browser_capability_expired', 'browser capability has expired');
       }
       if (
@@ -841,7 +997,137 @@ export class DurableAuthState {
       ) {
         fail('browser_session_binding_mismatch', 'browser authorization does not exactly match checkout');
       }
-      return freezeRecord({ publicIdentity: entity.publicIdentity });
+      const now = this.#clock();
+      const claimed = freezeRecord({
+        ...entity,
+        generation: entity.generation + 1,
+        state: 'CLAIMED',
+        claimedAt: iso(now),
+      });
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'BROWSER_SESSION_EXECUTION_CLAIMED',
+        outcome: 'SUCCESS',
+        entityType: 'BrowserSessionBinding',
+        entity: claimed,
+      });
+      await this.#append({ entityType: 'BrowserSessionBinding', entity: claimed, audit });
+      return freezeRecord({
+        mode: 'EXECUTE',
+        generation: claimed.generation,
+        publicIdentity: claimed.publicIdentity,
+      });
+    });
+  }
+
+  claimBrowserSessionRecovery({
+    sessionId,
+    capabilityId,
+    expectedGeneration,
+    executionBinding,
+    request,
+    leaseId,
+    profileGeneration,
+    role,
+  }) {
+    return this.#serialize(async () => {
+      const entity = this.#browserSessionBindings.get(opaqueId(sessionId, 'browser session id'));
+      if (!entity) fail('browser_session_not_found', 'browser session binding does not exist');
+      positiveInteger(expectedGeneration, 'expectedGeneration');
+      if (entity.state !== 'CLAIMED') return null;
+      if (!this.#recoveredBrowserClaims.has(entity.id)) {
+        fail('generation_conflict', 'browser execution is already claimed by an active operation');
+      }
+      const authorization = normalizeBrowserAuthorization({
+        leaseId,
+        profileGeneration,
+        request,
+        role,
+        ruleId: entity.authorization.ruleId,
+      });
+      if (
+        ![entity.generation - 1, entity.generation].includes(expectedGeneration) ||
+        entity.capabilityId !== opaqueId(capabilityId, 'capability id') ||
+        !isDeepStrictEqual(entity.executionBinding, normalizeExecutionBinding(executionBinding)) ||
+        !isDeepStrictEqual(entity.authorization, authorization)
+      ) {
+        fail('browser_session_binding_mismatch', 'browser recovery binding does not exactly match the claim');
+      }
+      return freezeRecord({
+        mode: 'RECOVERY_READBACK_ONLY',
+        generation: entity.generation,
+        publicIdentity: entity.publicIdentity,
+        authorization: entity.authorization,
+      });
+    });
+  }
+
+  requireBrowserSessionReconciliation({
+    sessionId,
+    capabilityId,
+    expectedGeneration,
+    executionBinding,
+    authorization,
+  }) {
+    return this.#serialize(async () => {
+      const entity = this.#browserSessionBindings.get(opaqueId(sessionId, 'browser session id'));
+      if (!entity) fail('browser_session_not_found', 'browser session binding does not exist');
+      positiveInteger(expectedGeneration, 'expectedGeneration');
+      if (
+        entity.generation !== expectedGeneration || entity.state !== 'CLAIMED' ||
+        entity.capabilityId !== opaqueId(capabilityId, 'capability id') ||
+        !isDeepStrictEqual(entity.executionBinding, normalizeExecutionBinding(executionBinding)) ||
+        !isDeepStrictEqual(entity.authorization, normalizeBrowserAuthorization(authorization))
+      ) {
+        fail('browser_session_binding_mismatch', 'browser reconciliation binding does not exactly match the claim');
+      }
+      this.#recoveredBrowserClaims.add(entity.id);
+      return freezeRecord({ state: 'RECONCILIATION_REQUIRED', generation: entity.generation });
+    });
+  }
+
+  abortBrowserSessionAfterReconciliation({
+    sessionId,
+    capabilityId,
+    expectedGeneration,
+    executionBinding,
+    authorization,
+  }) {
+    return this.#serialize(async () => {
+      const entity = this.#browserSessionBindings.get(opaqueId(sessionId, 'browser session id'));
+      if (!entity) fail('browser_session_not_found', 'browser session binding does not exist');
+      positiveInteger(expectedGeneration, 'expectedGeneration');
+      if (
+        !this.#recoveredBrowserClaims.has(entity.id) || entity.generation !== expectedGeneration ||
+        entity.state !== 'CLAIMED' || entity.capabilityId !== opaqueId(capabilityId, 'capability id') ||
+        !isDeepStrictEqual(entity.executionBinding, normalizeExecutionBinding(executionBinding)) ||
+        !isDeepStrictEqual(entity.authorization, normalizeBrowserAuthorization(authorization))
+      ) {
+        fail('browser_session_binding_mismatch', 'browser reconciliation abort does not exactly match the claim');
+      }
+      const now = this.#clock();
+      const available = freezeRecord({
+        id: entity.id,
+        generation: entity.generation + 1,
+        state: 'AVAILABLE',
+        registeredAt: entity.registeredAt,
+        executionBinding: entity.executionBinding,
+        publicIdentity: entity.publicIdentity,
+        maxUses: 1,
+        useCount: 0,
+      });
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'BROWSER_SESSION_RECONCILED_NOT_APPLIED',
+        outcome: 'NOT_APPLIED',
+        entityType: 'BrowserSessionBinding',
+        entity,
+      });
+      await this.#append({ entityType: 'BrowserSessionBinding', entity: available, audit });
+      this.#recoveredBrowserClaims.delete(entity.id);
+      return this.browserSessionView(available);
     });
   }
 
@@ -852,6 +1138,7 @@ export class DurableAuthState {
     executionBinding,
     authorization,
     readIdentity,
+    recoveryMode = false,
   }) {
     return this.#serialize(async () => {
       const entity = this.#browserSessionBindings.get(opaqueId(sessionId, 'browser session id'));
@@ -861,6 +1148,7 @@ export class DurableAuthState {
       positiveInteger(expectedGeneration, 'expectedGeneration');
       const binding = normalizeExecutionBinding(executionBinding);
       const authorized = normalizeBrowserAuthorization(authorization);
+      if (typeof recoveryMode !== 'boolean') fail('invalid_request', 'browser recovery mode is invalid');
       if (typeof readIdentity !== 'function') {
         fail('identity_readback_unavailable', 'trusted provider identity readback is required');
       }
@@ -868,10 +1156,18 @@ export class DurableAuthState {
         fail('generation_conflict', 'browser session generation does not match');
       }
       const now = this.#clock();
-      if (entity.state !== 'CHECKED_OUT' || entity.capabilityId !== opaqueId(capabilityId, 'capability id')) {
+      if (entity.state !== 'CLAIMED' || entity.capabilityId !== opaqueId(capabilityId, 'capability id')) {
         fail('browser_capability_invalid', 'browser capability is invalid or already used');
       }
-      if (now >= Date.parse(entity.expiresAt)) {
+      const reconciliationRequired = this.#recoveredBrowserClaims.has(entity.id);
+      if (recoveryMode !== reconciliationRequired) {
+        fail(
+          'browser_reconciliation_required',
+          'browser claim recovery mode does not match its durable execution state',
+        );
+      }
+      if (!recoveryMode && now >= Date.parse(entity.expiresAt)) {
+        this.#recoveredBrowserClaims.add(entity.id);
         fail('browser_capability_expired', 'browser capability has expired');
       }
       if (!isDeepStrictEqual(entity.executionBinding, binding)) {
@@ -895,6 +1191,7 @@ export class DurableAuthState {
           capabilityId: entity.capabilityId,
         }));
       } catch {
+        this.#recoveredBrowserClaims.add(entity.id);
         await this.#recordFailure({
           eventType: 'BROWSER_SESSION_COMPLETE', outcome: 'IDENTITY_READBACK_FAILED',
           entityType: 'BrowserSessionBinding', entity,
@@ -902,7 +1199,8 @@ export class DurableAuthState {
         fail('identity_readback_unavailable', 'trusted provider identity readback failed');
       }
       const completedAt = this.#clock();
-      if (completedAt >= Date.parse(entity.expiresAt)) {
+      if (!recoveryMode && completedAt >= Date.parse(entity.expiresAt)) {
+        this.#recoveredBrowserClaims.add(entity.id);
         await this.#recordFailure({
           eventType: 'BROWSER_SESSION_COMPLETE', outcome: 'EXPIRED',
           entityType: 'BrowserSessionBinding', entity,
@@ -910,6 +1208,7 @@ export class DurableAuthState {
         fail('browser_capability_expired', 'browser capability expired during identity readback');
       }
       if (!isDeepStrictEqual(entity.publicIdentity, readback)) {
+        this.#recoveredBrowserClaims.add(entity.id);
         await this.#recordFailure({
           eventType: 'BROWSER_SESSION_COMPLETE', outcome: 'IDENTITY_MISMATCH',
           entityType: 'BrowserSessionBinding', entity,
@@ -927,12 +1226,13 @@ export class DurableAuthState {
       const audit = auditFrom({
         idFactory: this.#idFactory,
         now: completedAt,
-        eventType: 'BROWSER_SESSION_COMPLETED',
+        eventType: recoveryMode ? 'BROWSER_SESSION_RECOVERED' : 'BROWSER_SESSION_COMPLETED',
         outcome: 'SUCCESS',
         entityType: 'BrowserSessionBinding',
         entity: completed,
       });
       await this.#append({ entityType: 'BrowserSessionBinding', entity: completed, audit });
+      this.#recoveredBrowserClaims.delete(entity.id);
       return this.browserSessionView(completed);
     });
   }
@@ -976,6 +1276,52 @@ export class DurableAuthState {
     });
   }
 
+  blockBrowserSessionForReauth({
+    sessionId,
+    capabilityId,
+    expectedGeneration,
+    executionBinding,
+    authorization,
+  }) {
+    return this.#serialize(async () => {
+      const entity = this.#browserSessionBindings.get(opaqueId(sessionId, 'browser session id'));
+      if (!entity) fail('browser_session_not_found', 'browser session binding does not exist');
+      positiveInteger(expectedGeneration, 'expectedGeneration');
+      const binding = normalizeExecutionBinding(executionBinding);
+      const authorized = normalizeBrowserAuthorization(authorization);
+      if (
+        entity.generation !== expectedGeneration || entity.state !== 'CLAIMED' ||
+        entity.capabilityId !== opaqueId(capabilityId, 'capability id') ||
+        !isDeepStrictEqual(entity.executionBinding, binding) ||
+        !isDeepStrictEqual(entity.authorization, authorized)
+      ) {
+        fail('browser_session_binding_mismatch', 'browser reauth block does not exactly match the claim');
+      }
+      const now = this.#clock();
+      const available = freezeRecord({
+        id: entity.id,
+        generation: entity.generation + 1,
+        state: 'AVAILABLE',
+        registeredAt: entity.registeredAt,
+        executionBinding: entity.executionBinding,
+        publicIdentity: entity.publicIdentity,
+        maxUses: 1,
+        useCount: 0,
+      });
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'BROWSER_SESSION_BLOCKED_FOR_REAUTH',
+        outcome: HUMAN_REAUTH_REQUIRED,
+        entityType: 'BrowserSessionBinding',
+        entity,
+      });
+      await this.#append({ entityType: 'BrowserSessionBinding', entity: available, audit });
+      this.#recoveredBrowserClaims.delete(entity.id);
+      return this.browserSessionView(available);
+    });
+  }
+
   createReauthRequest({ reason, executionBinding, publicIdentity }) {
     return this.#serialize(async () => {
       const classification = classifyReauth(reason);
@@ -995,6 +1341,7 @@ export class DurableAuthState {
         state: HUMAN_REAUTH_REQUIRED,
         reason: classification.code,
         requestedAt: iso(now),
+        requestedSequence: this.#sequence + 1,
         executionBinding: binding,
         publicIdentity: identity,
       });
@@ -1009,6 +1356,40 @@ export class DurableAuthState {
       });
       await this.#append({ entityType: 'ReauthRequest', entity, audit });
       return this.reauthRequestView(entity);
+    });
+  }
+
+  resolveReauthRequest({ id, expectedGeneration, executionBinding, publicIdentity }) {
+    return this.#serialize(async () => {
+      const entity = this.#reauthRequests.get(opaqueId(id, 'reauth request id'));
+      if (!entity) fail('reauth_request_not_found', 'reauth request does not exist');
+      positiveInteger(expectedGeneration, 'expectedGeneration');
+      const binding = normalizeExecutionBinding(executionBinding);
+      const identity = normalizePublicIdentity(publicIdentity);
+      if (
+        entity.generation !== expectedGeneration || entity.state !== HUMAN_REAUTH_REQUIRED ||
+        !isDeepStrictEqual(entity.executionBinding, binding) ||
+        !isDeepStrictEqual(entity.publicIdentity, identity)
+      ) {
+        fail('reauth_request_binding_mismatch', 'reauth resolution does not exactly match');
+      }
+      const now = this.#clock();
+      const resolved = freezeRecord({
+        ...entity,
+        generation: entity.generation + 1,
+        state: 'RESOLVED',
+        resolvedAt: iso(now),
+      });
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'REAUTH_RESOLVED',
+        outcome: 'SUCCESS',
+        entityType: 'ReauthRequest',
+        entity: resolved,
+      });
+      await this.#append({ entityType: 'ReauthRequest', entity: resolved, audit });
+      return this.reauthRequestView(resolved);
     });
   }
 
@@ -1054,6 +1435,7 @@ export class DurableAuthState {
       state: entity.state,
       reason: entity.reason,
       requestedAt: entity.requestedAt,
+      ...(entity.resolvedAt ? { resolvedAt: entity.resolvedAt } : {}),
       executionBinding: entity.executionBinding,
       publicIdentity: entity.publicIdentity,
     });

@@ -49,7 +49,11 @@ function humanReauth(challenge) {
   } catch {
     fail('unsupported_auth_challenge', 'browser login returned an unsupported challenge');
   }
-  fail(HUMAN_REAUTH_REQUIRED, 'browser login requires trusted human reauthentication');
+  fail(
+    HUMAN_REAUTH_REQUIRED,
+    'browser login requires trusted human reauthentication',
+    { reason: classification },
+  );
 }
 
 function normalizeInspection(value) {
@@ -175,7 +179,11 @@ export class BrowserLoginBoundary {
       ],
     });
     if (account.kind !== 'dedicated_bot') {
-      fail(HUMAN_REAUTH_REQUIRED, 'personal account password or TOTP automation is forbidden');
+      fail(
+        HUMAN_REAUTH_REQUIRED,
+        'personal account password or TOTP automation is forbidden',
+        { reason: 'policy_blocked' },
+      );
     }
     let controls;
     try {

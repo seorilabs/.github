@@ -54,6 +54,11 @@
       "accountIds": [
         "operator-account"
       ],
+      "authStrategies": [
+        [
+          "api_key"
+        ]
+      ],
       "requiresArtifact": true,
       "artifactSha256s": [
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import { CanonicalAccountRegistry } from './accounts.mjs';
 import { fail } from './errors.mjs';
 import { isLogicalCredentialRef, isSha256, normalizeHttpsOrigin, normalizeLeaseRequest } from './validation.mjs';
@@ -18,10 +20,21 @@ const RULE_KEYS = new Set([
   'resources',
   'adapters',
   'accountIds',
+  'authStrategies',
   'requiresArtifact',
   'artifactSha256s',
   'allowTotp',
   'approvals',
+]);
+const AUTH_FACTORS = new Set(['api_key', 'certificate', 'oidc', 'password', 'session', 'totp']);
+const MUTATING_ACTIONS = new Set([
+  'add', 'assign', 'cancel', 'change', 'create', 'delete', 'deploy', 'disable', 'enable',
+  'grant', 'invite', 'issue', 'promote', 'publish', 'release', 'remove', 'replace', 'revoke',
+  'rotate', 'set', 'start', 'stop', 'submit', 'transfer', 'update',
+]);
+const PROTECTED_RESOURCES = new Set([
+  'certificate', 'certificates', 'key', 'keys', 'permission', 'permissions', 'role', 'roles',
+  'tester', 'testers',
 ]);
 
 function assertExactKeys(value, allowed, required, label) {
@@ -93,6 +106,35 @@ function approvalList(value, label) {
   }));
 }
 
+function authStrategyList(value, label) {
+  if (!Array.isArray(value) || value.length === 0) {
+    fail('invalid_policy', `${label} must be a non-empty array`);
+  }
+  const seen = new Set();
+  return Object.freeze(value.map((strategy, index) => {
+    if (
+      !Array.isArray(strategy) || strategy.length === 0 ||
+      new Set(strategy).size !== strategy.length ||
+      strategy.some((factor) => !AUTH_FACTORS.has(factor))
+    ) {
+      fail('invalid_policy', `${label}[${index}] is invalid`);
+    }
+    const key = strategy.join('\0');
+    if (seen.has(key)) fail('invalid_policy', `${label} contains a duplicate strategy`);
+    seen.add(key);
+    return Object.freeze([...strategy]);
+  }));
+}
+
+function requiresPerRunApproval(request) {
+  const tokens = request.capability.split(/[.-]/);
+  const mutating = tokens.some((token) => MUTATING_ACTIONS.has(token));
+  if (!mutating) return false;
+  if (tokens.includes('review') && (tokens.includes('submit') || tokens.includes('cancel'))) return true;
+  if (tokens.includes('public') || tokens.includes('production')) return true;
+  return tokens.some((token) => PROTECTED_RESOURCES.has(token));
+}
+
 function normalizeRule(rule, index) {
   assertExactKeys(rule, RULE_KEYS, RULE_KEYS, `rules[${index}]`);
   if (!/^[a-z0-9][a-z0-9-]*$/.test(rule.id ?? '')) {
@@ -135,6 +177,7 @@ function normalizeRule(rule, index) {
     resources: resourceList(rule.resources, `rules[${index}].resources`),
     adapters: stringList(rule.adapters, `rules[${index}].adapters`),
     accountIds: stringList(rule.accountIds, `rules[${index}].accountIds`),
+    authStrategies: authStrategyList(rule.authStrategies, `rules[${index}].authStrategies`),
     requiresArtifact: rule.requiresArtifact,
     artifactSha256s,
     allowTotp: rule.allowTotp,
@@ -170,6 +213,7 @@ function matchesRule(rule, request) {
     includesResource(rule.resources, request.resource) &&
     rule.adapters.includes(request.adapterId) &&
     rule.accountIds.includes(request.accountId) &&
+    rule.authStrategies.some((strategy) => isDeepStrictEqual(strategy, request.authFactors)) &&
     artifactMatches &&
     rule.approvals.some(
       (approval) =>
@@ -222,13 +266,20 @@ export class PolicyEngine {
       request.authFactors.some((factor) => factor === 'password' || factor === 'totp') &&
       account.kind !== 'dedicated_bot'
     ) {
-      fail('HUMAN_REAUTH_REQUIRED', 'personal account password or TOTP automation is forbidden');
+      fail(
+        'HUMAN_REAUTH_REQUIRED',
+        'personal account password or TOTP automation is forbidden',
+        { reason: 'policy_blocked' },
+      );
     }
     const rule = request.authFactors.includes('totp')
       ? matchingRules.find((candidate) => candidate.allowTotp)
       : matchingRules[0];
     if (!rule) {
       fail('capability_forbidden', 'no enabled policy rule allows TOTP for this capability binding');
+    }
+    if (requiresPerRunApproval(request) && request.approval.mode !== 'per_run') {
+      fail('per_run_approval_required', 'protected capability requires a per-run approval');
     }
 
     return Object.freeze({ request, ruleId: rule.id, account });

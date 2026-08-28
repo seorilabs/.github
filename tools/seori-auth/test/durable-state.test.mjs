@@ -76,6 +76,7 @@ test('CredentialCheckout uses generation CAS, exact run/repo/worker binding, fiv
     const checkout = await state.issueCredentialCheckout({
       authorized: authorized(request),
       workerId: 'worker-a',
+      idempotencyKey: 'checkout-primary',
       currentCredentialGeneration: 3,
       currentPolicyGeneration: 7,
     });
@@ -150,6 +151,57 @@ test('CredentialCheckout uses generation CAS, exact run/repo/worker binding, fiv
   });
 });
 
+test('approval maxUses is durably reserved once and exact idempotent retries survive concurrency and restart', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'seori-auth-approval-reservation-'));
+  const nextId = idFactory();
+  let state = await DurableAuthState.open({ directory, idFactory: nextId });
+  const request = makeRequest();
+  const issuance = {
+    authorized: authorized(request),
+    workerId: 'worker-a',
+    idempotencyKey: 'occurrence-one',
+    currentCredentialGeneration: 3,
+    currentPolicyGeneration: 7,
+  };
+  try {
+    const concurrent = await Promise.all([
+      state.issueCredentialCheckout(issuance),
+      state.issueCredentialCheckout(issuance),
+    ]);
+    assert.equal(concurrent[0].id, concurrent[1].id);
+    assert.equal(state.snapshot().credentialCheckouts.length, 1);
+    assert.equal(
+      state.snapshot().auditEvents.filter(({ eventType }) => eventType === 'CREDENTIAL_CHECKOUT_ISSUED').length,
+      1,
+    );
+
+    await assert.rejects(
+      state.issueCredentialCheckout({ ...issuance, idempotencyKey: 'occurrence-two' }),
+      (error) => error instanceof SeoriAuthError && error.code === 'approval_already_used',
+    );
+    await assert.rejects(
+      state.issueCredentialCheckout({ ...issuance, workerId: 'worker-b' }),
+      (error) => error instanceof SeoriAuthError && error.code === 'idempotency_conflict',
+    );
+
+    await state.close();
+    state = await DurableAuthState.open({ directory, idFactory: nextId });
+    const replay = await state.issueCredentialCheckout(issuance);
+    assert.equal(replay.id, concurrent[0].id);
+    await assert.rejects(
+      state.issueCredentialCheckout({ ...issuance, idempotencyKey: 'occurrence-after-crash' }),
+      (error) => error instanceof SeoriAuthError && error.code === 'approval_already_used',
+    );
+    assert.equal(
+      state.snapshot().auditEvents.filter(({ eventType }) => eventType === 'CREDENTIAL_CHECKOUT_ISSUED').length,
+      1,
+    );
+  } finally {
+    await state.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('CredentialCheckout expires and durable state plus AuthAuditEvent replay from append-only journal', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'seori-auth-replay-'));
   let now = 1_700_000_000_000;
@@ -158,6 +210,7 @@ test('CredentialCheckout expires and durable state plus AuthAuditEvent replay fr
     const checkout = await state.issueCredentialCheckout({
       authorized: authorized(),
       workerId: 'worker-a',
+      idempotencyKey: 'checkout-expiry',
       currentCredentialGeneration: 3,
       currentPolicyGeneration: 7,
     });
@@ -232,6 +285,16 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
     assert.equal(state.snapshot().auditEvents.at(-1).leaseId, 'browser-lease-a');
     assert.equal(state.snapshot().auditEvents.at(-1).ruleId, 'private-upload');
 
+    const claimed = await state.claimBrowserSessionExecution({
+      sessionId: 'session-a',
+      capabilityId: checkout.capabilityId,
+      expectedGeneration: 2,
+      executionBinding: executionBinding(),
+      authorization: browserAuthorization(),
+    });
+    assert.equal(claimed.mode, 'EXECUTE');
+    assert.equal(claimed.generation, 3);
+
     await assert.rejects(
       state.checkoutBrowserSession({
         sessionId: 'session-b',
@@ -269,7 +332,7 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
         state.completeBrowserSession({
           sessionId: 'session-a',
           capabilityId: checkout.capabilityId,
-          expectedGeneration: 2,
+          expectedGeneration: 3,
           executionBinding: executionBinding(),
           authorization,
           readIdentity: async () => publicIdentity(),
@@ -287,7 +350,7 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
         state.completeBrowserSession({
           sessionId: 'session-a',
           capabilityId: checkout.capabilityId,
-          expectedGeneration: 2,
+          expectedGeneration: 3,
           executionBinding: executionMismatch,
           authorization: browserAuthorization(),
           readIdentity: async () => publicIdentity(),
@@ -300,7 +363,7 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
       state.completeBrowserSession({
         sessionId: 'session-a',
         capabilityId: checkout.capabilityId,
-        expectedGeneration: 2,
+        expectedGeneration: 3,
         executionBinding: executionBinding(),
         authorization: browserAuthorization(),
         readIdentity: async () => publicIdentity({ workspaceId: 'wrong-workspace' }),
@@ -308,26 +371,36 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
       (error) => error instanceof SeoriAuthError && error.code === 'identity_readback_mismatch',
     );
     const afterMismatch = state.snapshot().browserSessionBindings.find(({ id }) => id === 'session-a');
-    assert.equal(afterMismatch.generation, 2, 'identity mismatch must not update session generation');
-    assert.equal(afterMismatch.state, 'CHECKED_OUT');
+    assert.equal(afterMismatch.generation, 3, 'identity mismatch must not update session generation');
+    assert.equal(afterMismatch.state, 'CLAIMED');
+
+    const recoveryClaim = await state.claimBrowserSessionExecution({
+      sessionId: 'session-a',
+      capabilityId: checkout.capabilityId,
+      expectedGeneration: 3,
+      executionBinding: executionBinding(),
+      authorization: browserAuthorization(),
+    });
+    assert.equal(recoveryClaim.mode, 'RECOVERY_READBACK_ONLY');
 
     const completed = await state.completeBrowserSession({
       sessionId: 'session-a',
       capabilityId: checkout.capabilityId,
-      expectedGeneration: 2,
+      expectedGeneration: 3,
       executionBinding: executionBinding(),
       authorization: browserAuthorization(),
+      recoveryMode: true,
       readIdentity: async () => publicIdentity(),
     });
     assert.equal(completed.state, 'COMPLETED');
-    assert.equal(completed.generation, 3);
+    assert.equal(completed.generation, 4);
     assert.equal(completed.useCount, 1);
 
     await assert.rejects(
       state.completeBrowserSession({
         sessionId: 'session-a',
         capabilityId: checkout.capabilityId,
-        expectedGeneration: 3,
+        expectedGeneration: 4,
         executionBinding: executionBinding(),
         authorization: browserAuthorization(),
         readIdentity: async () => publicIdentity(),
@@ -342,12 +415,19 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
       expectedIdentity: publicIdentity(),
       authorization: browserAuthorization(undefined, { leaseId: 'browser-lease-b' }),
     });
+    const secondClaim = await state.claimBrowserSessionExecution({
+      sessionId: 'session-b',
+      capabilityId: second.capabilityId,
+      expectedGeneration: 2,
+      executionBinding: executionBinding(),
+      authorization: browserAuthorization(undefined, { leaseId: 'browser-lease-b' }),
+    });
     advance(LEASE_TTL_MS);
     await assert.rejects(
       state.completeBrowserSession({
         sessionId: 'session-b',
         capabilityId: second.capabilityId,
-        expectedGeneration: 2,
+        expectedGeneration: secondClaim.generation,
         executionBinding: executionBinding(),
         authorization: browserAuthorization(undefined, { leaseId: 'browser-lease-b' }),
         readIdentity: async () => publicIdentity(),
@@ -355,6 +435,122 @@ test('BrowserSessionBinding returns only opaque capability and public identity, 
       (error) => error instanceof SeoriAuthError && error.code === 'browser_capability_expired',
     );
   });
+});
+
+test('browser execution claim is an atomic durable CAS and crash replay is readback-only', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'seori-auth-browser-claim-'));
+  const nextId = idFactory();
+  let state = await DurableAuthState.open({ directory, idFactory: nextId });
+  try {
+    await state.registerBrowserSession({
+      sessionId: 'session-claim',
+      generation: 1,
+      executionBinding: executionBinding(),
+      publicIdentity: publicIdentity(),
+    });
+    const checkout = await state.checkoutBrowserSession({
+      sessionId: 'session-claim',
+      expectedGeneration: 1,
+      executionBinding: executionBinding(),
+      expectedIdentity: publicIdentity(),
+      authorization: browserAuthorization(),
+    });
+    const claimRequest = {
+      sessionId: 'session-claim',
+      capabilityId: checkout.capabilityId,
+      expectedGeneration: 2,
+      executionBinding: executionBinding(),
+      authorization: browserAuthorization(),
+    };
+    const claims = await Promise.allSettled([
+      state.claimBrowserSessionExecution(claimRequest),
+      state.claimBrowserSessionExecution(claimRequest),
+    ]);
+    assert.equal(claims.filter(({ status }) => status === 'fulfilled').length, 1);
+    const rejected = claims.find(({ status }) => status === 'rejected');
+    assert.equal(rejected.reason.code, 'generation_conflict');
+    const firstClaim = claims.find(({ status }) => status === 'fulfilled').value;
+    assert.equal(firstClaim.mode, 'EXECUTE');
+    assert.equal(firstClaim.generation, 3);
+    assert.equal(state.snapshot().browserSessionBindings[0].state, 'CLAIMED');
+
+    await state.close();
+    state = await DurableAuthState.open({ directory, idFactory: nextId });
+    const recoveryProbe = await state.claimBrowserSessionRecovery({
+      sessionId: 'session-claim',
+      capabilityId: checkout.capabilityId,
+      expectedGeneration: 2,
+      executionBinding: executionBinding(),
+      request: makeRequest(),
+      leaseId: 'browser-lease-a',
+      profileGeneration: 1,
+      role: 'release',
+    });
+    assert.equal(recoveryProbe.mode, 'RECOVERY_READBACK_ONLY');
+    assert.deepEqual(recoveryProbe.authorization, browserAuthorization());
+    const recovery = await state.claimBrowserSessionExecution(claimRequest);
+    assert.equal(recovery.mode, 'RECOVERY_READBACK_ONLY');
+    assert.equal(recovery.generation, 3);
+    assert.equal(
+      state.snapshot().auditEvents.filter(({ eventType }) => eventType === 'BROWSER_SESSION_EXECUTION_CLAIMED').length,
+      1,
+    );
+
+    const completed = await state.completeBrowserSession({
+      ...claimRequest,
+      expectedGeneration: recovery.generation,
+      recoveryMode: true,
+      readIdentity: async () => publicIdentity(),
+    });
+    assert.equal(completed.state, 'COMPLETED');
+    assert.equal(completed.generation, 4);
+    assert.equal(state.snapshot().auditEvents.at(-1).eventType, 'BROWSER_SESSION_RECOVERED');
+  } finally {
+    await state.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('startup reconciliation reclaims expired unclaimed browser checkouts', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'seori-auth-browser-expiry-startup-'));
+  const nextId = idFactory();
+  let now = 1_700_000_000_000;
+  let state = await DurableAuthState.open({ directory, clock: () => now, idFactory: nextId });
+  try {
+    await state.registerBrowserSession({
+      sessionId: 'session-expired',
+      generation: 1,
+      executionBinding: executionBinding(),
+      publicIdentity: publicIdentity(),
+    });
+    await state.checkoutBrowserSession({
+      sessionId: 'session-expired',
+      expectedGeneration: 1,
+      executionBinding: executionBinding(),
+      expectedIdentity: publicIdentity(),
+      authorization: browserAuthorization(),
+    });
+    now += LEASE_TTL_MS;
+    await state.close();
+    state = await DurableAuthState.open({ directory, clock: () => now, idFactory: nextId });
+
+    const reclaimed = state.snapshot().browserSessionBindings[0];
+    assert.equal(reclaimed.state, 'AVAILABLE');
+    assert.equal(reclaimed.generation, 3);
+    assert.equal(state.snapshot().auditEvents.at(-1).eventType, 'BROWSER_SESSION_EXPIRED_RECLAIMED');
+    const nextCheckout = await state.checkoutBrowserSession({
+      sessionId: 'session-expired',
+      expectedGeneration: 3,
+      executionBinding: executionBinding(),
+      expectedIdentity: publicIdentity(),
+      authorization: browserAuthorization(undefined, { leaseId: 'browser-lease-after-expiry' }),
+    });
+    assert.match(nextCheckout.capabilityId, /^opaque-/);
+    assert.equal(state.snapshot().browserSessionBindings[0].generation, 4);
+  } finally {
+    await state.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('ReauthRequest durably records all interactive factors as HUMAN_REAUTH_REQUIRED', async () => {
@@ -385,6 +581,138 @@ test('ReauthRequest durably records all interactive factors as HUMAN_REAUTH_REQU
     });
     assert.equal(duplicate.id, snapshot.reauthRequests.find(({ reason }) => reason === 'captcha_required').id);
     assert.equal(state.snapshot().auditEvents.filter(({ eventType }) => eventType === 'REAUTH_REQUESTED').length, 6);
+  });
+});
+
+test('unresolved ReauthRequest blocks matching issuance across restart until trusted exact resolution', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'seori-auth-reauth-block-'));
+  const nextId = idFactory();
+  let state = await DurableAuthState.open({ directory, idFactory: nextId });
+  const issuance = {
+    authorized: authorized(),
+    workerId: 'worker-a',
+    idempotencyKey: 'reauth-blocked-occurrence',
+    currentCredentialGeneration: 3,
+    currentPolicyGeneration: 7,
+  };
+  try {
+    const reauth = await state.createReauthRequest({
+      reason: 'captcha_required',
+      executionBinding: executionBinding(),
+      publicIdentity: publicIdentity(),
+    });
+    await assert.rejects(
+      state.issueCredentialCheckout(issuance),
+      (error) => error instanceof SeoriAuthError && error.code === HUMAN_REAUTH_REQUIRED,
+    );
+    await state.close();
+    state = await DurableAuthState.open({ directory, idFactory: nextId });
+    await assert.rejects(
+      state.issueCredentialCheckout(issuance),
+      (error) => error instanceof SeoriAuthError && error.code === HUMAN_REAUTH_REQUIRED,
+    );
+    await assert.rejects(
+      state.resolveReauthRequest({
+        id: reauth.id,
+        expectedGeneration: 1,
+        executionBinding: executionBinding({ runId: 'github:other' }),
+        publicIdentity: publicIdentity(),
+      }),
+      (error) => error instanceof SeoriAuthError && error.code === 'reauth_request_binding_mismatch',
+    );
+    const resolved = await state.resolveReauthRequest({
+      id: reauth.id,
+      expectedGeneration: 1,
+      executionBinding: executionBinding(),
+      publicIdentity: publicIdentity(),
+    });
+    assert.equal(resolved.state, 'RESOLVED');
+    assert.equal(resolved.generation, 2);
+    const checkout = await state.issueCredentialCheckout(issuance);
+    assert.equal(checkout.state, 'ISSUED');
+  } finally {
+    await state.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('reauth invalidates every older matching checkout and requires a new approval after resolution', async () => {
+  await withState(async ({ state }) => {
+    const request = makeRequest();
+    const issuance = {
+      authorized: authorized(request),
+      workerId: 'worker-a',
+      idempotencyKey: 'before-reauth',
+      currentCredentialGeneration: 3,
+      currentPolicyGeneration: 7,
+    };
+    const oldCheckout = await state.issueCredentialCheckout(issuance);
+    const reauth = await state.createReauthRequest({
+      reason: 'captcha_required',
+      executionBinding: executionBinding(),
+      publicIdentity: publicIdentity(),
+    });
+    await assert.rejects(
+      state.issueCredentialCheckout(issuance),
+      (error) => error instanceof SeoriAuthError && error.code === HUMAN_REAUTH_REQUIRED,
+    );
+    await assert.rejects(
+      state.consumeCredentialCheckout({
+        id: oldCheckout.id,
+        expectedGeneration: 1,
+        context: request,
+        workerId: 'worker-a',
+        currentCredentialGeneration: 3,
+        currentPolicyGeneration: 7,
+      }),
+      (error) => error instanceof SeoriAuthError && error.code === HUMAN_REAUTH_REQUIRED,
+    );
+    await state.resolveReauthRequest({
+      id: reauth.id,
+      expectedGeneration: 1,
+      executionBinding: executionBinding(),
+      publicIdentity: publicIdentity(),
+    });
+    await assert.rejects(
+      state.issueCredentialCheckout(issuance),
+      (error) => error instanceof SeoriAuthError && error.code === 'lease_invalidated_by_reauth',
+    );
+    await assert.rejects(
+      state.consumeCredentialCheckout({
+        id: oldCheckout.id,
+        expectedGeneration: 1,
+        context: request,
+        workerId: 'worker-a',
+        currentCredentialGeneration: 3,
+        currentPolicyGeneration: 7,
+      }),
+      (error) => error instanceof SeoriAuthError && error.code === 'lease_invalidated_by_reauth',
+    );
+
+    const nextApproval = {
+      id: 'approval-after-reauth',
+      mode: 'preapproved',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      maxUses: 1,
+    };
+    const nextRequest = makeRequest({ approval: nextApproval });
+    const nextAuthorized = new PolicyEngine(makePolicy({ approvals: [nextApproval] })).authorize(nextRequest);
+    const nextCheckout = await state.issueCredentialCheckout({
+      authorized: nextAuthorized,
+      workerId: 'worker-a',
+      idempotencyKey: 'after-reauth',
+      currentCredentialGeneration: 3,
+      currentPolicyGeneration: 7,
+    });
+    const consumed = await state.consumeCredentialCheckout({
+      id: nextCheckout.id,
+      expectedGeneration: 1,
+      context: nextRequest,
+      workerId: 'worker-a',
+      currentCredentialGeneration: 3,
+      currentPolicyGeneration: 7,
+    });
+    assert.equal(consumed.generation, 2);
   });
 });
 
@@ -441,6 +769,7 @@ test('broker-held HMAC journal detects wrong keys, record tampering, and trusted
     await state.issueCredentialCheckout({
       authorized: authorized(),
       workerId: 'worker-a',
+      idempotencyKey: 'checkout-integrity',
       currentCredentialGeneration: 3,
       currentPolicyGeneration: 7,
     });

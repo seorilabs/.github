@@ -29,19 +29,19 @@ export class SeoriAuthBroker {
   #loadSecret;
   #onAudit;
 
-  constructor({ policy, adapters, loadSecret, clock, onAudit, requireNativeLauncher = false }) {
+  constructor({ policy, adapters, loadSecret, clock, onAudit }) {
     if (typeof loadSecret !== 'function') {
       throw new TypeError('loadSecret must be a trusted in-process function');
     }
     this.#policy = new PolicyEngine(policy);
-    this.#registry = new TrustedAdapterRegistry(adapters, { requireNativeLauncher });
+    this.#registry = new TrustedAdapterRegistry(adapters);
     this.#leaseStore = new LeaseStore({ clock });
     this.#loadSecret = loadSecret;
     this.#onAudit = onAudit;
   }
 
-  issueLease(request) {
-    return this.#leaseStore.issue(this.#policy.authorize(request));
+  issueLease(request, { idempotencyKey } = {}) {
+    return this.#leaseStore.issue({ ...this.#policy.authorize(request), idempotencyKey });
   }
 
   execute({ leaseId, context, currentCredentialGeneration }) {

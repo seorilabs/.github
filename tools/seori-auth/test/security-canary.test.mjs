@@ -13,7 +13,7 @@ import {
   PolicyEngine,
   SeoriAuthBroker,
 } from '../src/index.mjs';
-import { makeNativeLockProvider, makePolicy, makeRequest } from '../fixtures/helpers.mjs';
+import { makeNativeLauncher, makeNativeLockProvider, makePolicy, makeRequest } from '../fixtures/helpers.mjs';
 
 const fixture = fileURLToPath(new URL('../fixtures/echo-secret-child.mjs', import.meta.url));
 
@@ -95,12 +95,13 @@ test('deterministic canaries never cross prompt, output, argv, env, journal, log
         capabilities: ['ait.bundle.upload.private'],
         credentialDelivery: 'fd3',
         environment: { TEST_CAPTURE_FILE: capturePath },
+        launcher: await makeNativeLauncher(),
         buildArgs: () => [fixture],
       }],
       loadSecret: async () => executionPassword,
       onAudit: (event) => audit.push(event),
     });
-    const lease = broker.issueLease(request);
+    const lease = broker.issueLease(request, { idempotencyKey: 'security-canary' });
     const execution = await broker.execute({
       leaseId: lease.leaseId,
       context: request,
@@ -121,6 +122,7 @@ test('deterministic canaries never cross prompt, output, argv, env, journal, log
     await state.issueCredentialCheckout({
       authorized: new PolicyEngine(makePolicy()).authorize(request),
       workerId: 'worker-a',
+      idempotencyKey: 'canary-checkout',
       currentCredentialGeneration: request.credentialGeneration,
       currentPolicyGeneration: request.policyGeneration,
     });

@@ -13,6 +13,7 @@
 - signed policy generation과 adapter digest
 - 공개 provider/account/team/workspace/app ID
 - exact primary origin, 순서가 고정된 redirect origin, egress-proxy hostname allowlist
+- 순서가 고정된 exact auth factor strategy와 action별 approval mode
 - journal MAC logical ID/generation과 직전 trusted head MAC
 - Browser Vault key logical ID/generation과 encrypted PVC snapshot ID
 
@@ -66,6 +67,13 @@ trusted browser adapter만 `withClone` callback 안에서 path를 받고, agent 
 screenshot·artifact에는 path나 storage state를 넣지 않습니다. 종료·TTL·identity mismatch
 시 clone을 폐기하며 expected identity가 모두 맞을 때만 encrypted 원본을 갱신합니다.
 
+browser 외부 동작 전에 durable state가 `CHECKED_OUT -> CLAIMED` CAS를 완료해야 합니다.
+broker가 CLAIMED 상태에서 종료되거나 adapter 결과가 불명확하면 재시작/재요청은 adapter를
+실행하지 않고 provider API의 artifact/action readback만 수행합니다. `SUCCEEDED`만 완료,
+`NOT_APPLIED`만 새 checkout 허용, `UNKNOWN`은 CLAIMED 유지가 기준입니다. startup은 만료된
+미실행 CHECKED_OUT만 AVAILABLE로 회수합니다. 이 readback은 저장된 authorization exact
+binding으로만 열고 approval 만료나 credential generation 변경을 이유로 막지 않습니다.
+
 broker는 startup마다 account별 native advisory lock을 획득할 수 있는 stale clone만
 자동 제거합니다. systemd/launchd 같은 process supervisor는 broker process가 완전히
 종료된 뒤 다음 명령을 `ExecStopPost` 상당 단계에서 실행합니다. 활성 checkout의 lock은
@@ -91,6 +99,9 @@ Kubernetes의 tmpfs `emptyDir`은 Pod 삭제 시 폐기되며, 같은 Pod의 bro
 - canonical registry가 `human`으로 분류한 계정의 password/TOTP, passkey, SMS, push,
   trusted-device, CAPTCHA, recovery, 약관 화면은
   `HUMAN_REAUTH_REQUIRED`로 한 번만 기록하고 자동 retry하지 않습니다.
+- active `ReauthRequest`는 같은 run/provider/account/app의 새 credential checkout을 막고,
+  trusted UI가 public identity와 generation을 exact-match해 resolve한 뒤 새 approval과 새
+  idempotency key로만 재개합니다.
 
 ## 5. Kubernetes render gate
 
@@ -130,7 +141,8 @@ canary는 raw/base64/hex representation이 다음 표면에 없음을 검사합�
 - release artifact metadata
 
 look-alike origin, redirect 변경, wrong account/workspace/app ID, cross-repo capability reuse,
-TTL expiry, second checkout, wrong MAC key, journal tamper와 session revoke가 모두 fail-closed인
+TTL/startup reclaim, concurrent duplicate complete의 adapter 1회 실행, crash readback-only,
+approval ID 동시 발급 1회, wrong MAC key, journal tamper와 session revoke가 모두 fail-closed인
 뒤 provider별 read-only canary를 하나씩 활성화합니다. upload/submit/public release/role/key
 변경은 로그인 성공과 별개의 approval policy가 있어야 합니다.
 

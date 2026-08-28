@@ -47,8 +47,9 @@
     "leaseCreateRequest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["workerId", "request"],
+      "required": ["idempotencyKey", "workerId", "request"],
       "properties": {
+        "idempotencyKey": { "$ref": "#/$defs/publicId" },
         "workerId": { "$ref": "#/$defs/publicId" },
         "request": { "$ref": "lease-request.schema.json" }
       }
@@ -154,7 +155,7 @@
       "properties": {
         "id": { "$ref": "#/$defs/opaqueId" },
         "generation": { "type": "integer", "minimum": 1 },
-        "state": { "enum": ["AVAILABLE", "CHECKED_OUT", "COMPLETED"] },
+        "state": { "enum": ["AVAILABLE", "CHECKED_OUT", "CLAIMED", "COMPLETED"] },
         "maxUses": { "const": 1 },
         "useCount": { "enum": [0, 1] },
         "publicIdentity": { "$ref": "#/$defs/publicIdentity" }
@@ -257,6 +258,7 @@
         "capabilityId": { "$ref": "#/$defs/opaqueId" },
         "leaseId": { "$ref": "#/$defs/opaqueId" },
         "ruleId": { "$ref": "#/$defs/publicId" },
+        "idempotencyKey": { "$ref": "#/$defs/publicId" },
         "publicIdentity": { "$ref": "#/$defs/publicIdentity" },
         "reason": { "$ref": "#/$defs/reauthCreateRequest/properties/reason" },
         "exitCode": { "type": "integer" },

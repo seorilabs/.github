@@ -27,6 +27,8 @@
 - 정책과 lease의 exact match만 허용하며 domain suffix 또는 wildcard를 사용하지 않음
 - lease 발급 후 policy 또는 credential generation이 바뀌면 실행 거부
 - 기존 durable record mutation은 expected generation CAS로만 수행
+- approval ID의 `maxUses=1`은 credential checkout 발급 journal mutation에서 예약하며,
+  exact idempotency replay만 기존 checkout을 반환
 - subject, run, repository, worker가 하나라도 다르면 capability 재사용 거부
 - 실행 실패를 포함해 secret load 전에 lease를 소비하여 replay 방지
 - child가 받는 secret을 argv와 environment에서 제외
@@ -36,6 +38,10 @@
   OS advisory lock이며 잠금 파일 만료시각이나 unlink 경쟁으로 소유권을 판정하지 않음
 - browser 완료는 provider/account/team/workspace/app 공개 identity readback이 기대값과
   정확히 같을 때만 generation과 상태 변경
+- browser adapter 실행 전 `CHECKED_OUT -> CLAIMED` durable CAS를 완료하고, CLAIMED 상태의
+  crash/불명 결과는 provider readback으로만 종결하며 adapter를 다시 실행하지 않음
+- CAPTCHA/MFA/약관 등 interactive gate는 durable `ReauthRequest`와 연결하고 exact trusted
+  resolution 전까지 같은 run/provider/account/app의 새 checkout을 차단
 - browser HTTP 응답에는 opaque capability ID와 공개 identity만 포함
 - schema v2 journal의 record 순서, mutation, audit를 HMAC chain으로 인증하고 외부 head
   checkpoint가 주어지면 tail 삭제/rollback도 startup에서 거부
@@ -68,6 +74,8 @@ native helper는 adapter child에 `RLIMIT_CORE=0`과 OS non-dumpable 정책을 �
 broker process 자체도 같은 helper를 entrypoint로 사용해야 합니다. helper checksum이
 승인값과 다르거나 group/world write가 허용된 경로이면 시작하지 않습니다. production
 image에서는 broker identity가 수정할 수 없는 root 소유 read-only layer로 고정합니다.
+`SeoriAuthBroker`와 `LocalAuthDaemon`은 launcher 없는 credential adapter 등록을 거부하며
+이를 끄는 runtime option을 제공하지 않습니다.
 
 ## 중단 조건
 
@@ -97,6 +105,12 @@ broker-held key와 `requireIntegrity: true`를 사용해 schema v2 HMAC/hash cha
 group/other-readable mode는 fail-closed입니다. control plane에 보관한 마지막 head MAC을
 `expectedJournalHeadMac`으로 주면 journal tail rollback도 거부합니다. MAC key와 secret
 실행 복제본은 journal에 쓰지 않습니다.
+
+startup replay는 TTL이 지난 `CHECKED_OUT`을 새 generation의 `AVAILABLE`로 journal에
+회수하고, 남아 있는 `CLAIMED`는 readback-only recovery 대상으로 표시합니다. 같은
+프로세스에서 adapter 오류가 반환된 경우도 즉시 같은 recovery 상태로 전환합니다.
+recovery는 저장된 authorization을 exact-match하되 이미 실행된 동작을 재허가하는 것이
+아니므로 approval 만료나 credential generation 변경 뒤에도 provider readback은 허용합니다.
 
 mode `0600`만으로 같은 UID process를 분리할 수 없으므로 broker는 worker와 다른 OS
 identity로 실행하고 state/Vault directory를 worker mount에서 제외합니다.

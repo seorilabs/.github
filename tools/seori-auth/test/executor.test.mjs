@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import * as publicApi from '../src/index.mjs';
 import { SeoriAuthBroker, SeoriAuthError, TrustedAdapterRegistry } from '../src/index.mjs';
-import { makePolicy, makeRequest } from '../fixtures/helpers.mjs';
+import { makeNativeLauncher, makePolicy, makeRequest } from '../fixtures/helpers.mjs';
 
 const fixture = fileURLToPath(new URL('../fixtures/echo-secret-child.mjs', import.meta.url));
 
@@ -27,11 +27,11 @@ test('secret is injected through fd3 while all child output channels are discard
   const request = makeRequest();
   const broker = new SeoriAuthBroker({
     policy: makePolicy(),
-    adapters: [testAdapter()],
+    adapters: [testAdapter({ launcher: await makeNativeLauncher() })],
     loadSecret: async () => secretBuffer,
     onAudit: (event) => auditEvents.push(event),
   });
-  const lease = broker.issueLease(request);
+  const lease = broker.issueLease(request, { idempotencyKey: 'executor-success' });
 
   const result = await broker.execute({
     leaseId: lease.leaseId,
@@ -52,12 +52,12 @@ test('secret loader error details are not returned and consumed lease cannot ret
   const request = makeRequest();
   const broker = new SeoriAuthBroker({
     policy: makePolicy(),
-    adapters: [testAdapter()],
+    adapters: [testAdapter({ launcher: await makeNativeLauncher() })],
     loadSecret: async () => {
       throw new Error(canary);
     },
   });
-  const lease = broker.issueLease(request);
+  const lease = broker.issueLease(request, { idempotencyKey: 'executor-loader-error' });
 
   await assert.rejects(
     broker.execute({
@@ -84,10 +84,10 @@ test('invalid secret loader output preserves the intended non-secret error', asy
   const request = makeRequest();
   const broker = new SeoriAuthBroker({
     policy: makePolicy(),
-    adapters: [testAdapter()],
+    adapters: [testAdapter({ launcher: await makeNativeLauncher() })],
     loadSecret: async () => undefined,
   });
-  const lease = broker.issueLease(request);
+  const lease = broker.issueLease(request, { idempotencyKey: 'executor-invalid-loader' });
 
   await assert.rejects(
     broker.execute({
@@ -109,7 +109,16 @@ test('registry rejects relative executables and secret-shaped environment fields
     (error) => error instanceof SeoriAuthError && error.code === 'invalid_adapter',
   );
   assert.throws(
-    () => new TrustedAdapterRegistry([testAdapter()], { requireNativeLauncher: true }),
+    () => new TrustedAdapterRegistry([testAdapter()]),
+    (error) => error instanceof SeoriAuthError && error.code === 'native_launcher_required',
+  );
+  assert.throws(
+    () => new SeoriAuthBroker({
+      policy: makePolicy(),
+      adapters: [testAdapter()],
+      loadSecret: async () => Buffer.from('unused'),
+      requireNativeLauncher: false,
+    }),
     (error) => error instanceof SeoriAuthError && error.code === 'native_launcher_required',
   );
   assert.throws(
@@ -131,7 +140,7 @@ test('public API has no secret getter or exporter', () => {
   );
   const broker = new SeoriAuthBroker({
     policy: makePolicy(),
-    adapters: [testAdapter()],
+    adapters: [],
     loadSecret: async () => Buffer.from('not-read'),
   });
   assert.deepEqual(Object.keys(broker), []);

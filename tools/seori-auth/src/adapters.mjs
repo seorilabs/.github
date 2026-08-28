@@ -97,13 +97,10 @@ function validateAdapter(adapter) {
 export class TrustedAdapterRegistry {
   #adapters = new Map();
 
-  constructor(adapters = [], { requireNativeLauncher = false } = {}) {
-    if (typeof requireNativeLauncher !== 'boolean') {
-      fail('invalid_adapter', 'requireNativeLauncher must be a boolean');
-    }
+  constructor(adapters = []) {
     for (const adapter of adapters) {
       const normalized = validateAdapter(adapter);
-      if (requireNativeLauncher && normalized.launcher === undefined) {
+      if (normalized.launcher === undefined) {
         fail('native_launcher_required', 'production adapter must use the native non-dumpable launcher');
       }
       if (this.#adapters.has(normalized.id)) {

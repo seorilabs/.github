@@ -16,7 +16,10 @@ daemon과 MAC-chain durable state, native OS 경계, encrypted Browser Vault를
 - lease는 subject, run, repository, worker, commit SHA, provider, exact HTTPS origin,
   redirect chain, capability, resource, artifact SHA, adapter, credential/policy
   generation, canonical account ID, approval ID/mode/expiry/max-use를 모두 고정합니다.
-- lease TTL은 변경할 수 없는 5분이고 정상 실행 시도 전에 한 번 소비됩니다.
+  `authFactors`도 policy의 순서가 있는 exact strategy 하나와 같아야 합니다.
+- lease TTL은 변경할 수 없는 5분이고 정상 실행 시도 전에 한 번 소비됩니다. approval ID는
+  첫 발급 journal mutation에서 원자적으로 예약되며 같은 idempotency key의 exact replay만
+  같은 checkout을 반환합니다.
 - HTTP에는 secret 조회, export, print endpoint가 없고 실행 결과에서도 child
   stdout/stderr를 반환하지 않습니다.
 - browser checkout은 opaque capability ID와 provider/account/team/workspace/app의
@@ -26,7 +29,9 @@ daemon과 MAC-chain durable state, native OS 경계, encrypted Browser Vault를
   checkout은 expected profile generation, source SHA, subject/run/repo/worker에도 묶입니다.
   checkout에 사용한 credential lease와 그 lease의 origin/action/resource/artifact/approval
   전체를 durable authorization으로 고정하고 trusted browser adapter 실행 전에 다시
-  exact-match합니다.
+  exact-match합니다. 외부 동작 전 `CHECKED_OUT -> CLAIMED` generation CAS를 먼저 fsync하며,
+  crash 또는 불명 결과 뒤에는 provider readback으로만 `COMPLETED`/`AVAILABLE`을 결정하고
+  adapter를 재실행하지 않습니다.
 - `CredentialCheckout`, `BrowserSessionBinding`, `ReauthRequest`, `AuthAuditEvent`는
   권한 `0600` append-only journal에 기록되고 재시작 시 replay됩니다. 운영 모드의
   schema v2 record는 broker-held 32-byte key의 HMAC-SHA256 chain으로 인증하며,
@@ -47,7 +52,8 @@ daemon과 MAC-chain durable state, native OS 경계, encrypted Browser Vault를
   factor loader를 호출하지 않습니다.
 - account 종류는 요청이 아니라 signed policy의 canonical account registry에서만 읽습니다.
   `human` account의 password 또는 TOTP는 browser control 검사와 factor loader보다 먼저
-  `HUMAN_REAUTH_REQUIRED`로 중단합니다.
+  `HUMAN_REAUTH_REQUIRED`로 중단합니다. 감지된 interactive gate는 durable `ReauthRequest`로
+  연결되어 trusted UI가 exact binding으로 resolve할 때까지 새 checkout도 차단합니다.
 
 ## 임베딩과 로컬 daemon
 
@@ -68,7 +74,6 @@ const nativeBoundary = await NativeSecurityBoundary.open({
 });
 const broker = new SeoriAuthBroker({
   policy,
-  requireNativeLauncher: true,
   adapters: [{
     id: 'provider-cli-v1',
     executable: '/opt/seori-auth/bin/provider-cli',
@@ -87,7 +92,7 @@ const broker = new SeoriAuthBroker({
   },
 });
 
-const lease = broker.issueLease(approvedRequest);
+const lease = broker.issueLease(approvedRequest, { idempotencyKey: approvedOccurrenceId });
 const result = await broker.execute({
   leaseId: lease.leaseId,
   context: approvedRequest,
@@ -112,6 +117,8 @@ const daemon = new LocalAuthDaemon({
   browserVault,
   executeBrowserSession: ({ cloneDirectory, authorization }) =>
     trustedProviderBrowserAdapter.execute({ cloneDirectory, authorization }),
+  reconcileBrowserSession: ({ authorization }) =>
+    trustedProviderApi.readActionOutcome({ authorization }),
 });
 await daemon.start();
 ```
@@ -131,10 +138,10 @@ daemon은 절대 경로의 Unix socket만 받으며 socket과 state directory가
 
 | route | 역할 |
 | --- | --- |
-| `/auth/leases` | 정책·credential generation을 확인하고 `CredentialCheckout` 발급 |
+| `/auth/leases` | 정책·credential generation을 확인하고 idempotency key별 `CredentialCheckout`과 approval 1회를 원자적으로 예약 |
 | `/auth/leases/{id}/execute` | generation CAS와 run/repo/worker exact binding 뒤 1회 실행 |
 | `/auth/browser-sessions/{id}/checkout` | 정책 승인된 1회 lease와 exact 실행 문맥을 소비해 계정별 동시 1개인 opaque browser capability 발급 |
-| `/auth/browser-sessions/{id}/complete` | checkout의 lease/source/origin/action/resource/artifact/approval을 재검증한 trusted adapter와 공개 identity readback이 모두 성공할 때만 완료 |
+| `/auth/browser-sessions/{id}/complete` | durable `CLAIMED` CAS 뒤 trusted adapter를 한 번만 실행하고, crash retry는 provider readback만으로 종결 |
 | `/auth/reauth-requests` | 자동화 중단 사유를 `HUMAN_REAUTH_REQUIRED`로 기록 |
 
 요청·응답과 네 가지 durable record의 JSON 계약은
@@ -172,7 +179,9 @@ fail-closed 검증 명령을 정의합니다. 저장소의 K8s 파일은 placeho
 [`policy/example.policy.json`](policy/example.policy.json)은 한 run, commit, artifact에
 고정된 예시입니다. 실제 정책은 서명된 승인 또는 신뢰 가능한 control plane이
 생성해야 합니다. `*`, 정규식, suffix domain match를 지원하지 않으며 HTTPS origin은
-scheme, hostname, port가 모두 정확히 일치해야 합니다.
+scheme, hostname, port가 모두 정확히 일치해야 합니다. 공개/production 변경, 심사
+제출·취소, tester/role/permission과 key/certificate 변경은 policy가 허용해도 반드시
+`per_run` approval이어야 합니다.
 
 ```sh
 npm run lint
