@@ -13,6 +13,7 @@ const CONTRACT_ENTRYPOINTS = [
   ".github/workflows/README.md",
   "docs/fleet-control-plane.md",
   "docs/ci-cd/fleet-zero-touch-bootstrap.md",
+  "docs/ci-cd/workflow-bundle-v4-shadow.md",
   "docs/migration/fleet-baseline-2026-08-27.md",
   "docs/migration/org-contract-v1-rollout.md",
   "docs/migration/p5-cleanup-inventory.md",
@@ -25,6 +26,7 @@ const JSON_SCHEMAS = [
   "contracts/markets/apps-in-toss.schema.json",
   "contracts/markets/google-play.schema.json",
   "contracts/workflow-bundle.schema.json",
+  "contracts/xcode-cloud-run.schema.json",
 ];
 const YAML_CONTRACTS = [
   "contracts/agent-policy.yaml",

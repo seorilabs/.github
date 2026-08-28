@@ -24,6 +24,8 @@
 | `rn-static-checks-v2.yml` | Fleet RN 고정 품질 게이트와 provenance | private ARC, public ubuntu |
 | `godot-checks-v2.yml` | Fleet Godot 고정 품질·import 게이트와 provenance | private ARC, public ubuntu |
 | `workflow-bundle-candidate.yml` | 불변 WorkflowBundle candidate 생성·검증 | private ARC, public ubuntu |
+| `rn-build-android-cloud-v1.yml` | RN exact source를 Cloud Build에 제출하고 build-only AAB 회수 | private ARC submit + x64 Cloud Build |
+| `godot-build-android-cloud-v1.yml` | Godot exact source를 Cloud Build에 제출하고 build-only AAB 회수 | private ARC submit + x64 Cloud Build |
 | `rn-static-checks.yml` | RN/Node 정적 게이트(명령 주입) | ARC(또는 ubuntu) |
 | `rn-build-ait.yml` | RN `.ait` 후보 산출물 빌드(배포 없음) | ARC 또는 x64 Linux |
 | `rn-build-android.yml` | RN signed AAB 후보 산출물 빌드(배포 없음) | ubuntu |
@@ -65,6 +67,14 @@ workflow/caller의 표시 이름일 뿐 required status check 이름으로 사�
 - **GitHub Environments**: `apps-in-toss`, `google-play`, `app-store`(보호 규칙/감사).
 
 Apple signing과 App Store Connect 인증은 Xcode Cloud 환경에서 관리한다. 아래 GitHub App Store secret과 workflow는 소비자를 확인한 뒤 Xcode Cloud로 옮길 legacy 대상이며 신규 앱의 표준이 아니다.
+
+WorkflowBundle v4 Android build-only 경로는 GitHub secret을 받지 않는다. `internal`
+Environment에서 공개 identity인 `GOOGLE_WORKLOAD_IDENTITY_PROVIDER`,
+`SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT`,
+`SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT` 변수만 읽고 WIF로 `seorilabs-ci`에 제출한다.
+Cloud Build 실행 SA의 Secret Manager 단위 IAM은 별도 credential binding이 관리하며 Play
+publisher 권한을 가져서는 안 된다. GitHub OIDC 조건은 숫자 repository ID와 중앙
+`job_workflow_ref`의 full SHA를 모두 제한한다.
 
 ## caller 표준 contract (repo가 제공)
 
@@ -130,6 +140,41 @@ jobs:
 이 파일은 사람이 복사하지 않고 GitHub App reconciler가 검증된 APPROVED bundle에서
 생성한다. stack 후보가 둘 이상이거나 exact `refs/heads/main` observation이 없으면 생성하지
 않고 `needs_input`으로 멈춘다.
+
+### Android build-only shadow caller
+
+`generateAndroidBuildCaller`가 APPROVED bundle과 Backoffice resolved manifest에서만 만든다.
+caller는 사용자 SHA 입력 없이 resolved manifest의 exact source SHA, 최소
+`contents: read`·`id-token: write`, source SHA별 concurrency, full workflow SHA만 가진다.
+`secrets`, `runs-on`, `steps`, 임의 command 입력은 허용하지 않는다. 중앙 reusable workflow는
+private repo에서만 digest-bound ARC image를 사용하고, Google WIF 전에 managed caller가
+`.github/workflows/android-build-only.yml@refs/heads/main`인지 확인한 뒤 exact source
+checkout과 tracked-secret scan 뒤 x64 Cloud Build로 제출한다. Cloud Build config는 digest로
+고정한 builder, exact gcloud와 `scripts/build-android.sh`만 실행하며 AAB를 회수할 뿐 마켓
+API를 호출하지 않는다.
+
+현재 mode는 `SHADOW`, ruleset은 `EVALUATE`다. 기존 caller를 삭제하거나 호출을 강제하지
+않으며 non-promotable contract fixture probe와 실제 RN/Godot pilot parity가 끝나기 전 Active로 바꾸지 않는다.
+
+### Xcode Cloud build-only contract
+
+Apple은 GitHub macOS caller를 새로 만들지 않는다. `generateXcodeCloudRunContract`가 exact
+repo/source SHA, WorkflowBundle digest, `ciBuildRuns.create`, profile별 `ci_scripts`,
+idempotency key를 묶은 `contracts/xcode-cloud-run.schema.json` 문서를 만든다. product와
+workflow ID는 자유 입력이 아니라 trusted Backoffice ExternalBinding readback에서 가져오며
+`BUILD_ONLY` distribution과 observation ID를 함께 고정한다. Backoffice의 App Store Connect
+adapter는 validator가 반환한 deep-frozen snapshot만 소비한다. 이 계약의 `marketUpload`은
+`false`이며 심사 제출과 공개 배포는 별도 승인 gate다.
+
+### Platform release gate
+
+static PR check는 signed fleet-approved Platform manifest와 Backoffice observation 부재를
+`SHADOW/EVALUATE` 진단으로만 기록한다. release build는
+`evaluatePlatformReleaseGate`의 trusted readback adapter가 두 readback을 exact
+repo/source/bundle/platform revision에 묶은 5분 receipt로 확인하지 못하면
+`FAIL_CLOSED`다. release executor는 `consumePlatformReleaseGateBinding`으로 exact identity,
+TTL과 receipt ID/generation durable CAS를 다시 확인한 opaque binding만 사용한다. Android와 Xcode의 이 문서상
+경로는 build-only이므로 release 승인을 대체하지 않는다.
 
 ### RN AIT 배포 (`.github/workflows/deploy-apps-in-toss.yml`)
 

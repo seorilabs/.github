@@ -32,6 +32,13 @@ test("v2 정적 workflow는 고정 품질 명령과 stable required check를 사
       (step) => step.name === "Rebuild dependencies without registry credential",
     );
     assert.deepEqual(rebuild.env, { PACKAGE_MANAGER: "${{ inputs.package_manager }}" });
+    const checkoutSteps = Object.values(parsed.jobs).flatMap((job) =>
+      job.steps.filter((step) => step.uses?.startsWith("actions/checkout@")),
+    );
+    assert.ok(checkoutSteps.length >= 3);
+    assert.ok(
+      checkoutSteps.every((step) => step.with?.["persist-credentials"] === false),
+    );
   }
 });
 
@@ -74,6 +81,7 @@ test("Org Contract 증명 job은 앱 실행면과 격리되고 quality 성공에
     assert.equal(evidence.name, "Org Contract");
     assert.equal(evidence.needs, "quality");
     assert.equal(evidence.if, "${{ always() }}");
+    assert.deepEqual(evidence.permissions, { contents: "read" });
     assert.equal(
       evidence.steps[0].name,
       "Reject failed or cancelled quality job",
@@ -92,11 +100,22 @@ test("Org Contract 증명 job은 앱 실행면과 격리되고 quality 성공에
   }
 });
 
-test("public repository는 ARC에 진입하지 않고 모든 external action은 full SHA다", () => {
+test("public fork PR은 credential job 전에 fail-closed되고 external action은 full SHA다", () => {
   for (const workflow of workflows) {
+    const parsed = parse(workflow);
     assert.match(
       workflow,
       /github\.event\.repository\.private && 'seorilabs-rpi-arm64' \|\| 'ubuntu-latest'/u,
+    );
+    assert.equal(
+      parsed.jobs.quality.if,
+      "${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}",
+    );
+    assert.equal(parsed.jobs["org-contract"].needs, "quality");
+    assert.equal(parsed.jobs["org-contract"].if, "${{ always() }}");
+    assert.equal(
+      parsed.jobs["org-contract"].steps[0].run,
+      'test "$QUALITY_RESULT" = success',
     );
     const actionUses = [...workflow.matchAll(/uses: ([^\s#]+)/gu)].map(
       (match) => match[1],
@@ -142,6 +161,11 @@ test("candidate workflow는 테스트 뒤 불변 bundle을 만들고 3일만 보
   assert.match(candidate, /--source-sha "\$GITHUB_SHA"/u);
   assert.match(candidate, /retention-days: 3/u);
   assert.doesNotMatch(candidate, /permissions:[\s\S]*?contents: write/u);
+  const parsed = parse(candidate);
+  const checkout = parsed.jobs.candidate.steps.find((step) =>
+    step.uses?.startsWith("actions/checkout@"),
+  );
+  assert.equal(checkout.with?.["persist-credentials"], false);
 });
 
 test("직접 실행되는 ESM entrypoint는 resolve와 realpath를 사용한다", async () => {

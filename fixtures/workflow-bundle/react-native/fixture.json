@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "profile": "react-native",
+  "static": {
+    "canonicalScripts": ["test:core", "check:architecture", "check:release"]
+  },
+  "buildOnly": {
+    "runner": "seorilabs-rpi-arm64",
+    "executor": "cloud-build-x64",
+    "artifact": "android-aab",
+    "marketUpload": false,
+    "builderImage": "asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:d403dabbd03e97490b0f676bc65dc2f510119480c60815298e37fb1a12a6172f"
+  }
+}

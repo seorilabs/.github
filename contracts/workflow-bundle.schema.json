@@ -10,16 +10,21 @@
     "source",
     "quality",
     "reusableWorkflows",
+    "buildWorkflows",
     "actions",
     "runners",
     "toolchains",
+    "callerPolicies",
+    "delivery",
+    "rollout",
+    "platformGate",
     "platform",
     "approval",
     "integrity"
   ],
   "properties": {
     "schemaVersion": { "const": 1 },
-    "bundleVersion": { "$ref": "#/$defs/exactSemver" },
+    "bundleVersion": { "const": "4.0.0" },
     "source": {
       "type": "object",
       "additionalProperties": false,
@@ -32,7 +37,7 @@
     "quality": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["canonicalScripts", "secretScan", "provenance", "contractDigests", "runtimeAssetDigests"],
+      "required": ["canonicalScripts", "requiredCanaryGates", "secretScan", "provenance", "canaries", "contractDigests", "runtimeAssetDigests"],
       "properties": {
         "canonicalScripts": {
           "const": [
@@ -41,8 +46,24 @@
             "check:release"
           ]
         },
+        "requiredCanaryGates": {
+          "const": ["static", "build-only"]
+        },
         "secretScan": { "const": "central-high-confidence-v1" },
         "provenance": { "const": "source-and-workflow-sha-v1" },
+        "canaries": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["react-native", "godot"],
+          "properties": {
+            "react-native": {
+              "const": { "repositoryId": 1250442131, "fullName": "seorilabs/happy-farm" }
+            },
+            "godot": {
+              "const": { "repositoryId": 1265192029, "fullName": "seorilabs/lizard-tycoon" }
+            }
+          }
+        },
         "contractDigests": {
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/sha256" },
@@ -64,6 +85,15 @@
         "godot": { "$ref": "#/$defs/workflow" }
       }
     },
+    "buildWorkflows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["react-native", "godot"],
+      "properties": {
+        "react-native": { "$ref": "#/$defs/androidBuildWorkflow" },
+        "godot": { "$ref": "#/$defs/androidBuildWorkflow" }
+      }
+    },
     "actions": {
       "type": "object",
       "minProperties": 1,
@@ -72,19 +102,23 @@
     "runners": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["privateGeneral", "publicPullRequest"],
+      "required": ["privateGeneral", "privateGeneralImage", "publicPullRequest", "androidSubmit", "androidSubmitImage"],
       "properties": {
         "privateGeneral": { "const": "seorilabs-rpi-arm64" },
-        "publicPullRequest": { "const": "ubuntu-latest" }
+        "privateGeneralImage": { "$ref": "#/$defs/runnerContainerDigest" },
+        "publicPullRequest": { "const": "ubuntu-latest" },
+        "androidSubmit": { "const": "seorilabs-rpi-arm64" },
+        "androidSubmitImage": { "$ref": "#/$defs/runnerContainerDigest" }
       }
     },
     "toolchains": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["node", "pnpm", "godot"],
+      "required": ["node", "pnpm", "gcloud", "godot"],
       "properties": {
         "node": { "$ref": "#/$defs/exactSemver" },
         "pnpm": { "$ref": "#/$defs/exactSemver" },
+        "gcloud": { "const": "582.0.0" },
         "godot": {
           "type": "object",
           "additionalProperties": false,
@@ -94,6 +128,154 @@
             "status": { "const": "stable" },
             "linuxArm64Sha256": { "$ref": "#/$defs/sha256Bare" },
             "linuxX64Sha256": { "$ref": "#/$defs/sha256Bare" }
+          }
+        }
+      }
+    },
+    "callerPolicies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["static", "androidBuild", "iosBuild"],
+      "properties": {
+        "static": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["events", "permissions", "namedSecrets", "concurrency"],
+          "properties": {
+            "events": { "const": ["pull_request", "push-main", "workflow_dispatch"] },
+            "permissions": {
+              "const": { "contents": "read", "packages": "read" }
+            },
+            "namedSecrets": { "const": [] },
+            "concurrency": { "const": "org-contract-${{ github.repository_id }}-${{ github.ref }}" }
+          }
+        },
+        "androidBuild": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["events", "sourceBinding", "managedCallerPath", "requiredRef", "permissions", "namedSecrets", "concurrency"],
+          "properties": {
+            "events": { "const": ["workflow_dispatch"] },
+            "sourceBinding": { "const": "backoffice-resolved-manifest" },
+            "managedCallerPath": { "const": ".github/workflows/android-build-only.yml" },
+            "requiredRef": { "const": "refs/heads/main" },
+            "permissions": {
+              "const": { "contents": "read", "id-token": "write" }
+            },
+            "namedSecrets": { "const": [] },
+            "concurrency": { "const": "android-build-${{ github.repository_id }}-<resolved-source-sha>" }
+          }
+        },
+        "iosBuild": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["transport", "githubWorkflow", "namedSecrets"],
+          "properties": {
+            "transport": { "const": "app-store-connect-api" },
+            "githubWorkflow": { "const": "forbidden" },
+            "namedSecrets": { "const": [] }
+          }
+        }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["android", "ios"],
+      "properties": {
+        "android": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["submitRunner", "executor", "project", "region", "artifactBucket", "sourceBinding", "marketUpload", "builderImages"],
+          "properties": {
+            "submitRunner": { "const": "seorilabs-rpi-arm64" },
+            "executor": { "const": "cloud-build-x64" },
+            "project": { "const": "seorilabs-ci" },
+            "region": { "const": "asia-northeast3" },
+            "artifactBucket": { "const": "gs://seorilabs-ci-build-artifacts" },
+            "sourceBinding": { "const": "exact-sha" },
+            "marketUpload": { "const": false },
+            "builderImages": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["react-native", "godot"],
+              "properties": {
+                "react-native": { "$ref": "#/$defs/containerDigest" },
+                "godot": { "$ref": "#/$defs/containerDigest" }
+              }
+            }
+          }
+        },
+        "ios": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["executor", "trigger", "githubMacosAllowed", "marketUpload", "requiredScripts"],
+          "properties": {
+            "executor": { "const": "xcode-cloud" },
+            "trigger": { "const": "app-store-connect-api" },
+            "githubMacosAllowed": { "const": false },
+            "marketUpload": { "const": false },
+            "requiredScripts": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["react-native", "godot"],
+              "properties": {
+                "react-native": {
+                  "const": [
+                    "apps/mobile/ios/ci_scripts/ci_post_clone.sh",
+                    "apps/mobile/ios/ci_scripts/ci_pre_xcodebuild.sh"
+                  ]
+                },
+                "godot": {
+                  "const": [
+                    "ios/ci_scripts/ci_post_clone.sh",
+                    "ios/ci_scripts/ci_pre_xcodebuild.sh"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "rollout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "ruleset", "legacyConsumersPreserved"],
+      "properties": {
+        "mode": { "const": "SHADOW" },
+        "ruleset": { "const": "EVALUATE" },
+        "legacyConsumersPreserved": { "const": true }
+      }
+    },
+    "platformGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["static", "release"],
+      "properties": {
+        "static": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "ruleset", "requiredReadbacks"],
+          "properties": {
+            "mode": { "const": "SHADOW" },
+            "ruleset": { "const": "EVALUATE" },
+            "requiredReadbacks": {
+              "const": ["signed-fleet-approved-manifest", "backoffice-observation"]
+            }
+          }
+        },
+        "release": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "receiptContract", "maxAgeSeconds", "requiredReadbacks"],
+          "properties": {
+            "mode": { "const": "FAIL_CLOSED" },
+            "receiptContract": { "const": "platform-release-gate-v1" },
+            "maxAgeSeconds": { "const": 300 },
+            "requiredReadbacks": {
+              "const": ["signed-fleet-approved-manifest", "backoffice-observation"]
+            }
           }
         }
       }
@@ -154,6 +336,28 @@
         "sha": { "$ref": "#/$defs/sha" }
       }
     },
+    "androidBuildWorkflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "platform", "mode", "runner", "executor", "artifact", "sha"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^\\.github/workflows/[a-z0-9-]+\\.yml$" },
+        "platform": { "const": "android" },
+        "mode": { "const": "build-only" },
+        "runner": { "const": "seorilabs-rpi-arm64" },
+        "executor": { "const": "cloud-build-x64" },
+        "artifact": { "const": "android-aab" },
+        "sha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "containerDigest": {
+      "type": "string",
+      "pattern": "^asia-northeast3-docker\\.pkg\\.dev/seorilabs-ci/builders/[a-z0-9-]+@sha256:[0-9a-f]{64}$"
+    },
+    "runnerContainerDigest": {
+      "type": "string",
+      "pattern": "^registry\\.vzyx\\.xyz/seorilabs/arc-runner-node24@sha256:[0-9a-f]{64}$"
+    },
     "action": {
       "type": "object",
       "additionalProperties": false,
@@ -183,7 +387,7 @@
     "signedApproval": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["state", "requiredCanaries", "evidence", "registry", "signature"],
+      "required": ["state", "requiredCanaries", "evidence", "registry", "runnerImage", "signature"],
       "properties": {
         "state": { "const": "APPROVED" },
         "requiredCanaries": {
@@ -206,6 +410,15 @@
               "type": "string",
               "pattern": "^workflow-bundle/[0-9A-Za-z.+-]+/[0-9a-f]{40}$"
             }
+          }
+        },
+        "runnerImage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scaleSet", "imageDigest"],
+          "properties": {
+            "scaleSet": { "const": "seorilabs-rpi-arm64" },
+            "imageDigest": { "$ref": "#/$defs/runnerContainerDigest" }
           }
         },
         "signature": {
@@ -238,12 +451,21 @@
     "canaryEvidence": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["profile", "repositoryId", "sourceSha", "runId", "artifactSha256"],
+      "required": ["profile", "gates", "repositoryId", "sourceSha", "workflowBundleSourceSha", "staticRunId", "buildRunId", "cloudBuildId", "builderImage", "cloudBuildConfigSha256", "artifactSha256"],
       "properties": {
         "profile": { "enum": ["react-native", "godot"] },
+        "gates": { "const": ["static", "build-only"] },
         "repositoryId": { "type": "integer", "minimum": 1 },
         "sourceSha": { "$ref": "#/$defs/sha" },
-        "runId": { "type": "integer", "minimum": 1 },
+        "workflowBundleSourceSha": { "$ref": "#/$defs/sha" },
+        "staticRunId": { "type": "integer", "minimum": 1 },
+        "buildRunId": { "type": "integer", "minimum": 1 },
+        "cloudBuildId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$"
+        },
+        "builderImage": { "$ref": "#/$defs/containerDigest" },
+        "cloudBuildConfigSha256": { "$ref": "#/$defs/sha256" },
         "artifactSha256": { "$ref": "#/$defs/sha256" }
       }
     }

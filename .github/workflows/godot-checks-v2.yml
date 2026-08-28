@@ -22,12 +22,15 @@ permissions:
 jobs:
   quality:
     name: Fleet Quality
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
     timeout-minutes: 30
 
     steps:
       - name: Checkout application source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Setup pinned Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -63,6 +66,7 @@ jobs:
           repository: ${{ steps.bundle-identity.outputs.repository }}
           ref: ${{ steps.bundle-identity.outputs.sha }}
           path: .seorilabs-org
+          persist-credentials: false
 
       - name: Validate discovered inputs and canonical commands
         shell: bash
@@ -204,6 +208,8 @@ jobs:
     name: Org Contract
     needs: quality
     if: ${{ always() }}
+    permissions:
+      contents: read
     runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
     timeout-minutes: 10
 
@@ -246,6 +252,7 @@ jobs:
           repository: ${{ steps.evidence-bundle-identity.outputs.repository }}
           ref: ${{ steps.evidence-bundle-identity.outputs.sha }}
           path: .seorilabs-org-evidence
+          persist-credentials: false
 
       - name: Record non-secret CI provenance
         shell: bash

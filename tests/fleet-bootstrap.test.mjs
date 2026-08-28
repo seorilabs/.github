@@ -27,6 +27,22 @@ const REPOSITORY_ID = "7001";
 const SOURCE_SHA = "d".repeat(40);
 const BUNDLE_SHA = "a".repeat(40);
 const DIGEST = `sha256:${"b".repeat(64)}`;
+const CANARY_BUILD_BY_PROFILE = Object.freeze({
+  "react-native": Object.freeze({
+    cloudBuildId: "11111111-1111-4111-8111-111111111111",
+    builderImage:
+      "asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:d403dabbd03e97490b0f676bc65dc2f510119480c60815298e37fb1a12a6172f",
+    cloudBuildConfigSha256:
+      "sha256:0ee9e989e1a54b6c166166d7562243bf8222e8ef4116c1209a9d19d4ff884e7c",
+  }),
+  godot: Object.freeze({
+    cloudBuildId: "22222222-2222-4222-8222-222222222222",
+    builderImage:
+      "asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/godot-android-builder@sha256:b2a9d7a849f1193f42a40864d8487401abb6dc54472fe010b31b2e84e7be2940",
+    cloudBuildConfigSha256:
+      "sha256:82d1993433523e17fd3340559237a7f57e4bd0d0056f7f2ee72a45a8d60a8864",
+  }),
+});
 const SECRET = Buffer.from("fleet-webhook-secret-material-00001", "utf8");
 const PLATFORM_RELEASE = Object.freeze({
   sourceSha: "c".repeat(40),
@@ -37,9 +53,13 @@ const PLATFORM_RELEASE = Object.freeze({
 const EVIDENCE = Object.freeze(
   ["react-native", "godot"].map((profile, index) => ({
     profile,
-    repositoryId: 123 + index,
+    gates: ["static", "build-only"],
+    repositoryId: profile === "react-native" ? 1250442131 : 1265192029,
     sourceSha: "e".repeat(40),
-    runId: 456 + index,
+    workflowBundleSourceSha: BUNDLE_SHA,
+    staticRunId: 456 + index * 2,
+    buildRunId: 457 + index * 2,
+    ...CANARY_BUILD_BY_PROFILE[profile],
     artifactSha256: DIGEST,
   })),
 );
@@ -73,6 +93,14 @@ function trustedSourceReadbackFor(bundle) {
       "contracts/workflow-bundle.schema.json",
       "utf8",
     ),
+    contractAssetContents: Object.fromEntries(
+      await Promise.all(
+        Object.keys(bundle.quality.contractDigests).map(async (path) => [
+          path,
+          await readFile(path, "utf8"),
+        ]),
+      ),
+    ),
     runtimeAssetContents: Object.fromEntries(
       await Promise.all(
         Object.keys(bundle.quality.runtimeAssetDigests).map(async (path) => [
@@ -99,10 +127,35 @@ test.before(async () => {
     platformRelease: PLATFORM_RELEASE,
   });
   const trustedWorkflowSourceReadback = trustedSourceReadbackFor(candidate);
+  const trustedRunnerImageReadback = async (request) => ({
+    ...request,
+    state: "READY",
+    generation: 12,
+    observedAt: new Date(Date.now()).toISOString(),
+  });
   const approved = await promoteWorkflowBundle(candidate, EVIDENCE, {
-    evidenceVerifier: async () => true,
+    evidenceVerifier: async (record, bundle) => ({
+      state: "VERIFIED",
+      profile: record.profile,
+      repositoryId: record.repositoryId,
+      fullName: bundle.quality.canaries[record.profile].fullName,
+      sourceSha: record.sourceSha,
+      workflowBundleSourceSha: record.workflowBundleSourceSha,
+      staticRunId: record.staticRunId,
+      buildRunId: record.buildRunId,
+      cloudBuildId: record.cloudBuildId,
+      builderImage: record.builderImage,
+      cloudBuildConfigSha256: record.cloudBuildConfigSha256,
+      staticConclusion: "success",
+      buildConclusion: "success",
+      staticWorkflowRef: `seorilabs/.github/${bundle.reusableWorkflows[record.profile].path}@${bundle.source.sha}`,
+      buildWorkflowRef: `seorilabs/.github/${bundle.buildWorkflows[record.profile].path}@${bundle.source.sha}`,
+      marketUpload: false,
+      artifactSha256: record.artifactSha256,
+    }),
     approvalSigner: { keyId: "fleet-bootstrap-test", privateKey },
     trustedWorkflowSourceReadback,
+    trustedRunnerImageReadback,
     registryPublisher: async (record) => {
       registry.set(record.subject, structuredClone(record));
       return record;
@@ -112,6 +165,7 @@ test.before(async () => {
     trustedApprovalKeys: new Map([["fleet-bootstrap-test", publicKey]]),
     trustedRegistryReadback: async ({ subject }) => registry.get(subject),
     trustedWorkflowSourceReadback,
+    trustedRunnerImageReadback,
   });
 });
 

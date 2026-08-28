@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v1/xcode-cloud-run.schema.json",
+  "title": "Seorilabs Xcode Cloud build-only caller contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "repository",
+    "sourceSha",
+    "workflowBundle",
+    "profile",
+    "provider",
+    "requiredScripts",
+    "marketUpload",
+    "githubRunner",
+    "runId",
+    "idempotencyKey"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "XCODE_CLOUD_BUILD_ONLY" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "fullName"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
+        "fullName": { "type": "string", "pattern": "^seorilabs/[A-Za-z0-9._-]+$" }
+      }
+    },
+    "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "workflowBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceSha", "digest"],
+      "properties": {
+        "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "profile": { "enum": ["react-native", "godot"] },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "productId", "workflowId", "bindingObservationId", "distribution", "sourceReference", "createRequest", "requiredReadback"],
+      "properties": {
+        "action": { "const": "ciBuildRuns.create" },
+        "productId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+        "workflowId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+        "bindingObservationId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{9,127}$" },
+        "distribution": { "const": "BUILD_ONLY" },
+        "sourceReference": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "name", "kind", "commitSha", "immutable"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+            "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$" },
+            "kind": { "const": "TAG" },
+            "commitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "immutable": { "const": true }
+          }
+        },
+        "createRequest": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "path", "body"],
+          "properties": {
+            "method": { "const": "POST" },
+            "path": { "const": "/v1/ciBuildRuns" },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["data"],
+              "properties": {
+                "data": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["type", "attributes", "relationships"],
+                  "properties": {
+                    "type": { "const": "ciBuildRuns" },
+                    "attributes": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["clean"],
+                      "properties": { "clean": { "const": true } }
+                    },
+                    "relationships": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["workflow", "sourceBranchOrTag"],
+                      "properties": {
+                        "workflow": { "$ref": "#/$defs/ciWorkflowRelationship" },
+                        "sourceBranchOrTag": { "$ref": "#/$defs/scmGitReferenceRelationship" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requiredReadback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "fields", "expectedSourceCommitSha"],
+          "properties": {
+            "action": { "const": "ciBuildRuns.get" },
+            "fields": {
+              "const": ["id", "sourceCommit.commitSha", "workflow.id", "sourceBranchOrTag.id"]
+            },
+            "expectedSourceCommitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+          }
+        }
+      }
+    },
+    "requiredScripts": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^(?:apps/mobile/)?ios/ci_scripts/ci_(?:post_clone|pre_xcodebuild)\\.sh$" }
+    },
+    "marketUpload": { "const": false },
+    "githubRunner": { "type": "null" },
+    "runId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "idempotencyKey": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$" }
+  },
+  "$defs": {
+    "ciWorkflowRelationship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data"],
+      "properties": {
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "id"],
+          "properties": {
+            "type": { "const": "ciWorkflows" },
+            "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" }
+          }
+        }
+      }
+    },
+    "scmGitReferenceRelationship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data"],
+      "properties": {
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "id"],
+          "properties": {
+            "type": { "const": "scmGitReferences" },
+            "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" }
+          }
+        }
+      }
+    }
+  }
+}

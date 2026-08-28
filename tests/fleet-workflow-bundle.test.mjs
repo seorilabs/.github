@@ -22,6 +22,22 @@ import {
 const SOURCE_SHA = "a".repeat(40);
 const STALE_SHA = "9".repeat(40);
 const DIGEST = `sha256:${"b".repeat(64)}`;
+const CANARY_BUILD_BY_PROFILE = Object.freeze({
+  "react-native": Object.freeze({
+    cloudBuildId: "11111111-1111-4111-8111-111111111111",
+    builderImage:
+      "asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:d403dabbd03e97490b0f676bc65dc2f510119480c60815298e37fb1a12a6172f",
+    cloudBuildConfigSha256:
+      "sha256:0ee9e989e1a54b6c166166d7562243bf8222e8ef4116c1209a9d19d4ff884e7c",
+  }),
+  godot: Object.freeze({
+    cloudBuildId: "22222222-2222-4222-8222-222222222222",
+    builderImage:
+      "asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/godot-android-builder@sha256:b2a9d7a849f1193f42a40864d8487401abb6dc54472fe010b31b2e84e7be2940",
+    cloudBuildConfigSha256:
+      "sha256:82d1993433523e17fd3340559237a7f57e4bd0d0056f7f2ee72a45a8d60a8864",
+  }),
+});
 const KEY_ID = "fleet-root-2026-01";
 const PLATFORM_RELEASE = Object.freeze({
   sourceSha: "c".repeat(40),
@@ -32,9 +48,13 @@ const PLATFORM_RELEASE = Object.freeze({
 const EVIDENCE = Object.freeze(
   ["react-native", "godot"].map((profile, index) => ({
     profile,
-    repositoryId: 123 + index,
+    gates: ["static", "build-only"],
+    repositoryId: profile === "react-native" ? 1250442131 : 1265192029,
     sourceSha: "d".repeat(40),
-    runId: 456 + index,
+    workflowBundleSourceSha: SOURCE_SHA,
+    staticRunId: 456 + index * 2,
+    buildRunId: 457 + index * 2,
+    ...CANARY_BUILD_BY_PROFILE[profile],
     artifactSha256: DIGEST,
   })),
 );
@@ -85,6 +105,14 @@ function trustedSourceReadbackFor(bundle, repoRoot = ".") {
       join(repoRoot, "contracts/workflow-bundle.schema.json"),
       "utf8",
     ),
+    contractAssetContents: Object.fromEntries(
+      await Promise.all(
+        Object.keys(bundle.quality.contractDigests).map(async (path) => [
+          path,
+          await readFile(join(repoRoot, path), "utf8"),
+        ]),
+      ),
+    ),
     runtimeAssetContents: Object.fromEntries(
       await Promise.all(
         Object.keys(bundle.quality.runtimeAssetDigests).map(async (path) => [
@@ -94,6 +122,35 @@ function trustedSourceReadbackFor(bundle, repoRoot = ".") {
       ),
     ),
   });
+}
+
+const trustedRunnerImageReadback = async (request) => ({
+  ...request,
+  state: "READY",
+  generation: 12,
+  observedAt: new Date(Date.now()).toISOString(),
+});
+
+function verifiedEvidence(record, bundle) {
+  return {
+    state: "VERIFIED",
+    profile: record.profile,
+    repositoryId: record.repositoryId,
+    fullName: bundle.quality.canaries[record.profile].fullName,
+    sourceSha: record.sourceSha,
+    workflowBundleSourceSha: record.workflowBundleSourceSha,
+    staticRunId: record.staticRunId,
+    buildRunId: record.buildRunId,
+    cloudBuildId: record.cloudBuildId,
+    builderImage: record.builderImage,
+    cloudBuildConfigSha256: record.cloudBuildConfigSha256,
+    staticConclusion: "success",
+    buildConclusion: "success",
+    staticWorkflowRef: `seorilabs/.github/${bundle.reusableWorkflows[record.profile].path}@${bundle.source.sha}`,
+    buildWorkflowRef: `seorilabs/.github/${bundle.buildWorkflows[record.profile].path}@${bundle.source.sha}`,
+    marketUpload: false,
+    artifactSha256: record.artifactSha256,
+  };
 }
 
 async function callerFixture({
@@ -143,9 +200,10 @@ async function approvedFixture() {
   });
   const trustedWorkflowSourceReadback = trustedSourceReadbackFor(candidate);
   const approved = await promoteWorkflowBundle(candidate, EVIDENCE, {
-    evidenceVerifier: async () => true,
+    evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
     approvalSigner: { keyId: KEY_ID, privateKey },
     trustedWorkflowSourceReadback,
+    trustedRunnerImageReadback,
     registryPublisher: async (record) => {
       const persisted = structuredClone(record);
       registry.set(record.subject, persisted);
@@ -156,6 +214,7 @@ async function approvedFixture() {
     trustedApprovalKeys: new Map([[KEY_ID, publicKey]]),
     trustedRegistryReadback: async ({ subject }) => registry.get(subject),
     trustedWorkflowSourceReadback,
+    trustedRunnerImageReadback,
   };
   const binding = await loadApprovedWorkflowBundle(approved, trust);
   return { approved, binding, privateKey, publicKey, registry, trust };
@@ -170,18 +229,28 @@ test("WorkflowBundle schema는 strict mode로 compile된다", async () => {
   );
 });
 
-test("candidate bundle은 정적 workflow와 실행 script의 실제 digest만 묶는다", async () => {
+test("candidate bundle은 static, build-only workflow와 실행 asset의 실제 digest만 묶는다", async () => {
   const bundle = await createWorkflowBundle({ sourceSha: SOURCE_SHA });
   const result = await validateWorkflowBundle(bundle);
 
   assert.equal(result.ok, true, result.diagnostics.join(","));
   assert.equal(bundle.approval.state, "CANDIDATE");
   assert.equal(bundle.platform.state, "UNRESOLVED");
-  assert.equal(bundle.buildWorkflows, undefined);
+  assert.deepEqual(Object.keys(bundle.buildWorkflows).sort(), [
+    "godot",
+    "react-native",
+  ]);
   assert.equal(bundle.builders, undefined);
   assert.deepEqual(Object.keys(bundle.quality.runtimeAssetDigests).sort(), [
+    ".github/cloud-build/godot-android-build-only.yaml",
+    ".github/cloud-build/rn-android-build-only.yaml",
+    ".github/workflows/godot-build-android-cloud-v1.yml",
     ".github/workflows/godot-checks-v2.yml",
+    ".github/workflows/rn-build-android-cloud-v1.yml",
     ".github/workflows/rn-static-checks-v2.yml",
+    "fixtures/workflow-bundle/godot/fixture.json",
+    "fixtures/workflow-bundle/react-native/fixture.json",
+    "scripts/fleet/fixture-canary.mjs",
     "scripts/fleet/secret-scan.mjs",
     "scripts/fleet/static-preflight.mjs",
     "scripts/fleet/write-provenance.mjs",
@@ -189,8 +258,23 @@ test("candidate bundle은 정적 workflow와 실행 script의 실제 digest만 �
   for (const workflow of Object.values(bundle.reusableWorkflows)) {
     assert.equal(workflow.sha, SOURCE_SHA);
   }
+  for (const workflow of Object.values(bundle.buildWorkflows)) {
+    assert.equal(workflow.sha, SOURCE_SHA);
+  }
   const source = await readFile("contracts/workflow-bundle-source.yaml", "utf8");
-  assert.doesNotMatch(source, /buildWorkflows:|android-build-cloud|builders:/u);
+  assert.match(source, /buildWorkflows:[\s\S]*build-android-cloud/u);
+  assert.doesNotMatch(source, /builders:/u);
+});
+
+test("v4 candidate는 3.x version downgrade로 runner와 delivery gate를 우회할 수 없다", async () => {
+  const bundle = await createWorkflowBundle({ sourceSha: SOURCE_SHA });
+  bundle.bundleVersion = "3.9.9";
+  recomputePublicIntegrity(bundle);
+  const result = await validateWorkflowBundle(bundle);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.diagnostics.includes("CANDIDATE_BUNDLE_VERSION_UNSUPPORTED"),
+  );
 });
 
 test("GitHub source adapter는 fixed public origin의 exact commit Contents만 digest한다", async () => {
@@ -254,7 +338,12 @@ test("GitHub source adapter는 fixed public origin의 exact commit Contents만 d
     cached.runtimeAssetContents[".github/workflows/rn-static-checks-v2.yml"],
     /name: RN Static Checks v2/u,
   );
-  assert.equal(requested.length, 1 + 10 + 5);
+  assert.equal(
+    requested.length,
+    1 +
+      Object.keys(candidate.quality.contractDigests).length +
+      Object.keys(candidate.quality.runtimeAssetDigests).length,
+  );
 });
 
 test("존재하지 않는 GitHub source SHA는 APPROVED 승격 전에 거부한다", async () => {
@@ -272,7 +361,7 @@ test("존재하지 않는 GitHub source SHA는 APPROVED 승격 전에 거부한�
 
   await assert.rejects(
     promoteWorkflowBundle(candidate, EVIDENCE, {
-      evidenceVerifier: async () => true,
+      evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
       approvalSigner: { keyId: KEY_ID, privateKey },
       registryPublisher: async (record) => record,
       trustedWorkflowSourceReadback: missingReadback,
@@ -371,6 +460,20 @@ test("Backoffice adapter는 missing caller와 repo/source/config mismatch를 거
     },
     {
       ...validPayload,
+      workflowCaller: {
+        ...validPayload.workflowCaller,
+        workingDirectory: "../outside",
+      },
+    },
+    {
+      ...validPayload,
+      workflowCaller: {
+        ...validPayload.workflowCaller,
+        workingDirectory: "apps/../outside",
+      },
+    },
+    {
+      ...validPayload,
       app: { ...validPayload.app, repoId: "7002" },
     },
     {
@@ -424,19 +527,16 @@ test("bundle payload 또는 실제 runtime asset 변조를 거부한다", async 
 
   const root = await mkdtemp(join(tmpdir(), "fleet-bundle-assets-"));
   temporaryRoots.push(root);
-  for (const directory of ["contracts", "profiles", "scripts/fleet"]) {
+  for (const directory of [
+    "contracts",
+    "profiles",
+    "scripts/fleet",
+    "fixtures",
+    ".github/cloud-build",
+    ".github/workflows",
+  ]) {
     await cp(directory, join(root, directory), { recursive: true });
   }
-  await cp(
-    ".github/workflows/rn-static-checks-v2.yml",
-    join(root, ".github/workflows/rn-static-checks-v2.yml"),
-    { recursive: true },
-  );
-  await cp(
-    ".github/workflows/godot-checks-v2.yml",
-    join(root, ".github/workflows/godot-checks-v2.yml"),
-    { recursive: true },
-  );
   const isolated = await createWorkflowBundle({
     repoRoot: root,
     sourceSha: SOURCE_SHA,
@@ -464,6 +564,133 @@ test("bundle action 또는 toolchain 선언이 실제 workflow와 다르면 거�
   result = await validateWorkflowBundle(toolchainMismatch);
   assert.equal(result.ok, false);
   assert.ok(result.diagnostics.includes("RUNTIME_DECLARATION_MISMATCH"));
+
+  const root = await mkdtemp(join(tmpdir(), "fleet-bundle-action-allowlist-"));
+  temporaryRoots.push(root);
+  for (const directory of [
+    "contracts",
+    "profiles",
+    "scripts/fleet",
+    "fixtures",
+    ".github/cloud-build",
+    ".github/workflows",
+  ]) {
+    await cp(directory, join(root, directory), { recursive: true });
+  }
+  const workflowPath = join(root, ".github/workflows/rn-static-checks-v2.yml");
+  const workflow = await readFile(workflowPath, "utf8");
+  await writeFile(
+    workflowPath,
+    workflow.replace(
+      /uses: actions\/checkout@[0-9a-f]{40}/u,
+      'uses: "evil/action@main"',
+    ),
+  );
+  await assert.rejects(
+    createWorkflowBundle({ repoRoot: root, sourceSha: SOURCE_SHA }),
+    /RUNTIME_DECLARATION_MISMATCH/u,
+  );
+
+  const semanticRoot = await mkdtemp(join(tmpdir(), "fleet-bundle-semantic-"));
+  temporaryRoots.push(semanticRoot);
+  for (const directory of [
+    "contracts",
+    "profiles",
+    "scripts/fleet",
+    "fixtures",
+    ".github/cloud-build",
+    ".github/workflows",
+  ]) {
+    await cp(directory, join(semanticRoot, directory), { recursive: true });
+  }
+  const semanticPath = join(
+    semanticRoot,
+    ".github/workflows/rn-static-checks-v2.yml",
+  );
+  const semanticWorkflow = await readFile(semanticPath, "utf8");
+  await writeFile(
+    semanticPath,
+    semanticWorkflow.replace(
+      "          node-version: 24.16.0",
+      "          # node-version: 24.16.0\n          node-version: 24.15.0",
+    ),
+  );
+  await assert.rejects(
+    createWorkflowBundle({ repoRoot: semanticRoot, sourceSha: SOURCE_SHA }),
+    /RUNTIME_DECLARATION_MISMATCH/u,
+  );
+
+  await writeFile(
+    semanticPath,
+    semanticWorkflow.replace(
+      [
+        '          case "$PACKAGE_MANAGER" in',
+        "            npm) npm run test:core ;;",
+        "            pnpm) pnpm test:core ;;",
+        "          esac",
+      ].join("\n"),
+      [
+        '          echo "npm run test:core"',
+        '          echo "pnpm test:core"',
+      ].join("\n"),
+    ),
+  );
+  await assert.rejects(
+    createWorkflowBundle({ repoRoot: semanticRoot, sourceSha: SOURCE_SHA }),
+    /RUNTIME_DECLARATION_MISMATCH/u,
+  );
+
+  await writeFile(
+    semanticPath,
+    semanticWorkflow.replace("          persist-credentials: false", "          persist-credentials: true"),
+  );
+  await assert.rejects(
+    createWorkflowBundle({ repoRoot: semanticRoot, sourceSha: SOURCE_SHA }),
+    /RUNTIME_DECLARATION_MISMATCH/u,
+  );
+
+  await writeFile(
+    semanticPath,
+    semanticWorkflow.replace(
+      "  org-contract:\n",
+      [
+        "  untrusted-extra-job:",
+        "    runs-on: seorilabs-rpi-arm64",
+        "    steps:",
+        "      - run: echo unexpected",
+        "",
+        "  org-contract:",
+        "",
+      ].join("\n"),
+    ),
+  );
+  await assert.rejects(
+    createWorkflowBundle({ repoRoot: semanticRoot, sourceSha: SOURCE_SHA }),
+    /RUNTIME_DECLARATION_MISMATCH/u,
+  );
+
+  await writeFile(semanticPath, semanticWorkflow);
+  const privilegedBuildPath = join(
+    semanticRoot,
+    ".github/workflows/rn-build-android-cloud-v1.yml",
+  );
+  const privilegedBuild = await readFile(privilegedBuildPath, "utf8");
+  await writeFile(
+    privilegedBuildPath,
+    privilegedBuild.replace(
+      "      - name: Setup pinned gcloud",
+      [
+        "      - name: Unexpected privileged command",
+        "        run: gcloud auth list",
+        "",
+        "      - name: Setup pinned gcloud",
+      ].join("\n"),
+    ),
+  );
+  await assert.rejects(
+    createWorkflowBundle({ repoRoot: semanticRoot, sourceSha: SOURCE_SHA }),
+    /RUNTIME_DECLARATION_MISMATCH/u,
+  );
 });
 
 test("APPROVED bundle은 source, Ed25519 key와 registry readback이 모두 있어야 소비된다", async () => {
@@ -475,6 +702,20 @@ test("APPROVED bundle은 source, Ed25519 key와 registry readback이 모두 있�
   assert.ok(result.diagnostics.includes("APPROVAL_TRUSTED_KEY_REQUIRED"));
   assert.ok(result.diagnostics.includes("APPROVAL_REGISTRY_READBACK_REQUIRED"));
   assert.ok(result.diagnostics.includes("WORKFLOW_SOURCE_READBACK_REQUIRED"));
+  assert.ok(result.diagnostics.includes("RUNNER_IMAGE_READBACK_REQUIRED"));
+
+  result = await validateWorkflowBundle(approved, {
+    ...trust,
+    trustedRunnerImageReadback: async (request) => ({
+      ...request,
+      imageDigest: `registry.vzyx.xyz/seorilabs/arc-runner-node24@sha256:${"0".repeat(64)}`,
+      state: "READY",
+      generation: 13,
+      observedAt: new Date(Date.now()).toISOString(),
+    }),
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.diagnostics.includes("RUNNER_IMAGE_READBACK_MISMATCH"));
 
   result = await validateWorkflowBundle(approved, {
     trustedApprovalKeys: trust.trustedApprovalKeys,
@@ -531,7 +772,7 @@ test("exact remote source의 runtime digest 또는 bytes가 다르면 load를 �
 test("공개 integrity 재계산과 공격자 registry로 APPROVED 상태를 위조할 수 없다", async () => {
   const { approved, trust } = await approvedFixture();
   const forged = structuredClone(approved);
-  forged.approval.evidence[0].runId += 1000;
+  forged.approval.evidence[0].staticRunId += 1000;
   recomputePublicIntegrity(forged);
 
   const result = await validateWorkflowBundle(forged, {
@@ -545,6 +786,7 @@ test("공개 integrity 재계산과 공격자 registry로 APPROVED 상태를 위
       state: "APPROVED",
     }),
     trustedWorkflowSourceReadback: trust.trustedWorkflowSourceReadback,
+    trustedRunnerImageReadback,
   });
   assert.equal(result.ok, false);
   assert.ok(result.diagnostics.includes("APPROVAL_SIGNATURE_INVALID"));
@@ -569,6 +811,7 @@ test("registry await 중 원본 bundle을 바꿔도 검증 snapshot과 caller SH
       return registry.get(subject);
     },
     trustedWorkflowSourceReadback: trust.trustedWorkflowSourceReadback,
+    trustedRunnerImageReadback,
   });
 
   await started;
@@ -597,16 +840,25 @@ test("승격은 canary readback, Ed25519 signer, registry publisher를 모두 �
   );
   await assert.rejects(
     promoteWorkflowBundle(candidate, EVIDENCE, {
-      evidenceVerifier: async () => true,
+      evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
       trustedWorkflowSourceReadback,
+    }),
+    /RUNNER_IMAGE_READBACK_REQUIRED/u,
+  );
+  await assert.rejects(
+    promoteWorkflowBundle(candidate, EVIDENCE, {
+      evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
+      trustedWorkflowSourceReadback,
+      trustedRunnerImageReadback,
     }),
     /APPROVAL_SIGNER_REQUIRED/u,
   );
   await assert.rejects(
     promoteWorkflowBundle(candidate, EVIDENCE, {
-      evidenceVerifier: async () => true,
+      evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
       approvalSigner: { keyId: KEY_ID, privateKey },
       trustedWorkflowSourceReadback,
+      trustedRunnerImageReadback,
     }),
     /APPROVAL_REGISTRY_PUBLISHER_REQUIRED/u,
   );
@@ -620,10 +872,12 @@ test("evidence verifier가 입력을 바꿔도 검증 전 snapshot만 서명한�
   const { privateKey } = generateKeyPairSync("ed25519");
   const approved = await promoteWorkflowBundle(candidate, EVIDENCE, {
     trustedWorkflowSourceReadback: trustedSourceReadbackFor(candidate),
-    evidenceVerifier: async (record) => {
+    evidenceVerifier: async (record, bundle) => {
+      const original = structuredClone(record);
       record.artifactSha256 = `sha256:${"f".repeat(64)}`;
-      return true;
+      return verifiedEvidence(original, bundle);
     },
+    trustedRunnerImageReadback,
     approvalSigner: { keyId: KEY_ID, privateKey },
     registryPublisher: async (record) => record,
   });
