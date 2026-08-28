@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { realpathSync } from "node:fs";
-import { appendFile, readFile, stat } from "node:fs/promises";
+import { appendFile, lstat, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -42,8 +42,12 @@ function diagnosticLines(log) {
 
 async function readBoundedLog(path) {
   const resolved = resolve(path);
-  const metadata = await stat(resolved);
-  if (!metadata.isFile() || metadata.size > MAX_LOG_BYTES) {
+  const metadata = await lstat(resolved);
+  if (
+    metadata.isSymbolicLink() ||
+    !metadata.isFile() ||
+    metadata.size > MAX_LOG_BYTES
+  ) {
     fail("GODOT_DIAGNOSTIC_LOG_INVALID");
   }
   return readFile(resolved, "utf8");

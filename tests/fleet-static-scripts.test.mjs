@@ -284,6 +284,30 @@ test("Godot 진단 gate는 로그를 제한해 읽고 요약에는 진단 내용
   assert.doesNotMatch(summary, /Runner-only diagnostic/u);
 });
 
+test("Godot 진단 gate는 symlink 로그 경로를 fail-closed한다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "fleet-godot-diagnostic-symlink-"));
+  temporaryRoots.push(root);
+  const realLogPath = join(root, "real.log");
+  const linkedLogPath = join(root, "linked.log");
+  await writeFile(realLogPath, "Godot Engine\n");
+  await symlink(realLogPath, linkedLogPath);
+
+  await assert.rejects(
+    runGodotDiagnosticGate({
+      toolchainLogPath: linkedLogPath,
+      applicationLogPath: realLogPath,
+    }),
+    /GODOT_DIAGNOSTIC_LOG_INVALID/u,
+  );
+  await assert.rejects(
+    runGodotDiagnosticGate({
+      toolchainLogPath: realLogPath,
+      applicationLogPath: linkedLogPath,
+    }),
+    /GODOT_DIAGNOSTIC_LOG_INVALID/u,
+  );
+});
+
 test("secret scan은 대용량 또는 binary tracked file도 조용히 건너뛰지 않는다", async () => {
   const root = await fixture();
   const canary = ["ghp", "abcdefghijklmnopqrstuvwxyz123456"].join("_");
