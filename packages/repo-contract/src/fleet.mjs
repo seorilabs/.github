@@ -45,9 +45,9 @@ const CLOUD_BUILD_CONFIG_BY_PROFILE = Object.freeze({
 });
 const V4_RUNTIME_AST_DIGEST_BY_PATH = Object.freeze({
   ".github/workflows/rn-static-checks-v2.yml":
-    "sha256:063b4125867a9f2e77994ab7ac5bdec4a59964c80b87ff61b2842c1c77577196",
+    "sha256:e725c646653cc6871c0faa0786a13077ecd753b8ed6a7c170ab42b39d7f30933",
   ".github/workflows/godot-checks-v2.yml":
-    "sha256:0c703a8afde943bab0489c6c9566fe1b351c69d9923b65cf93cca502cea20a80",
+    "sha256:53ca7b29a018780122f09bdd711f93580ac1640df09b95b20b4782c85055f077",
   ".github/workflows/rn-build-android-cloud-v1.yml":
     "sha256:20f146537adbe4cff9fdbc591fe472eb2429363c18e7a4c6ae486b74496f2083",
   ".github/workflows/godot-build-android-cloud-v1.yml":
@@ -79,8 +79,10 @@ const RUNTIME_ASSET_FILES = Object.freeze([
   ".github/workflows/rn-build-android-cloud-v1.yml",
   ".github/workflows/rn-static-checks-v2.yml",
   "fixtures/workflow-bundle/godot/fixture.json",
+  "fixtures/workflow-bundle/godot/toolchain-probe/project.godot",
   "fixtures/workflow-bundle/react-native/fixture.json",
   "scripts/fleet/fixture-canary.mjs",
+  "scripts/fleet/godot-diagnostic-gate.mjs",
   "scripts/fleet/secret-scan.mjs",
   "scripts/fleet/stage-private-pnpm-store.mjs",
   "scripts/fleet/static-preflight.mjs",
@@ -530,10 +532,17 @@ function runtimeDeclarationsMatchTexts(bundle, runtimeTextByPath) {
       "Rebuild dependencies without registry credential",
       "Reject high severity dependency advisories",
       ...(profile === "godot"
-        ? [
-            "Install pinned Godot when the runner image differs",
-            "Import Godot project and reject engine errors",
-          ]
+        ? isWorkflowBundleV4(bundle)
+          ? [
+              "Install pinned Godot when the runner image differs",
+              "Probe pinned Godot toolchain diagnostics",
+              "Import Godot project",
+              "Reject product Godot diagnostics",
+            ]
+          : [
+              "Install pinned Godot when the runner image differs",
+              "Import Godot project and reject engine errors",
+            ]
         : []),
       "Run canonical product tests",
       "Run canonical architecture checks",
@@ -581,12 +590,64 @@ function runtimeDeclarationsMatchTexts(bundle, runtimeTextByPath) {
       return false;
     }
     const pnpmStep = stepByName(workflow, "quality", "Enable pinned pnpm");
+    const applicationCheckoutStep = stepByName(
+      workflow,
+      "quality",
+      "Checkout application source",
+    );
+    const bundleCheckoutStep = stepByName(
+      workflow,
+      "quality",
+      "Checkout immutable org bundle source",
+    );
+    const preflightStep = stepByName(
+      workflow,
+      "quality",
+      "Validate discovered inputs and canonical commands",
+    );
+    const secretScanStep = stepByName(
+      workflow,
+      "quality",
+      "Scan tracked source for high-confidence credentials",
+    );
+    const applicationWorkingDirectory = isWorkflowBundleV4(bundle)
+      ? "${{ format('.seorilabs-application/{0}', inputs.working_directory) }}"
+      : "${{ inputs.working_directory }}";
+    const applicationStepNames = [
+      "Fetch locked dependencies without lifecycle scripts",
+      "Rebuild dependencies without registry credential",
+      "Reject high severity dependency advisories",
+      ...(profile === "godot"
+        ? [
+            isWorkflowBundleV4(bundle)
+              ? "Import Godot project"
+              : "Import Godot project and reject engine errors",
+          ]
+        : []),
+      "Run canonical product tests",
+      "Run canonical architecture checks",
+      "Run canonical release checks",
+    ];
     const expectedPnpmRun = [
       "set -euo pipefail",
       "corepack enable",
       `corepack prepare pnpm@${bundle?.toolchains?.pnpm} --activate`,
     ].join("\n");
     if (
+      (isWorkflowBundleV4(bundle) &&
+        (applicationCheckoutStep?.with?.path !== ".seorilabs-application" ||
+          applicationCheckoutStep?.with?.["persist-credentials"] !== false ||
+          bundleCheckoutStep?.with?.path !== ".seorilabs-org" ||
+          !preflightStep?.run?.includes(
+            '--repo-root "$GITHUB_WORKSPACE/.seorilabs-application"',
+          ) ||
+          secretScanStep?.run !==
+            'node .seorilabs-org/scripts/fleet/secret-scan.mjs "$GITHUB_WORKSPACE/.seorilabs-application"')) ||
+      applicationStepNames.some(
+        (name) =>
+          stepByName(workflow, "quality", name)?.["working-directory"] !==
+          applicationWorkingDirectory,
+      ) ||
       !hasExactKeys(pnpmStep, ["name", "if", "shell", "run"]) ||
       pnpmStep.if !== "inputs.package_manager == 'pnpm'" ||
       pnpmStep.shell !== "bash" ||
@@ -624,10 +685,38 @@ function runtimeDeclarationsMatchTexts(bundle, runtimeTextByPath) {
       if (
         !hasExactKeys(step, ["name", "shell", "working-directory", "env", "run"]) ||
         step.shell !== "bash" ||
-        step["working-directory"] !== "${{ inputs.working_directory }}" ||
+        step["working-directory"] !== applicationWorkingDirectory ||
         canonicalJson(step.env) !==
           canonicalJson({ PACKAGE_MANAGER: "${{ inputs.package_manager }}" }) ||
         step.run.trim() !== expectedRun
+      ) {
+        return false;
+      }
+    }
+    if (profile === "godot" && isWorkflowBundleV4(bundle)) {
+      const probeStep = stepByName(
+        workflow,
+        "quality",
+        "Probe pinned Godot toolchain diagnostics",
+      );
+      const diagnosticGateStep = stepByName(
+        workflow,
+        "quality",
+        "Reject product Godot diagnostics",
+      );
+      if (
+        Object.hasOwn(probeStep ?? {}, "continue-on-error") ||
+        !probeStep?.run?.includes(
+          '"$GITHUB_WORKSPACE/.seorilabs-org/fixtures/workflow-bundle/godot/toolchain-probe"',
+        ) ||
+        !probeStep?.run?.includes('tee "$RUNNER_TEMP/godot-toolchain.log"') ||
+        Object.hasOwn(diagnosticGateStep ?? {}, "continue-on-error") ||
+        !diagnosticGateStep?.run?.includes(
+          "node .seorilabs-org/scripts/fleet/godot-diagnostic-gate.mjs",
+        ) ||
+        !diagnosticGateStep?.run?.includes(
+          '--application-log "$RUNNER_TEMP/godot-import.log"',
+        )
       ) {
         return false;
       }

@@ -1,0 +1,13 @@
+; Engine configuration file.
+; WorkflowBundle이 runner/toolchain 초기화 진단을 제품 진단과 분리하기 위한 중립 프로젝트입니다.
+
+config_version=5
+
+[application]
+
+config/name="Seorilabs WorkflowBundle Toolchain Probe"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

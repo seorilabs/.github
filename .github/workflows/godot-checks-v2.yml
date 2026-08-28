@@ -30,6 +30,7 @@ jobs:
       - name: Checkout application source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          path: .seorilabs-application
           persist-credentials: false
 
       - name: Setup pinned Node
@@ -76,14 +77,14 @@ jobs:
         run: |
           set -euo pipefail
           node .seorilabs-org/scripts/fleet/static-preflight.mjs \
-            --repo-root "$GITHUB_WORKSPACE" \
+            --repo-root "$GITHUB_WORKSPACE/.seorilabs-application" \
             --working-directory "$WORKING_DIRECTORY" \
             --package-manager "$PACKAGE_MANAGER" \
             --profile godot
 
       - name: Scan tracked source for high-confidence credentials
         shell: bash
-        run: node .seorilabs-org/scripts/fleet/secret-scan.mjs "$GITHUB_WORKSPACE"
+        run: node .seorilabs-org/scripts/fleet/secret-scan.mjs "$GITHUB_WORKSPACE/.seorilabs-application"
 
       - name: Enable pinned pnpm
         if: inputs.package_manager == 'pnpm'
@@ -95,7 +96,7 @@ jobs:
 
       - name: Fetch locked dependencies without lifecycle scripts
         shell: bash
-        working-directory: ${{ inputs.working_directory }}
+        working-directory: ${{ format('.seorilabs-application/{0}', inputs.working_directory) }}
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
           PACKAGE_MANAGER: ${{ inputs.package_manager }}
@@ -109,7 +110,7 @@ jobs:
 
       - name: Rebuild dependencies without registry credential
         shell: bash
-        working-directory: ${{ inputs.working_directory }}
+        working-directory: ${{ format('.seorilabs-application/{0}', inputs.working_directory) }}
         env:
           PACKAGE_MANAGER: ${{ inputs.package_manager }}
         run: |
@@ -121,7 +122,7 @@ jobs:
 
       - name: Reject high severity dependency advisories
         shell: bash
-        working-directory: ${{ inputs.working_directory }}
+        working-directory: ${{ format('.seorilabs-application/{0}', inputs.working_directory) }}
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
           PACKAGE_MANAGER: ${{ inputs.package_manager }}
@@ -160,20 +161,36 @@ jobs:
           "$RUNNER_TEMP/godot-bin/godot" --version | grep -Eq '^4\.7\.2\.stable'
           echo "$RUNNER_TEMP/godot-bin" >> "$GITHUB_PATH"
 
-      - name: Import Godot project and reject engine errors
+      - name: Probe pinned Godot toolchain diagnostics
         shell: bash
-        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          cp -R \
+            "$GITHUB_WORKSPACE/.seorilabs-org/fixtures/workflow-bundle/godot/toolchain-probe" \
+            "$RUNNER_TEMP/godot-toolchain-probe"
+          godot --headless \
+            --path "$RUNNER_TEMP/godot-toolchain-probe" \
+            --import --quit-after 1 2>&1 \
+            | tee "$RUNNER_TEMP/godot-toolchain.log"
+
+      - name: Import Godot project
+        shell: bash
+        working-directory: ${{ format('.seorilabs-application/{0}', inputs.working_directory) }}
         run: |
           set -euo pipefail
           godot --headless --import --quit-after 1 2>&1 | tee "$RUNNER_TEMP/godot-import.log"
-          if grep -E 'SCRIPT ERROR|ERROR:' "$RUNNER_TEMP/godot-import.log"; then
-            echo "Godot import log에 오류가 있습니다." >&2
-            exit 1
-          fi
+
+      - name: Reject product Godot diagnostics
+        shell: bash
+        run: |
+          node .seorilabs-org/scripts/fleet/godot-diagnostic-gate.mjs \
+            --toolchain-log "$RUNNER_TEMP/godot-toolchain.log" \
+            --application-log "$RUNNER_TEMP/godot-import.log" \
+            --summary "$GITHUB_STEP_SUMMARY"
 
       - name: Run canonical product tests
         shell: bash
-        working-directory: ${{ inputs.working_directory }}
+        working-directory: ${{ format('.seorilabs-application/{0}', inputs.working_directory) }}
         env:
           PACKAGE_MANAGER: ${{ inputs.package_manager }}
         run: |
@@ -184,7 +201,7 @@ jobs:
 
       - name: Run canonical architecture checks
         shell: bash
-        working-directory: ${{ inputs.working_directory }}
+        working-directory: ${{ format('.seorilabs-application/{0}', inputs.working_directory) }}
         env:
           PACKAGE_MANAGER: ${{ inputs.package_manager }}
         run: |
@@ -195,7 +212,7 @@ jobs:
 
       - name: Run canonical release checks
         shell: bash
-        working-directory: ${{ inputs.working_directory }}
+        working-directory: ${{ format('.seorilabs-application/{0}', inputs.working_directory) }}
         env:
           PACKAGE_MANAGER: ${{ inputs.package_manager }}
         run: |

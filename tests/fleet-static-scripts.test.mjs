@@ -15,6 +15,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
+import {
+  analyzeGodotDiagnostics,
+  runGodotDiagnosticGate,
+} from "../scripts/fleet/godot-diagnostic-gate.mjs";
 import { scanTrackedSecrets } from "../scripts/fleet/secret-scan.mjs";
 import { stagePrivatePnpmStore } from "../scripts/fleet/stage-private-pnpm-store.mjs";
 import { runStaticPreflight } from "../scripts/fleet/static-preflight.mjs";
@@ -210,6 +214,74 @@ test("secret scan은 존재하지 않는 root를 안정된 code로 거부한다"
     scanTrackedSecrets({ repoRoot: join(root, "missing-root") }),
     /REPO_ROOT_INVALID/u,
   );
+});
+
+test("Godot 진단 gate는 중립 probe와 같은 toolchain 진단을 제품 오류로 오인하지 않는다", () => {
+  const toolchainDiagnostic =
+    "ERROR: Unable to initialize an optional runner service.";
+  const result = analyzeGodotDiagnostics({
+    toolchainLog: `Godot Engine\n${toolchainDiagnostic}\n`,
+    applicationLog: `Godot Engine\n${toolchainDiagnostic}\n${toolchainDiagnostic}\n`,
+  });
+
+  assert.deepEqual(result, {
+    applicationDiagnosticCount: 2,
+    productDiagnosticCount: 0,
+    toolchainDiagnosticCount: 1,
+  });
+});
+
+test("Godot 진단 gate는 probe에 없던 제품 ERROR와 SCRIPT ERROR를 fail-closed한다", () => {
+  const toolchainLog = "ERROR: Runner-only diagnostic.\n";
+  assert.throws(
+    () =>
+      analyzeGodotDiagnostics({
+        toolchainLog,
+        applicationLog: `${toolchainLog}ERROR: Product import failed.\n`,
+      }),
+    /GODOT_PRODUCT_DIAGNOSTIC/u,
+  );
+  assert.throws(
+    () =>
+      analyzeGodotDiagnostics({
+        toolchainLog,
+        applicationLog: `${toolchainLog}SCRIPT ERROR: Invalid call.\n`,
+      }),
+    /GODOT_PRODUCT_DIAGNOSTIC/u,
+  );
+});
+
+test("Godot 중립 probe 자체의 SCRIPT ERROR는 toolchain 실패로 차단한다", () => {
+  assert.throws(
+    () =>
+      analyzeGodotDiagnostics({
+        toolchainLog: "SCRIPT ERROR: Probe must not execute product scripts.\n",
+        applicationLog: "",
+      }),
+    /GODOT_TOOLCHAIN_SCRIPT_ERROR/u,
+  );
+});
+
+test("Godot 진단 gate는 로그를 제한해 읽고 요약에는 진단 내용 대신 경계별 건수만 쓴다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "fleet-godot-diagnostic-"));
+  temporaryRoots.push(root);
+  const toolchainLogPath = join(root, "toolchain.log");
+  const applicationLogPath = join(root, "application.log");
+  const summaryPath = join(root, "summary.md");
+  const diagnostic = "ERROR: Runner-only diagnostic.";
+  await writeFile(toolchainLogPath, `${diagnostic}\n`);
+  await writeFile(applicationLogPath, `${diagnostic}\n`);
+  await writeFile(summaryPath, "");
+
+  await runGodotDiagnosticGate({
+    toolchainLogPath,
+    applicationLogPath,
+    summaryPath,
+  });
+  const summary = await readFile(summaryPath, "utf8");
+  assert.match(summary, /고정 toolchain 진단: 1건/u);
+  assert.match(summary, /제품 고유 진단: 0건/u);
+  assert.doesNotMatch(summary, /Runner-only diagnostic/u);
 });
 
 test("secret scan은 대용량 또는 binary tracked file도 조용히 건너뛰지 않는다", async () => {

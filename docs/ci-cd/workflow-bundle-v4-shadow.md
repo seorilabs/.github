@@ -46,6 +46,14 @@ skip된다. 격리된 `Org Contract` job은 skipped quality를 성공으로 바�
 tokenless public-fork 검증 경로를 별도로 승인하기 전에는 fork 코드를 제한된 package token과
 함께 실행하지 않는다.
 
+앱 source는 `.seorilabs-application`, 중앙 bundle은 `.seorilabs-org`에 서로 격리해 checkout한다.
+preflight, tracked-secret scan, dependency audit와 canonical script는 앱 경계 안에서만 실행되므로
+앱의 recursive lint/test가 중앙 bundle source를 제품 코드로 오인하지 않는다. Godot import는
+같은 exact binary로 먼저 불변 중립 프로젝트를 실행해 runner/toolchain 진단을 기록한 뒤 제품
+프로젝트를 실행한다. 두 실행에 동일한 진단은 toolchain 경고로 감사하고, 중립 probe에 없던
+`SCRIPT ERROR` 또는 `ERROR:`는 제품 오류로 fail-closed한다. Godot 자체의 non-zero exit와
+중립 probe의 script error도 계속 실패한다.
+
 ## Android build-only
 
 caller는 중앙 generator만 만들며 사용자 입력 없이 Backoffice-bound `source_sha`, resolved

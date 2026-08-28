@@ -459,6 +459,57 @@ test("v4 runtime asset 추가 뒤에도 buildWorkflows가 없던 signed v3 bundl
         let contents = await readFile(path, "utf8");
         if (path.endsWith("-checks-v2.yml")) {
           contents = contents
+            .replace("          path: .seorilabs-application\n", "")
+            .replaceAll(
+              "$GITHUB_WORKSPACE/.seorilabs-application",
+              "$GITHUB_WORKSPACE",
+            )
+            .replaceAll(
+              "${{ format('.seorilabs-application/{0}', inputs.working_directory) }}",
+              "${{ inputs.working_directory }}",
+            )
+            .replace(
+              [
+                "      - name: Probe pinned Godot toolchain diagnostics",
+                "        shell: bash",
+                "        run: |",
+                "          set -euo pipefail",
+                "          cp -R \\",
+                "            \"$GITHUB_WORKSPACE/.seorilabs-org/fixtures/workflow-bundle/godot/toolchain-probe\" \\",
+                '            "$RUNNER_TEMP/godot-toolchain-probe"',
+                "          godot --headless \\",
+                "            --path \"$RUNNER_TEMP/godot-toolchain-probe\" \\",
+                "            --import --quit-after 1 2>&1 \\",
+                '            | tee "$RUNNER_TEMP/godot-toolchain.log"',
+                "",
+                "      - name: Import Godot project",
+                "        shell: bash",
+                "        working-directory: ${{ inputs.working_directory }}",
+                "        run: |",
+                "          set -euo pipefail",
+                '          godot --headless --import --quit-after 1 2>&1 | tee "$RUNNER_TEMP/godot-import.log"',
+                "",
+                "      - name: Reject product Godot diagnostics",
+                "        shell: bash",
+                "        run: |",
+                "          node .seorilabs-org/scripts/fleet/godot-diagnostic-gate.mjs \\",
+                "            --toolchain-log \"$RUNNER_TEMP/godot-toolchain.log\" \\",
+                "            --application-log \"$RUNNER_TEMP/godot-import.log\" \\",
+                '            --summary "$GITHUB_STEP_SUMMARY"',
+              ].join("\n"),
+              [
+                "      - name: Import Godot project and reject engine errors",
+                "        shell: bash",
+                "        working-directory: ${{ inputs.working_directory }}",
+                "        run: |",
+                "          set -euo pipefail",
+                '          godot --headless --import --quit-after 1 2>&1 | tee "$RUNNER_TEMP/godot-import.log"',
+                "          if grep -E 'SCRIPT ERROR|ERROR:' \"$RUNNER_TEMP/godot-import.log\"; then",
+                '            echo "Godot import log에 오류가 있습니다." >&2',
+                "            exit 1",
+                "          fi",
+              ].join("\n"),
+            )
             .replace(
               "        with:\n          persist-credentials: false\n",
               "",
