@@ -20,6 +20,8 @@ const requiredPackageFiles = [
   ".generated/contracts/app.schema.json",
   ".generated/contracts/credential-consumer.schema.json",
   ".generated/contracts/fleet-bootstrap-plan.schema.json",
+  ".generated/contracts/fleet-migration-inventory.schema.json",
+  ".generated/contracts/fleet-migration-plan.schema.json",
   ".generated/contracts/markets/app-store.schema.json",
   ".generated/contracts/markets/apps-in-toss.schema.json",
   ".generated/contracts/markets/google-play.schema.json",
@@ -34,6 +36,7 @@ const requiredPackageFiles = [
   "README.md",
   "src/cli.mjs",
   "src/bootstrap.mjs",
+  "src/fleet-migration.mjs",
 ];
 
 const cacheRoot = await mkdtemp(join(tmpdir(), "repo-contract-pack-cache-"));
@@ -264,6 +267,32 @@ try {
   );
   if (!installedExecutorCheck.stdout.includes("public export 검증 통과")) {
     throw new Error("배포된 repo-contract에 Fleet trusted executor API가 없습니다.");
+  }
+  const installedMigrationCheck = await execFileAsync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'const installed = await import("@seorilabs/repo-contract/fleet-migration");',
+        'if (typeof installed.createFleetMigrationPlan !== "function") process.exit(1);',
+        'if (typeof installed.validateFleetMigrationPlan !== "function") process.exit(1);',
+        'if (typeof installed.computeFleetRepositoryReadbackDigest !== "function") process.exit(1);',
+        'if (typeof installed.computeFleetFindingsDigest !== "function") process.exit(1);',
+        'if (installed.fleetMigrationContract?.executionAllowed !== false) process.exit(1);',
+        'if (installed.fleetMigrationContract?.mode !== "PLAN_ONLY") process.exit(1);',
+        'if (installed.fleetMigrationContract?.initialBaseline?.expectedCounts?.legacyOperationJson !== 73) process.exit(1);',
+        'process.stdout.write("Fleet migration planner public export 검증 통과\\n");',
+      ].join("\n"),
+    ],
+    {
+      cwd: consumerRoot,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    },
+  );
+  if (!installedMigrationCheck.stdout.includes("public export 검증 통과")) {
+    throw new Error("배포된 repo-contract에 Fleet migration planner API가 없습니다.");
   }
   const installedCandidateCanaryCheck = await execFileAsync(
     process.execPath,

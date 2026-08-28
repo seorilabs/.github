@@ -11,6 +11,7 @@
     ".": "./src/index.mjs",
     "./bootstrap": "./src/bootstrap.mjs",
     "./fleet": "./src/fleet.mjs",
+    "./fleet-migration": "./src/fleet-migration.mjs",
     "./trusted-candidate-canary": "./src/trusted-candidate-canary.mjs",
     "./trusted-executor": "./src/trusted-executor.mjs",
     "./trusted-publisher": "./src/trusted-publisher.mjs"

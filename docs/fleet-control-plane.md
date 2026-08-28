@@ -196,6 +196,28 @@ Gradle, Xcode project, Godot export preset, Granite config처럼 실제 build so
 아니다. 새 변경은 Backoffice 장애 시 fail-closed하고, 이미 고정된 release candidate만 signed
 snapshot으로 재현한다.
 
+P7 planner는 GitHub App의 전체 페이지 repository readback과 각 default ref의 exact source/blob
+readback을 입력으로 받는다. `expectedCounts`와 실제 분류 수, numeric repository ID, ref, SHA 중
+하나라도 어긋나면 `NEEDS_INPUT` 또는 `BLOCKED`로 중단한다. source tree에서 분류한 전체
+path/blob/detection 집합도 repo별 findings digest로 고정한다. 두 gate가 모두 통과해도 planner는
+삭제나 rewrite를 실행하지 않고 검토 가능한 plan만 만든다.
+
+2026-08-29 기준선의 예상 입력은 active repository 38개, legacy 운영 JSON 73개,
+`secrets: inherit` 파일 108개, floating 중앙 workflow ref 파일 87개다. 이 수치는 실행 허가가
+아니며, 새 inventory의 전체 페이지 readback과 findings digest가 다르면 기준선을 억지로 맞추지
+않고 다시 수집한다.
+
+```bash
+fleet-contract plan-migration \
+  --inventory fleet-migration-inventory.json \
+  --output fleet-migration-plan.json
+fleet-contract validate-migration-plan --plan fleet-migration-plan.json
+```
+
+plan에는 replacement bytes나 secret 값이 없고, source와 replacement digest에 결합된
+idempotency key만 포함한다. 실제 cleanup executor는 별도 계약·승인·PR 단위 readback이 검증될
+때까지 존재하지 않는다.
+
 ## 강제 전환 순서
 
 1. candidate bundle과 중앙 모델을 shadow로 배포한다.

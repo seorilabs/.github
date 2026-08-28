@@ -10,6 +10,10 @@ import {
   createWorkflowBundle,
   validateWorkflowBundle,
 } from "./fleet.mjs";
+import {
+  createFleetMigrationPlan,
+  validateFleetMigrationPlan,
+} from "./fleet-migration.mjs";
 
 function parseOptions(argv) {
   const options = {};
@@ -72,6 +76,28 @@ export async function runFleetCli({
       return 0;
     }
 
+    if (command === "plan-migration") {
+      const inventory = JSON.parse(
+        await readFile(options.inventory, "utf8"),
+      );
+      const plan = createFleetMigrationPlan(inventory);
+      await emit(`${JSON.stringify(plan, null, 2)}\n`, options.output, stdout);
+      return 0;
+    }
+
+    if (command === "validate-migration-plan") {
+      const plan = JSON.parse(await readFile(options.plan, "utf8"));
+      const result = validateFleetMigrationPlan(plan);
+      if (!result.ok) {
+        for (const diagnostic of result.diagnostics) {
+          stderr.write(`오류 [${diagnostic}] Fleet migration plan 검증 실패\n`);
+        }
+        return 1;
+      }
+      stdout.write("Fleet migration plan 검증 통과\n");
+      return 0;
+    }
+
   } catch (error) {
     const code = String(error?.message ?? "FLEET_CONTRACT_FAILED").split(":")[0];
     stderr.write(`오류 [${code}] fleet 계약 작업을 완료할 수 없습니다.\n`);
@@ -79,7 +105,7 @@ export async function runFleetCli({
   }
 
   stderr.write(
-    "사용법: fleet-contract bundle|validate-bundle [옵션]\n",
+    "사용법: fleet-contract bundle|validate-bundle|plan-migration|validate-migration-plan [옵션]\n",
   );
   return 2;
 }

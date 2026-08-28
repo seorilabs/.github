@@ -1,0 +1,563 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.com/contracts/fleet-migration-inventory.schema.json",
+  "title": "Seorilabs Fleet P7 migration inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "inventoryId",
+    "capturedAt",
+    "organization",
+    "detector",
+    "coverage",
+    "expectedCounts",
+    "repositories"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "inventoryId": { "$ref": "#/$defs/evidenceId" },
+    "capturedAt": { "$ref": "#/$defs/dateTime" },
+    "organization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "login"],
+      "properties": {
+        "id": { "$ref": "#/$defs/numericId" },
+        "login": { "const": "seorilabs" }
+      }
+    },
+    "detector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repositoryId",
+        "fullName",
+        "sourceRef",
+        "sourceSha",
+        "contract"
+      ],
+      "properties": {
+        "repositoryId": { "$ref": "#/$defs/numericId" },
+        "fullName": { "const": "seorilabs/.github" },
+        "sourceRef": { "const": "refs/heads/main" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "contract": { "const": "fleet-migration-v1" }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "readbackId",
+        "observedAt",
+        "complete",
+        "nextCursor",
+        "activeRepositoryCount",
+        "repositoriesDigest"
+      ],
+      "properties": {
+        "provider": { "const": "GITHUB_APP_INSTALLATION_REPOSITORY_READBACK" },
+        "readbackId": { "$ref": "#/$defs/evidenceId" },
+        "observedAt": { "$ref": "#/$defs/dateTime" },
+        "complete": { "type": "boolean" },
+        "nextCursor": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "activeRepositoryCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "repositoriesDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "expectedCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activeRepositories",
+        "legacyOperationJson",
+        "workflowSecretsInherit",
+        "workflowFloatingRef"
+      ],
+      "properties": {
+        "activeRepositories": { "$ref": "#/$defs/count" },
+        "legacyOperationJson": { "$ref": "#/$defs/count" },
+        "workflowSecretsInherit": { "$ref": "#/$defs/count" },
+        "workflowFloatingRef": { "$ref": "#/$defs/count" }
+      }
+    },
+    "repositories": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": { "$ref": "#/$defs/repositoryObservation" }
+    }
+  },
+  "$defs": {
+    "numericId": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,31}$"
+    },
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "dateTime": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$"
+    },
+    "evidenceId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100000
+    },
+    "sourceRef": {
+      "type": "string",
+      "pattern": "^refs/heads/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,126}[A-Za-z0-9])?$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+    },
+    "buildTarget": {
+      "enum": [
+        "ORG_CONTRACT_STATIC",
+        "ANDROID",
+        "IOS",
+        "APPS_IN_TOSS",
+        "WEB"
+      ]
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "fullName", "defaultRef", "sourceSha", "archived"],
+      "properties": {
+        "id": { "$ref": "#/$defs/numericId" },
+        "fullName": {
+          "type": "string",
+          "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+        },
+        "defaultRef": { "$ref": "#/$defs/sourceRef" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "archived": { "const": false }
+      }
+    },
+    "discoveryObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "observedAt",
+        "repositoryId",
+        "sourceRef",
+        "sourceSha",
+        "treeSha",
+        "findingsDigest"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/evidenceId" },
+        "observedAt": { "$ref": "#/$defs/dateTime" },
+        "repositoryId": { "$ref": "#/$defs/numericId" },
+        "sourceRef": { "$ref": "#/$defs/sourceRef" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "treeSha": { "$ref": "#/$defs/sha" },
+        "findingsDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "legacyDetection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "contract", "matchedBy", "detectorSha"],
+      "properties": {
+        "type": { "const": "LEGACY_OPERATION_JSON" },
+        "contract": {
+          "enum": [
+            "GOOGLE_PLAY",
+            "APP_STORE",
+            "APPS_IN_TOSS",
+            "MARKET_LAUNCH_STATE",
+            "PLATFORM_REGISTRY_APP",
+            "BACKOFFICE_OPERATIONS"
+          ]
+        },
+        "matchedBy": { "const": "SCHEMA_VALIDATION" },
+        "detectorSha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "secretsInheritDetection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "detectorSha", "occurrenceLines"],
+      "properties": {
+        "type": { "const": "WORKFLOW_SECRETS_INHERIT" },
+        "detectorSha": { "$ref": "#/$defs/sha" },
+        "occurrenceLines": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+        }
+      }
+    },
+    "floatingRefDetection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "detectorSha",
+        "calledWorkflow",
+        "ref",
+        "occurrenceLines"
+      ],
+      "properties": {
+        "type": { "const": "WORKFLOW_FLOATING_REF" },
+        "detectorSha": { "$ref": "#/$defs/sha" },
+        "calledWorkflow": {
+          "type": "string",
+          "pattern": "^seorilabs/\\.github/\\.github/workflows/[a-z0-9-]+\\.yml$"
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"
+        },
+        "occurrenceLines": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+        }
+      }
+    },
+    "unclassifiedDetection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "detectorSha", "reason", "candidateKinds"],
+      "properties": {
+        "type": { "const": "UNCLASSIFIED" },
+        "detectorSha": { "$ref": "#/$defs/sha" },
+        "reason": {
+          "enum": [
+            "MULTIPLE_MATCHES",
+            "UNSUPPORTED_PATH",
+            "INCOMPLETE_CONTENT_READBACK",
+            "NON_CENTRAL_FLOATING_REF"
+          ]
+        },
+        "candidateKinds": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "LEGACY_OPERATION_JSON",
+              "WORKFLOW_SECRETS_INHERIT",
+              "WORKFLOW_FLOATING_REF"
+            ]
+          }
+        }
+      }
+    },
+    "replacement": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/resolvedManifestReplacement" },
+        { "$ref": "#/$defs/explicitSecretsReplacement" },
+        { "$ref": "#/$defs/pinnedWorkflowReplacement" }
+      ]
+    },
+    "resolvedManifestReplacement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "configRevisionId",
+        "configRevisionDigest",
+        "signedSnapshotDigest"
+      ],
+      "properties": {
+        "type": { "const": "SIGNED_RESOLVED_MANIFEST" },
+        "configRevisionId": { "$ref": "#/$defs/evidenceId" },
+        "configRevisionDigest": { "$ref": "#/$defs/digest" },
+        "signedSnapshotDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "explicitSecretsReplacement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "replacementBlobDigest",
+        "workflowBundleSha",
+        "namedCredentialLogicalIds"
+      ],
+      "properties": {
+        "type": { "const": "EXPLICIT_SECRET_MAPPING" },
+        "replacementBlobDigest": { "$ref": "#/$defs/digest" },
+        "workflowBundleSha": { "$ref": "#/$defs/sha" },
+        "namedCredentialLogicalIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+){2,7}$"
+          }
+        }
+      }
+    },
+    "pinnedWorkflowReplacement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "replacementBlobDigest",
+        "workflowBundleSha",
+        "workflowRef"
+      ],
+      "properties": {
+        "type": { "const": "PINNED_WORKFLOW_CALLER" },
+        "replacementBlobDigest": { "$ref": "#/$defs/digest" },
+        "workflowBundleSha": { "$ref": "#/$defs/sha" },
+        "workflowRef": {
+          "type": "string",
+          "pattern": "^seorilabs/\\.github/\\.github/workflows/[a-z0-9-]+\\.yml@[0-9a-f]{40}$"
+        }
+      }
+    },
+    "sourceReadback": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observationId",
+            "observedAt",
+            "repositoryId",
+            "sourceRef",
+            "sourceSha",
+            "path",
+            "blobSha",
+            "contentDigest",
+            "state",
+            "evidenceDigest"
+          ],
+          "properties": {
+            "observationId": { "$ref": "#/$defs/evidenceId" },
+            "observedAt": { "$ref": "#/$defs/dateTime" },
+            "repositoryId": { "$ref": "#/$defs/numericId" },
+            "sourceRef": { "$ref": "#/$defs/sourceRef" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "path": { "$ref": "#/$defs/relativePath" },
+            "blobSha": { "$ref": "#/$defs/sha" },
+            "contentDigest": { "$ref": "#/$defs/digest" },
+            "state": { "const": "MATCH" },
+            "evidenceDigest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "parityProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "observationId",
+        "observedAt",
+        "sourceSha",
+        "currentContentDigest",
+        "replacementDigest",
+        "state",
+        "evidenceDigest"
+      ],
+      "properties": {
+        "sequence": { "enum": [1, 2] },
+        "observationId": { "$ref": "#/$defs/evidenceId" },
+        "observedAt": { "$ref": "#/$defs/dateTime" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "currentContentDigest": { "$ref": "#/$defs/digest" },
+        "replacementDigest": { "$ref": "#/$defs/digest" },
+        "state": { "const": "MATCH" },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "buildProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "runId",
+        "completedAt",
+        "sourceSha",
+        "workflowBundleSha",
+        "state",
+        "artifactDigest",
+        "evidenceDigest"
+      ],
+      "properties": {
+        "target": { "$ref": "#/$defs/buildTarget" },
+        "runId": { "$ref": "#/$defs/numericId" },
+        "completedAt": { "$ref": "#/$defs/dateTime" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "workflowBundleSha": { "$ref": "#/$defs/sha" },
+        "state": { "const": "PASSED" },
+        "artifactDigest": { "$ref": "#/$defs/digest" },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "rollbackProof": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "sourceSha",
+            "path",
+            "originalBlobSha",
+            "originalContentDigest",
+            "state",
+            "restoreValidationId",
+            "verifiedAt",
+            "evidenceDigest"
+          ],
+          "properties": {
+            "method": { "const": "GIT_REVERT" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "path": { "$ref": "#/$defs/relativePath" },
+            "originalBlobSha": { "$ref": "#/$defs/sha" },
+            "originalContentDigest": { "$ref": "#/$defs/digest" },
+            "state": { "const": "VERIFIED" },
+            "restoreValidationId": { "$ref": "#/$defs/evidenceId" },
+            "verifiedAt": { "$ref": "#/$defs/dateTime" },
+            "evidenceDigest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "controlPlaneReadback": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observationId",
+            "observedAt",
+            "repositoryId",
+            "sourceSha",
+            "replacementDigest",
+            "state",
+            "evidenceDigest"
+          ],
+          "properties": {
+            "observationId": { "$ref": "#/$defs/evidenceId" },
+            "observedAt": { "$ref": "#/$defs/dateTime" },
+            "repositoryId": { "$ref": "#/$defs/numericId" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "replacementDigest": { "$ref": "#/$defs/digest" },
+            "state": { "const": "MATCH" },
+            "evidenceDigest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "proofs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceReadback",
+        "parity",
+        "buildOnly",
+        "rollback",
+        "controlPlaneReadback"
+      ],
+      "properties": {
+        "sourceReadback": { "$ref": "#/$defs/sourceReadback" },
+        "parity": {
+          "type": "array",
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/parityProof" }
+        },
+        "buildOnly": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/buildProof" }
+        },
+        "rollback": { "$ref": "#/$defs/rollbackProof" },
+        "controlPlaneReadback": { "$ref": "#/$defs/controlPlaneReadback" }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "blobSha",
+        "contentDigest",
+        "detection",
+        "requiredBuildTargets",
+        "replacement",
+        "proofs"
+      ],
+      "properties": {
+        "path": { "$ref": "#/$defs/relativePath" },
+        "blobSha": { "$ref": "#/$defs/sha" },
+        "contentDigest": { "$ref": "#/$defs/digest" },
+        "detection": {
+          "oneOf": [
+            { "$ref": "#/$defs/legacyDetection" },
+            { "$ref": "#/$defs/secretsInheritDetection" },
+            { "$ref": "#/$defs/floatingRefDetection" },
+            { "$ref": "#/$defs/unclassifiedDetection" }
+          ]
+        },
+        "requiredBuildTargets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/buildTarget" }
+        },
+        "replacement": { "$ref": "#/$defs/replacement" },
+        "proofs": { "$ref": "#/$defs/proofs" }
+      }
+    },
+    "repositoryObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "observation", "candidates"],
+      "properties": {
+        "repository": { "$ref": "#/$defs/repository" },
+        "observation": { "$ref": "#/$defs/discoveryObservation" },
+        "candidates": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/candidate" }
+        }
+      }
+    }
+  }
+}
