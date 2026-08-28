@@ -1,12 +1,22 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
 import { scanTrackedSecrets } from "../scripts/fleet/secret-scan.mjs";
+import { stagePrivatePnpmStore } from "../scripts/fleet/stage-private-pnpm-store.mjs";
 import { runStaticPreflight } from "../scripts/fleet/static-preflight.mjs";
 import { writeProvenance } from "../scripts/fleet/write-provenance.mjs";
 
@@ -41,6 +51,51 @@ async function fixture({ profile = "react-native" } = {}) {
   await execFileAsync("git", ["init", "-q", root]);
   await execFileAsync("git", ["-C", root, "add", "."]);
   return root;
+}
+
+async function privatePackageFixture({ version = "0.4.0" } = {}) {
+  const root = await mkdtemp(join(tmpdir(), "fleet-private-package-"));
+  temporaryRoots.push(root);
+  await mkdir(join(root, "apps", "mobile"), { recursive: true });
+  await writeFile(
+    join(root, "package.json"),
+    `${JSON.stringify({ private: true })}\n`,
+  );
+  await writeFile(
+    join(root, "apps", "mobile", "package.json"),
+    `${JSON.stringify({ dependencies: { "@seorilabs/platform-sdk": version } })}\n`,
+  );
+  await writeFile(
+    join(root, "pnpm-lock.yaml"),
+    [
+      "lockfileVersion: '9.0'",
+      "",
+      `  '@seorilabs/platform-sdk@${version}':`,
+      `    resolution: {integrity: sha512-${"a".repeat(86)}==, tarball: https://npm.pkg.github.com/download/@seorilabs/platform-sdk/${version}/${"b".repeat(40)}}`,
+      "    engines: {node: '>=20'}",
+      "",
+    ].join("\n"),
+  );
+  await execFileAsync("git", ["init", "-q", root]);
+  await execFileAsync("git", ["-C", root, "add", "."]);
+
+  const fakePnpm = join(root, "fake-pnpm.mjs");
+  await writeFile(
+    fakePnpm,
+    [
+      "#!/usr/bin/env node",
+      'import { mkdirSync, writeFileSync } from "node:fs";',
+      'const index = process.argv.indexOf("--store-dir");',
+      'if (index < 0) process.exit(2);',
+      'const store = process.argv[index + 1];',
+      'mkdirSync(`${store}/v11/files`, { recursive: true });',
+      'const content = process.env.FAKE_PNPM_LEAK === "1" ? process.env.NODE_AUTH_TOKEN : "private-package-content";',
+      'writeFileSync(`${store}/v11/files/package`, content);',
+      "",
+    ].join("\n"),
+  );
+  await chmod(fakePnpm, 0o755);
+  return { fakePnpm, root, storePath: join(root, ".seorilabs-pnpm-store") };
 }
 
 test("정적 preflight는 로컬 app manifest 없이 canonical 명령만 검증한다", async () => {
@@ -121,6 +176,34 @@ test("secret scan은 값이 아니라 파일과 rule ID만 반환한다", async 
   assert.doesNotMatch(JSON.stringify(findings), new RegExp(canary, "u"));
 });
 
+test("Firebase 클라이언트 API key는 비밀값으로 오탐하지 않는다", async () => {
+  const root = await fixture();
+  const firebaseClientKey = `AIza${"a".repeat(35)}`;
+  await writeFile(
+    join(root, "firebase-client.json"),
+    `${JSON.stringify({ apiKey: firebaseClientKey })}\n`,
+  );
+  await execFileAsync("git", ["-C", root, "add", "firebase-client.json"]);
+
+  assert.deepEqual(await scanTrackedSecrets({ repoRoot: root }), []);
+});
+
+test("service account private key 필드는 계속 차단한다", async () => {
+  const root = await fixture();
+  const canary = "not-a-real-private-key-material";
+  await writeFile(
+    join(root, "service-account.json"),
+    `${JSON.stringify({ private_key: canary })}\n`,
+  );
+  await execFileAsync("git", ["-C", root, "add", "service-account.json"]);
+
+  const findings = await scanTrackedSecrets({ repoRoot: root });
+  assert.deepEqual(findings, [
+    { file: "service-account.json", rule: "SERVICE_ACCOUNT_PRIVATE_KEY" },
+  ]);
+  assert.doesNotMatch(JSON.stringify(findings), new RegExp(canary, "u"));
+});
+
 test("secret scan은 존재하지 않는 root를 안정된 code로 거부한다", async () => {
   const root = await fixture();
   await assert.rejects(
@@ -141,6 +224,73 @@ test("secret scan은 대용량 또는 binary tracked file도 조용히 건너뛰
   const findings = await scanTrackedSecrets({ repoRoot: root });
   assert.deepEqual(findings, [{ file: "large.bin", rule: "GITHUB_TOKEN" }]);
   assert.doesNotMatch(JSON.stringify(findings), new RegExp(canary, "u"));
+});
+
+test("private Platform SDK는 exact lockfile에서만 staging하고 token을 저장하지 않는다", async () => {
+  const { fakePnpm, root, storePath } = await privatePackageFixture();
+  const token = `github_pat_${"x".repeat(64)}`;
+  const result = await stagePrivatePnpmStore({
+    applicationRoot: root,
+    storePath,
+    token,
+    pnpmCommand: fakePnpm,
+    childEnvironment: { PATH: process.env.PATH },
+  });
+
+  assert.equal(result.package, "@seorilabs/platform-sdk");
+  assert.equal(result.version, "0.4.0");
+  assert.equal(result.tokenPersisted, false);
+  assert.doesNotMatch(JSON.stringify(result), new RegExp(token, "u"));
+  await access(join(storePath, "v11", "files", "package"));
+});
+
+test("private package child가 token을 store에 기록하면 staging 전체를 폐기한다", async () => {
+  const { fakePnpm, root, storePath } = await privatePackageFixture();
+  const token = `github_pat_${"y".repeat(64)}`;
+  await assert.rejects(
+    stagePrivatePnpmStore({
+      applicationRoot: root,
+      storePath,
+      token,
+      pnpmCommand: fakePnpm,
+      childEnvironment: {
+        FAKE_PNPM_LEAK: "1",
+        PATH: process.env.PATH,
+      },
+    }),
+    /PRIVATE_PACKAGE_TOKEN_PERSISTED/u,
+  );
+  await assert.rejects(access(storePath));
+});
+
+test("private Platform SDK의 range 또는 비공식 lockfile URL은 거부한다", async () => {
+  const range = await privatePackageFixture({ version: "^0.4.0" });
+  await assert.rejects(
+    stagePrivatePnpmStore({
+      applicationRoot: range.root,
+      storePath: range.storePath,
+      token: `github_pat_${"z".repeat(64)}`,
+      pnpmCommand: range.fakePnpm,
+      childEnvironment: { PATH: process.env.PATH },
+    }),
+    /PLATFORM_PACKAGE_VERSION_NOT_EXACT/u,
+  );
+
+  const unofficial = await privatePackageFixture();
+  const lockfile = join(unofficial.root, "pnpm-lock.yaml");
+  const current = await readFile(lockfile, "utf8");
+  await writeFile(lockfile, current.replace("npm.pkg.github.com", "example.com"));
+  await execFileAsync("git", ["-C", unofficial.root, "add", "pnpm-lock.yaml"]);
+  await assert.rejects(
+    stagePrivatePnpmStore({
+      applicationRoot: unofficial.root,
+      storePath: unofficial.storePath,
+      token: `github_pat_${"q".repeat(64)}`,
+      pnpmCommand: unofficial.fakePnpm,
+      childEnvironment: { PATH: process.env.PATH },
+    }),
+    /PLATFORM_PACKAGE_LOCKFILE_UNTRUSTED/u,
+  );
 });
 
 test("provenance는 허용된 공개 실행 identity만 기록한다", async () => {

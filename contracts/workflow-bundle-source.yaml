@@ -1,5 +1,5 @@
 schemaVersion: 1
-bundleVersion: 4.0.0
+bundleVersion: 4.1.0
 repository: seorilabs/.github
 
 quality:
@@ -96,8 +96,13 @@ callerPolicies:
     managedCallerPath: .github/workflows/android-build-only.yml
     requiredRef: refs/heads/main
     permissions:
-      contents: read
-      id-token: write
+      react-native:
+        contents: read
+        id-token: write
+        packages: read
+      godot:
+        contents: read
+        id-token: write
     namedSecrets: []
     concurrency: android-build-${{ github.repository_id }}-<resolved-source-sha>
   iosBuild:
@@ -115,7 +120,7 @@ delivery:
     sourceBinding: exact-sha
     marketUpload: false
     builderImages:
-      react-native: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:d403dabbd03e97490b0f676bc65dc2f510119480c60815298e37fb1a12a6172f
+      react-native: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:ed73c852159547ce3b7e36ef7759a8db25e1b4ac08f1fee4f5eebf7ce2cd2100
       godot: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/godot-android-builder@sha256:b2a9d7a849f1193f42a40864d8487401abb6dc54472fe010b31b2e84e7be2940
   ios:
     executor: xcode-cloud

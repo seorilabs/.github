@@ -9,6 +9,6 @@
     "executor": "cloud-build-x64",
     "artifact": "android-aab",
     "marketUpload": false,
-    "builderImage": "asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:d403dabbd03e97490b0f676bc65dc2f510119480c60815298e37fb1a12a6172f"
+    "builderImage": "asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:ed73c852159547ce3b7e36ef7759a8db25e1b4ac08f1fee4f5eebf7ce2cd2100"
   }
 }

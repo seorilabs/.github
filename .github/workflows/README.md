@@ -145,13 +145,17 @@ jobs:
 
 `generateAndroidBuildCaller`가 APPROVED bundle과 Backoffice resolved manifest에서만 만든다.
 caller는 사용자 SHA 입력 없이 resolved manifest의 exact source SHA, 최소
-`contents: read`·`id-token: write`, source SHA별 concurrency, full workflow SHA만 가진다.
+권한, source SHA별 concurrency, full workflow SHA만 가진다. RN은 private Platform SDK를
+받아야 하므로 `contents: read`·`id-token: write`·`packages: read`, Godot은
+`contents: read`·`id-token: write`만 사용한다.
 `secrets`, `runs-on`, `steps`, 임의 command 입력은 허용하지 않는다. 중앙 reusable workflow는
 private repo에서만 digest-bound ARC image를 사용하고, Google WIF 전에 managed caller가
 `.github/workflows/android-build-only.yml@refs/heads/main`인지 확인한 뒤 exact source
 checkout과 tracked-secret scan 뒤 x64 Cloud Build로 제출한다. Cloud Build config는 digest로
 고정한 builder, exact gcloud와 `scripts/build-android.sh`만 실행하며 AAB를 회수할 뿐 마켓
-API를 호출하지 않는다.
+API를 호출하지 않는다. RN private SDK는 RPI에서 일회성 `github.token`으로 exact package만
+content-addressed store에 채우고 token 비포함 검사를 통과한 store만 source archive에 싣는다.
+Cloud Build는 이 store를 사용하지만 token이나 `.npmrc` credential은 받지 않는다.
 
 현재 mode는 `SHADOW`, ruleset은 `EVALUATE`다. 기존 caller를 삭제하거나 호출을 강제하지
 않으며 non-promotable contract fixture probe와 실제 RN/Godot pilot parity가 끝나기 전 Active로 바꾸지 않는다.

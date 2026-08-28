@@ -50,11 +50,11 @@ const V4_RUNTIME_AST_DIGEST_BY_PATH = Object.freeze({
   ".github/workflows/godot-checks-v2.yml":
     "sha256:0c703a8afde943bab0489c6c9566fe1b351c69d9923b65cf93cca502cea20a80",
   ".github/workflows/rn-build-android-cloud-v1.yml":
-    "sha256:237aaedf12bdb1be0949b3594b9bfbfb61394ceae7fee0cba5eb6c5e217cafd6",
+    "sha256:43bb1f3f1cc6af3af96b03b1de07970e7f21c9a2ee406238f9dfa5ad217f428a",
   ".github/workflows/godot-build-android-cloud-v1.yml":
     "sha256:628265802160400628a247776c2353c9d8d5a766c045afa59945eae36da5eb42",
   ".github/cloud-build/rn-android-build-only.yaml":
-    "sha256:ee35275e43a356116516a95f74ae1c51988798f15d944fb6cd6e307648191511",
+    "sha256:1dd60b78d45f701fb66f04d773ffdd73ec327ad82472db432f4828f6c2617d0c",
   ".github/cloud-build/godot-android-build-only.yaml":
     "sha256:c951ca151239c5946135263c58fa0d4f007bd9e9d1bf15fe36752cdda7632e3c",
 });
@@ -82,6 +82,7 @@ const RUNTIME_ASSET_FILES = Object.freeze([
   "fixtures/workflow-bundle/react-native/fixture.json",
   "scripts/fleet/fixture-canary.mjs",
   "scripts/fleet/secret-scan.mjs",
+  "scripts/fleet/stage-private-pnpm-store.mjs",
   "scripts/fleet/static-preflight.mjs",
   "scripts/fleet/write-provenance.mjs",
 ]);
@@ -93,7 +94,7 @@ const ACTION_REPOSITORY_BY_KEY = Object.freeze({
   "upload-artifact": "actions/upload-artifact",
 });
 const APPROVAL_REGISTRY_ID = "seorilabs-workflow-bundles-v1";
-const CURRENT_BUNDLE_VERSION = "4.0.0";
+const CURRENT_BUNDLE_VERSION = "4.1.0";
 const APPROVAL_KEY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const APPROVED_BINDING_TTL_MS = 5 * 60 * 1000;
 const TRUSTED_BUNDLE_BINDINGS = new WeakMap();
@@ -155,6 +156,10 @@ function deepFreeze(value) {
 
 function canonicalJson(value) {
   return JSON.stringify(canonicalize(value));
+}
+
+function isObjectRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function sha256(value) {
@@ -657,11 +662,19 @@ function runtimeDeclarationsMatchTexts(bundle, runtimeTextByPath) {
         "submit-build-only",
         "Submit exact source to x64 Cloud Build",
       );
+      const expectedBuildPermissions =
+        bundle?.callerPolicies?.androidBuild?.permissions?.[profile];
+      const privatePackageStage = stepByName(
+        workflow,
+        "submit-build-only",
+        "Stage exact private Platform SDK without exporting the token",
+      );
       if (
         canonicalJson(Object.keys(workflow?.jobs ?? {}).sort()) !==
           canonicalJson(["submit-build-only"]) ||
+        !isObjectRecord(expectedBuildPermissions) ||
         canonicalJson(workflow?.permissions) !==
-          canonicalJson({ contents: "read", "id-token": "write" }) ||
+          canonicalJson(expectedBuildPermissions) ||
         workflow?.on?.workflow_call?.secrets !== undefined ||
         canonicalJson(
           Object.keys(workflow?.on?.workflow_call?.inputs ?? {}).sort(),
@@ -694,6 +707,12 @@ function runtimeDeclarationsMatchTexts(bundle, runtimeTextByPath) {
           "${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}" ||
         authenticate?.with?.service_account !==
           "${{ vars.SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT }}" ||
+        (profile === "react-native" &&
+          (privatePackageStage?.env?.NODE_AUTH_TOKEN !== "${{ github.token }}" ||
+            !privatePackageStage?.run?.includes(
+              "stage-private-pnpm-store.mjs",
+            ))) ||
+        (profile === "godot" && privatePackageStage !== undefined) ||
         typeof submit?.run !== "string" ||
         !submit.run.includes(
           'application_root="$GITHUB_WORKSPACE/.seorilabs-application"',
@@ -733,6 +752,16 @@ function runtimeDeclarationsMatchTexts(bundle, runtimeTextByPath) {
         'cd "$working_directory"',
         "test -f build.env",
         "test -f scripts/build-android.sh",
+        ...(profile === "react-native"
+          ? [
+              'private_store="$(realpath /workspace/.seorilabs-pnpm-store)"',
+              'test "$private_store" = /workspace/.seorilabs-pnpm-store',
+              'test -d "$private_store/v11"',
+              'export pnpm_config_store_dir="$private_store"',
+              "export pnpm_config_enable_global_virtual_store=false",
+              "export npm_config_userconfig=/dev/null",
+            ]
+          : []),
         "export SEORI_ANDROID_AAB_OUTPUT=/workspace/app-release.aab",
         "export SEORI_BUILD_MODE=build-only",
         "export SEORI_SOURCE_SHA=${_SEORI_SOURCE_SHA}",
@@ -2168,13 +2197,17 @@ export async function validateAndroidBuildCaller(
   if (containsSecretInheritance(caller)) {
     diagnostics.push("SECRET_INHERITANCE_FORBIDDEN");
   }
+  const expectedCaller = trustedCaller?.manifest;
+  const expectedPermissions =
+    trustedBundle?.bundle?.callerPolicies?.androidBuild?.permissions?.[
+      expectedCaller?.profile
+    ];
   if (
     canonicalJson(caller?.permissions ?? {}) !==
-    canonicalJson({ contents: "read", "id-token": "write" })
+    canonicalJson(expectedPermissions)
   ) {
     diagnostics.push("ANDROID_CALLER_PERMISSIONS_INVALID");
   }
-  const expectedCaller = trustedCaller?.manifest;
   const expectedConcurrency = expectedCaller
     ? `android-build-\${{ github.repository_id }}-${expectedCaller.sourceSha}`
     : undefined;
@@ -2303,11 +2336,18 @@ export async function generateAndroidBuildCaller(options = {}) {
   ) {
     throw new Error("APPROVED_ANDROID_WORKFLOW_MISSING");
   }
+  const approvedPermissions =
+    bundleVerification.state.bundle.callerPolicies?.androidBuild?.permissions?.[
+      profile
+    ];
+  if (!isObjectRecord(approvedPermissions)) {
+    throw new Error("APPROVED_ANDROID_PERMISSIONS_MISSING");
+  }
 
   const caller = {
     name: "Android Build-only",
     on: ANDROID_DISPATCH,
-    permissions: { contents: "read", "id-token": "write" },
+    permissions: approvedPermissions,
     concurrency: {
       group: `android-build-\${{ github.repository_id }}-${sourceSha}`,
       "cancel-in-progress": false,
