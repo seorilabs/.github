@@ -49,8 +49,8 @@ Job 이름과 full idempotency annotation은 image digest, source provenance, re
 canary contract version의 canonical SHA-256에서 파생한다. executor는 ServiceAccount,
 NetworkPolicy, Job을 먼저 GET한다. Job이 없을 때만 server dry-run 뒤 `create`하고, AlreadyExists나
 결과 불명은 다시 create하지 않고 exact readback한다. 기존 Job은 완료·실패·결과 불명 모두
-재실행하지 않는다. 성공 output은 raw log를 반사하지 않는 stdin-only verifier에서 아래 한 줄의
-hash와 exact-match해야 한다.
+재실행하지 않는다. 성공 output은 raw log를 반사하지 않는 stdin-only verifier에서 아래 JSON 한 줄과
+마지막 LF(`\n`)를 포함한 exact bytes의 hash와 일치해야 한다.
 
 ```text
 {"state":"CANARY_OK","secretExposed":false}

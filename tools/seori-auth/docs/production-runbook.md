@@ -215,7 +215,7 @@ version의 canonical SHA-256입니다. 같은 Job이 있거나 create 결과가 
 read-only root, tmpfs 두 개, ingress/egress default-deny이며 Secret/ConfigMap/PVC/provider endpoint를
 참조하지 않습니다.
 
-성공 log는 `{"state":"CANARY_OK","secretExposed":false}` 한 줄의 SHA-256
+성공 log는 `{"state":"CANARY_OK","secretExposed":false}` JSON 한 줄과 마지막 LF(`\n`)를 포함한 exact bytes의 SHA-256
 `db69575cac8240a6fb6946f05c32a1ad59d6b58b430b62d99fa2dfa1cea05591`과 exact-match할 때만
 통과합니다. raw log를 운영 화면에 중계하거나 변수·파일에 보관하지 않고
 `kubectl logs job/<job> --container=canary | node scripts/verify-nonsecret-canary-output.mjs`로

@@ -130,7 +130,7 @@ Job이 이미 있으면 삭제·apply·재생성하지 않고 같은 Job과 Pod�
 않으며 Backoffice가 occurrence를 기록하기 전까지 marker로 보존합니다. 결과 불명은
 `READBACK_FIRST`, 이미 존재하는 occurrence는 `READBACK_ONLY`입니다.
 
-성공 stdout의 유일한 허용값은 아래 문자열 한 줄입니다. raw log를 화면에 출력하거나 변수·파일에
+성공 stdout의 유일한 허용값은 아래 JSON 한 줄과 마지막 LF(`\n`)를 포함한 exact bytes입니다. raw log를 화면에 출력하거나 변수·파일에
 보관하지 않고 stdin-only verifier로 직접 보내며, verifier의 공개 digest 결과만 기록합니다.
 
 ```text
