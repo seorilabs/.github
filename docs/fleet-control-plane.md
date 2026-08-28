@@ -34,10 +34,10 @@ flowchart LR
 구현, CI, artifact, upload, processing, device QA, review, approval, deployment,
 public availability는 독립 gate다. 앞 gate의 성공은 뒤 gate를 증명하지 않는다.
 
-2026-08-28 catalog preflight는 99개 항목, 오류 0건, 경고 2건이다. 경고는 정리 완료가
-아니며 credential 이동·회전·삭제의 승인 근거로 사용하지 않는다. repository와 workflow의
-확인 범위 및 남은 권한 blocker는 [P0 기준선 스냅샷](migration/fleet-baseline-2026-08-27.md)에
-고정했다.
+2026-08-28 live catalog preflight는 99개 항목, 오류 0건, 경고 2건이다. 이는 2026-08-27
+기준선 이후 catalog 수치만 다시 읽은 결과이며, 경고는 정리 완료나 credential 이동·회전·삭제의
+승인 근거로 사용하지 않는다. 당시 repository·workflow 확인 범위와 남은 권한 blocker는 날짜가
+고정된 [P0 기준선 스냅샷](migration/fleet-baseline-2026-08-27.md)에 보존한다.
 
 ## WorkflowBundle v4
 
