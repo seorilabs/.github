@@ -191,6 +191,29 @@ if (
   }
   if (args[3] === "update-oidc") {
     if (!state.providers[provider]) notFound();
+    const configurationUpdate = [
+      "--attribute-condition",
+      "--attribute-mapping",
+      "--issuer-uri",
+      "--allowed-audiences",
+    ].some((name) => flag(name) !== undefined);
+    if (flag("--attribute-condition") !== undefined) {
+      state.providers[provider].attributeCondition = flag(
+        "--attribute-condition",
+      );
+    }
+    if (flag("--attribute-mapping") !== undefined) {
+      state.providers[provider].attributeMapping =
+        providerExpectedFromArgs().attributeMapping;
+    }
+    if (flag("--issuer-uri") !== undefined) {
+      state.providers[provider].oidc.issuerUri = flag("--issuer-uri");
+    }
+    if (flag("--allowed-audiences") !== undefined) {
+      state.providers[provider].oidc.allowedAudiences = [
+        flag("--allowed-audiences"),
+      ];
+    }
     if (args.includes("--disabled")) state.providers[provider].disabled = true;
     else if (args.includes("--no-disabled")) {
       state.providers[provider].disabled = false;
@@ -198,7 +221,9 @@ if (
       fail();
     }
     state.history.push(
-      `provider:${state.providers[provider].disabled ? "disable" : "enable"}:${provider}`,
+      configurationUpdate
+        ? `provider:update:${provider}`
+        : `provider:${state.providers[provider].disabled ? "disable" : "enable"}:${provider}`,
     );
     save();
     process.exit(0);

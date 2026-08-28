@@ -18,6 +18,8 @@ import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
 
+import { createTrustedWifProviderPolicy } from "../../packages/repo-contract/src/trusted-executor.mjs";
+
 const contractPath = fileURLToPath(
   new URL("../../contracts/fleet-p3-runtime.yaml", import.meta.url),
 );
@@ -169,15 +171,32 @@ function localSourcePreflight() {
   }
 }
 
+const githubWifPolicy = createTrustedWifProviderPolicy({
+  organizationId: cloud.wif.organizationId,
+  capabilities: cloud.wif.repositories.map(({ repositoryId, workflow }) => ({
+    environment: cloud.githubActions.environment,
+    repositoryId,
+    jobWorkflowRef:
+      `seorilabs/.github/${workflow}@${cloud.wif.workflowExecutionSha}`,
+  })),
+});
+
 function githubCondition() {
-  const repositoryWorkflowClauses = cloud.wif.repositories.map(
-    ({ repositoryId, workflow }) =>
-      `(assertion.repository_id == '${repositoryId}' && ` +
-      `assertion.job_workflow_ref == 'seorilabs/.github/${workflow}@${cloud.wif.workflowExecutionSha}')`,
+  return githubWifPolicy.attributeCondition;
+}
+
+function legacyGithubCondition() {
+  const repositoryClauses = cloud.wif.repositories.map(
+    ({ repositoryId }) => `assertion.repository_id == '${repositoryId}'`,
+  );
+  const workflowClauses = cloud.wif.repositories.map(
+    ({ workflow }) =>
+      `assertion.job_workflow_ref == 'seorilabs/.github/${workflow}@${cloud.wif.workflowExecutionSha}'`,
   );
   return [
     `assertion.repository_owner_id == '${cloud.wif.organizationId}'`,
-    `(${repositoryWorkflowClauses.join(" || ")})`,
+    `(${repositoryClauses.join(" || ")})`,
+    `(${workflowClauses.join(" || ")})`,
   ].join(" && ");
 }
 
@@ -193,12 +212,9 @@ function kubernetesCondition() {
   ].join(" && ");
 }
 
-const githubMapping = [
-  "google.subject=assertion.sub",
-  "attribute.repository=assertion.repository",
-  "attribute.repository_id=assertion.repository_id",
-  "attribute.job_workflow_ref=assertion.job_workflow_ref",
-].join(",");
+const githubMapping = Object.entries(githubWifPolicy.attributeMapping)
+  .map(([attribute, assertion]) => `${attribute}=${assertion}`)
+  .join(",");
 const kubernetesMapping = [
   "google.subject=assertion.sub",
   "attribute.namespace=assertion['kubernetes.io']['namespace']",
@@ -544,9 +560,16 @@ function providerSpecifications() {
         issuer: cloud.wif.githubIssuer,
         audience: cloud.wif.githubAudience,
       },
+      legacy: {
+        condition: legacyGithubCondition(),
+        mapping: githubMapping,
+        issuer: cloud.wif.githubIssuer,
+        audience: cloud.wif.githubAudience,
+      },
       driftCode: "P3_GITHUB_WIF_PROVIDER_DRIFT",
       createCode: "P3_GITHUB_WIF_PROVIDER_CREATE_FAILED",
       enableCode: "P3_GITHUB_WIF_PROVIDER_ENABLE_FAILED",
+      migrationCode: "P3_GITHUB_WIF_PROVIDER_MIGRATION_FAILED",
     },
     {
       name: "kubernetes",
@@ -565,17 +588,21 @@ function providerSpecifications() {
 }
 
 function preflightProviders() {
-  const states = providerSpecifications().map((specification) => ({
-    ...specification,
-    existing: providerRead(specification.id),
-  }));
-  for (const { existing, expected, driftCode } of states) {
-    if (
-      existing !== null &&
-      !providerConfigurationMatches(existing, expected)
-    ) {
-      fail(driftCode);
-    }
+  const states = providerSpecifications().map((specification) => {
+    const existing = providerRead(specification.id);
+    const configurationState =
+      existing === null
+        ? "MISSING"
+        : providerConfigurationMatches(existing, specification.expected)
+          ? "EXACT"
+          : specification.legacy &&
+              providerConfigurationMatches(existing, specification.legacy)
+            ? "LEGACY_MIGRATION_REQUIRED"
+            : "DRIFT";
+    return { ...specification, existing, configurationState };
+  });
+  for (const { configurationState, driftCode } of states) {
+    if (configurationState === "DRIFT") fail(driftCode);
   }
   return states;
 }
@@ -630,15 +657,64 @@ function createKubernetesProvider({ id, expected, createCode }) {
   }
 }
 
+function migrateGithubProvider({
+  id,
+  existing,
+  expected,
+  legacy,
+  migrationCode,
+}) {
+  if (existing.disabled !== true) {
+    updateProviderDisabled(id, true, migrationCode);
+  }
+  const disabledLegacy = providerRead(id);
+  if (
+    !providerConfigurationMatches(disabledLegacy, legacy) ||
+    disabledLegacy?.disabled !== true
+  ) {
+    fail(migrationCode);
+  }
+  gcloudRun(
+    [
+      "iam",
+      "workload-identity-pools",
+      "providers",
+      "update-oidc",
+      id,
+      `--project=${cloud.projectId}`,
+      "--location=global",
+      `--workload-identity-pool=${cloud.wif.pool}`,
+      `--issuer-uri=${expected.issuer}`,
+      `--allowed-audiences=${expected.audience}`,
+      `--attribute-mapping=${expected.mapping}`,
+      `--attribute-condition=${expected.condition}`,
+      "--disabled",
+      "--format=none",
+    ],
+    migrationCode,
+  );
+  const narrowed = providerRead(id);
+  if (
+    !providerConfigurationMatches(narrowed, expected) ||
+    narrowed?.disabled !== true
+  ) {
+    fail(migrationCode);
+  }
+  updateProviderDisabled(id, false, migrationCode);
+  if (!providerMatches(providerRead(id), expected)) fail(migrationCode);
+}
+
 function ensureProviders() {
   const states = preflightProviders();
   for (const state of states) {
-    if (state.existing === null) {
+    if (state.configurationState === "MISSING") {
       if (state.name === "github") createGithubProvider(state);
       else createKubernetesProvider(state);
       if (!providerMatches(providerRead(state.id), state.expected)) {
         fail(state.createCode);
       }
+    } else if (state.configurationState === "LEGACY_MIGRATION_REQUIRED") {
+      migrateGithubProvider(state);
     } else if (state.existing.disabled === true) {
       updateProviderDisabled(state.id, false, state.enableCode);
       if (!providerMatches(providerRead(state.id), state.expected)) {
@@ -815,7 +891,13 @@ function rollback() {
   const states = preflightProviders();
   const providersDisabled = [];
   const providersAbsent = [];
-  for (const { id, expected, existing } of states) {
+  for (const {
+    id,
+    expected,
+    legacy,
+    existing,
+    configurationState,
+  } of states) {
     if (existing === null) {
       providersAbsent.push(id);
       continue;
@@ -824,8 +906,10 @@ function rollback() {
       updateProviderDisabled(id, true, "P3_GCP_WIF_PROVIDER_DISABLE_FAILED");
     }
     const disabled = providerRead(id);
+    const rollbackConfiguration =
+      configurationState === "LEGACY_MIGRATION_REQUIRED" ? legacy : expected;
     if (
-      !providerConfigurationMatches(disabled, expected) ||
+      !providerConfigurationMatches(disabled, rollbackConfiguration) ||
       disabled?.disabled !== true
     ) {
       fail("P3_GCP_WIF_PROVIDER_DISABLE_FAILED");

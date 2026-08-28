@@ -1,12 +1,13 @@
 # Fleet P3 runtime 전환 기록
 
-최신 기준 source는 `origin/main@6e18b189d112f23270426cd88b3f906969103b75`이다. 이 문서는
+P3 WorkflowBundle provenance 기준 source는
+`a59f5d4e0b850c11f9b2cca165c89c1339851a2c`이다. 이 문서는
 2026-08-28~29 KST live readback과 P3 공개 계약을 분리해 기록한다. secret, capability, 승인
 receipt, lease token은 기록하지 않는다.
 
 ## 적용 전 readback
 
-- 로컬 credential catalog preflight는 104개 entry, warning 2개, error 0개였다. 신규 P3
+- 로컬 credential catalog preflight는 103개 entry, warning 0개, error 0개였다. 신규 P3
   logical ID 5개는 공개 identity만 가진 `planned` 상태며 활성 credential이 아니다.
 - `seorilabs-ci`에는 default compute service account만 있었고 현재 provisioner에는 service
   account 생성, project IAM 조회·변경, WIF pool 조회·변경 권한이 없었다.
@@ -130,13 +131,26 @@ workload·PVC도 0개였다. production renderer는 이제 세 Pod에 exact
 
 GitHub 조직 변경도 기본 dry-run이다. apply confirmation은 reusable workflow execution pin
 `c328d9b`가 아니라 canonical App/operation plan digest에 결합한다. WorkflowBundle provenance는
-현재 source `6e18b18`에, reusable workflow execution은 동일 bytes가 검증된 `c328d9b`에 각각
+1단계 source `a59f5d4`에, reusable workflow execution은 동일 bytes가 검증된 `c328d9b`에 각각
 고정한다. GitHub WIF condition은 numeric owner ID와 Happy Farm/RN, Lizard Tycoon/Godot의
 `repository_id + job_workflow_ref` 쌍만 허용하며 교차 조합을 허용하지 않는다. `internal`
 Environment에는 중앙 desired state의 공개 WIF provider와 Cloud Build submitter/executor SA를
 같은 binding revision으로 reconcile한다. 조직 owner는 permission expansion approval을 먼저
 처리해야 하며, 복구 private key로 short-lived installation token을 만드는 trusted executor와
 exact capability readback이 검증되기 전에는 ambient personal token apply가 항상 차단된다.
+bootstrap과 trusted executor는 같은 공개 policy generator를 사용한다. provider mapping은
+`repository_id + job_workflow_ref`로, IAM member는 `attribute.repository_id`로 통일되며 provider
+condition이 두 exact pair만 token exchange하도록 제한한다. 별도의
+`environment/seorilabs_capability` mapping이나 generic workflow regex를 같은 provider에
+덮어쓰는 경로는 제거했다.
+기존 cross-product condition은 알려진 legacy condition, mapping, issuer, audience가 모두 exact일
+때만 이관한다. active provider는 먼저 disable하고 legacy 상태를 다시 읽은 뒤 pairwise condition으로
+축소하며, disabled exact readback을 통과한 뒤에만 다시 enable한다. 알 수 없는 drift는 provider를
+수정하지 않고 중단한다.
+
+GitHub App bootstrap, trusted executor, candidate canary와 exact-source readback의 REST header는
+모두 `2026-03-10`으로 통일했다. 이 값은 내부 계약 날짜만이 아니라 GitHub가 현재 지원하는 REST
+API version이다. [GitHub REST API versions](https://docs.github.com/en/rest/about-the-rest-api/api-versions?apiVersion=2026-03-10)
 
 ```bash
 node scripts/fleet/bootstrap-p3-github.mjs

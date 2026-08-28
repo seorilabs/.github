@@ -13,7 +13,7 @@ import {
 const CONTRACT = "seorilabs-candidate-canary-v1";
 const ORGANIZATION_LOGIN = "seorilabs";
 const GITHUB_API_ORIGIN = "https://api.github.com";
-const GITHUB_API_VERSION = "2022-11-28";
+const GITHUB_API_VERSION = "2026-03-10";
 const DEFAULT_REF = "refs/heads/main";
 const BINDING_TTL_MS = 5 * 60 * 1000;
 
@@ -192,66 +192,27 @@ function candidatePolicyValid(bundle) {
   );
 }
 
-function sourceSnapshotMatches(snapshot, bundle) {
-  const expectedKeys = [
-    "contractAssetContents",
-    "contractDigests",
-    "repository",
-    "runtimeAssetContents",
-    "runtimeAssetDigests",
-    "sourceSha",
-    "workflowBundleSchemaText",
-  ];
-  const contractPaths = Object.keys(bundle.quality.contractDigests).sort();
-  const runtimePaths = Object.keys(bundle.quality.runtimeAssetDigests).sort();
-  if (
-    !exactKeys(snapshot, expectedKeys) ||
-    snapshot.repository !== "seorilabs/.github" ||
-    snapshot.sourceSha !== bundle.source.sha ||
-    canonicalJson(snapshot.contractDigests) !==
-      canonicalJson(bundle.quality.contractDigests) ||
-    canonicalJson(snapshot.runtimeAssetDigests) !==
-      canonicalJson(bundle.quality.runtimeAssetDigests) ||
-    !exactKeys(snapshot.contractAssetContents, contractPaths) ||
-    !exactKeys(snapshot.runtimeAssetContents, runtimePaths) ||
-    typeof snapshot.workflowBundleSchemaText !== "string" ||
-    sha256(Buffer.from(snapshot.workflowBundleSchemaText, "utf8")) !==
-      bundle.quality.contractDigests["contracts/workflow-bundle.schema.json"]
-  ) {
-    return false;
-  }
-  return (
-    contractPaths.every(
-      (path) =>
-        typeof snapshot.contractAssetContents[path] === "string" &&
-        sha256(Buffer.from(snapshot.contractAssetContents[path], "utf8")) ===
-          bundle.quality.contractDigests[path],
-    ) &&
-    runtimePaths.every(
-      (path) =>
-        typeof snapshot.runtimeAssetContents[path] === "string" &&
-        sha256(Buffer.from(snapshot.runtimeAssetContents[path], "utf8")) ===
-          bundle.quality.runtimeAssetDigests[path],
-    )
-  );
-}
-
 async function readCandidateSource(state) {
-  let snapshot;
+  let validation;
   try {
-    snapshot = clone(
-      await state.trustedWorkflowSourceReadback({
-        repository: "seorilabs/.github",
-        sourceSha: state.bundle.source.sha,
-        contractPaths: Object.keys(state.bundle.quality.contractDigests),
-        runtimeAssetPaths: Object.keys(state.bundle.quality.runtimeAssetDigests),
-      }),
-      "CANDIDATE_CANARY_SOURCE_READBACK_INVALID",
-    );
+    validation = await validateWorkflowBundle(state.bundle, {
+      repoRoot: state.repoRoot,
+      trustedWorkflowSourceReadback: state.trustedWorkflowSourceReadback,
+    });
   } catch {
     throw new Error("CANDIDATE_CANARY_SOURCE_READBACK_FAILED");
   }
-  if (!sourceSnapshotMatches(snapshot, state.bundle)) {
+  if (!validation.ok) {
+    if (
+      validation.diagnostics.some((diagnostic) =>
+        [
+          "WORKFLOW_EXECUTION_SOURCE_READBACK_FAILED",
+          "WORKFLOW_SOURCE_READBACK_FAILED",
+        ].includes(diagnostic),
+      )
+    ) {
+      throw new Error("CANDIDATE_CANARY_SOURCE_READBACK_FAILED");
+    }
     throw new Error("CANDIDATE_CANARY_SOURCE_MISMATCH");
   }
 }
@@ -297,6 +258,7 @@ export async function loadTrustedCandidateBundle(
     bundle: snapshot,
     expiresAtMs: nowMs + BINDING_TTL_MS,
     now,
+    repoRoot,
     trustedWorkflowSourceReadback,
   };
   await readCandidateSource(state);

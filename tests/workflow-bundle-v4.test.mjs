@@ -86,18 +86,25 @@ test.afterEach(async () => {
 });
 
 function trustedSourceReadbackFor(bundle) {
-  return async ({ repository, sourceSha }) => ({
+  return async ({ repository, sourceSha, contractPaths, runtimeAssetPaths }) => ({
     repository,
     sourceSha,
-    contractDigests: structuredClone(bundle.quality.contractDigests),
-    runtimeAssetDigests: structuredClone(bundle.quality.runtimeAssetDigests),
+    contractDigests: Object.fromEntries(
+      contractPaths.map((path) => [path, bundle.quality.contractDigests[path]]),
+    ),
+    runtimeAssetDigests: Object.fromEntries(
+      runtimeAssetPaths.map((path) => [
+        path,
+        bundle.quality.runtimeAssetDigests[path],
+      ]),
+    ),
     workflowBundleSchemaText: await readFile(
       "contracts/workflow-bundle.schema.json",
       "utf8",
     ),
     contractAssetContents: Object.fromEntries(
       await Promise.all(
-        Object.keys(bundle.quality.contractDigests).map(async (path) => [
+        contractPaths.map(async (path) => [
           path,
           await readFile(path, "utf8"),
         ]),
@@ -105,7 +112,7 @@ function trustedSourceReadbackFor(bundle) {
     ),
     runtimeAssetContents: Object.fromEntries(
       await Promise.all(
-        Object.keys(bundle.quality.runtimeAssetDigests).map(async (path) => [
+        runtimeAssetPaths.map(async (path) => [
           path,
           await readFile(path, "utf8"),
         ]),
@@ -129,6 +136,7 @@ function verifiedEvidence(record, bundle) {
     fullName: bundle.quality.canaries[record.profile].fullName,
     sourceSha: record.sourceSha,
     workflowBundleSourceSha: record.workflowBundleSourceSha,
+    workflowExecutionSha: bundle.buildWorkflows[record.profile].sha,
     staticRunId: record.staticRunId,
     buildRunId: record.buildRunId,
     cloudBuildId: record.cloudBuildId,
@@ -389,6 +397,24 @@ test("canary 승격 원장은 Cloud Build 실행과 signed builder/config를 exa
     }),
     /CANARY_EVIDENCE_READBACK_FAILED/u,
   );
+
+  for (const field of ["workflowBundleSourceSha", "workflowExecutionSha"]) {
+    await assert.rejects(
+      promoteWorkflowBundle(candidate, EVIDENCE, {
+        trustedWorkflowSourceReadback: trustedSourceReadbackFor(candidate),
+        trustedRunnerImageReadback,
+        evidenceVerifier: async (record, bundle) => {
+          const verified = verifiedEvidence(record, bundle);
+          verified[field] =
+            field === "workflowBundleSourceSha"
+              ? bundle.buildWorkflows[record.profile].sha
+              : bundle.source.sha;
+          return verified;
+        },
+      }),
+      /CANARY_EVIDENCE_READBACK_FAILED/u,
+    );
+  }
 });
 
 test("exact GitHub readback은 과거 bundle의 signed path set을 허용하되 traversal을 거부한다", async () => {

@@ -20,6 +20,11 @@ import { parse, stringify } from "yaml";
 
 import { githubAppReadback } from "../scripts/fleet/github-app-readback.mjs";
 import { recoverGithubAppCredentials } from "../scripts/fleet/github-credential-recovery.mjs";
+import {
+  createTrustedWifAdapter,
+  createTrustedWifProviderPolicy,
+  trustedFleetExecutorContract,
+} from "../packages/repo-contract/src/trusted-executor.mjs";
 
 const execFileAsync = promisify(execFile);
 const script = "scripts/fleet/render-p3-runtime.mjs";
@@ -66,6 +71,10 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
     schema,
   );
   assert.equal(validate(contract), true, JSON.stringify(validate.errors));
+  assert.equal(
+    trustedFleetExecutorContract.githubApiVersion,
+    contract.github.apiVersion,
+  );
   assert.deepEqual(
     contract.github.pilotValues.map(({ repository }) => repository),
     ["happy-farm", "lizard-tycoon"],
@@ -573,7 +582,7 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   assert.doesNotMatch(output.confirmation, /c328d9bf55f3/u);
   assert.equal(
     output.workflowBundleSourceSha,
-    "6e18b189d112f23270426cd88b3f906969103b75",
+    "a59f5d4e0b850c11f9b2cca165c89c1339851a2c",
   );
   assert.equal(
     output.workflowExecutionSha,
@@ -593,6 +602,92 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
       "((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v1.yml@c328d9bf55f31ba11f53ef06071cc7b76d283617') || " +
       "(assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v1.yml@c328d9bf55f31ba11f53ef06071cc7b76d283617'))",
   );
+  const capabilities = contract.cloudBuild.wif.repositories.map(
+    ({ repositoryId, workflow }) => ({
+      environment: contract.cloudBuild.githubActions.environment,
+      repositoryId,
+      jobWorkflowRef:
+        `seorilabs/.github/${workflow}@${contract.cloudBuild.wif.workflowExecutionSha}`,
+    }),
+  );
+  const providerPolicy = createTrustedWifProviderPolicy({
+    organizationId: contract.cloudBuild.wif.organizationId,
+    capabilities,
+  });
+  assert.equal(
+    providerPolicy.attributeCondition,
+    output.workloadIdentity.github.attributeCondition,
+  );
+  assert.deepEqual(
+    providerPolicy.attributeMapping,
+    Object.fromEntries(
+      output.workloadIdentity.github.attributeMapping
+        .split(",")
+        .map((entry) => entry.split(/=(.*)/su).slice(0, 2)),
+    ),
+  );
+  const trustedWifAdapter = createTrustedWifAdapter({
+    organizationId: contract.cloudBuild.wif.organizationId,
+    bindings: [
+      {
+        bindingRevision: contract.cloudBuild.githubActions.bindingRevision,
+        capabilities,
+        logicalCredentialId:
+          contract.cloudBuild.githubActions.logicalCredentialId,
+        providerResourceName: `//iam.googleapis.com/${contract.cloudBuild.provider}`,
+        serviceAccountEmail:
+          contract.cloudBuild.submitter.serviceAccountEmail,
+      },
+    ],
+    provider: {
+      async applyBinding() {
+        throw new Error("unused");
+      },
+      async readBinding({ expected }) {
+        return {
+          ...structuredClone(expected),
+          providerEtag: "provider-etag-p3",
+          serviceAccountPolicyEtag: "policy-etag-p3",
+          state: "BOUND",
+        };
+      },
+    },
+  });
+  for (const capability of capabilities) {
+    const observation = await trustedWifAdapter.readOperation(
+      {
+        kind: "gcp.wif-binding.ensure",
+        payload: {
+          approvedBundleDigest: `sha256:${"1".repeat(64)}`,
+          bindingRevision:
+            contract.cloudBuild.githubActions.bindingRevision,
+          environment: capability.environment,
+          jobWorkflowRef: capability.jobWorkflowRef,
+          logicalCredentialId:
+            contract.cloudBuild.githubActions.logicalCredentialId,
+          organizationId: contract.cloudBuild.wif.organizationId,
+          repositoryId: capability.repositoryId,
+        },
+      },
+      { id: capability.repositoryId },
+    );
+    assert.equal(
+      observation.providerAttributeCondition,
+      output.workloadIdentity.github.attributeCondition,
+    );
+    assert.deepEqual(
+      observation.providerAttributeMapping,
+      providerPolicy.attributeMapping,
+    );
+    assert.ok(
+      output.iamBindings.some(
+        ({ member, resource, role }) =>
+          member === observation.principalSetMember &&
+          resource === contract.cloudBuild.submitter.serviceAccountEmail &&
+          role === "roles/iam.workloadIdentityUser",
+      ),
+    );
+  }
   assert.match(
     output.workloadIdentity.kubernetes.attributeCondition,
     /namespace.*auth-broker/u,
@@ -616,7 +711,7 @@ test("GCP bootstrap apply와 rollback은 exact 공개 confirmation 없이는 실
   }
 });
 
-test("GCP apply와 rollback은 두 provider를 preflight하고 기존 IAM을 보존한다", async () => {
+test("GCP apply는 exact legacy GitHub provider만 단조 축소하고 rollback은 IAM을 보존한다", async () => {
   const bootstrapSource = await readFile(gcpBootstrap, "utf8");
   assert.doesNotMatch(bootstrapSource, /remove-iam-policy-binding/u);
   const planResult = await execFileAsync(process.execPath, [gcpBootstrap, "plan"]);
@@ -639,6 +734,21 @@ test("GCP apply와 rollback은 두 provider를 preflight하고 기존 IAM을 보
     disabled,
     oidc: { allowedAudiences: [audience], issuerUri: issuer },
   });
+  const legacyGithubCondition = [
+    `assertion.repository_owner_id == '${contract.cloudBuild.wif.organizationId}'`,
+    `(${contract.cloudBuild.wif.repositories
+      .map(
+        ({ repositoryId }) =>
+          `assertion.repository_id == '${repositoryId}'`,
+      )
+      .join(" || ")})`,
+    `(${contract.cloudBuild.wif.repositories
+      .map(
+        ({ workflow }) =>
+          `assertion.job_workflow_ref == 'seorilabs/.github/${workflow}@${contract.cloudBuild.wif.workflowExecutionSha}'`,
+      )
+      .join(" || ")})`,
+  ].join(" && ");
   const initialState = {
     projectNumber: plan.project.number,
     serviceAccounts: Object.fromEntries(
@@ -656,7 +766,10 @@ test("GCP apply와 rollback은 두 provider를 preflight하고 기존 IAM을 보
     },
     providers: {
       [plan.workloadIdentity.github.provider]: providerState(
-        plan.workloadIdentity.github,
+        {
+          ...plan.workloadIdentity.github,
+          attributeCondition: legacyGithubCondition,
+        },
       ),
       [plan.workloadIdentity.kubernetes.provider]: providerState(
         plan.workloadIdentity.kubernetes,
@@ -689,10 +802,46 @@ test("GCP apply와 rollback은 두 provider를 preflight하고 기존 IAM을 보
     writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 
   try {
+    for (const drift of ["condition", "mapping"]) {
+      const unknownGithubDrift = structuredClone(initialState);
+      const githubState =
+        unknownGithubDrift.providers[
+          plan.workloadIdentity.github.provider
+        ];
+      if (drift === "condition") {
+        githubState.attributeCondition += " && false";
+      } else {
+        githubState.attributeMapping["attribute.environment"] =
+          "assertion.environment";
+      }
+      await writeState(unknownGithubDrift);
+      await assert.rejects(
+        bootstrap("apply", plan.confirmation),
+        (error) => {
+          assert.match(error.stderr, /P3_GITHUB_WIF_PROVIDER_DRIFT/u);
+          return true;
+        },
+      );
+      assert.deepEqual((await readState()).history, []);
+    }
+
     await writeState(initialState);
     const applied = await bootstrap("apply", plan.confirmation);
     assert.equal(applied.ready, true);
     const appliedState = await readState();
+    const githubProvider = plan.workloadIdentity.github.provider;
+    assert.deepEqual(
+      appliedState.history.filter((entry) => entry.includes(githubProvider)),
+      [
+        `provider:disable:${githubProvider}`,
+        `provider:update:${githubProvider}`,
+        `provider:enable:${githubProvider}`,
+      ],
+    );
+    assert.equal(
+      appliedState.providers[githubProvider].attributeCondition,
+      plan.workloadIdentity.github.attributeCondition,
+    );
     assert.equal(
       appliedState.bindings.filter(
         (item) => JSON.stringify(item) === JSON.stringify(plan.iamBindings[0]),
@@ -847,7 +996,7 @@ test("Secret Manager bootstrap은 role partition을 two-phase 적용하고 rollb
   assert.equal(plan.provisioning.plaintextTransport, "fd3");
   assert.equal(
     plan.workflowBundleSourceSha,
-    "6e18b189d112f23270426cd88b3f906969103b75",
+    "a59f5d4e0b850c11f9b2cca165c89c1339851a2c",
   );
   assert.equal(
     plan.workflowExecutionSha,

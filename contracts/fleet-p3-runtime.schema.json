@@ -270,7 +270,7 @@
             "kubernetesIssuer": { "const": "https://kubernetes.default.svc" },
             "githubAudience": { "const": "https://github.com/seorilabs" },
             "organizationId": { "const": "283115031" },
-            "workflowBundleSourceSha": { "const": "6e18b189d112f23270426cd88b3f906969103b75" },
+            "workflowBundleSourceSha": { "const": "a59f5d4e0b850c11f9b2cca165c89c1339851a2c" },
             "workflowExecutionSha": { "const": "c328d9bf55f31ba11f53ef06071cc7b76d283617" },
             "repositories": {
               "type": "array",
