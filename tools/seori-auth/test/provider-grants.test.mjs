@@ -292,6 +292,22 @@ test('P5 provider grant shape is five-minute exact-bound and protected actions r
   );
 });
 
+test('provider public JSON keeps prototype-like keys as inert data', () => {
+  const now = Date.now();
+  const desired = JSON.parse(
+    '{"__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}}}',
+  );
+  const normalized = normalizeProviderGrantRegistration(
+    rawRegistration(now, { command: { desired } }),
+    { subject, now },
+  );
+
+  assert.equal(Object.getPrototypeOf(normalized.grant.command.desired), null);
+  assert.equal(Object.hasOwn(normalized.grant.command.desired, '__proto__'), true);
+  assert.equal(Object.hasOwn(normalized.grant.command.desired, 'constructor'), true);
+  assert.equal({}.polluted, undefined);
+});
+
 test('provider command rejects shell surfaces, sensitive desired fields, and binding drift', () => {
   const now = Date.now();
   const withArgv = rawRegistration(now);

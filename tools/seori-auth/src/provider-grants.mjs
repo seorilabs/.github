@@ -128,7 +128,9 @@ function normalizePublicJson(value, label, depth = 0) {
   }
   const entries = Object.entries(value);
   if (entries.length > 256) fail('invalid_provider_grant', `${label} contains too many fields`);
-  const normalized = {};
+  // Public provider payloads are untrusted JSON. A null prototype keeps keys
+  // such as `__proto__` and `constructor` as inert data during normalization.
+  const normalized = Object.create(null);
   for (const [key, nested] of entries) {
     if (
       key.length === 0 || key.length > 128 || /[\u0000-\u001f\u007f]/.test(key) ||

@@ -32,6 +32,41 @@ function providerEnvironment(adapter) {
   };
 }
 
+const BASE64_ALPHABET = Buffer.from(
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',
+  'ascii',
+);
+const HEX_ALPHABET = Buffer.from('0123456789abcdef', 'ascii');
+
+function base64Marker(secretBuffer) {
+  const output = Buffer.alloc(Math.ceil(secretBuffer.length / 3) * 4, 0x3d);
+  let read = 0;
+  let write = 0;
+  while (read < secretBuffer.length) {
+    const first = secretBuffer[read++];
+    const hasSecond = read < secretBuffer.length;
+    const second = hasSecond ? secretBuffer[read++] : 0;
+    const hasThird = read < secretBuffer.length;
+    const third = hasThird ? secretBuffer[read++] : 0;
+    output[write++] = BASE64_ALPHABET[first >> 2];
+    output[write++] = BASE64_ALPHABET[((first & 0x03) << 4) | (second >> 4)];
+    if (hasSecond) output[write++] = BASE64_ALPHABET[((second & 0x0f) << 2) | (third >> 6)];
+    else write += 1;
+    if (hasThird) output[write] = BASE64_ALPHABET[third & 0x3f];
+    write += 1;
+  }
+  return output;
+}
+
+function hexMarker(secretBuffer) {
+  const output = Buffer.alloc(secretBuffer.length * 2);
+  for (let index = 0; index < secretBuffer.length; index += 1) {
+    output[index * 2] = HEX_ALPHABET[secretBuffer[index] >> 4];
+    output[(index * 2) + 1] = HEX_ALPHABET[secretBuffer[index] & 0x0f];
+  }
+  return output;
+}
+
 async function runChild({ adapter, secretBuffer }) {
   const executable = adapter.launcher?.executable ?? adapter.executable;
   const args = adapter.launcher
@@ -161,14 +196,14 @@ async function runProviderChild({ adapter, secretBuffer, command }) {
     });
     if (exceeded) fail('adapter_output_limit', 'trusted provider adapter exceeded its output limit');
     const encodedResult = Buffer.concat(resultChunks);
+    const markers = secretBuffer.length >= 8
+      ? [secretBuffer, base64Marker(secretBuffer), hexMarker(secretBuffer)]
+      : [];
     try {
-      const rawSecret = secretBuffer.toString('utf8');
-      const commonEncodings = [rawSecret, secretBuffer.toString('base64'), secretBuffer.toString('hex')]
-        .filter((candidate) => candidate.length >= 8);
-      const publicOutput = encodedResult.toString('utf8');
-      if (commonEncodings.some((candidate) => publicOutput.includes(candidate))) {
+      if (markers.some((candidate) => encodedResult.includes(candidate))) {
         fail('adapter_result_secret_detected', 'trusted provider adapter result contained credential material');
       }
+      const publicOutput = encodedResult.toString('utf8');
       let parsed;
       try {
         parsed = JSON.parse(publicOutput);
@@ -181,6 +216,7 @@ async function runProviderChild({ adapter, secretBuffer, command }) {
       }
       return Object.freeze({ ...processResult, adapterResult });
     } finally {
+      for (const marker of markers.slice(1)) marker.fill(0);
       encodedResult.fill(0);
     }
   } finally {
