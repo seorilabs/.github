@@ -32,6 +32,15 @@ function sendJson(response, status, value) {
   response.end(body);
 }
 
+function errorStatus(code) {
+  if (code === 'principal_unauthenticated') return 403;
+  if (
+    code.startsWith('invalid_') || code === 'request_too_large' ||
+    code === 'unsupported_media_type'
+  ) return 400;
+  return 409;
+}
+
 async function readJson(request) {
   if ((request.headers['content-type'] ?? '').split(';', 1)[0].trim() !== 'application/json') {
     fail('unsupported_media_type', 'request content type must be application/json');
@@ -107,7 +116,7 @@ export class FactorHttpApplication {
       await this.#handle(request, response);
     } catch (error) {
       const code = error instanceof SeoriAuthError ? error.code : 'internal_error';
-      if (!response.headersSent) sendJson(response, code.startsWith('invalid_') ? 400 : 409, { error: { code } });
+      if (!response.headersSent) sendJson(response, errorStatus(code), { error: { code } });
       else response.destroy();
     }
   }

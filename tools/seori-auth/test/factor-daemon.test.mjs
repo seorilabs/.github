@@ -23,16 +23,16 @@ function fakeTlsSocket() {
   };
 }
 
-function request(path, body) {
+function request(path, body, { headers = { 'content-type': 'application/json' }, socket = fakeTlsSocket() } = {}) {
   const stream = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]);
   stream.method = 'POST';
   stream.url = path;
-  stream.headers = { 'content-type': 'application/json' };
-  Object.defineProperty(stream, 'socket', { value: fakeTlsSocket() });
+  stream.headers = headers;
+  Object.defineProperty(stream, 'socket', { value: socket });
   return stream;
 }
 
-async function dispatch(application, path, body) {
+async function dispatch(application, path, body, options) {
   return new Promise((resolve, reject) => {
     const response = {
       headersSent: false,
@@ -48,7 +48,7 @@ async function dispatch(application, path, body) {
         reject(new Error('response destroyed'));
       },
     };
-    application.dispatch(request(path, body), response).catch(reject);
+    application.dispatch(request(path, body, options), response).catch(reject);
   });
 }
 
@@ -162,4 +162,34 @@ test('factor execution copy is zeroized when adapter lookup fails before spawn',
   assert.deepEqual(JSON.parse(response.body), { error: { code: 'adapter_not_trusted' } });
   assert.ok(executionCopy.every((byte) => byte === 0));
   assert.doesNotMatch(response.body, /FAKE_UNTRUSTED_ADAPTER_CANARY/);
+});
+
+test('factor request and authentication failures use stable HTTP semantics', async () => {
+  const application = new FactorHttpApplication({
+    kind: 'password',
+    factor: { async loadPassword() { return Buffer.from('must-never-be-loaded'); } },
+    registry: new TrustedAdapterRegistry([]),
+    allowedBrokerSpiffeIds: [brokerSpiffeId],
+  });
+  const path = '/internal/factors/password/execute';
+
+  const unsupported = await dispatch(application, path, input('unsupported-media'), {
+    headers: { 'content-type': 'text/plain' },
+  });
+  assert.equal(unsupported.status, 400);
+  assert.deepEqual(JSON.parse(unsupported.body), { error: { code: 'unsupported_media_type' } });
+
+  const invalid = await dispatch(application, path, { unexpected: true });
+  assert.equal(invalid.status, 400);
+  assert.deepEqual(JSON.parse(invalid.body), { error: { code: 'invalid_request' } });
+
+  const unauthenticated = await dispatch(application, path, input('unauthenticated'), {
+    socket: {
+      encrypted: true,
+      authorized: false,
+      getPeerCertificate() { return {}; },
+    },
+  });
+  assert.equal(unauthenticated.status, 403);
+  assert.deepEqual(JSON.parse(unauthenticated.body), { error: { code: 'principal_unauthenticated' } });
 });
