@@ -17,8 +17,9 @@
 - journal MAC logical ID/generation과 직전 trusted head MAC
 - Browser Vault key logical ID/generation과 encrypted PVC snapshot ID
 
-값이 빠졌거나 `REPLACE_*`, `example.invalid`, `seorilabs.io/deployable: "false"`가 하나라도
-남으면 배포를 중단합니다.
+값이 빠졌거나 image가 immutable digest가 아니거나 role별 identity/config/TLS 이름이
+중복되면 renderer가 중단해야 합니다. comment-only legacy 경로를 manifest 입력으로
+사용하지 않습니다.
 
 ## 2. Native 경계 빌드와 검증
 
@@ -37,6 +38,25 @@ npm test
 layer에 두고 승인된 SHA-256과 `NativeSecurityBoundary.open`의 checksum이 같아야 합니다.
 broker process와 모든 credential adapter/factor service entrypoint를
 `seori-auth-native launch -- /absolute/executable ...`로 시작합니다.
+
+ARM64 image는 저장소 root에서 다음처럼 빌드합니다. 실제 registry push와 digest 승격은
+별도 배포 승인 뒤 수행합니다.
+
+```sh
+docker buildx build --platform linux/arm64 \
+  --file tools/seori-auth/Dockerfile \
+  --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
+  --tag seori-auth:canary .
+docker run --rm --network none --read-only --cap-drop ALL \
+  --security-opt no-new-privileges seori-auth:canary
+```
+
+production config의 `nativeHelperSha256`, `secretAccess.nodeSha256`,
+`secretAccess.childSha256`는 해당 immutable image 안의 세 파일 checksum과 같아야 합니다.
+`secretAccess.configSha256`는 role별 `secret-access.json`의 exact checksum이며 renderer의
+`secretAccessConfigSha256`와 같아야 합니다. 서비스는 파일의 root ownership, checksum,
+numeric resource partition, WIF audience와 public GSA impersonation target을 readiness 전에
+모두 검증합니다.
 
 Unix socket의 UID/GID/PID만으로 run 권한을 만들지 않습니다. scheduler가 agent input
 밖에 보관하는 run capability를 조회해 subject/run/repository/worker를 반환하고, HTTP
@@ -124,12 +144,17 @@ Kubernetes의 tmpfs `emptyDir`은 Pod 삭제 시 폐기되며, 같은 Pod의 bro
 
 ## 5. Kubernetes render gate
 
-`k8s/production`을 별도 overlay에서 render한 뒤 schema/admission dry-run과 실제 binding을
-read-only로 확인합니다. RPI4에는 신규 workload를 배치하지 않고 검증된 RPI5 node
-selector/taint toleration을 overlay에서 지정합니다.
+`scripts/render-production-k8s.mjs`에 절대 경로의 public deployment config를 전달한 뒤
+schema/admission dry-run과 실제 binding을 read-only로 확인합니다. config에는 secret 값이
+아니라 image digest, object 이름, public Google identity/WIF audience, selector와 port만
+들어갑니다. RPI4에는 신규 workload를 배치하지 않고 검증된 RPI5 label을 node selector로
+지정합니다. 기존 `k8s/production/*.yaml`은 적용할 객체가 없는 compatibility marker입니다.
 
 ```sh
-kubectl apply --dry-run=server -f rendered-auth-broker.yaml
+node scripts/render-production-k8s.mjs \
+  --config=/absolute/path/to/public-deployment.json > rendered-auth-broker.json
+kubectl apply --dry-run=client --validate=false -f rendered-auth-broker.json
+kubectl apply --dry-run=server -f rendered-auth-broker.json
 for sa in auth-broker password-loader totp-signer; do
   kubectl auth can-i get secrets \
     --as "system:serviceaccount:auth-broker:${sa}" -n auth-broker
@@ -145,6 +170,7 @@ done
 - namespace Pod Security `restricted` enforce/audit/warn
 - 모든 container non-root, read-only root, RuntimeDefault seccomp, capabilities ALL drop
 - automount token false, explicit short-lived WIF audience만 mount
+- projected token은 고정 mount root와 leaf `token`만 사용하며 native `openat2` 검증을 통과
 - default deny 후 trusted worker ingress, factor-service 내부 통신, DNS와 egress proxy만 허용
 - egress proxy가 exact provider hostname/TLS identity를 검증하고 direct Internet은 차단
 - state/Vault PVC는 worker와 factor service에 mount되지 않고 storage encryption이 활성
@@ -164,6 +190,10 @@ TTL/startup reclaim, concurrent duplicate complete의 adapter 1회 실행, crash
 approval ID 동시 발급 1회, wrong MAC key, journal tamper와 session revoke가 모두 fail-closed인
 뒤 provider별 read-only canary를 하나씩 활성화합니다. upload/submit/public release/role/key
 변경은 로그인 성공과 별개의 approval policy가 있어야 합니다.
+
+container canary는 추가로 parent/child core dump 비활성화, fixed child argv와 digest,
+projected token의 one-read FD close, symlink escape 거부, 같은 resource의 동시 accessor 거부를
+검증합니다. 오류에는 token byte나 symlink target path가 포함되어서는 안 됩니다.
 
 ## 7. 중단과 rollback
 

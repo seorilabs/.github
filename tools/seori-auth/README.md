@@ -2,9 +2,8 @@
 
 `seori-auth`는 자동화 worker가 비밀번호, TOTP seed, session cookie를 받지 않고
 사전 승인된 capability만 5분 동안 한 번 사용하도록 제한하는 브로커입니다. 정책과
-fd3 실행 코어에 더해, TCP listener가 없는 Unix domain socket 전용 로컬 HTTP
-daemon과 MAC-chain durable state, native OS 경계, encrypted Browser Vault를
-제공합니다.
+fd3 실행 코어에 더해 로컬 Unix domain socket daemon, Kubernetes용 TLS 1.3 mTLS
+daemon, MAC-chain durable state, native OS 경계, encrypted Browser Vault를 제공합니다.
 
 ## 보안 경계
 
@@ -40,12 +39,15 @@ daemon과 MAC-chain durable state, native OS 경계, encrypted Browser Vault를
   descriptor 3으로만 받습니다.
 - child stdout/stderr는 exact-match redaction에 의존하지 않고 broker 경계에서 전부
   폐기합니다. 출력 byte 상한과 exit status만 사용합니다.
-- `authenticatePrincipal(socket)`이 증명한 subject/run/repository/worker와 HTTP claim이
+- `authenticatePrincipal(socket, metadata)`가 증명한 subject/run/repository/worker와 HTTP claim이
   하나라도 다르면 정책 평가 전에 거부합니다. Authorization header나 body bearer는
   principal 증명으로 사용하지 않습니다.
-- Linux의 `SO_PEERCRED`, macOS의 `getpeereid`와 `LOCAL_PEERPID`를 사용하는 native
+- 로컬은 Linux의 `SO_PEERCRED`, macOS의 `getpeereid`와 `LOCAL_PEERPID`를 사용하는 native
   attestor가 UID/GID/PID를 읽습니다. 같은 helper의 launcher는 adapter 실행 전에
   `RLIMIT_CORE=0`, non-dumpable/debugger 차단, no-new-privileges를 설정합니다.
+- Kubernetes는 검증된 client certificate의 exact SPIFFE URI SAN과 scheduler가 Ed25519로
+  서명한 5분 이하·1회용 run attestation을 함께 요구합니다. body와 bearer token은
+  principal 근거로 사용하지 않습니다.
 - `BrowserLoginBoundary`는 exact origin, redirect chain, 공개 identity, provider-only
   network allowlist를 비밀번호/TOTP 주입 전후에 다시 확인합니다. screenshot, video,
   trace, HAR, clipboard, download, extension, storage-state export가 모두 꺼져 있지 않으면
@@ -174,7 +176,7 @@ caller가 제출하지 않고 trusted `readBrowserIdentity` callback이 provider
 ## 운영 활성화 gate
 
 native attestor/launcher, HMAC journal, encrypted filesystem Browser Vault, 분리된
-password/TOTP service interface와 Kubernetes security template은 구현되어 deterministic
+password/TOTP service, mTLS runtime과 Kubernetes renderer는 구현되어 deterministic
 fake-account canary로 검증됩니다. 그러나 이 package만으로 실제 provider나 cluster가
 자동 활성화되지는 않습니다. 다음 외부 binding을 모두 검증하기 전에는 production
 credential을 연결하거나 manifest를 apply하지 않습니다.
@@ -182,14 +184,16 @@ credential을 연결하거나 manifest를 apply하지 않습니다.
 - broker 전용 OS/container identity와 worker가 읽을 수 없는 state/Vault mount
 - scheduler가 peer UID/GID/PID를 승인된 run/repo/SHA principal로 바꾸는 resolver
 - broker process 자체와 adapter를 native helper로 시작하는 immutable image/launchd unit
+- Kubernetes mTLS client/server CA, exact SPIFFE identity와 scheduler run-attestation signing key
 - journal MAC key, 외부 head checkpoint, Vault key의 Secret Manager logical binding
 - provider별 정확한 origin/redirect/public account identity와 egress-proxy allowlist
 - password loader와 TOTP signer의 서로 다른 workload identity 및 secret 단위 IAM
-- 암호화 PVC, tmpfs clone, mTLS identity, 실제 image digest가 채워진 K8s render
+- 암호화 PVC, tmpfs clone, mTLS identity, 실제 image digest가 고정된 K8s render
 
 [`docs/production-runbook.md`](docs/production-runbook.md)가 활성화·rollback 절차와
-fail-closed 검증 명령을 정의합니다. 저장소의 K8s 파일은 placeholder가 남아 있는 동안
-`seorilabs.io/deployable: "false"`이며 CI가 apply하지 않습니다. 이번 구현과 테스트는
+fail-closed 검증 명령을 정의합니다. 운영 manifest는 public deployment config에서
+[`scripts/render-production-k8s.mjs`](scripts/render-production-k8s.mjs)가 한 번에 생성하며
+기존 static production 경로는 comment-only compatibility marker입니다. 이번 구현과 테스트는
 실제 password/TOTP seed/session cookie, provider account 생성, cluster 변경을 수행하지
 않습니다.
 
@@ -254,12 +258,22 @@ done
 
 여섯 결과는 모두 `no`여야 합니다. legacy reference는 cluster에 적용하면 안 됩니다.
 
-[`k8s/production`](k8s/production)은 `auth-broker` namespace, restricted Pod Security,
-Kubernetes API 권한이 비어 있는 broker/password-loader/totp-signer ServiceAccount,
-default-deny NetworkPolicy, egress proxy 전용 경로, read-only root filesystem,
+[`k8s/production/README.md`](k8s/production/README.md)의 절차는 `auth-broker` namespace,
+restricted Pod Security, Kubernetes API 권한이 비어 있는 세 ServiceAccount, default-deny
+NetworkPolicy, mTLS egress proxy 전용 경로, read-only root filesystem,
 `seccompProfile: RuntimeDefault`, `drop: ["ALL"]`, native launcher, encrypted PVC와 tmpfs
-clone mount를 포함합니다. NetworkPolicy는 FQDN을 검증하지 못하므로 provider hostname과
-TLS identity는 egress proxy가 exact allowlist로 검증해야 합니다.
+clone mount를 하나의 JSON `List`로 render합니다. NetworkPolicy는 FQDN을 검증하지 못하므로
+provider hostname과 TLS identity는 egress proxy가 exact allowlist로 검증해야 합니다.
+
+projected ServiceAccount token은 `/var/run/seori-auth/projected-identity/token` 하나만
+허용합니다. native helper가 read-only mount root를 연 뒤 Linux `openat2`의
+`RESOLVE_BENEATH`, `RESOLVE_NO_MAGICLINKS`, `RESOLVE_NO_XDEV`로 Kubernetes atomic symlink를
+안전하게 따라가 FD4에 한 번만 전달합니다. 고정 digest가 검증된 Secret Manager child는
+FD4를 한 번 읽은 직후 닫으며 token을 stdout, argv, env, 일반 파일로 relay하지 않습니다.
+factor 서비스는 resource name을 선택하지 못하고 logical credential ID와 generation만
+요청합니다. 시작 시 factor binding과 workload의 credential binding이 정확히 같은 partition인지
+검증하고, 렌더된 public GSA/WIF audience/config digest와 실제 `secret-access.json`이 다르면
+readiness를 만들기 전에 중단합니다.
 
 ## 감사 이벤트
 

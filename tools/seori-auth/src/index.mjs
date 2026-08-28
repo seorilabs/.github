@@ -10,17 +10,27 @@ export {
   normalizeExecutionBinding,
   normalizePublicIdentity,
 } from './durable-state.mjs';
-export { executeConsumedLease, executeLease } from './executor.mjs';
+export { executeConsumedLease, executeLease, executeSecretAdapter } from './executor.mjs';
+export { FactorHttpApplication } from './factor-daemon.mjs';
 export {
   MacOSKeychainPasswordLoader,
   RemoteTotpSignerClient,
   SecretManagerPasswordLoader,
 } from './factor-services.mjs';
+export {
+  createMtlsEgressProxy,
+  GoogleSecretManagerExecutionStore,
+  GoogleWorkloadIdentityTokenProvider,
+  NativeSecretManagerExecutionStore,
+} from './google-secret-manager.mjs';
 export { LEASE_TTL_MS, LeaseStore } from './lease-store.mjs';
 export { LocalAuthDaemon } from './local-daemon.mjs';
+export { MtlsAuthDaemon } from './mtls-daemon.mjs';
+export { MtlsRunAttestor, requireExactMtlsPeer } from './mtls-identity.mjs';
 export { NativeSecurityBoundary } from './native-boundary.mjs';
 export { PolicyEngine } from './policy.mjs';
 export { classifyReauth, REAUTH_CLASSIFICATIONS } from './reauth.mjs';
+export { SecretManagerTotpSigner } from './totp-signer.mjs';
 export { isLogicalCredentialRef, normalizeHttpsOrigin, normalizeLeaseRequest } from './validation.mjs';
 
 import { TrustedAdapterRegistry } from './adapters.mjs';

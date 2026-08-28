@@ -15,16 +15,15 @@ const request = {
   accountId: 'automation-account',
 };
 
-test('Secret Manager password loader pins one logical id to one numeric version without exposing the locator', async () => {
+test('Secret Manager password loader delegates only one logical id and generation without exposing a resource locator', async () => {
   const source = Buffer.from('fake-secret-manager-password');
   const calls = [];
   const loader = new SecretManagerPasswordLoader({
     bindings: [{
       ...request,
       factor: 'password',
-      resourceName: 'projects/seorilabs-ci/secrets/apps-in-toss-password/versions/7',
     }],
-    async accessVersion(input) {
+    async loadSecret(input) {
       calls.push(input);
       return source;
     },
@@ -34,7 +33,10 @@ test('Secret Manager password loader pins one logical id to one numeric version 
   const password = await loader.loadPassword(request);
   assert.equal(password.toString('utf8'), 'fake-secret-manager-password');
   assert.ok(source.every((byte) => byte === 0));
-  assert.deepEqual(calls, [{ resourceName: 'projects/seorilabs-ci/secrets/apps-in-toss-password/versions/7' }]);
+  assert.deepEqual(calls, [{
+    credentialRef: 'shared/apps-in-toss/bot-password',
+    credentialGeneration: 3,
+  }]);
   password.fill(0);
 
   await assert.rejects(
@@ -44,7 +46,7 @@ test('Secret Manager password loader pins one logical id to one numeric version 
   assert.throws(
     () => new SecretManagerPasswordLoader({
       bindings: [{ ...request, factor: 'password', resourceName: 'projects/p/secrets/s/versions/latest' }],
-      accessVersion: async () => Buffer.from('unused'),
+      loadSecret: async () => Buffer.from('unused'),
     }),
     (error) => error instanceof SeoriAuthError && error.code === 'invalid_factor_binding',
   );

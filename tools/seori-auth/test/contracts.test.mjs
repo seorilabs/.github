@@ -148,45 +148,18 @@ test('Kubernetes examples contain no secret value and grant workers no API rules
   assert.doesNotMatch(cleanupScript, /loadSecret|get-secret|print-secret|copy-password/);
 });
 
-test('production Kubernetes template isolates broker and factor services without Kubernetes Secret access', async () => {
+test('legacy production Kubernetes paths cannot deploy stale placeholder objects', async () => {
   const namespaceRbac = await read('k8s/production/namespace-rbac.yaml');
   const networkPolicy = await read('k8s/production/network-policy.yaml');
   const workloads = await read('k8s/production/workloads.yaml');
-
-  assert.match(namespaceRbac, /name: auth-broker/);
-  assert.match(namespaceRbac, /pod-security\.kubernetes\.io\/enforce: restricted/);
-  assert.match(namespaceRbac, /name: password-loader/);
-  assert.match(namespaceRbac, /name: totp-signer/);
-  assert.equal((namespaceRbac.match(/automountServiceAccountToken: false/g) ?? []).length, 3);
-  assert.match(namespaceRbac, /name: auth-broker-no-kubernetes-api[\s\S]*rules: \[\]/);
-  assert.doesNotMatch(namespaceRbac, /^\s*(data|stringData):/m);
-  assert.doesNotMatch(namespaceRbac, /resources:\s*\["secrets"\]/i);
-  assert.doesNotMatch(namespaceRbac, /iam\.gke\.io/);
-  assert.equal((namespaceRbac.match(/seorilabs\.io\/wif-principal:/g) ?? []).length, 3);
-
-  assert.match(networkPolicy, /name: default-deny[\s\S]*ingress: \[\][\s\S]*egress: \[\]/);
-  assert.match(networkPolicy, /name: broker-from-trusted-workers/);
-  assert.match(networkPolicy, /name: factor-services-from-broker/);
-  assert.match(networkPolicy, /name: factor-services-to-secret-manager-proxy/);
-  assert.match(networkPolicy, /name: dns-to-cluster-resolver-only/);
-  assert.match(networkPolicy, /seori-auth-egress-proxy/);
-  assert.doesNotMatch(networkPolicy, /ipBlock:|0\.0\.0\.0\/0/);
-
-  assert.equal((workloads.match(/seorilabs\.io\/deployable: "false"/g) ?? []).length, 3);
-  assert.equal((workloads.match(/automountServiceAccountToken: false/g) ?? []).length, 3);
-  assert.equal((workloads.match(/runAsNonRoot: true/g) ?? []).length, 3);
-  assert.equal((workloads.match(/fsGroup: 65532/g) ?? []).length, 3);
-  assert.equal((workloads.match(/defaultMode: 0440/g) ?? []).length, 3);
-  assert.equal((workloads.match(/readOnlyRootFilesystem: true/g) ?? []).length, 3);
-  assert.equal((workloads.match(/allowPrivilegeEscalation: false/g) ?? []).length, 3);
-  assert.equal((workloads.match(/drop: \["ALL"\]/g) ?? []).length, 3);
-  assert.equal((workloads.match(/seori-auth-native", "launch"/g) ?? []).length, 3);
-  assert.equal((workloads.match(/kubernetes\.io\/hostname: rpi5/g) ?? []).length, 3);
-  assert.match(workloads, /emptyDir:\n\s+medium: Memory/);
-  assert.match(workloads, /claimName: REPLACE_ENCRYPTED_AUTH_BROKER_PVC/);
-  assert.doesNotMatch(workloads, /hostPath:|^\s*(data|stringData):/m);
-  assert.doesNotMatch(workloads, /secretKeyRef:|secretName:/);
-  assert.equal((workloads.match(/@sha256:[a-f0-9]{64}/g) ?? []).length, 3);
+  const stalePlaceholder = new RegExp(['REPLACE', ''].join('_'));
+  for (const content of [namespaceRbac, networkPolicy, workloads]) {
+    assert.match(content, /^# LEGACY PATH/);
+    assert.match(content, /render-production-k8s\.mjs/);
+    assert.doesNotMatch(content, /^(?:apiVersion|kind):/m);
+    assert.doesNotMatch(content, stalePlaceholder);
+    assert.doesNotMatch(content, /example\.invalid|@sha256:/);
+  }
 });
 
 test('local daemon declares only the five approved POST route shapes and no secret getter route', async () => {

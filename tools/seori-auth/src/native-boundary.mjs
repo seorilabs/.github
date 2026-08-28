@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { constants as fsConstants } from 'node:fs';
+import { constants as fsConstants, createReadStream } from 'node:fs';
 import { lstat, open as fsOpen, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 
@@ -13,6 +13,11 @@ import { NATIVE_BROWSER_ADAPTER_BRAND } from './native-browser-adapter-brand.mjs
 const SHA256 = /^[0-9a-f]{64}$/;
 const MAX_ATTESTATION_BYTES = 1_024;
 const LOCK_READY_TIMEOUT_MS = 5_000;
+const MAX_EXECUTION_COPY_BYTES = 1024 * 1024;
+const SECRET_MANAGER_RESOURCE = /^projects\/[A-Za-z0-9._:-]+\/secrets\/[A-Za-z0-9_-]+\/versions\/[1-9][0-9]*$/;
+const SECRET_MANAGER_NODE = '/usr/local/bin/node';
+const SECRET_MANAGER_CHILD = '/opt/seori-auth/runtime/secret-manager-child.mjs';
+const SECRET_MANAGER_CONFIG = '/etc/seori-auth/secret-access.json';
 
 async function validateHelper(helperPath, expectedSha256) {
   if (typeof helperPath !== 'string' || !isAbsolute(helperPath)) {
@@ -33,6 +38,32 @@ async function validateHelper(helperPath, expectedSha256) {
     if (digest !== expectedSha256) {
       fail('native_helper_mismatch', 'native helper checksum does not match');
     }
+  }
+}
+
+async function validateTrustedImageFile(path, expectedSha256, label) {
+  if (typeof path !== 'string' || !isAbsolute(path) || !SHA256.test(expectedSha256 ?? '')) {
+    fail('invalid_native_helper', `${label} path or checksum is invalid`);
+  }
+  const [stat, canonical] = await Promise.all([lstat(path), realpath(path)]);
+  if (
+    !stat.isFile() || stat.isSymbolicLink() || canonical !== path ||
+    stat.uid !== 0 || (stat.mode & 0o022) !== 0
+  ) {
+    fail('invalid_native_helper', `${label} must be an immutable root-owned image file`);
+  }
+  const digest = createHash('sha256');
+  try {
+    for await (const chunk of createReadStream(path, { highWaterMark: 64 * 1024 })) {
+      digest.update(chunk);
+      if (Buffer.isBuffer(chunk)) chunk.fill(0);
+    }
+    if (digest.digest('hex') !== expectedSha256) {
+      fail('native_helper_mismatch', `${label} checksum does not match`);
+    }
+  } catch (error) {
+    if (error?.code === 'native_helper_mismatch') throw error;
+    fail('invalid_native_helper', `${label} checksum could not be read`);
   }
 }
 
@@ -129,6 +160,89 @@ export class NativeSecurityBoundary {
       executable: this.#helperPath,
       mode: 'non-dumpable-v1',
       [NATIVE_LAUNCHER_BRAND]: true,
+    });
+  }
+
+  async secretManagerAccessor({
+    nodeSha256,
+    childSha256,
+    configSha256,
+    nodePath = SECRET_MANAGER_NODE,
+    childPath = SECRET_MANAGER_CHILD,
+    configPath = SECRET_MANAGER_CONFIG,
+    timeoutMs = 30_000,
+  }) {
+    if (
+      nodePath !== SECRET_MANAGER_NODE || childPath !== SECRET_MANAGER_CHILD ||
+      configPath !== SECRET_MANAGER_CONFIG || !Number.isSafeInteger(timeoutMs) ||
+      timeoutMs < 1_000 || timeoutMs > 60_000
+    ) {
+      fail('invalid_native_helper', 'Secret Manager child contract is not the fixed image contract');
+    }
+    await Promise.all([
+      validateTrustedImageFile(nodePath, nodeSha256, 'Secret Manager Node executable'),
+      validateTrustedImageFile(childPath, childSha256, 'Secret Manager child'),
+      validateTrustedImageFile(configPath, configSha256, 'Secret Manager access config'),
+    ]);
+    const helperPath = this.#helperPath;
+    const activeResources = new Set();
+    return Object.freeze({
+      async accessVersion({ resourceName }) {
+        if (!SECRET_MANAGER_RESOURCE.test(resourceName ?? '')) {
+          fail('secret_load_failed', 'Secret Manager resource binding is invalid');
+        }
+        if (activeResources.has(resourceName)) {
+          fail('secret_load_failed', 'duplicate concurrent Secret Manager execution is forbidden');
+        }
+        activeResources.add(resourceName);
+        const chunks = [];
+        let size = 0;
+        let timer;
+        let child;
+        let completion;
+        try {
+          child = spawn(helperPath, [
+            'launch-with-projected-token', '--', nodePath, childPath,
+            `--config=${configPath}`, `--resource=${resourceName}`,
+          ], {
+            env: { LANG: 'C.UTF-8' },
+            shell: false,
+            stdio: ['ignore', 'ignore', 'ignore', 'pipe'],
+            windowsHide: true,
+          });
+          completion = new Promise((resolve, reject) => {
+            child.once('error', reject);
+            child.once('close', (code, signal) => resolve({ code, signal }));
+          });
+          timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+          timer.unref();
+          for await (const chunk of child.stdio[3]) {
+            size += chunk.length;
+            if (size > MAX_EXECUTION_COPY_BYTES) {
+              child.kill('SIGKILL');
+              fail('secret_load_failed', 'Secret Manager execution copy exceeded its bound');
+            }
+            chunks.push(Buffer.from(chunk));
+            if (Buffer.isBuffer(chunk)) chunk.fill(0);
+          }
+          const result = await completion;
+          if (result.code !== 0 || result.signal !== null || size === 0) {
+            fail('secret_load_failed', 'trusted Secret Manager child failed');
+          }
+          const secret = Buffer.concat(chunks);
+          for (const chunk of chunks) chunk.fill(0);
+          return secret;
+        } catch (error) {
+          child?.kill('SIGKILL');
+          await completion?.catch(() => {});
+          for (const chunk of chunks) chunk.fill(0);
+          if (error?.code === 'secret_load_failed') throw error;
+          fail('secret_load_failed', 'trusted Secret Manager child failed');
+        } finally {
+          clearTimeout(timer);
+          activeResources.delete(resourceName);
+        }
+      },
     });
   }
 
