@@ -52,7 +52,8 @@ daemon, MAC-chain durable state, native OS 경계, encrypted Browser Vault를 �
   `RLIMIT_CORE=0`, non-dumpable/debugger 차단, no-new-privileges를 설정합니다.
 - Kubernetes는 검증된 client certificate의 exact SPIFFE URI SAN과 scheduler가 Ed25519로
   서명한 5분 이하·1회용 run attestation을 함께 요구합니다. body와 bearer token은
-  principal 근거로 사용하지 않습니다.
+  principal 근거로 사용하지 않습니다. nonce digest는 인증 성공 전에 broker의 HMAC durable
+  journal에서 한 번 소비하므로 broker가 재시작되어도 유효 token을 다시 쓸 수 없습니다.
 - `BrowserLoginBoundary`는 exact origin, redirect chain, 공개 identity, provider-only
   network allowlist를 비밀번호/TOTP 주입 전후에 다시 확인합니다. screenshot, video,
   trace, HAR, clipboard, download, extension, storage-state export가 모두 꺼져 있지 않으면

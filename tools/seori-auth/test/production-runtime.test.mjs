@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { chmod, mkdtemp, realpath, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -16,6 +16,7 @@ import {
   SecretManagerTotpSigner,
   SeoriAuthError,
 } from '../src/index.mjs';
+import { openDurableAuthState } from '../fixtures/helpers.mjs';
 
 const execFileAsync = promisify(execFile);
 const nativeHelper = fileURLToPath(new URL('../.build/seori-auth-native', import.meta.url));
@@ -47,13 +48,22 @@ function crc32c(buffer) {
   return String((crc ^ 0xffffffff) >>> 0);
 }
 
-test('mTLS run attestation exact-binds the client SPIFFE id and is one-time use', () => {
+test('mTLS run attestation exact-binds the client SPIFFE id and durable nonce CAS survives restart', async () => {
   const { publicKey, privateKey } = generateKeyPairSync('ed25519');
-  const now = 1_700_000_000_000;
+  let now = 1_700_000_000_000;
   const spiffeId = 'spiffe://seorilabs.local/ns/release-workers/sa/seori-worker';
-  const attestor = new MtlsRunAttestor({
+  const directory = await mkdtemp(join(tmpdir(), 'seori-auth-attestation-state-'));
+  const journalMacKey = Buffer.alloc(32, 6);
+  let state = await openDurableAuthState({
+    directory,
+    journalMacKey,
+    requireIntegrity: true,
+    clock: () => now,
+  });
+  const attestor = () => new MtlsRunAttestor({
     publicKey,
     allowedClientSpiffeIds: [spiffeId],
+    nonceStore: state,
     clock: () => now,
   });
   const token = signedAttestation(privateKey, {
@@ -67,32 +77,87 @@ test('mTLS run attestation exact-binds the client SPIFFE id and is one-time use'
     repository: 'seorilabs/example-app',
     workerId: 'worker-a',
   });
-  assert.deepEqual(attestor.authenticate(fakeTlsSocket(spiffeId), { runAttestation: token }), {
-    subject: 'k8s:release-workers:worker-a',
-    runId: 'github:123',
-    repository: 'seorilabs/example-app',
-    workerId: 'worker-a',
-  });
-  assert.throws(
-    () => attestor.authenticate(fakeTlsSocket(spiffeId), { runAttestation: token }),
-    (error) => error instanceof SeoriAuthError && error.code === 'principal_unauthenticated',
-  );
-  assert.throws(
-    () => attestor.authenticate(fakeTlsSocket('spiffe://seorilabs.local/ns/other/sa/seori-worker'), {
-      runAttestation: signedAttestation(privateKey, {
-        version: 1,
-        clientSpiffeId: spiffeId,
-        issuedAt: now,
-        expiresAt: now + 1_000,
-        nonce: 'runtime-attestation-0002',
-        subject: 'k8s:release-workers:worker-a',
-        runId: 'github:123',
-        repository: 'seorilabs/example-app',
-        workerId: 'worker-a',
+  try {
+    const concurrent = await Promise.allSettled([
+      attestor().authenticate(fakeTlsSocket(spiffeId), { runAttestation: token }),
+      attestor().authenticate(fakeTlsSocket(spiffeId), { runAttestation: token }),
+    ]);
+    const succeeded = concurrent.filter(({ status }) => status === 'fulfilled');
+    const denied = concurrent.filter(({ status }) => status === 'rejected');
+    assert.equal(succeeded.length, 1);
+    assert.deepEqual(succeeded[0].value, {
+      subject: 'k8s:release-workers:worker-a',
+      runId: 'github:123',
+      repository: 'seorilabs/example-app',
+      workerId: 'worker-a',
+    });
+    assert.equal(denied.length, 1);
+    assert.equal(denied[0].reason instanceof SeoriAuthError, true);
+    assert.equal(denied[0].reason.code, 'principal_unauthenticated');
+    assert.equal(state.snapshot().attestationNonces.length, 1);
+    assert.equal(
+      state.snapshot().auditEvents.filter(({ eventType }) => eventType === 'RUN_ATTESTATION_CONSUMED').length,
+      1,
+    );
+
+    await assert.rejects(
+      attestor().authenticate(fakeTlsSocket('spiffe://seorilabs.local/ns/other/sa/seori-worker'), {
+        runAttestation: signedAttestation(privateKey, {
+          version: 1,
+          clientSpiffeId: spiffeId,
+          issuedAt: now,
+          expiresAt: now + 1_000,
+          nonce: 'runtime-attestation-0002',
+          subject: 'k8s:release-workers:worker-a',
+          runId: 'github:123',
+          repository: 'seorilabs/example-app',
+          workerId: 'worker-a',
+        }),
       }),
-    }),
-    (error) => error instanceof SeoriAuthError && error.code === 'principal_unauthenticated',
-  );
+      (error) => error instanceof SeoriAuthError && error.code === 'principal_unauthenticated',
+    );
+
+    const checkpoint = state.integrityCheckpoint();
+    await state.close();
+    state = undefined;
+    state = await openDurableAuthState({
+      directory,
+      journalMacKey,
+      requireIntegrity: true,
+      expectedJournalHeadMac: checkpoint.headMac,
+      clock: () => now,
+    });
+    await assert.rejects(
+      attestor().authenticate(fakeTlsSocket(spiffeId), { runAttestation: token }),
+      (error) => error instanceof SeoriAuthError && error.code === 'principal_unauthenticated',
+    );
+
+    now += 61_000;
+    const renewedToken = signedAttestation(privateKey, {
+      version: 1,
+      clientSpiffeId: spiffeId,
+      issuedAt: now,
+      expiresAt: now + 60_000,
+      nonce: 'runtime-attestation-0001',
+      subject: 'k8s:release-workers:worker-a',
+      runId: 'github:123',
+      repository: 'seorilabs/example-app',
+      workerId: 'worker-a',
+    });
+    assert.deepEqual(
+      await attestor().authenticate(fakeTlsSocket(spiffeId), { runAttestation: renewedToken }),
+      succeeded[0].value,
+    );
+    assert.equal(state.snapshot().attestationNonces.length, 1);
+    assert.equal(
+      state.snapshot().auditEvents.filter(({ eventType }) => eventType === 'RUN_ATTESTATION_CONSUMED').length,
+      2,
+    );
+  } finally {
+    await state?.close();
+    journalMacKey.fill(0);
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('Secret Manager TOTP signer matches RFC 6238 without exposing the seed', async () => {

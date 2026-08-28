@@ -1,4 +1,4 @@
-import { createPublicKey, verify } from 'node:crypto';
+import { createHash, createPublicKey, verify } from 'node:crypto';
 
 import { normalizeExecutionBinding } from './durable-state.mjs';
 import { fail } from './errors.mjs';
@@ -54,9 +54,16 @@ export class MtlsRunAttestor {
   #clock;
   #maxLifetimeMs;
   #clockSkewMs;
-  #usedNonces = new Map();
+  #nonceStore;
 
-  constructor({ publicKey, allowedClientSpiffeIds, clock = () => Date.now(), maxLifetimeMs = 300_000, clockSkewMs = 5_000 }) {
+  constructor({
+    publicKey,
+    allowedClientSpiffeIds,
+    nonceStore,
+    clock = () => Date.now(),
+    maxLifetimeMs = 300_000,
+    clockSkewMs = 5_000,
+  }) {
     if (!Array.isArray(allowedClientSpiffeIds) || allowedClientSpiffeIds.length === 0) {
       throw new TypeError('allowedClientSpiffeIds must be a non-empty exact allowlist');
     }
@@ -70,6 +77,9 @@ export class MtlsRunAttestor {
     if (!Number.isSafeInteger(clockSkewMs) || clockSkewMs < 0 || clockSkewMs > 30_000) {
       throw new TypeError('mTLS attestation clock skew is invalid');
     }
+    if (!nonceStore || typeof nonceStore.consumeRunAttestationNonce !== 'function') {
+      throw new TypeError('mTLS attestation requires a durable nonce store');
+    }
     try {
       this.#publicKey = publicKey?.type === 'public' ? publicKey : createPublicKey(publicKey);
     } catch {
@@ -82,9 +92,10 @@ export class MtlsRunAttestor {
     this.#clock = clock;
     this.#maxLifetimeMs = maxLifetimeMs;
     this.#clockSkewMs = clockSkewMs;
+    this.#nonceStore = nonceStore;
   }
 
-  authenticate(socket, { runAttestation } = {}) {
+  async authenticate(socket, { runAttestation } = {}) {
     const clientSpiffeId = exactPeerSpiffeId(socket, this.#allowedClientSpiffeIds);
     if (typeof runAttestation !== 'string' || Buffer.byteLength(runAttestation) > MAX_ATTESTATION_BYTES) {
       fail('principal_unauthenticated', 'scheduler run attestation is required');
@@ -124,22 +135,18 @@ export class MtlsRunAttestor {
     ) {
       fail('principal_unauthenticated', 'scheduler run attestation is expired or out of range');
     }
-    for (const [nonce, expiresAt] of this.#usedNonces) {
-      if (expiresAt <= now) this.#usedNonces.delete(nonce);
-    }
-    if (this.#usedNonces.has(payload.nonce)) {
-      fail('principal_unauthenticated', 'scheduler run attestation was already used');
-    }
-    if (this.#usedNonces.size >= 10_000) {
-      fail('principal_unauthenticated', 'scheduler run attestation replay cache is full');
-    }
     const principal = normalizeExecutionBinding({
       subject: payload.subject,
       runId: payload.runId,
       repository: payload.repository,
       workerId: payload.workerId,
     });
-    this.#usedNonces.set(payload.nonce, payload.expiresAt);
+    const nonceDigest = createHash('sha256').update(payload.nonce, 'utf8').digest('hex');
+    await this.#nonceStore.consumeRunAttestationNonce({
+      nonceDigest,
+      expiresAt: payload.expiresAt,
+      executionBinding: principal,
+    });
     return principal;
   }
 }

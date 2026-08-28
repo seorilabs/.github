@@ -19,7 +19,7 @@ renderer는 secret 값을 읽거나 출력하지 않고 하나의 JSON `List`만
 | `nodeSelector` | 검증된 RPI5를 고르는 label 한 개 |
 | `stateClaimName` | 사전에 검증된 encrypted PVC 이름 |
 | `trustedWorkers` | namespace/pod exact match label을 각각 한 개씩 가진 selector |
-| `providerControlPlane` | exact `backofficeClientSpiffeId`와 고정 `/internal/control-plane/provider-grants` scope |
+| `providerControlPlane` | exact `backofficeClientSpiffeId`, 고정 `/internal/control-plane/provider-grants` scope, Backoffice worker 전용 namespace/pod exact selector |
 | `egressProxy` | namespace/pod exact selector와 TLS proxy port |
 | `roles` | `broker`, `passwordLoader`, `totpSigner` 세 binding |
 

@@ -48,6 +48,11 @@ const ACTION_CLASS = /^[a-z][a-z_]{1,63}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const PROVIDER_GRANT_STATES = new Set(['ACTIVE', 'CONSUMED', 'COMPLETED']);
 const PROVIDER_EXECUTION_RESULTS = new Set(['SUCCESS', 'FAILED', 'HUMAN_REAUTH_REQUIRED']);
+const AUTH_ENTITY_TYPES = new Set([
+  'CredentialCheckout', 'BrowserSessionBinding', 'ReauthRequest', 'ProviderGrant', 'AttestationNonce',
+]);
+const RUN_ATTESTATION_MAX_TTL_MS = 5 * 60 * 1_000;
+const RUN_ATTESTATION_ACTIVE_NONCE_LIMIT = 10_000;
 
 const BINDING_KEYS = new Set(['subject', 'runId', 'repository', 'workerId']);
 const IDENTITY_KEYS = new Set(['provider', 'accountId', 'teamId', 'workspaceId', 'appId']);
@@ -208,7 +213,7 @@ function freezeRecord(record) {
 }
 
 function auditFrom({ idFactory, now, eventType, outcome, entityType, entity, details = {} }) {
-  if (!['CredentialCheckout', 'BrowserSessionBinding', 'ReauthRequest', 'ProviderGrant'].includes(entityType)) {
+  if (!AUTH_ENTITY_TYPES.has(entityType)) {
     fail('invalid_audit_event', 'auth audit entity type is invalid');
   }
   const binding = entity.executionBinding;
@@ -356,6 +361,23 @@ function validateReplayedEntity(type, entity) {
     }
     return;
   }
+  if (type === 'AttestationNonce') {
+    const keys = [
+      'id', 'generation', 'state', 'consumedAt', 'expiresAt', 'maxUses', 'useCount',
+      'nonceDigest', 'executionBinding',
+    ];
+    if (
+      !exactRecordKeys(entity, keys) || entity.generation !== 1 || entity.state !== 'CONSUMED' ||
+      !validIso(entity.consumedAt) || !validIso(entity.expiresAt) ||
+      Date.parse(entity.expiresAt) <= Date.parse(entity.consumedAt) ||
+      Date.parse(entity.expiresAt) - Date.parse(entity.consumedAt) > RUN_ATTESTATION_MAX_TTL_MS ||
+      entity.maxUses !== 1 || entity.useCount !== 1
+    ) throw new Error('invalid attestation nonce');
+    const nonceDigest = sha256(entity.nonceDigest, 'attestation nonce digest');
+    if (entity.id !== `run-attestation-${nonceDigest}`) throw new Error('invalid attestation nonce binding');
+    normalizeExecutionBinding(entity.executionBinding);
+    return;
+  }
   if (type === 'BrowserSessionBinding') {
     const transitionKeys = entity.state === 'AVAILABLE'
       ? []
@@ -427,7 +449,7 @@ function validateReplayedAudit(audit) {
   ];
   if (
     !Object.keys(audit).every((key) => allowed.includes(key)) ||
-    !['CredentialCheckout', 'BrowserSessionBinding', 'ReauthRequest', 'ProviderGrant'].includes(audit.entityType) ||
+    !AUTH_ENTITY_TYPES.has(audit.entityType) ||
     !validIso(audit.recordedAt)
   ) throw new Error('invalid audit event');
   publicId(audit.id, 'audit id');
@@ -527,7 +549,7 @@ function validateEnvelope(envelope, expectedSequence, journalMacKey, previousMac
     if (envelope.mutation !== null) {
       const type = envelope.mutation?.entityType;
       const entity = envelope.mutation?.entity;
-      if (!['CredentialCheckout', 'BrowserSessionBinding', 'ReauthRequest', 'ProviderGrant'].includes(type) || !entity) {
+      if (!AUTH_ENTITY_TYPES.has(type) || !entity) {
         throw new Error('invalid mutation');
       }
       validateReplayedEntity(type, entity);
@@ -595,6 +617,7 @@ export class DurableAuthState {
   #browserSessionBindings = new Map();
   #reauthRequests = new Map();
   #providerGrants = new Map();
+  #attestationNonces = new Map();
   #auditEvents = [];
   #recoveredBrowserClaims = new Set();
   #authStrategyFailures = new Set();
@@ -655,6 +678,7 @@ export class DurableAuthState {
     });
     try {
       await state.#replay();
+      state.#pruneExpiredRunAttestationNonces(state.#clock());
       await state.#reconcileBrowserSessionsAtStartup();
     } catch (error) {
       state.#closed = true;
@@ -742,7 +766,14 @@ export class DurableAuthState {
     if (entityType === 'BrowserSessionBinding') return this.#browserSessionBindings;
     if (entityType === 'ReauthRequest') return this.#reauthRequests;
     if (entityType === 'ProviderGrant') return this.#providerGrants;
+    if (entityType === 'AttestationNonce') return this.#attestationNonces;
     fail('invalid_state_journal', 'durable auth journal has an unknown entity type');
+  }
+
+  #pruneExpiredRunAttestationNonces(now) {
+    for (const [id, entity] of this.#attestationNonces) {
+      if (Date.parse(entity.expiresAt) <= now) this.#attestationNonces.delete(id);
+    }
   }
 
   #applyEnvelope(envelope) {
@@ -826,6 +857,52 @@ export class DurableAuthState {
       details,
     });
     await this.#append({ entityType: null, entity: null, audit });
+  }
+
+  consumeRunAttestationNonce({ nonceDigest, expiresAt, executionBinding }) {
+    return this.#serialize(async () => {
+      if (!this.#journalMacKey) {
+        fail('state_integrity_required', 'run attestation nonce requires the durable HMAC audit journal');
+      }
+      const digest = sha256(nonceDigest, 'attestation nonce digest');
+      const binding = normalizeExecutionBinding(executionBinding);
+      const now = this.#clock();
+      if (
+        !Number.isSafeInteger(now) || !Number.isSafeInteger(expiresAt) ||
+        expiresAt <= now || expiresAt - now > RUN_ATTESTATION_MAX_TTL_MS
+      ) {
+        fail('principal_unauthenticated', 'run attestation nonce expiry is invalid');
+      }
+      this.#pruneExpiredRunAttestationNonces(now);
+      const id = `run-attestation-${digest}`;
+      if (this.#attestationNonces.has(id)) {
+        fail('principal_unauthenticated', 'scheduler run attestation was already used');
+      }
+      if (this.#attestationNonces.size >= RUN_ATTESTATION_ACTIVE_NONCE_LIMIT) {
+        fail('principal_unauthenticated', 'scheduler run attestation replay cache is full');
+      }
+      const entity = freezeRecord({
+        id,
+        generation: 1,
+        state: 'CONSUMED',
+        consumedAt: iso(now),
+        expiresAt: iso(expiresAt),
+        maxUses: 1,
+        useCount: 1,
+        nonceDigest: digest,
+        executionBinding: binding,
+      });
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'RUN_ATTESTATION_CONSUMED',
+        outcome: 'SUCCESS',
+        entityType: 'AttestationNonce',
+        entity,
+      });
+      await this.#append({ entityType: 'AttestationNonce', entity, audit });
+      return freezeRecord({ consumed: true, expiresAt: entity.expiresAt });
+    });
   }
 
   registerProviderGrant({ registration, executionBinding }) {
@@ -2005,6 +2082,7 @@ export class DurableAuthState {
       browserSessionBindings: [...this.#browserSessionBindings.values()],
       reauthRequests: [...this.#reauthRequests.values()],
       providerGrants: [...this.#providerGrants.values()],
+      attestationNonces: [...this.#attestationNonces.values()],
       auditEvents: this.#auditEvents,
     });
   }

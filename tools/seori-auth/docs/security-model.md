@@ -102,8 +102,10 @@ image에서는 broker identity가 수정할 수 없는 root 소유 read-only lay
 
 Kubernetes runtime은 TLS 1.3 mutual authentication을 사용하며 certificate의 URI SAN을
 exact SPIFFE allowlist와 비교합니다. broker 요청은 여기에 scheduler가 서명한 5분 이하
-run/repo/worker attestation을 추가로 요구하고 nonce를 한 번 소비합니다. password loader와
-TOTP signer는 broker SPIFFE ID만 받으며 secret 조회·export route가 없습니다.
+run/repo/worker attestation을 추가로 요구하고 nonce digest를 HMAC durable journal에서 한 번
+소비합니다. 소비 CAS가 sync된 뒤에만 인증을 성공시키므로 broker restart도 replay window를
+다시 열지 않습니다. password loader와 TOTP signer는 broker SPIFFE ID만 받으며 secret
+조회·export route가 없습니다.
 내부 provider control-plane route는 이 공통 검증 뒤에도 runtime에 고정된 exact Backoffice
 SPIFFE ID를 한 번 더 요구합니다. 일반 worker certificate로는 경로가 존재해도 접근할 수
 없고, internal authorizer가 없는 local daemon에서는 route 자체를 `404`로 숨깁니다.

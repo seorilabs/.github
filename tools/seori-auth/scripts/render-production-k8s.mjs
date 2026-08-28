@@ -86,7 +86,9 @@ function validate(config) {
   if (!exactKeys(config.egressProxy, ['namespaceSelector', 'podSelector', 'port'])) fail('egress proxy binding is invalid');
   if (!exactKeys(config.trustedWorkers, ['namespaceSelector', 'podSelector'])) fail('trusted worker binding is invalid');
   if (
-    !exactKeys(config.providerControlPlane, ['backofficeClientSpiffeId', 'endpointScope']) ||
+    !exactKeys(config.providerControlPlane, [
+      'backofficeClientSpiffeId', 'endpointScope', 'namespaceSelector', 'podSelector',
+    ]) ||
     !SPIFFE_ID.test(config.providerControlPlane.backofficeClientSpiffeId ?? '') ||
     config.providerControlPlane.endpointScope !== PROVIDER_ENDPOINT_SCOPE
   ) fail('provider control-plane binding is invalid');
@@ -111,7 +113,15 @@ function validate(config) {
       namespaceSelector: labels(config.trustedWorkers.namespaceSelector, 'trustedWorkers.namespaceSelector'),
       podSelector: labels(config.trustedWorkers.podSelector, 'trustedWorkers.podSelector'),
     }),
-    providerControlPlane: Object.freeze({ ...config.providerControlPlane }),
+    providerControlPlane: Object.freeze({
+      backofficeClientSpiffeId: config.providerControlPlane.backofficeClientSpiffeId,
+      endpointScope: config.providerControlPlane.endpointScope,
+      namespaceSelector: labels(
+        config.providerControlPlane.namespaceSelector,
+        'providerControlPlane.namespaceSelector',
+      ),
+      podSelector: labels(config.providerControlPlane.podSelector, 'providerControlPlane.podSelector'),
+    }),
     egressProxy: Object.freeze({
       namespaceSelector: labels(config.egressProxy.namespaceSelector, 'egressProxy.namespaceSelector'),
       podSelector: labels(config.egressProxy.podSelector, 'egressProxy.podSelector'),
@@ -312,6 +322,9 @@ function networkPolicies(config) {
           from: [{
             namespaceSelector: { matchLabels: config.trustedWorkers.namespaceSelector },
             podSelector: { matchLabels: config.trustedWorkers.podSelector },
+          }, {
+            namespaceSelector: { matchLabels: config.providerControlPlane.namespaceSelector },
+            podSelector: { matchLabels: config.providerControlPlane.podSelector },
           }],
           ports: [{ protocol: 'TCP', port: 8443 }],
         }],

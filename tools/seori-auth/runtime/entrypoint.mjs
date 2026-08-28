@@ -411,6 +411,7 @@ async function serveBroker(config, nativeBoundary) {
       attestor = new MtlsRunAttestor({
         publicKey,
         allowedClientSpiffeIds: config.allowedClientSpiffeIds,
+        nonceStore: state,
       });
     } finally {
       publicKey.fill(0);
