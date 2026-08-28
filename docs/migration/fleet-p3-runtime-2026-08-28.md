@@ -1,13 +1,13 @@
 # Fleet P3 runtime 전환 기록
 
 P3 WorkflowBundle provenance 기준 source는
-`f831208f120086c8897e0ac8beaa569eee5202e7`이다. 이 문서는
+`a59f5d4e0b850c11f9b2cca165c89c1339851a2c`이다. 이 문서는
 2026-08-28~29 KST live readback과 P3 공개 계약을 분리해 기록한다. secret, capability, 승인
 receipt, lease token은 기록하지 않는다.
 
 ## 적용 전 readback
 
-- 로컬 credential catalog preflight는 104개 entry, warning 2개, error 0개였다. 신규 P3
+- 로컬 credential catalog preflight는 103개 entry, warning 0개, error 0개였다. 신규 P3
   logical ID 5개는 공개 identity만 가진 `planned` 상태며 활성 credential이 아니다.
 - `seorilabs-ci`에는 default compute service account만 있었고 현재 provisioner에는 service
   account 생성, project IAM 조회·변경, WIF pool 조회·변경 권한이 없었다.
@@ -131,7 +131,7 @@ workload·PVC도 0개였다. production renderer는 이제 세 Pod에 exact
 
 GitHub 조직 변경도 기본 dry-run이다. apply confirmation은 reusable workflow execution pin
 `c328d9b`가 아니라 canonical App/operation plan digest에 결합한다. WorkflowBundle provenance는
-1단계 source `f831208`에, reusable workflow execution은 동일 bytes가 검증된 `c328d9b`에 각각
+1단계 source `a59f5d4`에, reusable workflow execution은 동일 bytes가 검증된 `c328d9b`에 각각
 고정한다. GitHub WIF condition은 numeric owner ID와 Happy Farm/RN, Lizard Tycoon/Godot의
 `repository_id + job_workflow_ref` 쌍만 허용하며 교차 조합을 허용하지 않는다. `internal`
 Environment에는 중앙 desired state의 공개 WIF provider와 Cloud Build submitter/executor SA를

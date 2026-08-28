@@ -582,7 +582,7 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   assert.doesNotMatch(output.confirmation, /c328d9bf55f3/u);
   assert.equal(
     output.workflowBundleSourceSha,
-    "f831208f120086c8897e0ac8beaa569eee5202e7",
+    "a59f5d4e0b850c11f9b2cca165c89c1339851a2c",
   );
   assert.equal(
     output.workflowExecutionSha,
@@ -996,7 +996,7 @@ test("Secret Manager bootstrap은 role partition을 two-phase 적용하고 rollb
   assert.equal(plan.provisioning.plaintextTransport, "fd3");
   assert.equal(
     plan.workflowBundleSourceSha,
-    "f831208f120086c8897e0ac8beaa569eee5202e7",
+    "a59f5d4e0b850c11f9b2cca165c89c1339851a2c",
   );
   assert.equal(
     plan.workflowExecutionSha,

@@ -32,7 +32,7 @@ import { CANARY_BUILD_BY_PROFILE } from "./helpers/workflow-bundle-fixtures.mjs"
 const SOURCE_SHA = "a".repeat(40);
 const WORKFLOW_EXECUTION_SHA =
   "c328d9bf55f31ba11f53ef06071cc7b76d283617";
-const P3_PROVENANCE_SHA = "f831208f120086c8897e0ac8beaa569eee5202e7";
+const P3_PROVENANCE_SHA = "a59f5d4e0b850c11f9b2cca165c89c1339851a2c";
 const PRE_EXECUTION_CONTRACT_SHA =
   "6e18b189d112f23270426cd88b3f906969103b75";
 const STALE_SHA = "9".repeat(40);
@@ -924,7 +924,7 @@ test("exact remote source의 runtime digest 또는 bytes가 다르면 load를 �
   );
 });
 
-test("P3 bundle은 provenance f831과 execution c328을 두 exact source로 검증한다", async () => {
+test("P3 bundle은 provenance a59f와 execution c328을 두 exact source로 검증한다", async () => {
   const candidate = await createWorkflowBundle({
     sourceSha: P3_PROVENANCE_SHA,
     platformRelease: PLATFORM_RELEASE,

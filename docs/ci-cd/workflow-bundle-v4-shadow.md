@@ -31,12 +31,12 @@ ruleset은 계약 상수 `EVALUATE`에 머문다.
 - Platform static shadow와 release fail-closed receipt 계약
 
 provenance와 execution pin은 같은 의미가 아니다. 현재 bundle source는
-`f831208f120086c8897e0ac8beaa569eee5202e7`, reusable workflow execution pin은
+`a59f5d4e0b850c11f9b2cca165c89c1339851a2c`, reusable workflow execution pin은
 `c328d9bf55f31ba11f53ef06071cc7b76d283617`이다. P3 preflight는 두 commit에서 WIF 대상인 두
 Android workflow의 bytes와 SHA-256이 모두 같을 때만 이 분리를 허용한다. 이후 workflow bytes가
 달라지면 새 execution pin을 승인하기 전까지 fail-closed한다.
-이는 비순환 2단계 계약이다. 1단계 `f831208`이 execution pin과 bundle 대상 파일을 먼저
-고정하고, 2단계 검증기는 `f831208`의 전체 contract/runtime snapshot과 `c328d9b`의 네 workflow
+이는 비순환 2단계 계약이다. 1단계 `a59f5d4`가 execution pin과 bundle 대상 파일을 먼저
+고정하고, 2단계 검증기는 `a59f5d4`의 전체 contract/runtime snapshot과 `c328d9b`의 네 workflow
 snapshot을 각각 읽는다. 검증기 자신이나 P3 runtime 문서 변경을 bundle digest에 다시 넣지 않는다.
 
 APPROVED bundle의 과거 source를 검증할 때는 현재 파일 목록을 강제하지 않는다. 서명된 bundle
@@ -53,7 +53,7 @@ readback adapter가 모두 확인해야 한다. 이 값들은 APPROVED 서명 �
 고정된 `c328d9b` Android workflow의 raw provenance에 있는 역사적
 `workflowBundleSourceSha` 값은 실제로 execution SHA다. trusted evidence adapter는 이 값을
 그대로 승격하지 않고 exact `buildWorkflowRef`에서 `workflowExecutionSha`로 정규화한다.
-`workflowBundleSourceSha`는 서명 대상 candidate binding의 provenance `f831208`에서만 채운다.
+`workflowBundleSourceSha`는 서명 대상 candidate binding의 provenance `a59f5d4`에서만 채운다.
 둘 중 하나라도 바뀌거나 서로 뒤바뀌면 승격은 실패한다.
 
 static workflow의 앱 실행 job은 fork pull request이면 package credential을 만들기 전에
