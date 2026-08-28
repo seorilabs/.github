@@ -1,9 +1,24 @@
 export { TrustedAdapterRegistry } from './adapters.mjs';
+export { CanonicalAccountRegistry } from './accounts.mjs';
+export { EncryptedBrowserVault } from './browser-vault.mjs';
+export { BrowserLoginBoundary } from './browser-login.mjs';
 export { SeoriAuthError } from './errors.mjs';
-export { DurableAuthState, HUMAN_REAUTH_REQUIRED, normalizeExecutionBinding, normalizePublicIdentity } from './durable-state.mjs';
+export {
+  computeAuthStrategyEvidenceKey,
+  DurableAuthState,
+  HUMAN_REAUTH_REQUIRED,
+  normalizeExecutionBinding,
+  normalizePublicIdentity,
+} from './durable-state.mjs';
 export { executeConsumedLease, executeLease } from './executor.mjs';
+export {
+  MacOSKeychainPasswordLoader,
+  RemoteTotpSignerClient,
+  SecretManagerPasswordLoader,
+} from './factor-services.mjs';
 export { LEASE_TTL_MS, LeaseStore } from './lease-store.mjs';
 export { LocalAuthDaemon } from './local-daemon.mjs';
+export { NativeSecurityBoundary } from './native-boundary.mjs';
 export { PolicyEngine } from './policy.mjs';
 export { classifyReauth, REAUTH_CLASSIFICATIONS } from './reauth.mjs';
 export { isLogicalCredentialRef, normalizeHttpsOrigin, normalizeLeaseRequest } from './validation.mjs';
@@ -31,8 +46,9 @@ export class SeoriAuthBroker {
     this.#onAudit = onAudit;
   }
 
-  issueLease(request) {
-    return this.#leaseStore.issue(this.#policy.authorize(request));
+  issueLease(request, { idempotencyKey } = {}) {
+    const authorized = this.#policy.authorize(request);
+    return this.#leaseStore.issue({ ...authorized, idempotencyKey });
   }
 
   execute({ leaseId, context, currentCredentialGeneration }) {

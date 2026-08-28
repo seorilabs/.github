@@ -18,8 +18,9 @@
     "capability",
     "resource",
     "adapterId",
-    "accountKind",
-    "authFactors"
+    "accountId",
+    "authFactors",
+    "approval"
   ],
   "properties": {
     "credentialRef": {
@@ -98,14 +99,29 @@
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]*$"
     },
-    "accountKind": {
-      "enum": ["dedicated_bot", "human"]
+    "accountId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$"
     },
     "authFactors": {
       "type": "array",
       "uniqueItems": true,
       "items": {
         "enum": ["api_key", "certificate", "oidc", "password", "session", "totp"]
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "mode", "expiresAt", "maxUses"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$"
+        },
+        "mode": { "enum": ["preapproved", "per_run"] },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "maxUses": { "const": 1 }
       }
     }
   },

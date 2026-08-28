@@ -47,8 +47,9 @@
     "leaseCreateRequest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["workerId", "request"],
+      "required": ["idempotencyKey", "workerId", "request"],
       "properties": {
+        "idempotencyKey": { "$ref": "#/$defs/publicId" },
         "workerId": { "$ref": "#/$defs/publicId" },
         "request": { "$ref": "lease-request.schema.json" }
       }
@@ -66,21 +67,38 @@
     "browserCheckoutRequest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["expectedGeneration", "executionBinding", "expectedIdentity"],
+      "required": [
+        "context", "executionBinding", "expectedLeaseGeneration", "expectedProfileGeneration",
+        "expectedSessionGeneration", "expectedIdentity", "leaseId", "role", "workerId"
+      ],
       "properties": {
-        "expectedGeneration": { "type": "integer", "minimum": 1 },
+        "context": { "$ref": "lease-request.schema.json" },
         "executionBinding": { "$ref": "#/$defs/executionBinding" },
-        "expectedIdentity": { "$ref": "#/$defs/publicIdentity" }
+        "expectedLeaseGeneration": { "type": "integer", "minimum": 1 },
+        "expectedProfileGeneration": { "type": "integer", "minimum": 1 },
+        "expectedSessionGeneration": { "type": "integer", "minimum": 1 },
+        "expectedIdentity": { "$ref": "#/$defs/publicIdentity" },
+        "leaseId": { "$ref": "#/$defs/opaqueId" },
+        "role": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+        "workerId": { "$ref": "#/$defs/publicId" }
       }
     },
     "browserCompleteRequest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["capabilityId", "expectedGeneration", "executionBinding"],
+      "required": [
+        "capabilityId", "context", "executionBinding", "expectedGeneration", "leaseId",
+        "profileGeneration", "role", "workerId"
+      ],
       "properties": {
         "capabilityId": { "$ref": "#/$defs/opaqueId" },
+        "context": { "$ref": "lease-request.schema.json" },
         "expectedGeneration": { "type": "integer", "minimum": 1 },
-        "executionBinding": { "$ref": "#/$defs/executionBinding" }
+        "executionBinding": { "$ref": "#/$defs/executionBinding" },
+        "leaseId": { "$ref": "#/$defs/opaqueId" },
+        "profileGeneration": { "type": "integer", "minimum": 1 },
+        "role": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+        "workerId": { "$ref": "#/$defs/publicId" }
       }
     },
     "reauthCreateRequest": {
@@ -137,7 +155,7 @@
       "properties": {
         "id": { "$ref": "#/$defs/opaqueId" },
         "generation": { "type": "integer", "minimum": 1 },
-        "state": { "enum": ["AVAILABLE", "CHECKED_OUT", "COMPLETED"] },
+        "state": { "enum": ["AVAILABLE", "CHECKED_OUT", "CLAIMED", "COMPLETED"] },
         "maxUses": { "const": 1 },
         "useCount": { "enum": [0, 1] },
         "publicIdentity": { "$ref": "#/$defs/publicIdentity" }
@@ -235,6 +253,15 @@
           "type": "string",
           "pattern": "^(shared|app)/[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)+$"
         },
+        "commitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "capability": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
+        "capabilityId": { "$ref": "#/$defs/opaqueId" },
+        "leaseId": { "$ref": "#/$defs/opaqueId" },
+        "ruleId": { "$ref": "#/$defs/publicId" },
+        "idempotencyKey": { "$ref": "#/$defs/publicId" },
+        "actionClass": { "type": "string", "pattern": "^[a-z][a-z_]{1,63}$" },
+        "authStrategyIndex": { "type": "integer", "minimum": 0 },
+        "strategyEvidenceKey": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "publicIdentity": { "$ref": "#/$defs/publicIdentity" },
         "reason": { "$ref": "#/$defs/reauthCreateRequest/properties/reason" },
         "exitCode": { "type": "integer" },

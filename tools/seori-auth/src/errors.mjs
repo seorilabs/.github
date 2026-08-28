@@ -1,11 +1,18 @@
 export class SeoriAuthError extends Error {
-  constructor(code, message) {
+  constructor(code, message, details = undefined) {
     super(message);
     this.name = 'SeoriAuthError';
     this.code = code;
+    if (details !== undefined) {
+      Object.defineProperty(this, 'details', {
+        value: Object.freeze({ ...details }),
+        enumerable: false,
+        writable: false,
+      });
+    }
   }
 }
 
-export function fail(code, message) {
-  throw new SeoriAuthError(code, message);
+export function fail(code, message, details = undefined) {
+  throw new SeoriAuthError(code, message, details);
 }

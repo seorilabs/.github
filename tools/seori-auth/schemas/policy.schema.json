@@ -4,11 +4,37 @@
   "title": "Seori Auth policy",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "generation", "rules"],
+  "required": ["schemaVersion", "generation", "accounts", "rules"],
   "properties": {
     "$schema": { "type": "string" },
     "schemaVersion": { "const": 1 },
     "generation": { "type": "integer", "minimum": 1 },
+    "accounts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["provider", "accountId", "kind", "credentialRefs"],
+        "properties": {
+          "provider": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "accountId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$"
+          },
+          "kind": { "enum": ["dedicated_bot", "human"] },
+          "credentialRefs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^(shared|app)/[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)+$"
+            }
+          }
+        }
+      }
+    },
     "rules": {
       "type": "array",
       "minItems": 1,
@@ -29,10 +55,13 @@
           "capabilities",
           "resources",
           "adapters",
-          "accountKinds",
+          "accountIds",
+          "actionClass",
+          "authStrategies",
           "requiresArtifact",
           "artifactSha256s",
-          "allowTotp"
+          "allowTotp",
+          "approvals"
         ],
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
@@ -83,11 +112,35 @@
             }
           },
           "adapters": { "$ref": "#/$defs/nonEmptyStrings" },
-          "accountKinds": {
+          "accountIds": { "$ref": "#/$defs/nonEmptyStrings" },
+          "actionClass": {
+            "enum": [
+              "read_only",
+              "build_status",
+              "internal_upload",
+              "review_submit",
+              "review_cancel",
+              "public_release",
+              "tester_change",
+              "role_change",
+              "permission_change",
+              "credential_change",
+              "certificate_change",
+              "other_mutation"
+            ]
+          },
+          "authStrategies": {
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
-            "items": { "enum": ["dedicated_bot", "human"] }
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": ["api_key", "certificate", "oidc", "password", "session", "totp"]
+              }
+            }
           },
           "requiresArtifact": { "type": "boolean" },
           "artifactSha256s": {
@@ -95,7 +148,25 @@
             "uniqueItems": true,
             "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
           },
-          "allowTotp": { "type": "boolean" }
+          "allowTotp": { "type": "boolean" },
+          "approvals": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "mode", "expiresAt", "maxUses"],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$"
+                },
+                "mode": { "enum": ["preapproved", "per_run"] },
+                "expiresAt": { "type": "string", "format": "date-time" },
+                "maxUses": { "const": 1 }
+              }
+            }
+          }
         }
       }
     }

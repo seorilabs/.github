@@ -1,9 +1,27 @@
 import { isAbsolute } from 'node:path';
 
 import { fail } from './errors.mjs';
+import { NATIVE_LAUNCHER_BRAND } from './native-launcher-brand.mjs';
 
 const SENSITIVE_ENV_NAME = /(AUTH|CREDENTIAL|KEY|PASSWORD|SECRET|TOKEN)/i;
 const FORBIDDEN_ENV = new Set(['NODE_OPTIONS', 'LD_PRELOAD', 'DYLD_INSERT_LIBRARIES']);
+
+function validateLauncher(launcher) {
+  if (launcher === undefined) return undefined;
+  if (
+    !launcher || typeof launcher !== 'object' || Array.isArray(launcher) ||
+    Object.keys(launcher).sort().join(',') !== 'executable,mode' ||
+    typeof launcher.executable !== 'string' || !isAbsolute(launcher.executable) ||
+    launcher.mode !== 'non-dumpable-v1' || launcher[NATIVE_LAUNCHER_BRAND] !== true
+  ) {
+    fail('invalid_adapter', 'adapter launcher must be the trusted non-dumpable native boundary');
+  }
+  return Object.freeze({
+    executable: launcher.executable,
+    mode: launcher.mode,
+    [NATIVE_LAUNCHER_BRAND]: true,
+  });
+}
 
 function validateAdapter(adapter) {
   if (!adapter || typeof adapter !== 'object' || Array.isArray(adapter)) {
@@ -72,6 +90,7 @@ function validateAdapter(adapter) {
     timeoutMs,
     maxOutputBytes,
     cwd: adapter.cwd,
+    launcher: validateLauncher(adapter.launcher),
   });
 }
 
@@ -81,6 +100,9 @@ export class TrustedAdapterRegistry {
   constructor(adapters = []) {
     for (const adapter of adapters) {
       const normalized = validateAdapter(adapter);
+      if (normalized.launcher === undefined) {
+        fail('native_launcher_required', 'production adapter must use the native non-dumpable launcher');
+      }
       if (this.#adapters.has(normalized.id)) {
         fail('invalid_adapter', `duplicate adapter id: ${normalized.id}`);
       }

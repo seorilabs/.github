@@ -4,9 +4,16 @@ import { dirname, isAbsolute } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import { TrustedAdapterRegistry } from './adapters.mjs';
-import { normalizeExecutionBinding } from './durable-state.mjs';
+import {
+  computeAuthStrategyEvidenceKey,
+  HUMAN_REAUTH_REQUIRED,
+  normalizeExecutionBinding,
+  normalizePublicIdentity,
+} from './durable-state.mjs';
 import { SeoriAuthError, fail } from './errors.mjs';
 import { executeConsumedLease } from './executor.mjs';
+import { NATIVE_BROWSER_ADAPTER_BRAND } from './native-browser-adapter-brand.mjs';
+import { NATIVE_LAUNCHER_BRAND } from './native-launcher-brand.mjs';
 import { PolicyEngine } from './policy.mjs';
 import { classifyReauth } from './reauth.mjs';
 import { normalizeLeaseRequest } from './validation.mjs';
@@ -14,6 +21,7 @@ import { normalizeLeaseRequest } from './validation.mjs';
 const MAX_BODY_BYTES = 64 * 1024;
 const IDENTITY_READBACK_TIMEOUT_MS = 10_000;
 const PUBLIC_PATH_ID = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$/;
+const RECONCILIATION_OUTCOMES = new Set(['SUCCEEDED', 'NOT_APPLIED', 'UNKNOWN']);
 
 function assertExactBody(value, keys) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -45,16 +53,44 @@ function assertAttestedPrincipal(principal, claimedBinding) {
   }
 }
 
+function publicIdentityForRequest(request) {
+  return normalizePublicIdentity({
+    provider: request.provider,
+    accountId: request.accountId,
+    teamId: null,
+    workspaceId: null,
+    appId: request.resource.id,
+  });
+}
+
+function normalizeReconciliation(value) {
+  if (
+    !value || typeof value !== 'object' || Array.isArray(value) ||
+    Object.keys(value).sort().join(',') !== 'outcome,publicIdentity' ||
+    !RECONCILIATION_OUTCOMES.has(value.outcome)
+  ) {
+    fail('browser_reconciliation_failed', 'trusted browser reconciliation returned an invalid result');
+  }
+  return Object.freeze({
+    outcome: value.outcome,
+    publicIdentity: normalizePublicIdentity(value.publicIdentity),
+  });
+}
+
 function errorStatus(code) {
   if (['lease_not_found', 'browser_session_not_found'].includes(code)) return 404;
   if (
-    ['capability_forbidden', 'lease_binding_mismatch', 'browser_session_binding_mismatch',
+    ['capability_forbidden', 'per_run_approval_required', 'lease_binding_mismatch', 'browser_session_binding_mismatch',
       'identity_readback_mismatch', 'principal_unauthenticated', 'principal_binding_mismatch'].includes(code)
   ) return 403;
-  if (['lease_expired', 'browser_capability_expired'].includes(code)) return 410;
+  if (['lease_expired', 'browser_capability_expired', 'approval_expired'].includes(code)) return 410;
+  if (code === 'HUMAN_REAUTH_REQUIRED') return 409;
   if (
     ['generation_conflict', 'lease_already_used', 'browser_capability_invalid', 'browser_account_in_use',
-      'browser_session_exists', 'stale_credential_generation', 'stale_policy_generation'].includes(code)
+      'browser_session_exists', 'stale_credential_generation', 'stale_policy_generation',
+      'approval_already_used', 'idempotency_conflict', 'browser_reconciliation_required',
+      'browser_reconciliation_not_applied', 'lease_invalidated_by_reauth',
+      'auth_strategy_evidence_required'].includes(code)
   ) return 409;
   if (
     code.startsWith('invalid_') || code === 'unknown_reauth_classification' ||
@@ -110,6 +146,87 @@ async function withTimeout(operation, milliseconds) {
   }
 }
 
+function validateNativeBrowserAdapter(adapter) {
+  if (
+    !adapter || typeof adapter !== 'object' || Array.isArray(adapter) ||
+    adapter[NATIVE_BROWSER_ADAPTER_BRAND] !== true ||
+    typeof adapter.execute !== 'function' || typeof adapter.terminate !== 'function' ||
+    !Number.isSafeInteger(adapter.timeoutMs) || adapter.timeoutMs < 10 || adapter.timeoutMs > 300_000 ||
+    !Number.isSafeInteger(adapter.terminationTimeoutMs) || adapter.terminationTimeoutMs < 10 ||
+    adapter.terminationTimeoutMs > 30_000 ||
+    !adapter.launcher || adapter.launcher[NATIVE_LAUNCHER_BRAND] !== true ||
+    adapter.launcher.mode !== 'non-dumpable-v1' ||
+    typeof adapter.launcher.executable !== 'string' || !isAbsolute(adapter.launcher.executable)
+  ) {
+    throw new TypeError('browserAdapter must use the native abortable and kill-confirmed launcher boundary');
+  }
+  return adapter;
+}
+
+async function executeAbortableBrowserAdapter(adapter, input) {
+  const controller = new AbortController();
+  const execution = Promise.resolve()
+    .then(() => adapter.execute(Object.freeze({ ...input, signal: controller.signal })))
+    .then(
+      (value) => Object.freeze({ status: 'FULFILLED', value }),
+      (reason) => Object.freeze({ status: 'REJECTED', reason }),
+    );
+  const timeoutMarker = Object.freeze({ status: 'TIMED_OUT' });
+  const first = await Promise.race([
+    execution,
+    new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(timeoutMarker), adapter.timeoutMs);
+      timer.unref();
+      execution.finally(() => clearTimeout(timer));
+    }),
+  ]);
+  if (first.status === 'FULFILLED') return first.value;
+  if (first.status === 'REJECTED') throw first.reason;
+
+  controller.abort(new SeoriAuthError('browser_adapter_timeout', 'trusted browser adapter timed out'));
+  let termination;
+  try {
+    termination = await withTimeout(
+      Promise.resolve().then(() => adapter.terminate(Object.freeze({
+        capabilityId: input.capabilityId,
+        reason: 'timeout',
+      }))),
+      adapter.terminationTimeoutMs,
+    );
+  } catch {
+    fail(
+      'browser_adapter_termination_unconfirmed',
+      'browser adapter termination could not be confirmed; its session remains claimed',
+    );
+  }
+  if (
+    !termination || typeof termination !== 'object' || Array.isArray(termination) ||
+    Object.keys(termination).join(',') !== 'terminated' || termination.terminated !== true
+  ) {
+    fail(
+      'browser_adapter_termination_unconfirmed',
+      'browser adapter termination could not be confirmed; its session remains claimed',
+    );
+  }
+
+  let settled;
+  try {
+    settled = await withTimeout(execution, adapter.terminationTimeoutMs);
+  } catch {
+    fail(
+      'browser_adapter_termination_unconfirmed',
+      'browser adapter did not fully exit after termination; its session remains claimed',
+    );
+  }
+  if (!['FULFILLED', 'REJECTED'].includes(settled.status)) {
+    fail(
+      'browser_adapter_termination_unconfirmed',
+      'browser adapter did not fully exit after termination; its session remains claimed',
+    );
+  }
+  fail('browser_adapter_timeout', 'trusted browser adapter timed out after confirmed termination');
+}
+
 async function assertSocketPathAvailable(socketPath) {
   try {
     await lstat(socketPath);
@@ -130,6 +247,9 @@ export class LocalAuthDaemon {
   #getCredentialGeneration;
   #readBrowserIdentity;
   #authenticatePrincipal;
+  #browserVault;
+  #browserAdapter;
+  #reconcileBrowserSession;
   #server;
   #socketIdentity;
 
@@ -142,11 +262,24 @@ export class LocalAuthDaemon {
     getCredentialGeneration,
     readBrowserIdentity,
     authenticatePrincipal,
+    browserVault,
+    browserAdapter,
+    reconcileBrowserSession,
   }) {
     if (typeof socketPath !== 'string' || !isAbsolute(socketPath)) {
       throw new TypeError('socketPath must be an absolute Unix domain socket path');
     }
-    if (!state || typeof state.issueCredentialCheckout !== 'function') {
+    if (
+      !state || typeof state !== 'object' ||
+      [
+        'issueCredentialCheckout', 'consumeCredentialCheckout', 'recordCredentialExecution',
+        'checkoutBrowserSession', 'claimBrowserSessionExecution', 'claimBrowserSessionRecovery',
+        'completeBrowserSession',
+        'abortBrowserSession', 'requireBrowserSessionReconciliation',
+        'abortBrowserSessionAfterReconciliation', 'blockBrowserSessionForReauth',
+        'createReauthRequest',
+      ].some((method) => typeof state[method] !== 'function')
+    ) {
       throw new TypeError('state must be a DurableAuthState');
     }
     if (typeof loadSecret !== 'function') {
@@ -161,6 +294,17 @@ export class LocalAuthDaemon {
     if (typeof authenticatePrincipal !== 'function') {
       throw new TypeError('authenticatePrincipal must attest the Unix peer outside the HTTP body');
     }
+    if (
+      !browserVault || typeof browserVault !== 'object' ||
+      typeof browserVault.checkout !== 'function' || typeof browserVault.withClone !== 'function' ||
+      typeof browserVault.complete !== 'function' || typeof browserVault.abort !== 'function'
+    ) {
+      throw new TypeError('browserVault must provide the trusted isolated profile boundary');
+    }
+    this.#browserAdapter = validateNativeBrowserAdapter(browserAdapter);
+    if (typeof reconcileBrowserSession !== 'function') {
+      throw new TypeError('reconcileBrowserSession must be a trusted provider readback callback');
+    }
     this.#socketPath = socketPath;
     this.#state = state;
     this.#policy = new PolicyEngine(policy);
@@ -169,6 +313,8 @@ export class LocalAuthDaemon {
     this.#getCredentialGeneration = getCredentialGeneration;
     this.#readBrowserIdentity = readBrowserIdentity;
     this.#authenticatePrincipal = authenticatePrincipal;
+    this.#browserVault = browserVault;
+    this.#reconcileBrowserSession = reconcileBrowserSession;
   }
 
   async start() {
@@ -259,20 +405,34 @@ export class LocalAuthDaemon {
     const body = await readJson(request);
 
     if (url.pathname === '/auth/leases') {
-      assertExactBody(body, ['workerId', 'request']);
+      assertExactBody(body, ['idempotencyKey', 'workerId', 'request']);
       assertAttestedPrincipal(principal, {
         subject: body.request?.subject,
         runId: body.request?.runId,
         repository: body.request?.repository,
         workerId: body.workerId,
       });
-      const authorized = this.#policy.authorize(body.request);
+      const normalizedRequest = normalizeLeaseRequest(body.request);
+      let authorized;
+      try {
+        authorized = this.#policy.evaluateForDurableState(normalizedRequest);
+      } catch (error) {
+        if (error instanceof SeoriAuthError && error.code === HUMAN_REAUTH_REQUIRED) {
+          await this.#state.createReauthRequest({
+            reason: error.details?.reason ?? 'policy_blocked',
+            executionBinding: principal,
+            publicIdentity: publicIdentityForRequest(normalizedRequest),
+          });
+        }
+        throw error;
+      }
       const currentCredentialGeneration = await this.#currentCredentialGeneration(
         authorized.request.credentialRef,
       );
       const credentialCheckout = await this.#state.issueCredentialCheckout({
         authorized,
         workerId: principal.workerId,
+        idempotencyKey: body.idempotencyKey,
         currentCredentialGeneration,
         currentPolicyGeneration: this.#policy.generation,
       });
@@ -292,7 +452,7 @@ export class LocalAuthDaemon {
       const context = normalizeLeaseRequest(body.context);
       // Re-authorize before any generation-source lookup. This prevents an unapproved
       // caller from probing logical credential references through the trusted callback.
-      this.#policy.authorize(context);
+      this.#policy.evaluateForDurableState(context);
       const currentCredentialGeneration = await this.#currentCredentialGeneration(context.credentialRef);
       const consumed = await this.#state.consumeCredentialCheckout({
         id: pathId(executeMatch[1]),
@@ -336,33 +496,217 @@ export class LocalAuthDaemon {
 
     const checkoutMatch = url.pathname.match(/^\/auth\/browser-sessions\/([^/]+)\/checkout$/);
     if (checkoutMatch) {
-      assertExactBody(body, ['expectedGeneration', 'executionBinding', 'expectedIdentity']);
+      assertExactBody(body, [
+        'context', 'executionBinding', 'expectedLeaseGeneration', 'expectedProfileGeneration',
+        'expectedSessionGeneration', 'expectedIdentity', 'leaseId', 'role', 'workerId',
+      ]);
+      assertAttestedPrincipal(principal, {
+        subject: body.context?.subject,
+        runId: body.context?.runId,
+        repository: body.context?.repository,
+        workerId: body.workerId,
+      });
       assertAttestedPrincipal(principal, body.executionBinding);
+      const context = normalizeLeaseRequest(body.context);
+      const authorized = this.#policy.evaluateForDurableState(context);
+      const currentCredentialGeneration = await this.#currentCredentialGeneration(context.credentialRef);
+      const consumed = await this.#state.consumeCredentialCheckout({
+        id: pathId(body.leaseId),
+        expectedGeneration: body.expectedLeaseGeneration,
+        context,
+        workerId: principal.workerId,
+        currentCredentialGeneration,
+        currentPolicyGeneration: this.#policy.generation,
+      });
+      if (authorized.ruleId !== consumed.ruleId) {
+        fail('browser_session_binding_mismatch', 'browser lease rule no longer matches policy');
+      }
+      const authorization = Object.freeze({
+        actionClass: consumed.actionClass,
+        authStrategyIndex: consumed.authStrategyIndex,
+        leaseId: consumed.id,
+        ruleId: consumed.ruleId,
+        profileGeneration: body.expectedProfileGeneration,
+        role: body.role,
+        request: consumed.binding,
+        strategyEvidenceKey: consumed.strategyEvidenceKey,
+      });
+      const sessionId = pathId(checkoutMatch[1]);
       const browserSession = await this.#state.checkoutBrowserSession({
-        sessionId: pathId(checkoutMatch[1]),
-        expectedGeneration: body.expectedGeneration,
+        sessionId,
+        expectedGeneration: body.expectedSessionGeneration,
         executionBinding: principal,
         expectedIdentity: body.expectedIdentity,
+        authorization,
       });
+      try {
+        await this.#browserVault.checkout({
+          capabilityId: browserSession.capabilityId,
+          role: body.role,
+          expectedIdentity: body.expectedIdentity,
+          expectedGeneration: body.expectedProfileGeneration,
+          executionBinding: principal,
+          sourceSha: context.commitSha,
+        });
+      } catch (error) {
+        await this.#state.abortBrowserSession({
+          sessionId,
+          capabilityId: browserSession.capabilityId,
+          expectedGeneration: body.expectedSessionGeneration + 1,
+          executionBinding: principal,
+          authorization,
+        }).catch(() => {});
+        throw error;
+      }
       sendJson(response, 200, { browserSession });
       return;
     }
 
     const completeMatch = url.pathname.match(/^\/auth\/browser-sessions\/([^/]+)\/complete$/);
     if (completeMatch) {
-      assertExactBody(body, ['capabilityId', 'expectedGeneration', 'executionBinding']);
+      assertExactBody(body, [
+        'capabilityId', 'context', 'executionBinding', 'expectedGeneration', 'leaseId',
+        'profileGeneration', 'role', 'workerId',
+      ]);
+      assertAttestedPrincipal(principal, {
+        subject: body.context?.subject,
+        runId: body.context?.runId,
+        repository: body.context?.repository,
+        workerId: body.workerId,
+      });
       assertAttestedPrincipal(principal, body.executionBinding);
-      const browserSession = await this.#state.completeBrowserSession({
-        sessionId: pathId(completeMatch[1]),
+      const context = normalizeLeaseRequest(body.context);
+      const sessionId = pathId(completeMatch[1]);
+      const leaseId = pathId(body.leaseId);
+      const recoveredClaim = await this.#state.claimBrowserSessionRecovery({
+        sessionId,
         capabilityId: body.capabilityId,
         expectedGeneration: body.expectedGeneration,
         executionBinding: principal,
-        readIdentity: (binding) => withTimeout(
-          Promise.resolve().then(() => this.#readBrowserIdentity(binding)),
-          IDENTITY_READBACK_TIMEOUT_MS,
-        ),
+        request: context,
+        leaseId,
+        profileGeneration: body.profileGeneration,
+        role: body.role,
       });
-      sendJson(response, 200, { browserSession });
+      if (recoveredClaim !== null) {
+        const browserSession = await this.#finishBrowserRecovery({
+          sessionId,
+          capabilityId: body.capabilityId,
+          claim: recoveredClaim,
+          executionBinding: principal,
+          authorization: recoveredClaim.authorization,
+          sourceSha: context.commitSha,
+        });
+        sendJson(response, 200, { browserSession });
+        return;
+      }
+      const authorized = this.#policy.evaluateForDurableState(context);
+      const currentCredentialGeneration = await this.#currentCredentialGeneration(context.credentialRef);
+      if (currentCredentialGeneration !== context.credentialGeneration) {
+        fail('stale_credential_generation', 'credential generation changed during browser execution');
+      }
+      const authorization = Object.freeze({
+        actionClass: authorized.actionClass,
+        authStrategyIndex: authorized.authStrategyIndex,
+        leaseId,
+        ruleId: authorized.ruleId,
+        profileGeneration: body.profileGeneration,
+        role: body.role,
+        request: context,
+        strategyEvidenceKey: computeAuthStrategyEvidenceKey({
+          request: context,
+          executionBinding: principal,
+          ruleId: authorized.ruleId,
+          strategyIndex: authorized.authStrategyIndex,
+          authFactors: context.authFactors,
+        }),
+      });
+      const claim = await this.#state.claimBrowserSessionExecution({
+        sessionId,
+        capabilityId: body.capabilityId,
+        expectedGeneration: body.expectedGeneration,
+        executionBinding: principal,
+        authorization,
+      });
+      if (claim.mode === 'RECOVERY_READBACK_ONLY') {
+        const browserSession = await this.#finishBrowserRecovery({
+          sessionId,
+          capabilityId: body.capabilityId,
+          executionBinding: principal,
+          claim,
+          authorization,
+          sourceSha: context.commitSha,
+        });
+        sendJson(response, 200, { browserSession });
+        return;
+      }
+      let observedIdentity;
+      try {
+        await this.#browserVault.withClone({
+          capabilityId: body.capabilityId,
+          executionBinding: principal,
+          sourceSha: context.commitSha,
+        }, (cloneDirectory) => executeAbortableBrowserAdapter(this.#browserAdapter, Object.freeze({
+            cloneDirectory,
+            authorization,
+            capabilityId: body.capabilityId,
+          })));
+        observedIdentity = await withTimeout(
+          Promise.resolve().then(() => this.#readBrowserIdentity({
+            sessionId,
+            capabilityId: body.capabilityId,
+          })),
+          IDENTITY_READBACK_TIMEOUT_MS,
+        );
+        await this.#browserVault.complete({
+          capabilityId: body.capabilityId,
+          executionBinding: principal,
+          sourceSha: context.commitSha,
+          observedIdentity,
+        });
+        const browserSession = await this.#state.completeBrowserSession({
+          sessionId,
+          capabilityId: body.capabilityId,
+          expectedGeneration: claim.generation,
+          executionBinding: principal,
+          authorization,
+          readIdentity: async () => observedIdentity,
+        });
+        sendJson(response, 200, { browserSession });
+      } catch (error) {
+        const terminationUnconfirmed = error instanceof SeoriAuthError &&
+          error.code === 'browser_adapter_termination_unconfirmed';
+        if (!terminationUnconfirmed) {
+          await this.#browserVault.abort({
+            capabilityId: body.capabilityId,
+            executionBinding: principal,
+            sourceSha: context.commitSha,
+          }).catch(() => {});
+        }
+        if (error instanceof SeoriAuthError && error.code === HUMAN_REAUTH_REQUIRED) {
+          await this.#state.createReauthRequest({
+            reason: error.details?.reason ?? 'mfa_required',
+            executionBinding: principal,
+            publicIdentity: claim.publicIdentity,
+          });
+          await this.#state.blockBrowserSessionForReauth({
+            sessionId,
+            capabilityId: body.capabilityId,
+            expectedGeneration: claim.generation,
+            executionBinding: principal,
+            authorization,
+          });
+        } else if (!terminationUnconfirmed) {
+          await this.#state.requireBrowserSessionReconciliation({
+            sessionId,
+            capabilityId: body.capabilityId,
+            expectedGeneration: claim.generation,
+            executionBinding: principal,
+            authorization,
+          });
+        }
+        throw error;
+      }
       return;
     }
 
@@ -380,6 +724,57 @@ export class LocalAuthDaemon {
     }
 
     sendJson(response, 404, { error: { code: 'route_not_found' } });
+  }
+
+  async #finishBrowserRecovery({
+    sessionId,
+    capabilityId,
+    claim,
+    executionBinding,
+    authorization,
+    sourceSha,
+  }) {
+    let reconciliation;
+    try {
+      reconciliation = normalizeReconciliation(await withTimeout(
+        Promise.resolve().then(() => this.#reconcileBrowserSession(Object.freeze({
+          sessionId,
+          capabilityId,
+          authorization,
+        }))),
+        IDENTITY_READBACK_TIMEOUT_MS,
+      ));
+    } catch (error) {
+      if (error instanceof SeoriAuthError) throw error;
+      fail('browser_reconciliation_failed', 'trusted browser reconciliation failed');
+    }
+    await this.#browserVault.abort({
+      capabilityId,
+      executionBinding,
+      sourceSha,
+    }).catch(() => {});
+    if (reconciliation.outcome === 'UNKNOWN') {
+      fail('browser_reconciliation_required', 'browser action outcome remains unknown');
+    }
+    if (reconciliation.outcome === 'NOT_APPLIED') {
+      await this.#state.abortBrowserSessionAfterReconciliation({
+        sessionId,
+        capabilityId,
+        expectedGeneration: claim.generation,
+        executionBinding,
+        authorization,
+      });
+      fail('browser_reconciliation_not_applied', 'browser action was verified as not applied');
+    }
+    return this.#state.completeBrowserSession({
+      sessionId,
+      capabilityId,
+      expectedGeneration: claim.generation,
+      executionBinding,
+      authorization,
+      recoveryMode: true,
+      readIdentity: async () => reconciliation.publicIdentity,
+    });
   }
 
   async #currentCredentialGeneration(credentialRef) {

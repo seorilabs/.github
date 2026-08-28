@@ -9,12 +9,14 @@ function setup() {
   const engine = new PolicyEngine(makePolicy());
   const store = new LeaseStore({ clock: () => now });
   const request = makeRequest();
-  const lease = store.issue(engine.authorize(request));
+  const authorized = engine.authorize(request);
+  const lease = store.issue({ ...authorized, idempotencyKey: 'lease-store-primary' });
   return {
     engine,
     store,
     request,
     lease,
+    authorized,
     advance(milliseconds) {
       now += milliseconds;
     },
@@ -50,6 +52,16 @@ test('lease is single-use', () => {
   assert.throws(
     () => consume(state),
     (error) => error instanceof SeoriAuthError && error.code === 'lease_already_used',
+  );
+});
+
+test('approval maxUses is reserved at issuance and an exact idempotent retry returns the same lease', () => {
+  const state = setup();
+  const replay = state.store.issue({ ...state.authorized, idempotencyKey: 'lease-store-primary' });
+  assert.equal(replay.leaseId, state.lease.leaseId);
+  assert.throws(
+    () => state.store.issue({ ...state.authorized, idempotencyKey: 'lease-store-other' }),
+    (error) => error instanceof SeoriAuthError && error.code === 'approval_already_used',
   );
 });
 

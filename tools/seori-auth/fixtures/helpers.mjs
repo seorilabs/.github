@@ -1,10 +1,79 @@
+import { fileURLToPath } from 'node:url';
+
+import { NativeSecurityBoundary } from '../src/native-boundary.mjs';
+import { DurableAuthState } from '../src/durable-state.mjs';
+
 export const COMMIT_SHA = '1'.repeat(40);
 export const ARTIFACT_SHA = 'a'.repeat(64);
+const NATIVE_HELPER = fileURLToPath(new URL('../.build/seori-auth-native', import.meta.url));
+
+export async function makeNativeLockProvider() {
+  const boundary = await NativeSecurityBoundary.open({
+    helperPath: NATIVE_HELPER,
+    resolvePrincipal: async () => ({
+      subject: 'fixture',
+      runId: 'fixture',
+      repository: 'seorilabs/fixture',
+      workerId: 'fixture',
+    }),
+  });
+  return boundary.lockProvider();
+}
+
+export async function makeNativeLauncher() {
+  const boundary = await NativeSecurityBoundary.open({
+    helperPath: NATIVE_HELPER,
+    resolvePrincipal: async () => ({
+      subject: 'fixture',
+      runId: 'fixture',
+      repository: 'seorilabs/fixture',
+      workerId: 'fixture',
+    }),
+  });
+  return boundary.launcher();
+}
+
+export async function makeNativeBrowserAdapter({
+  execute,
+  terminate = async () => ({ terminated: true }),
+  timeoutMs,
+  terminationTimeoutMs,
+}) {
+  const boundary = await NativeSecurityBoundary.open({
+    helperPath: NATIVE_HELPER,
+    resolvePrincipal: async () => ({
+      subject: 'fixture',
+      runId: 'fixture',
+      repository: 'seorilabs/fixture',
+      workerId: 'fixture',
+    }),
+  });
+  return boundary.browserAdapter({ execute, terminate, timeoutMs, terminationTimeoutMs });
+}
+
+export async function openDurableAuthState(options) {
+  return DurableAuthState.open({
+    ...options,
+    writerLockProvider: options.writerLockProvider ?? await makeNativeLockProvider(),
+  });
+}
 
 export function makePolicy(ruleOverrides = {}, policyOverrides = {}) {
   return {
     schemaVersion: 1,
     generation: 7,
+    accounts: [
+      {
+        provider: 'apps-in-toss',
+        accountId: 'operator-account',
+        kind: 'dedicated_bot',
+        credentialRefs: [
+          'shared/apps-in-toss/operator',
+          'shared/apps-in-toss/bot-password',
+          'shared/apps-in-toss/bot-totp',
+        ],
+      },
+    ],
     rules: [
       {
         id: 'private-upload',
@@ -20,10 +89,18 @@ export function makePolicy(ruleOverrides = {}, policyOverrides = {}) {
         capabilities: ['ait.bundle.upload.private'],
         resources: [{ kind: 'miniapp', id: 'example-app', environment: 'private' }],
         adapters: ['test-adapter'],
-        accountKinds: ['dedicated_bot'],
+        accountIds: ['operator-account'],
+        actionClass: 'internal_upload',
+        authStrategies: [['api_key']],
         requiresArtifact: true,
         artifactSha256s: [ARTIFACT_SHA],
         allowTotp: false,
+        approvals: [{
+          id: 'approval-123',
+          mode: 'preapproved',
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          maxUses: 1,
+        }],
         ...ruleOverrides,
       },
     ],
@@ -47,8 +124,14 @@ export function makeRequest(overrides = {}) {
     resource: { kind: 'miniapp', id: 'example-app', environment: 'private' },
     artifact: { sha256: ARTIFACT_SHA, sizeBytes: 1024 },
     adapterId: 'test-adapter',
-    accountKind: 'dedicated_bot',
+    accountId: 'operator-account',
     authFactors: ['api_key'],
+    approval: {
+      id: 'approval-123',
+      mode: 'preapproved',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      maxUses: 1,
+    },
     ...overrides,
   };
 }

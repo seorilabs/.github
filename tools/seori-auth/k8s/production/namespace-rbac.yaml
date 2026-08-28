@@ -1,0 +1,69 @@
+# DEPLOYMENT TEMPLATE. Replace every digest, workload identity annotation, and
+# encrypted StorageClass/PVC binding, then pass production-runbook gates before apply.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: auth-broker
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    seorilabs.io/auth-broker-boundary: "true"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auth-broker
+  namespace: auth-broker
+  annotations:
+    seorilabs.io/wif-principal: REPLACE_AUTH_BROKER_IDENTITY
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: password-loader
+  namespace: auth-broker
+  annotations:
+    seorilabs.io/wif-principal: REPLACE_PASSWORD_LOADER_IDENTITY
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: totp-signer
+  namespace: auth-broker
+  annotations:
+    seorilabs.io/wif-principal: REPLACE_TOTP_SIGNER_IDENTITY
+automountServiceAccountToken: false
+---
+# Kubernetes RBAC intentionally grants none of these principals Secret, ConfigMap,
+# pod, exec, token, list, or watch access. Secret Manager access belongs only to
+# distinct external workload identities and is audited outside Kubernetes RBAC.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auth-broker-no-kubernetes-api
+  namespace: auth-broker
+rules: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auth-broker-no-kubernetes-api
+  namespace: auth-broker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: auth-broker-no-kubernetes-api
+subjects:
+  - kind: ServiceAccount
+    name: auth-broker
+    namespace: auth-broker
+  - kind: ServiceAccount
+    name: password-loader
+    namespace: auth-broker
+  - kind: ServiceAccount
+    name: totp-signer
+    namespace: auth-broker

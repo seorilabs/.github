@@ -12,7 +12,10 @@
   },
   "exports": "./src/index.mjs",
   "scripts": {
-    "lint": "node --check src/*.mjs test/*.test.mjs fixtures/*.mjs",
+    "build:native": "node scripts/build-native.mjs",
+    "cleanup:browser-runtime": "node scripts/cleanup-browser-runtime.mjs",
+    "pretest": "npm run build:native",
+    "lint": "node --check src/*.mjs test/*.test.mjs fixtures/*.mjs scripts/*.mjs",
     "test": "node --test test/*.test.mjs"
   }
 }
