@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v1/provider-auth-matrix.schema.json",
+  "title": "Seorilabs provider authentication matrix",
+  "description": "Public, secret-free policy for selecting unattended provider authentication and human reauthentication.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "strategyPriority",
+    "prohibitedInteractiveFactors",
+    "providers"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "const": "seorilabs-provider-auth-matrix"
+    },
+    "strategyPriority": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        { "const": "API_WIF" },
+        { "const": "BROWSER_SESSION" },
+        { "const": "BOT_PASSWORD_TOTP" },
+        { "const": "HUMAN_REAUTH" }
+      ],
+      "items": false
+    },
+    "prohibitedInteractiveFactors": {
+      "type": "array",
+      "minItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "PERSONAL_ACCOUNT_PASSWORD_TOTP",
+          "PASSKEY",
+          "SMS",
+          "PUSH",
+          "TRUSTED_DEVICE",
+          "CAPTCHA",
+          "RECOVERY",
+          "TERMS_OR_ACCOUNT_ACCEPTANCE"
+        ]
+      }
+    },
+    "providers": {
+      "type": "array",
+      "minItems": 7,
+      "items": {
+        "$ref": "#/$defs/provider"
+      }
+    }
+  },
+  "$defs": {
+    "logicalCredentialId": {
+      "type": "string",
+      "pattern": "^shared/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?(?:/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?)*$"
+    },
+    "strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "availability",
+        "accountKind",
+        "credentialLogicalIds",
+        "unattended",
+        "allowTotp"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "API_WIF",
+            "BROWSER_SESSION",
+            "BOT_PASSWORD_TOTP",
+            "HUMAN_REAUTH"
+          ]
+        },
+        "availability": {
+          "enum": ["ACTIVE", "PLANNED", "BLOCKED", "HUMAN_ONLY"]
+        },
+        "accountKind": {
+          "enum": ["SERVICE_IDENTITY", "DEDICATED_BOT", "HUMAN"]
+        },
+        "credentialLogicalIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/logicalCredentialId"
+          }
+        },
+        "unattended": {
+          "type": "boolean"
+        },
+        "allowTotp": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "const": "API_WIF" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "accountKind": { "const": "SERVICE_IDENTITY" },
+              "credentialLogicalIds": { "type": "array", "minItems": 1 },
+              "allowTotp": { "const": false }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "BROWSER_SESSION" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "accountKind": { "const": "DEDICATED_BOT" },
+              "credentialLogicalIds": { "type": "array", "minItems": 1 },
+              "allowTotp": { "const": false }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "BOT_PASSWORD_TOTP" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "accountKind": { "const": "DEDICATED_BOT" },
+              "credentialLogicalIds": { "type": "array", "minItems": 2, "maxItems": 2 },
+              "allowTotp": { "const": true }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "HUMAN_REAUTH" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "availability": { "const": "HUMAN_ONLY" },
+              "accountKind": { "const": "HUMAN" },
+              "credentialLogicalIds": { "type": "array", "maxItems": 0 },
+              "unattended": { "const": false },
+              "allowTotp": { "const": false }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "availability": { "enum": ["PLANNED", "BLOCKED", "HUMAN_ONLY"] }
+            },
+            "required": ["availability"]
+          },
+          "then": {
+            "properties": {
+              "unattended": { "const": false }
+            }
+          }
+        }
+      ]
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "actionClass", "approval", "strategies"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.-]{1,80}$"
+        },
+        "actionClass": {
+          "enum": ["READ_ONLY", "INTERNAL_UPLOAD", "CONFIG_WRITE", "PROTECTED"]
+        },
+        "approval": {
+          "enum": ["PREAPPROVED", "PER_RUN", "HUMAN_ONLY"]
+        },
+        "strategies": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/strategy"
+          }
+        }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "origins", "capabilities", "humanOnlyActions"],
+      "properties": {
+        "id": {
+          "enum": [
+            "github",
+            "google-cloud",
+            "firebase",
+            "google-workspace",
+            "google-play",
+            "app-store-connect",
+            "apps-in-toss"
+          ]
+        },
+        "origins": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/capability"
+          }
+        },
+        "humanOnlyActions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9.-]{1,100}$"
+          }
+        }
+      }
+    }
+  }
+}

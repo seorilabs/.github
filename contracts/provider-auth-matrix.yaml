@@ -1,0 +1,401 @@
+schemaVersion: 1
+id: seorilabs-provider-auth-matrix
+strategyPriority:
+  - API_WIF
+  - BROWSER_SESSION
+  - BOT_PASSWORD_TOTP
+  - HUMAN_REAUTH
+prohibitedInteractiveFactors:
+  - PERSONAL_ACCOUNT_PASSWORD_TOTP
+  - PASSKEY
+  - SMS
+  - PUSH
+  - TRUSTED_DEVICE
+  - CAPTCHA
+  - RECOVERY
+  - TERMS_OR_ACCOUNT_ACCEPTANCE
+providers:
+  - id: github
+    origins:
+      - https://api.github.com
+      - https://github.com
+    capabilities:
+      - id: repository-observation
+        actionClass: READ_ONLY
+        approval: PREAPPROVED
+        strategies:
+          - kind: API_WIF
+            availability: BLOCKED
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/github/backoffice-app-private-key
+            unattended: false
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+      - id: repository-bootstrap-mutation
+        actionClass: CONFIG_WRITE
+        approval: PER_RUN
+        strategies:
+          - kind: API_WIF
+            availability: BLOCKED
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/github/backoffice-app-private-key
+            unattended: false
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+      - id: organization-owner-settings
+        actionClass: PROTECTED
+        approval: HUMAN_ONLY
+        strategies:
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+    humanOnlyActions:
+      - app-permission-change
+      - installation-acceptance
+      - package-visibility-change
+      - organization-ruleset-change
+      - immutable-release-policy-change
+
+  - id: google-cloud
+    origins:
+      - https://cloudresourcemanager.googleapis.com
+      - https://iam.googleapis.com
+      - https://secretmanager.googleapis.com
+    capabilities:
+      - id: inventory-read
+        actionClass: READ_ONLY
+        approval: PREAPPROVED
+        strategies:
+          - kind: API_WIF
+            availability: ACTIVE
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/gcp/provisioner-session
+            unattended: true
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+      - id: project-blueprint-apply
+        actionClass: CONFIG_WRITE
+        approval: PER_RUN
+        strategies:
+          - kind: API_WIF
+            availability: BLOCKED
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/gcp/provisioner-session
+            unattended: false
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+    humanOnlyActions:
+      - billing-account-change
+      - service-account-key-change
+      - organization-iam-owner-change
+
+  - id: firebase
+    origins:
+      - https://firebase.googleapis.com
+      - https://firebaseappcheck.googleapis.com
+    capabilities:
+      - id: inventory-read
+        actionClass: READ_ONLY
+        approval: PREAPPROVED
+        strategies:
+          - kind: API_WIF
+            availability: ACTIVE
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/gcp/firebase-automation
+            unattended: true
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+      - id: project-blueprint-apply
+        actionClass: CONFIG_WRITE
+        approval: PER_RUN
+        strategies:
+          - kind: API_WIF
+            availability: ACTIVE
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/gcp/firebase-automation
+            unattended: false
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+    humanOnlyActions:
+      - project-ownership-change
+      - billing-plan-change
+      - terms-acceptance
+
+  - id: google-workspace
+    origins:
+      - https://admin.googleapis.com
+      - https://groupssettings.googleapis.com
+    capabilities:
+      - id: inventory-read
+        actionClass: READ_ONLY
+        approval: PREAPPROVED
+        strategies:
+          - kind: API_WIF
+            availability: BLOCKED
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/gcp/provisioner-session
+            unattended: false
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+    humanOnlyActions:
+      - domain-wide-delegation-change
+      - super-admin-role-change
+      - domain-or-billing-change
+
+  - id: google-play
+    origins:
+      - https://androidpublisher.googleapis.com
+      - https://play.google.com
+    capabilities:
+      - id: build-and-status-read
+        actionClass: READ_ONLY
+        approval: PREAPPROVED
+        strategies:
+          - kind: API_WIF
+            availability: ACTIVE
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/google-play/publisher
+            unattended: true
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+      - id: internal-test-upload
+        actionClass: INTERNAL_UPLOAD
+        approval: PREAPPROVED
+        strategies:
+          - kind: API_WIF
+            availability: ACTIVE
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/google-play/publisher
+            unattended: true
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+      - id: production-release
+        actionClass: PROTECTED
+        approval: PER_RUN
+        strategies:
+          - kind: API_WIF
+            availability: ACTIVE
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/google-play/publisher
+            unattended: false
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+    humanOnlyActions:
+      - role-or-permission-change
+      - signing-key-change
+      - payments-or-tax-change
+
+  - id: app-store-connect
+    origins:
+      - https://api.appstoreconnect.apple.com
+      - https://appstoreconnect.apple.com
+    capabilities:
+      - id: build-and-status-read
+        actionClass: READ_ONLY
+        approval: PREAPPROVED
+        strategies:
+          - kind: API_WIF
+            availability: ACTIVE
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/apple/app-store-connect-uploader
+            unattended: true
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+      - id: testflight-upload
+        actionClass: INTERNAL_UPLOAD
+        approval: PREAPPROVED
+        strategies:
+          - kind: API_WIF
+            availability: ACTIVE
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/apple/app-store-connect-uploader
+            unattended: true
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+      - id: review-submit-or-public-release
+        actionClass: PROTECTED
+        approval: PER_RUN
+        strategies:
+          - kind: API_WIF
+            availability: ACTIVE
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/apple/app-store-connect-uploader
+            unattended: false
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+    humanOnlyActions:
+      - account-holder-action
+      - agreements-tax-or-banking-change
+      - role-or-key-change
+
+  - id: apps-in-toss
+    origins:
+      - https://apps-in-toss-api.toss.im
+      - https://developers-apps-in-toss.toss.im
+    capabilities:
+      - id: status-read
+        actionClass: READ_ONLY
+        approval: PREAPPROVED
+        strategies:
+          - kind: API_WIF
+            availability: ACTIVE
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/apps-in-toss/operator
+            unattended: true
+            allowTotp: false
+          - kind: BROWSER_SESSION
+            availability: PLANNED
+            accountKind: DEDICATED_BOT
+            credentialLogicalIds:
+              - shared/apps-in-toss/browser-session
+            unattended: false
+            allowTotp: false
+          - kind: BOT_PASSWORD_TOTP
+            availability: PLANNED
+            accountKind: DEDICATED_BOT
+            credentialLogicalIds:
+              - shared/apps-in-toss/bot-password
+              - shared/apps-in-toss/bot-totp
+            unattended: false
+            allowTotp: true
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+      - id: private-bundle-upload
+        actionClass: INTERNAL_UPLOAD
+        approval: PREAPPROVED
+        strategies:
+          - kind: API_WIF
+            availability: ACTIVE
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/apps-in-toss/operator
+            unattended: true
+            allowTotp: false
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+      - id: review-submit-or-public-release
+        actionClass: PROTECTED
+        approval: PER_RUN
+        strategies:
+          - kind: API_WIF
+            availability: PLANNED
+            accountKind: SERVICE_IDENTITY
+            credentialLogicalIds:
+              - shared/apps-in-toss/operator
+            unattended: false
+            allowTotp: false
+          - kind: BROWSER_SESSION
+            availability: PLANNED
+            accountKind: DEDICATED_BOT
+            credentialLogicalIds:
+              - shared/apps-in-toss/browser-session
+            unattended: false
+            allowTotp: false
+          - kind: BOT_PASSWORD_TOTP
+            availability: PLANNED
+            accountKind: DEDICATED_BOT
+            credentialLogicalIds:
+              - shared/apps-in-toss/bot-password
+              - shared/apps-in-toss/bot-totp
+            unattended: false
+            allowTotp: true
+          - kind: HUMAN_REAUTH
+            availability: HUMAN_ONLY
+            accountKind: HUMAN
+            credentialLogicalIds: []
+            unattended: false
+            allowTotp: false
+    humanOnlyActions:
+      - role-or-permission-change
+      - account-recovery
+      - terms-or-contract-acceptance
