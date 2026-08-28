@@ -166,6 +166,7 @@ export class NativeSecurityBoundary {
   async secretManagerAccessor({
     nodeSha256,
     childSha256,
+    configSha256,
     nodePath = SECRET_MANAGER_NODE,
     childPath = SECRET_MANAGER_CHILD,
     configPath = SECRET_MANAGER_CONFIG,
@@ -181,6 +182,7 @@ export class NativeSecurityBoundary {
     await Promise.all([
       validateTrustedImageFile(nodePath, nodeSha256, 'Secret Manager Node executable'),
       validateTrustedImageFile(childPath, childSha256, 'Secret Manager child'),
+      validateTrustedImageFile(configPath, configSha256, 'Secret Manager access config'),
     ]);
     const helperPath = this.#helperPath;
     const activeResources = new Set();

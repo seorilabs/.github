@@ -14,6 +14,11 @@ function fail() {
   throw new Error('secret access child failed');
 }
 
+function exactKeys(value, expected) {
+  return value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.keys(value).sort().join(',') === [...expected].sort().join(',');
+}
+
 async function readConfig() {
   const [entry, canonical] = await Promise.all([lstat(CONFIG_PATH), realpath(CONFIG_PATH)]);
   if (!entry.isFile() || entry.isSymbolicLink() || canonical !== CONFIG_PATH) fail();
@@ -68,7 +73,11 @@ try {
   const resourceName = parseResource();
   const config = await readConfig();
   if (
-    !config || config.schemaVersion !== 1 || !Array.isArray(config.allowedResources) ||
+    !exactKeys(config, ['allowedResources', 'egressProxy', 'schemaVersion', 'workloadIdentity']) ||
+    config.schemaVersion !== 1 ||
+    !exactKeys(config.workloadIdentity, ['audience', 'impersonationUrl']) ||
+    !exactKeys(config.egressProxy, ['caPath', 'certificatePath', 'privateKeyPath', 'serverName', 'uri']) ||
+    !Array.isArray(config.allowedResources) ||
     !config.allowedResources.includes(resourceName) || new Set(config.allowedResources).size !== config.allowedResources.length ||
     config.allowedResources.some((resource) => !RESOURCE.test(resource))
   ) fail();
@@ -76,9 +85,7 @@ try {
   const tokenProvider = new GoogleWorkloadIdentityTokenProvider({
     readSubjectToken: oneTimeSubjectTokenReader(),
     audience: config.workloadIdentity.audience,
-    ...(config.workloadIdentity.impersonationUrl === undefined
-      ? {}
-      : { impersonationUrl: config.workloadIdentity.impersonationUrl }),
+    impersonationUrl: config.workloadIdentity.impersonationUrl,
     fetchImpl: (url, options) => proxy.fetch(url, options),
   });
   const store = new GoogleSecretManagerExecutionStore({

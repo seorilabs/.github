@@ -3,9 +3,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { chmod, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -18,9 +15,23 @@ if (process.argv.length !== 3 || !image || /[\s\0]/.test(image)) {
 const suffix = `${process.pid}-${randomBytes(6).toString('hex')}`;
 const projectedVolume = `seori-auth-projected-${suffix}`;
 const escapeVolume = `seori-auth-escape-${suffix}`;
-const root = await mkdtemp(join(tmpdir(), 'seori-auth-container-canary-'));
-const configPath = join(root, 'secret-access.json');
+const configVolume = `seori-auth-config-${suffix}`;
 const fakeToken = 'FAKE_K8S_PROJECTED_TOKEN_CANARY_20260828';
+const fakeSecretAccessConfig = `${JSON.stringify({
+  schemaVersion: 1,
+  allowedResources: ['projects/seori-auth-canary/secrets/fake-execution-copy/versions/1'],
+  workloadIdentity: {
+    audience: '//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seori-auth/providers/microk8s',
+    impersonationUrl: 'https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/seori-auth-canary%40example-project.iam.gserviceaccount.com:generateAccessToken',
+  },
+  egressProxy: {
+    uri: 'https://egress.invalid:8443',
+    serverName: 'egress.invalid',
+    caPath: '/etc/seori-auth/egress/ca.crt',
+    certificatePath: '/etc/seori-auth/egress/tls.crt',
+    privateKeyPath: '/etc/seori-auth/egress/tls.key',
+  },
+})}\n`;
 
 async function docker(args, expectedCode = 0) {
   try {
@@ -42,25 +53,16 @@ function hardenedRun(extra) {
 }
 
 try {
-  await writeFile(configPath, `${JSON.stringify({
-    schemaVersion: 1,
-    allowedResources: ['projects/seori-auth-canary/secrets/fake-execution-copy/versions/1'],
-    workloadIdentity: {
-      audience: '//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seori-auth/providers/microk8s',
-    },
-    egressProxy: {
-      uri: 'https://egress.invalid:8443',
-      serverName: 'egress.invalid',
-      caPath: '/etc/seori-auth/egress/ca.crt',
-      certificatePath: '/etc/seori-auth/egress/tls.crt',
-      privateKeyPath: '/etc/seori-auth/egress/tls.key',
-    },
-  })}\n`, { mode: 0o444 });
-  await chmod(configPath, 0o444);
-  const canonicalConfig = await realpath(configPath);
-
   await docker(['volume', 'create', projectedVolume]);
   await docker(['volume', 'create', escapeVolume]);
+  await docker(['volume', 'create', configVolume]);
+  await docker([
+    'run', '--rm', '--platform', 'linux/arm64', '--user', '0', '--network', 'none',
+    '-v', `${configVolume}:/etc/seori-auth`,
+    '--entrypoint', '/usr/local/bin/node', image, '-e',
+    "const fs=require('node:fs');const p='/etc/seori-auth/secret-access.json';fs.writeFileSync(p,Buffer.from(process.argv[1],'base64'));fs.chownSync(p,0,65532);fs.chmodSync(p,0o440)",
+    Buffer.from(fakeSecretAccessConfig, 'utf8').toString('base64'),
+  ]);
   const setup = [
     "const fs=require('node:fs')",
     "const root='/var/run/seori-auth/projected-identity'",
@@ -120,7 +122,7 @@ try {
 
   const accessor = await docker(hardenedRun([
     '-v', `${projectedVolume}:/var/run/seori-auth/projected-identity:ro`,
-    '-v', `${canonicalConfig}:/etc/seori-auth/secret-access.json:ro`,
+    '-v', `${configVolume}:/etc/seori-auth:ro`,
     '--entrypoint', '/usr/local/bin/node', image,
     '/opt/seori-auth/runtime/native-accessor-canary.mjs',
   ]));
@@ -142,5 +144,5 @@ try {
 } finally {
   await docker(['volume', 'rm', '--force', projectedVolume]).catch(() => {});
   await docker(['volume', 'rm', '--force', escapeVolume]).catch(() => {});
-  await rm(root, { recursive: true, force: true });
+  await docker(['volume', 'rm', '--force', configVolume]).catch(() => {});
 }

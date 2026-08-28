@@ -270,6 +270,10 @@ projected ServiceAccount token은 `/var/run/seori-auth/projected-identity/token`
 `RESOLVE_BENEATH`, `RESOLVE_NO_MAGICLINKS`, `RESOLVE_NO_XDEV`로 Kubernetes atomic symlink를
 안전하게 따라가 FD4에 한 번만 전달합니다. 고정 digest가 검증된 Secret Manager child는
 FD4를 한 번 읽은 직후 닫으며 token을 stdout, argv, env, 일반 파일로 relay하지 않습니다.
+factor 서비스는 resource name을 선택하지 못하고 logical credential ID와 generation만
+요청합니다. 시작 시 factor binding과 workload의 credential binding이 정확히 같은 partition인지
+검증하고, 렌더된 public GSA/WIF audience/config digest와 실제 `secret-access.json`이 다르면
+readiness를 만들기 전에 중단합니다.
 
 ## 감사 이벤트
 

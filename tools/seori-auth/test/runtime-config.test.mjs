@@ -1,0 +1,114 @@
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
+
+const execFileAsync = promisify(execFile);
+const entrypoint = fileURLToPath(new URL('../runtime/entrypoint.mjs', import.meta.url));
+const configDigest = 'd'.repeat(64);
+const googleServiceAccount = 'seori-auth-password@example-project.iam.gserviceaccount.com';
+const wifAudience = '//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seori-auth/providers/microk8s';
+
+function passwordConfig() {
+  return {
+    schemaVersion: 1,
+    role: 'password-loader',
+    nativeHelperPath: '/opt/seori-auth/bin/seori-auth-native',
+    nativeHelperSha256: 'a'.repeat(64),
+    readinessFile: '/run/seori-auth/password-loader.ready',
+    secretAccess: {
+      nodeSha256: 'b'.repeat(64),
+      childSha256: 'c'.repeat(64),
+      configSha256: configDigest,
+    },
+    credentialBindings: [{
+      credentialRef: 'shared/apps-in-toss/bot-password',
+      credentialGeneration: 3,
+      resourceName: 'projects/seorilabs-ci/secrets/apps-in-toss-password/versions/7',
+    }],
+    listen: { host: '0.0.0.0', port: 9443 },
+    tls: {
+      caPath: '/etc/seori-auth/tls/ca.crt',
+      certificatePath: '/etc/seori-auth/tls/tls.crt',
+      privateKeyPath: '/etc/seori-auth/tls/tls.key',
+    },
+    adapters: [{
+      id: 'password-injector',
+      executable: '/opt/seori-auth/adapters/password-injector',
+      fixedArgs: [],
+      providers: ['apps-in-toss'],
+      capabilities: ['browser.password.inject'],
+      timeoutMs: 10_000,
+      maxOutputBytes: 1_024,
+    }],
+    allowedBrokerSpiffeIds: ['spiffe://seorilabs.local/ns/auth-broker/sa/auth-broker'],
+    factorBindings: [{
+      credentialRef: 'shared/apps-in-toss/bot-password',
+      credentialGeneration: 3,
+      factor: 'password',
+      provider: 'apps-in-toss',
+      accountId: 'automation-account',
+    }],
+  };
+}
+
+async function validate(config) {
+  const root = await mkdtemp(join(tmpdir(), 'seori-auth-runtime-config-'));
+  const path = join(root, 'runtime.json');
+  try {
+    await writeFile(path, `${JSON.stringify(config)}\n`, { mode: 0o600 });
+    return await execFileAsync(process.execPath, [
+      entrypoint,
+      'validate-config',
+      `--config=${await realpath(path)}`,
+      `--expected-secret-access-sha256=${configDigest}`,
+      `--expected-google-service-account=${googleServiceAccount}`,
+      `--expected-wif-audience=${wifAudience}`,
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+test('validate-config uses the same strict password runtime schema as serve', async () => {
+  const result = await validate(passwordConfig());
+  assert.equal(result.stderr, '');
+  assert.deepEqual(JSON.parse(result.stdout), {
+    valid: true,
+    schemaVersion: 1,
+    role: 'password-loader',
+  });
+});
+
+test('validate-config rejects a role marker without the complete runtime contract', async () => {
+  await assert.rejects(validate({ schemaVersion: 1, role: 'password-loader' }), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /runtime_error/);
+    return true;
+  });
+});
+
+test('password runtime cannot map its factor binding to a different logical credential', async () => {
+  const config = passwordConfig();
+  config.factorBindings[0].credentialRef = 'shared/apps-in-toss/bot-totp';
+  await assert.rejects(validate(config), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /runtime_error/);
+    assert.doesNotMatch(error.stderr, /bot-password|bot-totp|resourceName/);
+    return true;
+  });
+});
+
+test('runtime rejects undeclared extension fields and a checksum not bound by the rendered workload', async () => {
+  const extended = passwordConfig();
+  extended.debug = true;
+  await assert.rejects(validate(extended), (error) => error.code === 1);
+
+  const drifted = passwordConfig();
+  drifted.secretAccess.configSha256 = 'e'.repeat(64);
+  await assert.rejects(validate(drifted), (error) => error.code === 1);
+});

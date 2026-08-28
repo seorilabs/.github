@@ -27,10 +27,12 @@ COPY --from=native-build --chown=root:root /build/node_modules /opt/seori-auth/n
 COPY --chown=root:root tools/seori-auth/package.json tools/seori-auth/package-lock.json ./
 COPY --chown=root:root tools/seori-auth/src ./src
 COPY --chown=root:root tools/seori-auth/runtime ./runtime
-RUN chmod 0555 /opt/seori-auth/bin/seori-auth-native /opt/seori-auth/runtime/entrypoint.mjs \
+RUN mkdir -p /etc/seori-auth/tls /etc/seori-auth/egress /run/seori-auth /var/lib/seori-auth \
+    && chown root:root /etc/seori-auth /etc/seori-auth/tls /etc/seori-auth/egress \
+    && chmod 0555 /etc/seori-auth /etc/seori-auth/tls /etc/seori-auth/egress \
+    && chmod 0555 /opt/seori-auth/bin/seori-auth-native /opt/seori-auth/runtime/entrypoint.mjs \
     && find /opt/seori-auth -type d -exec chmod 0555 {} + \
     && find /opt/seori-auth/src /opt/seori-auth/runtime -type f -exec chmod 0444 {} + \
-    && mkdir -p /run/seori-auth /var/lib/seori-auth \
     && chown 65532:65532 /run/seori-auth /var/lib/seori-auth \
     && chmod 0700 /run/seori-auth /var/lib/seori-auth
 

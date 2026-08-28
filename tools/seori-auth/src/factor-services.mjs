@@ -3,7 +3,6 @@ import { isLogicalCredentialRef, normalizeHttpsOrigin } from './validation.mjs';
 
 const PROVIDER = /^[a-z0-9][a-z0-9-]*$/;
 const PUBLIC_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/;
-const SECRET_MANAGER_VERSION = /^projects\/[A-Za-z0-9._:-]+\/secrets\/[A-Za-z0-9_-]+\/versions\/[1-9][0-9]*$/;
 
 function exactKeys(value, keys) {
   return value && typeof value === 'object' && !Array.isArray(value) &&
@@ -106,16 +105,15 @@ class BoundPasswordLoader {
 }
 
 export class SecretManagerPasswordLoader extends BoundPasswordLoader {
-  constructor({ bindings, accessVersion }) {
-    const trustedAccessVersion = trustedFunction(accessVersion, 'trusted Secret Manager API client is required');
+  constructor({ bindings, loadSecret }) {
+    const trustedLoadSecret = trustedFunction(loadSecret, 'trusted logical Secret Manager loader is required');
     super(bindings, (raw) => {
-      const binding = baseBinding(raw, ['resourceName']);
-      if (!SECRET_MANAGER_VERSION.test(raw.resourceName ?? '')) {
-        fail('invalid_factor_binding', 'Secret Manager binding must pin a numeric version');
-      }
-      return { ...binding, resourceName: raw.resourceName };
+      return baseBinding(raw, []);
     }, async (binding) => {
-      return trustedAccessVersion(Object.freeze({ resourceName: binding.resourceName }));
+      return trustedLoadSecret(Object.freeze({
+        credentialRef: binding.credentialRef,
+        credentialGeneration: binding.credentialGeneration,
+      }));
     });
   }
 }

@@ -5,6 +5,7 @@ import { isAbsolute } from 'node:path';
 
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
 const IMAGE = /^[a-z0-9][a-z0-9._\/-]*(?::[0-9]+)?\/[a-z0-9][a-z0-9._\/-]*@sha256:[a-f0-9]{64}$/;
+const SHA256 = /^[a-f0-9]{64}$/;
 const WIF_AUDIENCE = /^\/\/iam\.googleapis\.com\/projects\/[1-9][0-9]*\/locations\/global\/workloadIdentityPools\/[A-Za-z0-9_-]+\/providers\/[A-Za-z0-9_-]+$/;
 const GOOGLE_IDENTITY = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.iam\.gserviceaccount\.com$/;
 const ROLES = Object.freeze(['broker', 'passwordLoader', 'totpSigner']);
@@ -50,15 +51,21 @@ async function load(path) {
 
 function roleConfig(value, role) {
   if (!exactKeys(value, [
-    'configMapName', 'egressTlsSecretName', 'googleServiceAccount', 'tlsSecretName', 'wifAudience',
+    'configMapName', 'egressTlsSecretName', 'googleServiceAccount', 'secretAccessConfigSha256',
+    'tlsSecretName', 'wifAudience',
   ])) fail(`${role} binding fields are invalid`);
-  if (!GOOGLE_IDENTITY.test(value.googleServiceAccount ?? '') || !WIF_AUDIENCE.test(value.wifAudience ?? '')) {
+  if (
+    !GOOGLE_IDENTITY.test(value.googleServiceAccount ?? '') ||
+    !WIF_AUDIENCE.test(value.wifAudience ?? '') ||
+    !SHA256.test(value.secretAccessConfigSha256 ?? '')
+  ) {
     fail(`${role} workload identity is invalid`);
   }
   return Object.freeze({
     configMapName: dns(value.configMapName, `${role}.configMapName`),
     egressTlsSecretName: dns(value.egressTlsSecretName, `${role}.egressTlsSecretName`),
     googleServiceAccount: value.googleServiceAccount,
+    secretAccessConfigSha256: value.secretAccessConfigSha256,
     tlsSecretName: dns(value.tlsSecretName, `${role}.tlsSecretName`),
     wifAudience: value.wifAudience,
   });
@@ -82,7 +89,9 @@ function validate(config) {
   const normalizedRoles = Object.freeze(Object.fromEntries(
     ROLES.map((role) => [role, roleConfig(config.roles[role], role)]),
   ));
-  for (const field of ['configMapName', 'egressTlsSecretName', 'googleServiceAccount', 'tlsSecretName']) {
+  for (const field of [
+    'configMapName', 'egressTlsSecretName', 'googleServiceAccount', 'secretAccessConfigSha256', 'tlsSecretName',
+  ]) {
     if (new Set(ROLES.map((role) => normalizedRoles[role][field])).size !== ROLES.length) {
       fail(`${field} must be distinct for every workload role`);
     }
@@ -206,7 +215,13 @@ function workload(role, config) {
     name: runtimeRole(role),
     image: config.image,
     imagePullPolicy: config.imagePullPolicy,
-    args: ['serve', '--config=/etc/seori-auth/runtime.json'],
+    args: [
+      'serve',
+      '--config=/etc/seori-auth/runtime.json',
+      `--expected-secret-access-sha256=${binding.secretAccessConfigSha256}`,
+      `--expected-google-service-account=${binding.googleServiceAccount}`,
+      `--expected-wif-audience=${binding.wifAudience}`,
+    ],
     ports: [{ name: 'mtls', containerPort: port(role), protocol: 'TCP' }],
     readinessProbe: probe(role),
     livenessProbe: probe(role),
@@ -218,7 +233,13 @@ function workload(role, config) {
     volumeMounts: configMounts(role),
   };
   const pod = {
-    metadata: { labels },
+    metadata: {
+      labels,
+      annotations: {
+        'seorilabs.io/google-service-account': binding.googleServiceAccount,
+        'seorilabs.io/secret-access-sha256': binding.secretAccessConfigSha256,
+      },
+    },
     spec: {
       automountServiceAccountToken: false,
       enableServiceLinks: false,
@@ -326,6 +347,7 @@ function render(config) {
         ...metadata(name),
         annotations: {
           'seorilabs.io/google-service-account': config.roles[role].googleServiceAccount,
+          'seorilabs.io/secret-access-sha256': config.roles[role].secretAccessConfigSha256,
           'seorilabs.io/workload-role': runtimeRole(role),
         },
       }, automountServiceAccountToken: false,

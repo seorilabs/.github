@@ -23,9 +23,12 @@ renderer는 secret 값을 읽거나 출력하지 않고 하나의 JSON `List`만
 | `roles` | `broker`, `passwordLoader`, `totpSigner` 세 binding |
 
 각 role binding은 `configMapName`, `tlsSecretName`, `egressTlsSecretName`, public
-`googleServiceAccount`, WIF `wifAudience`만 가집니다. config/TLS/egress TLS/Google identity는
-세 role 사이에서 반드시 달라야 합니다. 같은 WIF provider audience를 쓰더라도 IAM subject는
-Kubernetes namespace와 ServiceAccount까지 고정합니다.
+`googleServiceAccount`, WIF `wifAudience`, exact `secretAccessConfigSha256`만 가집니다.
+config/TLS/egress TLS/Google identity/config digest는 세 role 사이에서 반드시 달라야 합니다.
+renderer는 GSA, audience, digest를 container의 public startup binding으로 고정합니다. runtime은
+마운트된 `secret-access.json`의 digest와 impersonation target을 다시 읽어 일치하지 않으면
+readiness 전에 중단합니다. 같은 WIF provider audience를 쓰더라도 IAM subject는 Kubernetes
+namespace와 ServiceAccount까지 고정합니다.
 
 renderer가 참조하지만 생성하지 않는 외부 객체는 다음뿐입니다.
 
@@ -40,6 +43,8 @@ public origin/account identity, immutable executable path와 checksum만 둡니�
 Kubernetes 실행 복제본이지만 worker에는 mount하지 않습니다. password loader GSA는 password
 resource만, TOTP signer GSA는 TOTP seed resource만 `access`할 수 있어야 합니다. 어느
 ServiceAccount에도 Kubernetes Secret `get/list/watch` 권한을 주지 않습니다.
+factor binding에는 Secret Manager resource name을 두지 않으며, factor가 요청할 수 있는
+logical credential partition과 `secret-access.json.allowedResources`가 정확히 일치해야 합니다.
 
 ## 생성과 검증
 

@@ -52,8 +52,11 @@ docker run --rm --network none --read-only --cap-drop ALL \
 ```
 
 production config의 `nativeHelperSha256`, `secretAccess.nodeSha256`,
-`secretAccess.childSha256`는 해당 immutable image 안의 세 파일 checksum과 같아야 하며
-서비스 시작 전에 모두 검증됩니다.
+`secretAccess.childSha256`는 해당 immutable image 안의 세 파일 checksum과 같아야 합니다.
+`secretAccess.configSha256`는 role별 `secret-access.json`의 exact checksum이며 renderer의
+`secretAccessConfigSha256`와 같아야 합니다. 서비스는 파일의 root ownership, checksum,
+numeric resource partition, WIF audience와 public GSA impersonation target을 readiness 전에
+모두 검증합니다.
 
 Unix socket의 UID/GID/PID만으로 run 권한을 만들지 않습니다. scheduler가 agent input
 밖에 보관하는 run capability를 조회해 subject/run/repository/worker를 반환하고, HTTP

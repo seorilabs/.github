@@ -5,7 +5,6 @@ import { isLogicalCredentialRef, normalizeHttpsOrigin } from './validation.mjs';
 
 const PROVIDER = /^[a-z0-9][a-z0-9-]*$/;
 const PUBLIC_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/;
-const SECRET_MANAGER_VERSION = /^projects\/[A-Za-z0-9._:-]+\/secrets\/[A-Za-z0-9_-]+\/versions\/[1-9][0-9]*$/;
 const BASE32 = /^[A-Z2-7]{16,128}$/;
 
 function exactKeys(value, expected) {
@@ -44,17 +43,17 @@ function decodeBase32(value) {
 
 export class SecretManagerTotpSigner {
   #bindings = new Map();
-  #accessVersion;
+  #loadSecret;
   #clock;
 
-  constructor({ bindings, accessVersion, clock = () => Date.now() }) {
-    if (!Array.isArray(bindings) || bindings.length === 0 || typeof accessVersion !== 'function' || typeof clock !== 'function') {
+  constructor({ bindings, loadSecret, clock = () => Date.now() }) {
+    if (!Array.isArray(bindings) || bindings.length === 0 || typeof loadSecret !== 'function' || typeof clock !== 'function') {
       fail('invalid_factor_service', 'TOTP signer requires trusted bindings, Secret Manager access, and clock');
     }
     for (const raw of bindings) {
       if (!exactKeys(raw, [
         'accountId', 'algorithm', 'credentialGeneration', 'credentialRef', 'digits', 'factor',
-        'origins', 'periodSeconds', 'provider', 'resourceName',
+        'origins', 'periodSeconds', 'provider',
       ])) {
         fail('invalid_factor_binding', 'TOTP signer binding fields are invalid');
       }
@@ -62,8 +61,8 @@ export class SecretManagerTotpSigner {
         raw.factor !== 'totp' || raw.algorithm !== 'sha1' || ![6, 8].includes(raw.digits) ||
         raw.periodSeconds !== 30 || !isLogicalCredentialRef(raw.credentialRef) ||
         !PROVIDER.test(raw.provider ?? '') || !PUBLIC_ID.test(raw.accountId ?? '') ||
-        !SECRET_MANAGER_VERSION.test(raw.resourceName ?? '') || !Array.isArray(raw.origins) ||
-        raw.origins.length === 0 || new Set(raw.origins).size !== raw.origins.length
+        !Array.isArray(raw.origins) || raw.origins.length === 0 ||
+        new Set(raw.origins).size !== raw.origins.length
       ) {
         fail('invalid_factor_binding', 'TOTP signer binding is invalid');
       }
@@ -72,7 +71,6 @@ export class SecretManagerTotpSigner {
         credentialGeneration: positiveInteger(raw.credentialGeneration, 'credential generation'),
         provider: raw.provider,
         accountId: raw.accountId,
-        resourceName: raw.resourceName,
         algorithm: raw.algorithm,
         digits: raw.digits,
         periodSeconds: raw.periodSeconds,
@@ -82,7 +80,7 @@ export class SecretManagerTotpSigner {
       if (this.#bindings.has(key)) fail('invalid_factor_binding', 'TOTP signer binding is duplicated');
       this.#bindings.set(key, binding);
     }
-    this.#accessVersion = accessVersion;
+    this.#loadSecret = loadSecret;
     this.#clock = clock;
   }
 
@@ -106,7 +104,10 @@ export class SecretManagerTotpSigner {
     let executionCopy;
     let seed;
     try {
-      executionCopy = await this.#accessVersion(Object.freeze({ resourceName: binding.resourceName }));
+      executionCopy = await this.#loadSecret(Object.freeze({
+        credentialRef: binding.credentialRef,
+        credentialGeneration: binding.credentialGeneration,
+      }));
       if (!Buffer.isBuffer(executionCopy) || executionCopy.length === 0 || executionCopy.length > 256) {
         fail('totp_sign_failed', 'TOTP seed execution copy is invalid');
       }

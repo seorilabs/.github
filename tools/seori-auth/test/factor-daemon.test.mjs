@@ -78,9 +78,8 @@ test('password factor route injects one execution copy and returns no secret mat
     bindings: [{
       ...input().binding,
       factor: 'password',
-      resourceName: 'projects/seorilabs-ci/secrets/apps-in-toss-password/versions/4',
     }],
-    accessVersion: async () => {
+    loadSecret: async () => {
       loads += 1;
       return source;
     },

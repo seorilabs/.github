@@ -35,6 +35,7 @@ function deploymentConfig() {
         tlsSecretName: 'seori-auth-broker-tls',
         egressTlsSecretName: 'seori-auth-broker-egress-tls',
         googleServiceAccount: 'seori-auth-broker@example-project.iam.gserviceaccount.com',
+        secretAccessConfigSha256: 'b'.repeat(64),
         wifAudience: audience,
       },
       passwordLoader: {
@@ -42,6 +43,7 @@ function deploymentConfig() {
         tlsSecretName: 'seori-auth-password-tls',
         egressTlsSecretName: 'seori-auth-password-egress-tls',
         googleServiceAccount: 'seori-auth-password@example-project.iam.gserviceaccount.com',
+        secretAccessConfigSha256: 'c'.repeat(64),
         wifAudience: audience,
       },
       totpSigner: {
@@ -49,6 +51,7 @@ function deploymentConfig() {
         tlsSecretName: 'seori-auth-totp-tls',
         egressTlsSecretName: 'seori-auth-totp-egress-tls',
         googleServiceAccount: 'seori-auth-totp@example-project.iam.gserviceaccount.com',
+        secretAccessConfigSha256: 'd'.repeat(64),
         wifAudience: audience,
       },
     },
@@ -97,6 +100,14 @@ test('production renderer emits immutable separated workloads without Kubernetes
     const tokenProjection = projected.projected.sources[0].serviceAccountToken;
     const tokenMount = container.volumeMounts.find((mount) => mount.name === 'projected-identity');
     assert.equal(container.image, `ghcr.io/seorilabs/seori-auth@sha256:${digest}`);
+    const role = item.metadata.name === 'seori-auth-broker'
+      ? 'broker'
+      : item.metadata.name === 'seori-password-loader' ? 'passwordLoader' : 'totpSigner';
+    const binding = deploymentConfig().roles[role];
+    assert.ok(container.args.includes(`--expected-secret-access-sha256=${binding.secretAccessConfigSha256}`));
+    assert.ok(container.args.includes(`--expected-google-service-account=${binding.googleServiceAccount}`));
+    assert.ok(container.args.includes(`--expected-wif-audience=${binding.wifAudience}`));
+    assert.equal(item.spec.template.metadata.annotations['seorilabs.io/secret-access-sha256'], binding.secretAccessConfigSha256);
     assert.equal(pod.automountServiceAccountToken, false);
     assert.equal(tokenProjection.path, 'token');
     assert.equal(tokenProjection.expirationSeconds, 600);

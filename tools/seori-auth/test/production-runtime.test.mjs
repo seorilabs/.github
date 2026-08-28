@@ -105,12 +105,11 @@ test('Secret Manager TOTP signer matches RFC 6238 without exposing the seed', as
       provider: 'apps-in-toss',
       accountId: 'automation-account',
       origins: ['https://business.toss.im'],
-      resourceName: 'projects/seorilabs-ci/secrets/apps-in-toss-totp/versions/7',
       algorithm: 'sha1',
       digits: 8,
       periodSeconds: 30,
     }],
-    accessVersion: async () => source,
+    loadSecret: async () => source,
     clock: () => 59_000,
   });
   const signed = await signer.signCode({

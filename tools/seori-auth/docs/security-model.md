@@ -56,6 +56,9 @@
 - native launcher가 adapter에 `RLIMIT_CORE=0`과 OS non-dumpable 정책을 적용
 - projected WIF token은 read-only mount root 아래 고정 leaf만 `openat2`로 열어, digest가
   고정된 Secret Manager child의 FD4로 한 번 전달하고 child가 읽은 즉시 descriptor를 닫음
+- password/TOTP factor는 physical resource name을 선택할 수 없고 logical credential
+  ID/generation만 요청하며, role별 public GSA/WIF/config digest와 실제 mounted config가
+  readiness 전에 exact match
 - native advisory lock 하나가 durable journal writer를 process 단위로 직렬화하며 crash 뒤
   stale lock inode는 OS lock ownership 없이 writer 권한을 만들지 못함
 - browser timeout은 AbortSignal, native kill acknowledgement, adapter promise settlement를
