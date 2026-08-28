@@ -1235,7 +1235,8 @@ test("Auth Broker foundation은 RBAC 0권한, exact NetworkPolicy와 cert-manage
   );
   const publicBindings = manifest.items.find(
     ({ kind, metadata }) =>
-      kind === "ConfigMap" && metadata.name === "auth-broker-public-bindings",
+      kind === "ConfigMap" &&
+      metadata.name.startsWith("auth-broker-public-bindings-"),
   );
   const serialized = JSON.stringify(manifest);
   assert.equal(serviceAccounts.length, 3);

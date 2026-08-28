@@ -7,18 +7,27 @@ import { test } from 'node:test';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
+import { APPROVED_IMAGE_BINDING } from '../scripts/public-image-binding.mjs';
+
 const execFileAsync = promisify(execFile);
 const renderer = fileURLToPath(new URL('../scripts/render-production-k8s.mjs', import.meta.url));
-const digest = 'a'.repeat(64);
+const digest = APPROVED_IMAGE_BINDING.imageProvenance.imageDigest.slice('sha256:'.length);
 
 function deploymentConfig() {
   const audience = '//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seori-auth/providers/microk8s';
   return {
     schemaVersion: 1,
     namespace: 'auth-broker',
-    image: `ghcr.io/seorilabs/seori-auth@sha256:${digest}`,
+    image: APPROVED_IMAGE_BINDING.image,
+    imageProvenance: { ...APPROVED_IMAGE_BINDING.imageProvenance },
     imagePullPolicy: 'IfNotPresent',
-    imagePullSecretName: 'seori-auth-ghcr-pull',
+    registry: {
+      mode: 'PACKAGES_READER',
+      imagePullSecretName: 'seori-auth-ghcr-pull',
+      credentialId: 'shared/github/packages-reader',
+      catalogStatus: 'ACTIVE',
+      kubernetesStatus: 'VERIFIED',
+    },
     nodeSelector: { 'seorilabs.io/node-role': 'auth' },
     stateClaimName: 'seori-auth-state',
     trustedWorkers: {
@@ -127,7 +136,7 @@ test('production renderer emits immutable separated workloads without Kubernetes
     const projected = pod.volumes.find((volume) => volume.name === 'projected-identity');
     const tokenProjection = projected.projected.sources[0].serviceAccountToken;
     const tokenMount = container.volumeMounts.find((mount) => mount.name === 'projected-identity');
-    assert.equal(container.image, `ghcr.io/seorilabs/seori-auth@sha256:${digest}`);
+    assert.equal(container.image, APPROVED_IMAGE_BINDING.image);
     assert.deepEqual(pod.imagePullSecrets, [{ name: 'seori-auth-ghcr-pull' }]);
     const role = item.metadata.name === 'seori-auth-broker'
       ? 'broker'
@@ -143,6 +152,16 @@ test('production renderer emits immutable separated workloads without Kubernetes
       '--expected-provider-endpoint-scope=/internal/control-plane/provider-grants',
     ));
     assert.equal(item.spec.template.metadata.annotations['seorilabs.io/secret-access-sha256'], binding.secretAccessConfigSha256);
+    assert.equal(item.spec.template.metadata.annotations['seorilabs.io/image-digest'], `sha256:${digest}`);
+    assert.equal(
+      item.spec.template.metadata.annotations['seorilabs.io/image-source-sha'],
+      APPROVED_IMAGE_BINDING.imageProvenance.sourceSha,
+    );
+    assert.equal(item.spec.template.metadata.annotations['seorilabs.io/registry-mode'], 'PACKAGES_READER');
+    assert.equal(
+      item.spec.template.metadata.annotations['seorilabs.io/registry-credential-id'],
+      'shared/github/packages-reader',
+    );
     assert.match(
       item.spec.template.metadata.annotations['seorilabs.io/secret-resource-partition-sha256'],
       /^[a-f0-9]{64}$/,
@@ -214,6 +233,22 @@ test('production renderer emits immutable separated workloads without Kubernetes
   }
 });
 
+test('PUBLIC registry mode removes imagePullSecrets and credential identifiers from every workload', async () => {
+  const config = deploymentConfig();
+  config.registry = { mode: 'PUBLIC', visibilityStatus: 'VERIFIED_PUBLIC' };
+  const manifest = await render(config);
+  const workloads = workloadItems(manifest);
+  const serialized = JSON.stringify(manifest);
+
+  assert.equal(workloads.length, 3);
+  for (const item of workloads) {
+    assert.equal('imagePullSecrets' in item.spec.template.spec, false);
+    assert.equal(item.spec.template.metadata.annotations['seorilabs.io/registry-mode'], 'PUBLIC');
+    assert.equal('seorilabs.io/registry-credential-id' in item.spec.template.metadata.annotations, false);
+  }
+  assert.doesNotMatch(serialized, /seori-auth-ghcr-pull|shared\/github\/packages-reader/u);
+});
+
 test('production renderer rejects mutable images and shared factor identities', async () => {
   const mutable = deploymentConfig();
   mutable.image = 'ghcr.io/seorilabs/seori-auth:latest';
@@ -232,7 +267,7 @@ test('production renderer rejects mutable images and shared factor identities', 
   });
 
   const missingImagePullIdentity = deploymentConfig();
-  delete missingImagePullIdentity.imagePullSecretName;
+  delete missingImagePullIdentity.registry;
   await assert.rejects(render(missingImagePullIdentity), (error) => {
     assert.equal(error.code, 1);
     assert.match(error.stderr, /top-level deployment fields are invalid/);
@@ -249,10 +284,26 @@ test('production renderer rejects mutable images and shared factor identities', 
   });
 
   const invalidImagePullIdentity = deploymentConfig();
-  invalidImagePullIdentity.imagePullSecretName = 'INVALID_NAME';
+  invalidImagePullIdentity.registry.imagePullSecretName = 'registry-pull-cred';
   await assert.rejects(render(invalidImagePullIdentity), (error) => {
     assert.equal(error.code, 1);
-    assert.match(error.stderr, /imagePullSecretName is invalid/);
+    assert.match(error.stderr, /packages reader binding is not canonical and verified/);
+    return true;
+  });
+
+  const driftedProvenance = deploymentConfig();
+  driftedProvenance.imageProvenance.sourceSha = 'e'.repeat(40);
+  await assert.rejects(render(driftedProvenance), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /code-approved immutable binding/);
+    return true;
+  });
+
+  const implicitRegistry = deploymentConfig();
+  implicitRegistry.registry = {};
+  await assert.rejects(render(implicitRegistry), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /registry mode must be explicit/);
     return true;
   });
 

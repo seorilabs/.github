@@ -6,6 +6,12 @@ import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import { parse } from "yaml";
 
+import {
+  APPROVED_IMAGE_BINDING,
+  EXPECTED_CANARY_OUTPUT_SHA256,
+  canonicalSha256,
+} from "../../tools/seori-auth/scripts/public-image-binding.mjs";
+
 const contractPath = fileURLToPath(
   new URL("../../contracts/fleet-p3-runtime.yaml", import.meta.url),
 );
@@ -84,6 +90,25 @@ function validateSemantics(contract) {
       expectedSecretManagerBindings.toSorted().join("\n")
   ) {
     fail("P3_SECRET_MANAGER_PARTITION_INVALID");
+  }
+  const { image, imageProvenance, registry, canary } = contract.authBroker;
+  if (
+    image !== APPROVED_IMAGE_BINDING.image ||
+    canonicalSha256(imageProvenance) !==
+      canonicalSha256(APPROVED_IMAGE_BINDING.imageProvenance) ||
+    image !== `${registry.repository}@${imageProvenance.imageDigest}` ||
+    imageProvenance.sourceSha !== registry.packageVersionTag ||
+    imageProvenance.repository !== "seorilabs/.github" ||
+    imageProvenance.workflow !== ".github/workflows/seori-auth-image.yml" ||
+    imageProvenance.platform !== "linux/arm64"
+  ) {
+    fail("P2_AUTH_IMAGE_PROVENANCE_INVALID");
+  }
+  if (
+    !["PUBLIC", "PACKAGES_READER"].includes(registry.mode) ||
+    canary.expectedOutputSha256 !== EXPECTED_CANARY_OUTPUT_SHA256
+  ) {
+    fail("P2_AUTH_CANARY_CONTRACT_INVALID");
   }
   for (const identity of [
     contract.cloudBuild.submitter,
@@ -303,6 +328,8 @@ function egressCertificate(role) {
 
 function authBrokerFoundation(contract) {
   const broker = contract.authBroker;
+  const bindingSha256 = canonicalSha256(broker);
+  const publicBinding = { ...broker, bindingSha256 };
   const labels = {
     "pod-security.kubernetes.io/enforce": "restricted",
     "pod-security.kubernetes.io/enforce-version": "latest",
@@ -320,10 +347,17 @@ function authBrokerFoundation(contract) {
     {
       apiVersion: "v1",
       kind: "ConfigMap",
-      metadata: metadata("auth-broker-public-bindings"),
+      metadata: {
+        ...metadata(`auth-broker-public-bindings-${bindingSha256.slice(0, 12)}`),
+        annotations: {
+          "seorilabs.io/binding-sha256": bindingSha256,
+          "seorilabs.io/image-digest": broker.imageProvenance.imageDigest,
+          "seorilabs.io/image-source-sha": broker.imageProvenance.sourceSha,
+        },
+      },
       immutable: true,
       data: {
-        "bindings.json": `${JSON.stringify(broker, null, 2)}\n`,
+        "bindings.json": `${JSON.stringify(publicBinding, null, 2)}\n`,
       },
     },
     issuer("auth-broker-selfsigned", { selfSigned: {} }),
