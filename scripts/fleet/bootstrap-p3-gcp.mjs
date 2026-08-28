@@ -120,28 +120,7 @@ function localSourcePreflight() {
         stdio: ["ignore", "pipe", "ignore"],
       });
     } catch {
-      const encoded = run(
-        "gh",
-        [
-          "api",
-          "--method",
-          "GET",
-          `/repos/seorilabs/.github/contents/${workflow}`,
-          "-f",
-          `ref=${cloud.wif.workflowSourceSha}`,
-          "--jq",
-          '.encoding + ":" + .content',
-        ],
-        "P3_WORKFLOW_SOURCE_READ_FAILED",
-      );
-      if (encoded === null || !encoded.startsWith("base64:")) {
-        fail("P3_WORKFLOW_SOURCE_MISSING");
-      }
-      try {
-        bytes = Buffer.from(encoded.slice("base64:".length), "base64");
-      } catch {
-        fail("P3_WORKFLOW_SOURCE_READ_FAILED");
-      }
+      fail("P3_WORKFLOW_SOURCE_MISSING");
     }
     const actual = createHash("sha256").update(bytes).digest("hex");
     if (actual !== sha256) fail("P3_WORKFLOW_SOURCE_DIGEST_MISMATCH");
