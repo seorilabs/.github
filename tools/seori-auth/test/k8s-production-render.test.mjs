@@ -24,6 +24,12 @@ function deploymentConfig() {
       namespaceSelector: { 'kubernetes.io/metadata.name': 'release-workers' },
       podSelector: { 'seorilabs.io/auth-client': 'true' },
     },
+    providerControlPlane: {
+      backofficeClientSpiffeId: 'spiffe://seorilabs.local/ns/platform/sa/provider-execution-worker',
+      endpointScope: '/internal/control-plane/provider-grants',
+      namespaceSelector: { 'kubernetes.io/metadata.name': 'platform' },
+      podSelector: { 'app.kubernetes.io/name': 'provider-execution-worker' },
+    },
     egressProxy: {
       namespaceSelector: { 'kubernetes.io/metadata.name': 'auth-egress' },
       podSelector: { 'app.kubernetes.io/name': 'seori-auth-egress-proxy' },
@@ -75,6 +81,17 @@ function workloadItems(manifest) {
   return manifest.items.filter((item) => ['Deployment', 'StatefulSet'].includes(item.kind));
 }
 
+function labelsMatch(selector, labels) {
+  return Object.entries(selector?.matchLabels ?? {}).every(([key, value]) => labels[key] === value);
+}
+
+function ingressAllows(policy, namespaceLabels, podLabels, port) {
+  return (policy.spec.ingress ?? []).some((rule) =>
+    rule.ports?.some((entry) => entry.protocol === 'TCP' && entry.port === port) &&
+    rule.from?.some((peer) =>
+      labelsMatch(peer.namespaceSelector, namespaceLabels) && labelsMatch(peer.podSelector, podLabels)));
+}
+
 test('production renderer emits immutable separated workloads without Kubernetes Secret values or API grants', async () => {
   const manifest = await render();
   const serialized = JSON.stringify(manifest);
@@ -107,7 +124,21 @@ test('production renderer emits immutable separated workloads without Kubernetes
     assert.ok(container.args.includes(`--expected-secret-access-sha256=${binding.secretAccessConfigSha256}`));
     assert.ok(container.args.includes(`--expected-google-service-account=${binding.googleServiceAccount}`));
     assert.ok(container.args.includes(`--expected-wif-audience=${binding.wifAudience}`));
+    assert.ok(container.args.includes(
+      '--expected-backoffice-spiffe-id=spiffe://seorilabs.local/ns/platform/sa/provider-execution-worker',
+    ));
+    assert.ok(container.args.includes(
+      '--expected-provider-endpoint-scope=/internal/control-plane/provider-grants',
+    ));
     assert.equal(item.spec.template.metadata.annotations['seorilabs.io/secret-access-sha256'], binding.secretAccessConfigSha256);
+    assert.equal(
+      item.spec.template.metadata.annotations['seorilabs.io/provider-control-plane-spiffe'],
+      'spiffe://seorilabs.local/ns/platform/sa/provider-execution-worker',
+    );
+    assert.equal(
+      item.spec.template.metadata.annotations['seorilabs.io/provider-endpoint-scope'],
+      '/internal/control-plane/provider-grants',
+    );
     assert.equal(pod.automountServiceAccountToken, false);
     assert.equal(tokenProjection.path, 'token');
     assert.equal(tokenProjection.expirationSeconds, 600);
@@ -135,6 +166,36 @@ test('production renderer emits immutable separated workloads without Kubernetes
   const dnsEgress = policies.flatMap((item) => item.spec.egress ?? []).find((rule) =>
     rule.ports?.some((entry) => entry.port === 53));
   assert.deepEqual(dnsEgress.to[0].podSelector.matchLabels, { 'k8s-app': 'kube-dns' });
+
+  const brokerTraffic = policies.find((item) => item.metadata.name === 'broker-allowed-traffic');
+  assert.equal(ingressAllows(
+    brokerTraffic,
+    { 'kubernetes.io/metadata.name': 'release-workers' },
+    { 'seorilabs.io/auth-client': 'true' },
+    8443,
+  ), true);
+  assert.equal(ingressAllows(
+    brokerTraffic,
+    { 'kubernetes.io/metadata.name': 'platform' },
+    { 'app.kubernetes.io/name': 'provider-execution-worker' },
+    8443,
+  ), true);
+  for (const [namespaceLabels, podLabels] of [
+    [
+      { 'kubernetes.io/metadata.name': 'platform-lookalike' },
+      { 'app.kubernetes.io/name': 'provider-execution-worker' },
+    ],
+    [
+      { 'kubernetes.io/metadata.name': 'platform' },
+      { 'app.kubernetes.io/name': 'provider-execution-worker-lookalike' },
+    ],
+    [
+      { 'kubernetes.io/metadata.name': 'release-workers' },
+      { 'app.kubernetes.io/name': 'provider-execution-worker' },
+    ],
+  ]) {
+    assert.equal(ingressAllows(brokerTraffic, namespaceLabels, podLabels, 8443), false);
+  }
 });
 
 test('production renderer rejects mutable images and shared factor identities', async () => {
@@ -159,6 +220,30 @@ test('production renderer rejects mutable images and shared factor identities', 
   await assert.rejects(render(longLabel), (error) => {
     assert.equal(error.code, 1);
     assert.match(error.stderr, /nodeSelector is invalid/);
+    return true;
+  });
+
+  const driftedProviderScope = deploymentConfig();
+  driftedProviderScope.providerControlPlane.endpointScope = '/auth/policy-grants';
+  await assert.rejects(render(driftedProviderScope), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /provider control-plane binding is invalid/);
+    return true;
+  });
+
+  const missingProviderNetworkIdentity = deploymentConfig();
+  delete missingProviderNetworkIdentity.providerControlPlane.podSelector;
+  await assert.rejects(render(missingProviderNetworkIdentity), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /provider control-plane binding is invalid/);
+    return true;
+  });
+
+  const broadProviderNetworkIdentity = deploymentConfig();
+  broadProviderNetworkIdentity.providerControlPlane.namespaceSelector = {};
+  await assert.rejects(render(broadProviderNetworkIdentity), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /providerControlPlane\.namespaceSelector must contain exactly one label/);
     return true;
   });
 });

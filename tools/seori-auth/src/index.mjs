@@ -10,7 +10,12 @@ export {
   normalizeExecutionBinding,
   normalizePublicIdentity,
 } from './durable-state.mjs';
-export { executeConsumedLease, executeLease, executeSecretAdapter } from './executor.mjs';
+export {
+  executeConsumedLease,
+  executeConsumedProviderLease,
+  executeLease,
+  executeSecretAdapter,
+} from './executor.mjs';
 export { FactorHttpApplication } from './factor-daemon.mjs';
 export {
   MacOSKeychainPasswordLoader,
@@ -30,6 +35,21 @@ export { MtlsRunAttestor, requireExactMtlsPeer } from './mtls-identity.mjs';
 export { NativeSecurityBoundary } from './native-boundary.mjs';
 export { PolicyEngine } from './policy.mjs';
 export { classifyReauth, REAUTH_CLASSIFICATIONS } from './reauth.mjs';
+export {
+  assertProviderGrantExpectation,
+  canonicalPublicJson,
+  normalizeProviderAdapterResult,
+  normalizeProviderCommandEnvelope,
+  normalizeProviderGrantExpectation,
+  normalizeProviderGrantRegistration,
+  normalizeProviderObservation,
+  providerGrantActionClass,
+  providerGrantLeaseRequest,
+  providerGrantRequiresPerRunApproval,
+  PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE,
+  PROVIDER_GRANT_MAX_TTL_MS,
+  publicJsonDigest,
+} from './provider-grants.mjs';
 export { SecretManagerTotpSigner } from './totp-signer.mjs';
 export { isLogicalCredentialRef, normalizeHttpsOrigin, normalizeLeaseRequest } from './validation.mjs';
 

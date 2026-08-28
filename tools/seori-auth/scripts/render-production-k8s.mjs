@@ -8,6 +8,8 @@ const IMAGE = /^[a-z0-9][a-z0-9._\/-]*(?::[0-9]+)?\/[a-z0-9][a-z0-9._\/-]*@sha25
 const SHA256 = /^[a-f0-9]{64}$/;
 const WIF_AUDIENCE = /^\/\/iam\.googleapis\.com\/projects\/[1-9][0-9]*\/locations\/global\/workloadIdentityPools\/[A-Za-z0-9_-]+\/providers\/[A-Za-z0-9_-]+$/;
 const GOOGLE_IDENTITY = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.iam\.gserviceaccount\.com$/;
+const SPIFFE_ID = /^spiffe:\/\/seorilabs\.local\/ns\/[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?\/sa\/[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$/;
+const PROVIDER_ENDPOINT_SCOPE = '/internal/control-plane/provider-grants';
 const ROLES = Object.freeze(['broker', 'passwordLoader', 'totpSigner']);
 
 function fail(message) {
@@ -74,7 +76,7 @@ function roleConfig(value, role) {
 function validate(config) {
   if (!exactKeys(config, [
     'egressProxy', 'image', 'imagePullPolicy', 'namespace', 'nodeSelector', 'roles',
-    'schemaVersion', 'stateClaimName', 'trustedWorkers',
+    'providerControlPlane', 'schemaVersion', 'stateClaimName', 'trustedWorkers',
   ]) || config.schemaVersion !== 1 || config.namespace !== 'auth-broker') {
     fail('top-level deployment fields are invalid');
   }
@@ -83,6 +85,13 @@ function validate(config) {
   if (!exactKeys(config.roles, ROLES)) fail('all three role bindings are required');
   if (!exactKeys(config.egressProxy, ['namespaceSelector', 'podSelector', 'port'])) fail('egress proxy binding is invalid');
   if (!exactKeys(config.trustedWorkers, ['namespaceSelector', 'podSelector'])) fail('trusted worker binding is invalid');
+  if (
+    !exactKeys(config.providerControlPlane, [
+      'backofficeClientSpiffeId', 'endpointScope', 'namespaceSelector', 'podSelector',
+    ]) ||
+    !SPIFFE_ID.test(config.providerControlPlane.backofficeClientSpiffeId ?? '') ||
+    config.providerControlPlane.endpointScope !== PROVIDER_ENDPOINT_SCOPE
+  ) fail('provider control-plane binding is invalid');
   if (!Number.isSafeInteger(config.egressProxy.port) || config.egressProxy.port < 1_024 || config.egressProxy.port > 65_535) {
     fail('egress proxy port is invalid');
   }
@@ -103,6 +112,15 @@ function validate(config) {
     trustedWorkers: Object.freeze({
       namespaceSelector: labels(config.trustedWorkers.namespaceSelector, 'trustedWorkers.namespaceSelector'),
       podSelector: labels(config.trustedWorkers.podSelector, 'trustedWorkers.podSelector'),
+    }),
+    providerControlPlane: Object.freeze({
+      backofficeClientSpiffeId: config.providerControlPlane.backofficeClientSpiffeId,
+      endpointScope: config.providerControlPlane.endpointScope,
+      namespaceSelector: labels(
+        config.providerControlPlane.namespaceSelector,
+        'providerControlPlane.namespaceSelector',
+      ),
+      podSelector: labels(config.providerControlPlane.podSelector, 'providerControlPlane.podSelector'),
     }),
     egressProxy: Object.freeze({
       namespaceSelector: labels(config.egressProxy.namespaceSelector, 'egressProxy.namespaceSelector'),
@@ -221,6 +239,8 @@ function workload(role, config) {
       `--expected-secret-access-sha256=${binding.secretAccessConfigSha256}`,
       `--expected-google-service-account=${binding.googleServiceAccount}`,
       `--expected-wif-audience=${binding.wifAudience}`,
+      `--expected-backoffice-spiffe-id=${config.providerControlPlane.backofficeClientSpiffeId}`,
+      `--expected-provider-endpoint-scope=${config.providerControlPlane.endpointScope}`,
     ],
     ports: [{ name: 'mtls', containerPort: port(role), protocol: 'TCP' }],
     readinessProbe: probe(role),
@@ -238,6 +258,8 @@ function workload(role, config) {
       annotations: {
         'seorilabs.io/google-service-account': binding.googleServiceAccount,
         'seorilabs.io/secret-access-sha256': binding.secretAccessConfigSha256,
+        'seorilabs.io/provider-control-plane-spiffe': config.providerControlPlane.backofficeClientSpiffeId,
+        'seorilabs.io/provider-endpoint-scope': config.providerControlPlane.endpointScope,
       },
     },
     spec: {
@@ -300,6 +322,9 @@ function networkPolicies(config) {
           from: [{
             namespaceSelector: { matchLabels: config.trustedWorkers.namespaceSelector },
             podSelector: { matchLabels: config.trustedWorkers.podSelector },
+          }, {
+            namespaceSelector: { matchLabels: config.providerControlPlane.namespaceSelector },
+            podSelector: { matchLabels: config.providerControlPlane.podSelector },
           }],
           ports: [{ protocol: 'TCP', port: 8443 }],
         }],

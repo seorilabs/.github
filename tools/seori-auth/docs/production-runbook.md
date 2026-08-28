@@ -16,6 +16,8 @@
 - 순서가 고정된 exact auth factor fallback strategy, signed `actionClass`, action별 approval mode
 - journal MAC logical ID/generation과 직전 trusted head MAC
 - Browser Vault key logical ID/generation과 encrypted PVC snapshot ID
+- Backoffice provider worker의 exact SPIFFE ID와 고정 internal endpoint scope
+- provider native adapter executable/fixed argv digest와 logical credential generation partition
 
 값이 빠졌거나 image가 immutable digest가 아니거나 role별 identity/config/TLS 이름이
 중복되면 renderer가 중단해야 합니다. comment-only legacy 경로를 manifest 입력으로
@@ -113,6 +115,13 @@ infrastructure load/start 오류나 다른 run의 실패는 fallback evidence가
 signed `actionClass`가 protected이거나 resource environment가 `production`이면 capability
 이름이 무엇이든 approval mode는 `per_run`이어야 합니다.
 
+provider 실행은 `register -> verify -> consume -> result/observation` 순서로만 처리합니다.
+grant expiry는 최대 5분, `maxUses`는 1이며 registration과 consume idempotency key를 각각
+run/generation에 고정합니다. adapter 호출 전에 HMAC journal에 `CONSUMED`를 fsync합니다.
+transport 단절, timeout, 잘못된 result처럼 외부 결과를 확정할 수 없는 경우 `RESULT_UNKNOWN`
+이므로 consume을 재호출해 실행하지 않습니다. 별도 fleet read-only credential로 새
+`READBACK_FIRST` command를 발급해 provider observation을 읽은 뒤에만 다음 상태로 넘깁니다.
+
 broker는 startup마다 account별 native advisory lock을 획득할 수 있는 stale clone만
 자동 제거합니다. systemd/launchd 같은 process supervisor는 broker process가 완전히
 종료된 뒤 다음 명령을 `ExecStopPost` 상당 단계에서 실행합니다. 활성 checkout의 lock은
@@ -149,6 +158,10 @@ schema/admission dry-run과 실제 binding을 read-only로 확인합니다. conf
 아니라 image digest, object 이름, public Google identity/WIF audience, selector와 port만
 들어갑니다. RPI4에는 신규 workload를 배치하지 않고 검증된 RPI5 label을 node selector로
 지정합니다. 기존 `k8s/production/*.yaml`은 적용할 객체가 없는 compatibility marker입니다.
+`providerControlPlane`은 exact `backofficeClientSpiffeId`, 고정
+`endpointScope=/internal/control-plane/provider-grants`, Backoffice worker 전용 namespace/pod
+exact selector를 가지며 runtime config, container startup argument, Pod annotation과
+NetworkPolicy peer가 모두 같아야 합니다.
 
 ```sh
 node scripts/render-production-k8s.mjs \
@@ -171,9 +184,14 @@ done
 - 모든 container non-root, read-only root, RuntimeDefault seccomp, capabilities ALL drop
 - automount token false, explicit short-lived WIF audience만 mount
 - projected token은 고정 mount root와 leaf `token`만 사용하며 native `openat2` 검증을 통과
-- default deny 후 trusted worker ingress, factor-service 내부 통신, DNS와 egress proxy만 허용
+- default deny 후 일반 trusted worker와 provider control-plane worker의 서로 분리된 exact ingress,
+  factor-service 내부 통신, DNS와 egress proxy만 허용
 - egress proxy가 exact provider hostname/TLS identity를 검증하고 direct Internet은 차단
 - state/Vault PVC는 worker와 factor service에 mount되지 않고 storage encryption이 활성
+- `providerControlPlane.backofficeClientSpiffeId`가 broker client allowlist와 같고 다른
+  worker SPIFFE로 internal provider route 호출이 거부됨
+- run-attestation nonce digest가 HMAC journal에 먼저 소비되고 broker 재시작 뒤 replay도 거부됨
+- Role의 `rules: []`와 세 ServiceAccount의 Kubernetes Secret `get/list/watch=no`가 유지됨
 
 ## 6. Fake-account canary와 활성화
 

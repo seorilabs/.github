@@ -7,6 +7,13 @@ import { isDeepStrictEqual } from 'node:util';
 import { fail, SeoriAuthError } from './errors.mjs';
 import { LEASE_TTL_MS } from './lease-store.mjs';
 import { NATIVE_FILE_LOCK_BRAND } from './native-lock-brand.mjs';
+import {
+  assertProviderGrantExpectation,
+  normalizeProviderAdapterResult,
+  normalizeProviderGrantRegistration,
+  providerGrantActionClass,
+  publicJsonDigest,
+} from './provider-grants.mjs';
 import { classifyReauth } from './reauth.mjs';
 import { normalizeLeaseRequest } from './validation.mjs';
 
@@ -32,10 +39,20 @@ const EXECUTION_OUTCOMES = new Set([
   'ADAPTER_TIMEOUT',
   'ADAPTER_START_FAILED',
   'ADAPTER_OUTPUT_LIMIT',
+  'INVALID_ADAPTER_RESULT',
+  'ADAPTER_RESULT_SECRET_DETECTED',
+  'HUMAN_REAUTH_REQUIRED',
 ]);
 const AUTH_STRATEGY_FAILURE_OUTCOMES = new Set(['ADAPTER_FAILED', 'ADAPTER_TIMEOUT']);
 const ACTION_CLASS = /^[a-z][a-z_]{1,63}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
+const PROVIDER_GRANT_STATES = new Set(['ACTIVE', 'CONSUMED', 'COMPLETED']);
+const PROVIDER_EXECUTION_RESULTS = new Set(['SUCCESS', 'FAILED', 'HUMAN_REAUTH_REQUIRED']);
+const AUTH_ENTITY_TYPES = new Set([
+  'CredentialCheckout', 'BrowserSessionBinding', 'ReauthRequest', 'ProviderGrant', 'AttestationNonce',
+]);
+const RUN_ATTESTATION_MAX_TTL_MS = 5 * 60 * 1_000;
+const RUN_ATTESTATION_ACTIVE_NONCE_LIMIT = 10_000;
 
 const BINDING_KEYS = new Set(['subject', 'runId', 'repository', 'workerId']);
 const IDENTITY_KEYS = new Set(['provider', 'accountId', 'teamId', 'workspaceId', 'appId']);
@@ -196,11 +213,12 @@ function freezeRecord(record) {
 }
 
 function auditFrom({ idFactory, now, eventType, outcome, entityType, entity, details = {} }) {
-  if (!['CredentialCheckout', 'BrowserSessionBinding', 'ReauthRequest'].includes(entityType)) {
+  if (!AUTH_ENTITY_TYPES.has(entityType)) {
     fail('invalid_audit_event', 'auth audit entity type is invalid');
   }
   const binding = entity.executionBinding;
   const request = entity.request ?? entity.authorization?.request;
+  const providerCommand = entity.grant?.command;
   return freezeRecord({
     id: opaqueId(idFactory(), 'audit id'),
     eventType: publicId(eventType, 'audit event type'),
@@ -210,25 +228,33 @@ function auditFrom({ idFactory, now, eventType, outcome, entityType, entity, det
     generation: positiveInteger(entity.generation, 'audit generation'),
     recordedAt: iso(now),
     ...(binding ? { executionBinding: binding } : {}),
-    ...((entity.credentialRef ?? request?.credentialRef) ? {
-      credentialRef: entity.credentialRef ?? request.credentialRef,
+    ...((entity.credentialRef ?? request?.credentialRef ?? providerCommand?.credential?.logicalId) ? {
+      credentialRef: entity.credentialRef ?? request?.credentialRef ?? providerCommand.credential.logicalId,
     } : {}),
     ...(entity.publicIdentity ? { publicIdentity: entity.publicIdentity } : {}),
-    ...(request ? {
-      commitSha: request.commitSha,
-      capability: request.capability,
+    ...((request ?? providerCommand) ? {
+      commitSha: request?.commitSha ?? providerCommand.sourceSha,
+      capability: request?.capability ?? providerCommand.credential.capability,
     } : {}),
     ...(entity.capabilityId ? { capabilityId: entity.capabilityId } : {}),
     ...(entity.authorization ? {
       leaseId: entity.authorization.leaseId,
       ruleId: entity.authorization.ruleId,
-    } : entity.ruleId ? { ruleId: entity.ruleId } : {}),
+    } : entity.ruleId ? { ruleId: entity.ruleId } : entityType === 'ProviderGrant' ? { ruleId: entity.id } : {}),
     ...((entity.authStrategyIndex ?? entity.authorization?.authStrategyIndex) !== undefined ? {
       actionClass: entity.actionClass ?? entity.authorization.actionClass,
       authStrategyIndex: entity.authStrategyIndex ?? entity.authorization.authStrategyIndex,
       strategyEvidenceKey: entity.strategyEvidenceKey ?? entity.authorization.strategyEvidenceKey,
     } : {}),
+    ...(entityType === 'ProviderGrant' ? { actionClass: providerGrantActionClass(providerCommand) } : {}),
     ...(entity.idempotencyKey ? { idempotencyKey: entity.idempotencyKey } : {}),
+    ...(entityType === 'ProviderGrant' ? {
+      provider: providerCommand.provider,
+      resourceId: providerCommand.resource.id,
+      bindingHash: entity.bindingHash,
+      commandDigest: entity.commandDigest,
+      approvalId: providerCommand.approval.id,
+    } : {}),
     ...details,
   });
 }
@@ -287,6 +313,69 @@ function validateReplayedEntity(type, entity) {
       request.policyGeneration !== entity.policyGeneration ||
       !isDeepStrictEqual(binding, leaseBinding(request, binding.workerId))
     ) throw new Error('invalid credential checkout binding');
+    return;
+  }
+  if (type === 'ProviderGrant') {
+    const transitionKeys = entity.state === 'ACTIVE'
+      ? []
+      : ['consumedAt', 'consumeIdempotencyKey'];
+    const completedKeys = entity.state === 'COMPLETED' ? ['completedAt', 'result'] : [];
+    const keys = [
+      'id', 'generation', 'state', 'registeredAt', 'expiresAt', 'maxUses', 'useCount',
+      'digest', 'bindingHash', 'commandDigest', 'policyGeneration', 'registrationIdempotencyKey',
+      'executionBinding', 'grant', ...transitionKeys, ...completedKeys,
+    ];
+    if (
+      !exactRecordKeys(entity, keys) || !PROVIDER_GRANT_STATES.has(entity.state) ||
+      entity.generation !== (entity.state === 'ACTIVE' ? 1 : entity.state === 'CONSUMED' ? 2 : 3) ||
+      !validIso(entity.registeredAt) || !validIso(entity.expiresAt) ||
+      (entity.consumedAt !== undefined && !validIso(entity.consumedAt)) ||
+      (entity.completedAt !== undefined && !validIso(entity.completedAt)) ||
+      entity.maxUses !== 1 || entity.useCount !== (entity.state === 'ACTIVE' ? 0 : 1) ||
+      !SHA256.test(entity.digest ?? '') || !SHA256.test(entity.bindingHash ?? '') ||
+      !SHA256.test(entity.commandDigest ?? '') || !Number.isSafeInteger(entity.policyGeneration) ||
+      entity.policyGeneration < 1
+    ) throw new Error('invalid provider grant');
+    const executionBinding = normalizeExecutionBinding(entity.executionBinding);
+    const normalized = normalizeProviderGrantRegistration({
+      idempotencyKey: entity.registrationIdempotencyKey,
+      workerId: executionBinding.workerId,
+      grant: entity.grant,
+      digest: entity.digest,
+    }, {
+      subject: executionBinding.subject,
+      now: Date.parse(entity.registeredAt),
+    });
+    if (
+      entity.id !== normalized.grant.id || entity.expiresAt !== normalized.grant.expiresAt ||
+      entity.bindingHash !== normalized.grant.bindingHash ||
+      entity.commandDigest !== normalized.grant.commandDigest ||
+      entity.policyGeneration !== normalized.grant.policyGeneration ||
+      executionBinding.runId !== normalized.grant.command.executionId ||
+      executionBinding.repository !== normalized.grant.command.repository
+    ) throw new Error('invalid provider grant binding');
+    if (entity.consumeIdempotencyKey !== undefined) publicId(entity.consumeIdempotencyKey, 'provider consume idempotency key');
+    if (entity.result !== undefined) {
+      const result = normalizeProviderAdapterResult(entity.result, normalized.grant.command);
+      if (!PROVIDER_EXECUTION_RESULTS.has(result.outcome)) throw new Error('invalid provider result');
+    }
+    return;
+  }
+  if (type === 'AttestationNonce') {
+    const keys = [
+      'id', 'generation', 'state', 'consumedAt', 'expiresAt', 'maxUses', 'useCount',
+      'nonceDigest', 'executionBinding',
+    ];
+    if (
+      !exactRecordKeys(entity, keys) || entity.generation !== 1 || entity.state !== 'CONSUMED' ||
+      !validIso(entity.consumedAt) || !validIso(entity.expiresAt) ||
+      Date.parse(entity.expiresAt) <= Date.parse(entity.consumedAt) ||
+      Date.parse(entity.expiresAt) - Date.parse(entity.consumedAt) > RUN_ATTESTATION_MAX_TTL_MS ||
+      entity.maxUses !== 1 || entity.useCount !== 1
+    ) throw new Error('invalid attestation nonce');
+    const nonceDigest = sha256(entity.nonceDigest, 'attestation nonce digest');
+    if (entity.id !== `run-attestation-${nonceDigest}`) throw new Error('invalid attestation nonce binding');
+    normalizeExecutionBinding(entity.executionBinding);
     return;
   }
   if (type === 'BrowserSessionBinding') {
@@ -355,11 +444,12 @@ function validateReplayedAudit(audit) {
     'id', 'eventType', 'outcome', 'entityType', 'entityId', 'generation', 'recordedAt',
     'executionBinding', 'credentialRef', 'publicIdentity', 'reason', 'exitCode', 'signal',
     'commitSha', 'capability', 'capabilityId', 'leaseId', 'ruleId', 'idempotencyKey',
-    'actionClass', 'authStrategyIndex', 'strategyEvidenceKey',
+    'actionClass', 'authStrategyIndex', 'strategyEvidenceKey', 'provider', 'resourceId',
+    'bindingHash', 'commandDigest', 'approvalId', 'resultOutcome', 'observationDigest',
   ];
   if (
     !Object.keys(audit).every((key) => allowed.includes(key)) ||
-    !['CredentialCheckout', 'BrowserSessionBinding', 'ReauthRequest'].includes(audit.entityType) ||
+    !AUTH_ENTITY_TYPES.has(audit.entityType) ||
     !validIso(audit.recordedAt)
   ) throw new Error('invalid audit event');
   publicId(audit.id, 'audit id');
@@ -386,6 +476,15 @@ function validateReplayedAudit(audit) {
   }
   if (audit.authStrategyIndex !== undefined) nonNegativeInteger(audit.authStrategyIndex, 'audit auth strategy index');
   if (audit.strategyEvidenceKey !== undefined) sha256(audit.strategyEvidenceKey, 'audit strategy evidence key');
+  if (audit.provider !== undefined && !PROVIDER.test(audit.provider)) throw new Error('invalid audit provider');
+  if (audit.resourceId !== undefined) publicId(audit.resourceId, 'audit resource id');
+  if (audit.bindingHash !== undefined) sha256(audit.bindingHash, 'audit binding hash');
+  if (audit.commandDigest !== undefined) sha256(audit.commandDigest, 'audit command digest');
+  if (audit.approvalId !== undefined) publicId(audit.approvalId, 'audit approval id');
+  if (audit.resultOutcome !== undefined && !PROVIDER_EXECUTION_RESULTS.has(audit.resultOutcome)) {
+    throw new Error('invalid audit provider result');
+  }
+  if (audit.observationDigest !== undefined) sha256(audit.observationDigest, 'audit observation digest');
   if (
     (
       audit.eventType === 'CREDENTIAL_EXECUTION_FINISHED' &&
@@ -450,7 +549,7 @@ function validateEnvelope(envelope, expectedSequence, journalMacKey, previousMac
     if (envelope.mutation !== null) {
       const type = envelope.mutation?.entityType;
       const entity = envelope.mutation?.entity;
-      if (!['CredentialCheckout', 'BrowserSessionBinding', 'ReauthRequest'].includes(type) || !entity) {
+      if (!AUTH_ENTITY_TYPES.has(type) || !entity) {
         throw new Error('invalid mutation');
       }
       validateReplayedEntity(type, entity);
@@ -517,6 +616,8 @@ export class DurableAuthState {
   #credentialCheckouts = new Map();
   #browserSessionBindings = new Map();
   #reauthRequests = new Map();
+  #providerGrants = new Map();
+  #attestationNonces = new Map();
   #auditEvents = [];
   #recoveredBrowserClaims = new Set();
   #authStrategyFailures = new Set();
@@ -577,6 +678,7 @@ export class DurableAuthState {
     });
     try {
       await state.#replay();
+      state.#pruneExpiredRunAttestationNonces(state.#clock());
       await state.#reconcileBrowserSessionsAtStartup();
     } catch (error) {
       state.#closed = true;
@@ -663,7 +765,15 @@ export class DurableAuthState {
     if (entityType === 'CredentialCheckout') return this.#credentialCheckouts;
     if (entityType === 'BrowserSessionBinding') return this.#browserSessionBindings;
     if (entityType === 'ReauthRequest') return this.#reauthRequests;
+    if (entityType === 'ProviderGrant') return this.#providerGrants;
+    if (entityType === 'AttestationNonce') return this.#attestationNonces;
     fail('invalid_state_journal', 'durable auth journal has an unknown entity type');
+  }
+
+  #pruneExpiredRunAttestationNonces(now) {
+    for (const [id, entity] of this.#attestationNonces) {
+      if (Date.parse(entity.expiresAt) <= now) this.#attestationNonces.delete(id);
+    }
   }
 
   #applyEnvelope(envelope) {
@@ -747,6 +857,328 @@ export class DurableAuthState {
       details,
     });
     await this.#append({ entityType: null, entity: null, audit });
+  }
+
+  consumeRunAttestationNonce({ nonceDigest, expiresAt, executionBinding }) {
+    return this.#serialize(async () => {
+      if (!this.#journalMacKey) {
+        fail('state_integrity_required', 'run attestation nonce requires the durable HMAC audit journal');
+      }
+      const digest = sha256(nonceDigest, 'attestation nonce digest');
+      const binding = normalizeExecutionBinding(executionBinding);
+      const now = this.#clock();
+      if (
+        !Number.isSafeInteger(now) || !Number.isSafeInteger(expiresAt) ||
+        expiresAt <= now || expiresAt - now > RUN_ATTESTATION_MAX_TTL_MS
+      ) {
+        fail('principal_unauthenticated', 'run attestation nonce expiry is invalid');
+      }
+      this.#pruneExpiredRunAttestationNonces(now);
+      const id = `run-attestation-${digest}`;
+      if (this.#attestationNonces.has(id)) {
+        fail('principal_unauthenticated', 'scheduler run attestation was already used');
+      }
+      if (this.#attestationNonces.size >= RUN_ATTESTATION_ACTIVE_NONCE_LIMIT) {
+        fail('principal_unauthenticated', 'scheduler run attestation replay cache is full');
+      }
+      const entity = freezeRecord({
+        id,
+        generation: 1,
+        state: 'CONSUMED',
+        consumedAt: iso(now),
+        expiresAt: iso(expiresAt),
+        maxUses: 1,
+        useCount: 1,
+        nonceDigest: digest,
+        executionBinding: binding,
+      });
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'RUN_ATTESTATION_CONSUMED',
+        outcome: 'SUCCESS',
+        entityType: 'AttestationNonce',
+        entity,
+      });
+      await this.#append({ entityType: 'AttestationNonce', entity, audit });
+      return freezeRecord({ consumed: true, expiresAt: entity.expiresAt });
+    });
+  }
+
+  registerProviderGrant({ registration, executionBinding }) {
+    return this.#serialize(async () => {
+      if (!this.#journalMacKey) {
+        fail('state_integrity_required', 'provider grants require the durable HMAC audit journal');
+      }
+      const binding = normalizeExecutionBinding(executionBinding);
+      const command = registration?.grant?.command;
+      if (
+        !registration || binding.subject !== registration.subject ||
+        binding.workerId !== registration.workerId || binding.runId !== command?.executionId ||
+        binding.repository !== command?.repository
+      ) {
+        fail('principal_binding_mismatch', 'provider grant does not match the attested principal');
+      }
+      const replay = [...this.#providerGrants.values()].find(
+        (candidate) => candidate.registrationIdempotencyKey === registration.idempotencyKey,
+      );
+      if (replay) {
+        if (
+          replay.id !== registration.grant.id || replay.digest !== registration.digest ||
+          !isDeepStrictEqual(replay.executionBinding, binding)
+        ) fail('idempotency_conflict', 'provider grant idempotency key is bound to another request');
+        return this.providerGrantView(replay);
+      }
+      if (this.#providerGrants.has(registration.grant.id)) {
+        fail('provider_grant_exists', 'provider grant id is already registered');
+      }
+      const now = this.#clock();
+      if (
+        now >= Date.parse(registration.grant.expiresAt) ||
+        Date.parse(registration.grant.expiresAt) - now > 5 * 60 * 1_000
+      ) fail('approval_expired', 'provider grant is expired or exceeds five minutes');
+      const entity = freezeRecord({
+        id: registration.grant.id,
+        generation: 1,
+        state: 'ACTIVE',
+        registeredAt: iso(now),
+        expiresAt: registration.grant.expiresAt,
+        maxUses: 1,
+        useCount: 0,
+        digest: registration.digest,
+        bindingHash: registration.grant.bindingHash,
+        commandDigest: registration.grant.commandDigest,
+        policyGeneration: registration.grant.policyGeneration,
+        registrationIdempotencyKey: registration.idempotencyKey,
+        executionBinding: binding,
+        grant: registration.grant,
+      });
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'PROVIDER_GRANT_REGISTERED',
+        outcome: 'SUCCESS',
+        entityType: 'ProviderGrant',
+        entity,
+        details: { idempotencyKey: registration.idempotencyKey },
+      });
+      await this.#append({ entityType: 'ProviderGrant', entity, audit });
+      return this.providerGrantView(entity);
+    });
+  }
+
+  verifyProviderGrant({ id, expectation, executionBinding }) {
+    return this.#serialize(async () => {
+      const entity = this.#providerGrants.get(opaqueId(id, 'provider grant id'));
+      if (!entity) fail('provider_grant_not_found', 'provider grant does not exist');
+      const binding = normalizeExecutionBinding(executionBinding);
+      if (!isDeepStrictEqual(entity.executionBinding, binding) || expectation.workerId !== binding.workerId) {
+        fail('principal_binding_mismatch', 'provider grant does not match the attested principal');
+      }
+      assertProviderGrantExpectation(entity, expectation);
+      if (entity.state !== 'ACTIVE' || entity.useCount !== 0) {
+        fail('provider_grant_already_used', 'provider grant is single-use and has already been consumed');
+      }
+      const now = this.#clock();
+      if (now >= Date.parse(entity.expiresAt)) fail('approval_expired', 'provider grant is expired');
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'PROVIDER_GRANT_VERIFIED',
+        outcome: 'SUCCESS',
+        entityType: 'ProviderGrant',
+        entity,
+      });
+      await this.#append({ entityType: null, entity: null, audit });
+      return this.providerGrantView(entity);
+    });
+  }
+
+  resolveProviderGrantCommand({ id, expectation, executionBinding }) {
+    return this.#serialize(async () => {
+      const entity = this.#providerGrants.get(opaqueId(id, 'provider grant id'));
+      if (!entity) fail('provider_grant_not_found', 'provider grant does not exist');
+      const binding = normalizeExecutionBinding(executionBinding);
+      if (!isDeepStrictEqual(entity.executionBinding, binding) || expectation.workerId !== binding.workerId) {
+        fail('principal_binding_mismatch', 'provider grant does not match the attested principal');
+      }
+      assertProviderGrantExpectation(entity, expectation);
+      if (expectation.expectedGeneration !== entity.grant.command.generation) {
+        fail('generation_conflict', 'provider execution generation does not match the grant');
+      }
+      if (entity.state !== 'ACTIVE' || entity.useCount !== 0) {
+        if (entity.consumeIdempotencyKey === expectation.idempotencyKey) {
+          return freezeRecord({ command: entity.grant.command, replay: true });
+        }
+        fail('provider_grant_already_used', 'provider grant is single-use and has already been consumed');
+      }
+      if (this.#clock() >= Date.parse(entity.expiresAt)) fail('approval_expired', 'provider grant is expired');
+      return freezeRecord({ command: entity.grant.command, replay: false });
+    });
+  }
+
+  consumeProviderGrant({ id, expectation, executionBinding }) {
+    return this.#serialize(async () => {
+      const entity = this.#providerGrants.get(opaqueId(id, 'provider grant id'));
+      if (!entity) fail('provider_grant_not_found', 'provider grant does not exist');
+      const binding = normalizeExecutionBinding(executionBinding);
+      if (!isDeepStrictEqual(entity.executionBinding, binding) || expectation.workerId !== binding.workerId) {
+        fail('principal_binding_mismatch', 'provider grant does not match the attested principal');
+      }
+      assertProviderGrantExpectation(entity, expectation);
+      if (expectation.expectedGeneration !== entity.grant.command.generation) {
+        fail('generation_conflict', 'provider execution generation does not match the grant');
+      }
+      if (entity.state !== 'ACTIVE' || entity.useCount !== 0) {
+        if (entity.consumeIdempotencyKey === expectation.idempotencyKey) {
+          return freezeRecord({
+            replay: true,
+            shouldExecute: false,
+            command: entity.grant.command,
+            policyGrant: this.providerGrantView(entity),
+            execution: this.providerGrantExecutionView(entity),
+          });
+        }
+        fail('provider_grant_already_used', 'provider grant is single-use and has already been consumed');
+      }
+      const now = this.#clock();
+      if (now >= Date.parse(entity.expiresAt)) fail('approval_expired', 'provider grant is expired');
+      const consumed = freezeRecord({
+        ...entity,
+        generation: 2,
+        state: 'CONSUMED',
+        useCount: 1,
+        consumedAt: iso(now),
+        consumeIdempotencyKey: expectation.idempotencyKey,
+      });
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'PROVIDER_GRANT_CONSUMED',
+        outcome: 'SUCCESS',
+        entityType: 'ProviderGrant',
+        entity: consumed,
+        details: { idempotencyKey: expectation.idempotencyKey },
+      });
+      await this.#append({ entityType: 'ProviderGrant', entity: consumed, audit });
+      return freezeRecord({
+        replay: false,
+        shouldExecute: true,
+        command: consumed.grant.command,
+        policyGrant: this.providerGrantView(consumed),
+        execution: this.providerGrantExecutionView(consumed),
+      });
+    });
+  }
+
+  recordProviderGrantResult({ id, executionBinding, result }) {
+    return this.#serialize(async () => {
+      const entity = this.#providerGrants.get(opaqueId(id, 'provider grant id'));
+      if (!entity) fail('provider_grant_not_found', 'provider grant does not exist');
+      const binding = normalizeExecutionBinding(executionBinding);
+      if (!isDeepStrictEqual(entity.executionBinding, binding)) {
+        fail('principal_binding_mismatch', 'provider grant does not match the attested principal');
+      }
+      const normalized = normalizeProviderAdapterResult(result, entity.grant.command);
+      if (entity.state === 'COMPLETED') {
+        if (!isDeepStrictEqual(entity.result, normalized)) {
+          fail('generation_conflict', 'provider grant already has a different final result');
+        }
+        return freezeRecord({
+          policyGrant: this.providerGrantView(entity),
+          execution: this.providerGrantExecutionView(entity),
+        });
+      }
+      if (entity.state !== 'CONSUMED' || entity.generation !== 2 || entity.useCount !== 1) {
+        fail('generation_conflict', 'provider grant is not in the consumed generation');
+      }
+      const now = this.#clock();
+      const completed = freezeRecord({
+        ...entity,
+        generation: 3,
+        state: 'COMPLETED',
+        completedAt: iso(now),
+        result: normalized,
+      });
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'PROVIDER_EXECUTION_RECORDED',
+        outcome: 'SUCCESS',
+        entityType: 'ProviderGrant',
+        entity: completed,
+        details: {
+          resultOutcome: normalized.outcome,
+          ...(normalized.observation ? { observationDigest: publicJsonDigest(normalized.observation) } : {}),
+        },
+      });
+      await this.#append({ entityType: 'ProviderGrant', entity: completed, audit });
+      return freezeRecord({
+        policyGrant: this.providerGrantView(completed),
+        execution: this.providerGrantExecutionView(completed),
+      });
+    });
+  }
+
+  readProviderGrantResult({ id, expectation, executionBinding }) {
+    return this.#serialize(async () => {
+      const entity = this.#providerGrants.get(opaqueId(id, 'provider grant id'));
+      if (!entity) fail('provider_grant_not_found', 'provider grant does not exist');
+      const binding = normalizeExecutionBinding(executionBinding);
+      if (!isDeepStrictEqual(entity.executionBinding, binding) || expectation.workerId !== binding.workerId) {
+        fail('principal_binding_mismatch', 'provider grant does not match the attested principal');
+      }
+      assertProviderGrantExpectation(entity, expectation);
+      if (expectation.expectedGeneration !== entity.grant.command.generation) {
+        fail('generation_conflict', 'provider execution generation does not match the grant');
+      }
+      const now = this.#clock();
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'PROVIDER_RESULT_READ',
+        outcome: 'SUCCESS',
+        entityType: 'ProviderGrant',
+        entity,
+      });
+      await this.#append({ entityType: null, entity: null, audit });
+      return freezeRecord({
+        policyGrant: this.providerGrantView(entity),
+        execution: this.providerGrantExecutionView(entity),
+      });
+    });
+  }
+
+  readProviderGrantObservation({ id, expectation, executionBinding }) {
+    return this.#serialize(async () => {
+      const entity = this.#providerGrants.get(opaqueId(id, 'provider grant id'));
+      if (!entity) fail('provider_grant_not_found', 'provider grant does not exist');
+      const binding = normalizeExecutionBinding(executionBinding);
+      if (!isDeepStrictEqual(entity.executionBinding, binding) || expectation.workerId !== binding.workerId) {
+        fail('principal_binding_mismatch', 'provider grant does not match the attested principal');
+      }
+      assertProviderGrantExpectation(entity, expectation);
+      if (expectation.expectedGeneration !== entity.grant.command.generation) {
+        fail('generation_conflict', 'provider execution generation does not match the grant');
+      }
+      const observation = entity.result?.observation;
+      const now = this.#clock();
+      const audit = auditFrom({
+        idFactory: this.#idFactory,
+        now,
+        eventType: 'PROVIDER_OBSERVATION_READ',
+        outcome: observation === undefined ? 'ABSENT' : 'SUCCESS',
+        entityType: 'ProviderGrant',
+        entity,
+        details: observation === undefined ? {} : { observationDigest: publicJsonDigest(observation) },
+      });
+      await this.#append({ entityType: null, entity: null, audit });
+      if (observation === undefined) return null;
+      return freezeRecord({
+        policyGrant: this.providerGrantView(entity),
+        observation,
+      });
+    });
   }
 
   issueCredentialCheckout({
@@ -1614,11 +2046,43 @@ export class DurableAuthState {
     });
   }
 
+  providerGrantView(entity) {
+    return freezeRecord({
+      id: entity.id,
+      digest: entity.digest,
+      bindingHash: entity.bindingHash,
+      commandDigest: entity.commandDigest,
+      policyGeneration: entity.policyGeneration,
+      // The grant policy remains registered until expiry. One-use consumption is
+      // represented by the separate execution result and enforced in durable state.
+      state: 'ACTIVE',
+    });
+  }
+
+  providerGrantExecutionView(entity) {
+    if (entity.state !== 'COMPLETED') {
+      return freezeRecord({
+        generation: entity.grant.command.generation,
+        outcome: 'RESULT_UNKNOWN',
+      });
+    }
+    const outcome = entity.result.outcome === 'SUCCESS'
+      ? 'SUCCESS'
+      : entity.result.outcome === 'FAILED' ? 'ADAPTER_FAILED' : HUMAN_REAUTH_REQUIRED;
+    return freezeRecord({
+      generation: entity.grant.command.generation,
+      outcome,
+      ...(entity.result.errorCode ? { errorCode: entity.result.errorCode } : {}),
+    });
+  }
+
   snapshot() {
     return freezeRecord({
       credentialCheckouts: [...this.#credentialCheckouts.values()],
       browserSessionBindings: [...this.#browserSessionBindings.values()],
       reauthRequests: [...this.#reauthRequests.values()],
+      providerGrants: [...this.#providerGrants.values()],
+      attestationNonces: [...this.#attestationNonces.values()],
       auditEvents: this.#auditEvents,
     });
   }

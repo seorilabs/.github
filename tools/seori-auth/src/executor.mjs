@@ -1,6 +1,12 @@
 import { spawn } from 'node:child_process';
+import { isDeepStrictEqual } from 'node:util';
 
 import { fail, SeoriAuthError } from './errors.mjs';
+import {
+  canonicalPublicJson,
+  normalizeProviderAdapterResult,
+  providerGrantLeaseRequest,
+} from './provider-grants.mjs';
 
 function auditSafely(onAudit, event) {
   try {
@@ -16,6 +22,49 @@ function safeEnvironment(adapter) {
     ...adapter.environment,
     SEORI_AUTH_SECRET_FD: '3',
   };
+}
+
+function providerEnvironment(adapter) {
+  return {
+    ...safeEnvironment(adapter),
+    SEORI_AUTH_COMMAND_FD: '4',
+    SEORI_AUTH_RESULT_FD: '5',
+  };
+}
+
+const BASE64_ALPHABET = Buffer.from(
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',
+  'ascii',
+);
+const HEX_ALPHABET = Buffer.from('0123456789abcdef', 'ascii');
+
+function base64Marker(secretBuffer) {
+  const output = Buffer.alloc(Math.ceil(secretBuffer.length / 3) * 4, 0x3d);
+  let read = 0;
+  let write = 0;
+  while (read < secretBuffer.length) {
+    const first = secretBuffer[read++];
+    const hasSecond = read < secretBuffer.length;
+    const second = hasSecond ? secretBuffer[read++] : 0;
+    const hasThird = read < secretBuffer.length;
+    const third = hasThird ? secretBuffer[read++] : 0;
+    output[write++] = BASE64_ALPHABET[first >> 2];
+    output[write++] = BASE64_ALPHABET[((first & 0x03) << 4) | (second >> 4)];
+    if (hasSecond) output[write++] = BASE64_ALPHABET[((second & 0x0f) << 2) | (third >> 6)];
+    else write += 1;
+    if (hasThird) output[write] = BASE64_ALPHABET[third & 0x3f];
+    write += 1;
+  }
+  return output;
+}
+
+function hexMarker(secretBuffer) {
+  const output = Buffer.alloc(secretBuffer.length * 2);
+  for (let index = 0; index < secretBuffer.length; index += 1) {
+    output[index * 2] = HEX_ALPHABET[secretBuffer[index] >> 4];
+    output[(index * 2) + 1] = HEX_ALPHABET[secretBuffer[index] & 0x0f];
+  }
+  return output;
 }
 
 async function runChild({ adapter, secretBuffer }) {
@@ -76,6 +125,104 @@ async function runChild({ adapter, secretBuffer }) {
   }
 
   return Object.freeze(result);
+}
+
+async function runProviderChild({ adapter, secretBuffer, command }) {
+  const executable = adapter.launcher?.executable ?? adapter.executable;
+  const args = adapter.launcher
+    ? ['launch', '--', adapter.executable, ...adapter.args]
+    : adapter.args;
+  const commandBuffer = Buffer.from(canonicalPublicJson(command), 'utf8');
+  const resultChunks = [];
+  const child = spawn(executable, args, {
+    cwd: adapter.cwd,
+    env: providerEnvironment(adapter),
+    shell: false,
+    // fd3 is credential-only, fd4 is the strict public command, and fd5 is the
+    // bounded strict public result. No request controls executable/argv/env.
+    stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+
+  let outputBytes = 0;
+  let resultBytes = 0;
+  let exceeded = false;
+  const terminateForLimit = () => {
+    exceeded = true;
+    child.kill('SIGKILL');
+  };
+  const discardBounded = (chunk) => {
+    outputBytes += chunk.length;
+    if (outputBytes > adapter.maxOutputBytes) terminateForLimit();
+    if (Buffer.isBuffer(chunk)) chunk.fill(0);
+  };
+  const collectResult = (chunk) => {
+    resultBytes += chunk.length;
+    if (resultBytes > adapter.maxOutputBytes) {
+      if (Buffer.isBuffer(chunk)) chunk.fill(0);
+      terminateForLimit();
+      return;
+    }
+    resultChunks.push(Buffer.from(chunk));
+    if (Buffer.isBuffer(chunk)) chunk.fill(0);
+  };
+  child.stdout.on('data', discardBounded);
+  child.stderr.on('data', discardBounded);
+  child.stdio[5].on('data', collectResult);
+  for (const stream of [child.stdio[3], child.stdio[4]]) {
+    stream.on('error', () => {
+      // Early child exit is represented by the process result and strict result fd.
+    });
+  }
+  child.stdio[3].end(secretBuffer);
+  child.stdio[4].end(commandBuffer);
+
+  let processResult;
+  try {
+    processResult = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new SeoriAuthError('adapter_timeout', 'trusted provider adapter exceeded its execution timeout'));
+      }, adapter.timeoutMs);
+      timeout.unref();
+      child.once('error', () => {
+        clearTimeout(timeout);
+        reject(new SeoriAuthError('adapter_start_failed', 'trusted provider adapter could not be started'));
+      });
+      child.once('close', (exitCode, signal) => {
+        clearTimeout(timeout);
+        resolve({ exitCode, signal });
+      });
+    });
+    if (exceeded) fail('adapter_output_limit', 'trusted provider adapter exceeded its output limit');
+    const encodedResult = Buffer.concat(resultChunks);
+    // Credential length is not a trust signal. Even a one-byte credential
+    // must fail closed if the adapter echoes its raw or common encoded form.
+    const markers = [secretBuffer, base64Marker(secretBuffer), hexMarker(secretBuffer)];
+    try {
+      if (markers.some((candidate) => encodedResult.includes(candidate))) {
+        fail('adapter_result_secret_detected', 'trusted provider adapter result contained credential material');
+      }
+      const publicOutput = encodedResult.toString('utf8');
+      let parsed;
+      try {
+        parsed = JSON.parse(publicOutput);
+      } catch {
+        fail('invalid_adapter_result', 'trusted provider adapter result must be strict JSON');
+      }
+      const adapterResult = normalizeProviderAdapterResult(parsed, command);
+      if (processResult.exitCode !== 0 && adapterResult.outcome === 'SUCCESS') {
+        fail('invalid_adapter_result', 'provider adapter process failure cannot report success');
+      }
+      return Object.freeze({ ...processResult, adapterResult });
+    } finally {
+      for (const marker of markers.slice(1)) marker.fill(0);
+      encodedResult.fill(0);
+    }
+  } finally {
+    commandBuffer.fill(0);
+    for (const chunk of resultChunks) chunk.fill(0);
+  }
 }
 
 export async function executeSecretAdapter({ registry, adapterId, binding, secretBuffer }) {
@@ -176,5 +323,39 @@ export async function executeConsumedLease({
     if (Buffer.isBuffer(secretBuffer)) {
       secretBuffer.fill(0);
     }
+  }
+}
+
+export async function executeConsumedProviderLease({
+  consumed,
+  registry,
+  loadSecret,
+  command,
+}) {
+  const expectedBinding = providerGrantLeaseRequest(command, consumed?.binding?.subject);
+  if (!isDeepStrictEqual(consumed?.binding, expectedBinding)) {
+    fail('provider_grant_binding_mismatch', 'provider command does not match the consumed credential lease');
+  }
+  const adapter = registry.require(consumed.binding.adapterId, consumed.binding);
+  let secretBuffer;
+  try {
+    secretBuffer = await loadSecret({
+      credentialRef: consumed.binding.credentialRef,
+      credentialGeneration: consumed.binding.credentialGeneration,
+    });
+  } catch {
+    fail('secret_load_failed', 'provider credential execution copy could not be loaded');
+  }
+  if (!Buffer.isBuffer(secretBuffer) || secretBuffer.length === 0) {
+    if (Buffer.isBuffer(secretBuffer)) secretBuffer.fill(0);
+    fail('secret_load_failed', 'provider credential loader must return a non-empty Buffer');
+  }
+  try {
+    return await runProviderChild({ adapter, secretBuffer, command });
+  } catch (error) {
+    if (error instanceof SeoriAuthError) throw error;
+    fail('adapter_failed', 'trusted provider adapter execution failed');
+  } finally {
+    secretBuffer.fill(0);
   }
 }
