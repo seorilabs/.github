@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,10 +13,13 @@ const contractPath = fileURLToPath(
   new URL("../../contracts/fleet-p3-runtime.yaml", import.meta.url),
 );
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
-const gcloud = "/Users/syous/.config/seorilabs/scripts/gcloud-cli.sh";
-const contract = parse(readFileSync(contractPath, "utf8"));
-const cloud = contract.cloudBuild;
-const auth = contract.authBroker;
+const gcloud = join(
+  homedir(),
+  ".config",
+  "seorilabs",
+  "scripts",
+  "gcloud-cli.sh",
+);
 const mode = process.argv[2] ?? "plan";
 const confirmation = process.argv[3] ?? "";
 const modes = new Set(["plan", "apply", "readback", "rollback"]);
@@ -25,6 +28,15 @@ function fail(code) {
   process.stderr.write(`${JSON.stringify({ ok: false, code })}\n`);
   process.exit(1);
 }
+
+let contract;
+try {
+  contract = parse(readFileSync(contractPath, "utf8"));
+} catch {
+  fail("P3_GCP_CONTRACT_PARSE_FAILED");
+}
+const cloud = contract.cloudBuild;
+const auth = contract.authBroker;
 
 if (!modes.has(mode) || process.argv.length > 4) fail("P3_GCP_COMMAND_INVALID");
 
@@ -349,7 +361,13 @@ function kubernetesJwks() {
     ["get", "--raw", "/.well-known/openid-configuration"],
     "P3_KUBERNETES_OIDC_DISCOVERY_FAILED",
   );
-  const discovery = JSON.parse(discoveryRaw);
+  if (discoveryRaw === null) fail("P3_KUBERNETES_OIDC_DISCOVERY_FAILED");
+  let discovery;
+  try {
+    discovery = JSON.parse(discoveryRaw);
+  } catch {
+    fail("P3_KUBERNETES_OIDC_DISCOVERY_FAILED");
+  }
   if (discovery.issuer !== cloud.wif.kubernetesIssuer) {
     fail("P3_KUBERNETES_OIDC_ISSUER_MISMATCH");
   }
@@ -358,7 +376,13 @@ function kubernetesJwks() {
     ["get", "--raw", "/openid/v1/jwks"],
     "P3_KUBERNETES_JWKS_READ_FAILED",
   );
-  const jwks = JSON.parse(raw);
+  if (raw === null) fail("P3_KUBERNETES_JWKS_READ_FAILED");
+  let jwks;
+  try {
+    jwks = JSON.parse(raw);
+  } catch {
+    fail("P3_KUBERNETES_JWKS_READ_FAILED");
+  }
   if (
     !Array.isArray(jwks.keys) ||
     jwks.keys.length === 0 ||

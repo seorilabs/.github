@@ -79,6 +79,9 @@ function api(operation, { allowMissing = false } = {}) {
 }
 
 const app = render("github-app");
+if (app.apiVersion !== apiVersion || app.organization !== organization) {
+  fail("P3_GITHUB_CONTRACT_DRIFT");
+}
 const propertyOperations = render("custom-properties");
 const valueOperations = render("pilot-values");
 const desiredRuleset = render("ruleset");

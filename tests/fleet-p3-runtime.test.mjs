@@ -199,6 +199,15 @@ test("GCP bootstrap apply와 rollback은 exact 공개 confirmation 없이는 실
   }
 });
 
+test("GCP bootstrap은 사용자 홈을 하드코딩하지 않고 public 오류 code만 사용한다", async () => {
+  const source = await readFile("scripts/fleet/bootstrap-p3-gcp.mjs", "utf8");
+  assert.doesNotMatch(source, /\/Users\//u);
+  assert.match(source, /homedir\(\)/u);
+  assert.match(source, /P3_GCP_CONTRACT_PARSE_FAILED/u);
+  assert.match(source, /if \(discoveryRaw === null\)/u);
+  assert.match(source, /if \(raw === null\)/u);
+});
+
 test("Auth Broker foundation은 RBAC 0권한, exact NetworkPolicy와 cert-manager TLS만 생성한다", async () => {
   const manifest = await render("auth-broker-foundation");
   const serviceAccounts = manifest.items.filter(
