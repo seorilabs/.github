@@ -3,6 +3,7 @@ import {
   createHash,
   createHmac,
   generateKeyPairSync,
+  sign as signEd25519,
 } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -10,6 +11,7 @@ import test from "node:test";
 import Ajv2020 from "ajv/dist/2020.js";
 
 import {
+  attachFleetProvisioningOperations,
   createFleetWebhookHandler,
   fleetBootstrapContract,
   validateFleetBootstrapPlan,
@@ -20,6 +22,13 @@ import {
   loadResolvedCallerBinding,
   promoteWorkflowBundle,
 } from "../packages/repo-contract/src/fleet.mjs";
+import {
+  createGitHubAppTrustedAdapter,
+  createTrustedControlPlaneAdapter,
+  createTrustedExecutionStore,
+  createTrustedFleetExecutor,
+  createTrustedWifAdapter,
+} from "../packages/repo-contract/src/trusted-executor.mjs";
 import { CANARY_BUILD_BY_PROFILE } from "./helpers/workflow-bundle-fixtures.mjs";
 
 const ORGANIZATION_ID = "4242";
@@ -29,6 +38,15 @@ const SOURCE_SHA = "d".repeat(40);
 const BUNDLE_SHA = "a".repeat(40);
 const DIGEST = `sha256:${"b".repeat(64)}`;
 const SECRET = Buffer.from("fleet-webhook-secret-material-00001", "utf8");
+const PROTECTION_POLICY = Object.freeze({
+  approvalReceiptId: null,
+  checkAppIds: Object.freeze({
+    orgContract: "10101",
+    seoriReview: "20202",
+  }),
+  providerMode: "REPO_BRANCH_PROTECTION",
+  rolloutMode: "SHADOW",
+});
 const PLATFORM_RELEASE = Object.freeze({
   sourceSha: "c".repeat(40),
   contractRevision: DIGEST,
@@ -138,7 +156,12 @@ test.before(async () => {
       marketUpload: false,
       artifactSha256: record.artifactSha256,
     }),
-    approvalSigner: { keyId: "fleet-bootstrap-test", privateKey },
+    trustedApprovalKeys: new Map([["fleet-bootstrap-test", publicKey]]),
+    trustedApprovalSigner: async ({ payload }) => ({
+      algorithm: "Ed25519",
+      keyId: "fleet-bootstrap-test",
+      value: signEd25519(null, payload, privateKey).toString("base64url"),
+    }),
     trustedWorkflowSourceReadback,
     trustedRunnerImageReadback,
     registryPublisher: async (record) => {
@@ -205,6 +228,279 @@ async function callerBinding({
   });
 }
 
+function provisioningExecutionHarness(plan) {
+  const nowMs = Date.now();
+  const controlPlaneApplied = new Set();
+  const completed = new Map();
+  const approvals = new Map();
+  const secretSelectedRepositoryIds = new Set();
+  let secretApplyCount = 0;
+  let wifApplyCount = 0;
+  let wifBound = false;
+  let providerEtag = "provider-etag-before";
+  let serviceAccountPolicyEtag = "policy-etag-before";
+
+  const githubAppAdapter = createGitHubAppTrustedAdapter({
+    organizationId: ORGANIZATION_ID,
+    installationId: INSTALLATION_ID,
+    secretBindings: [
+      {
+        bindingRevision: 4,
+        logicalCredentialId: "shared/apps-in-toss/operator",
+        secretName: "APPS_IN_TOSS_API_KEY",
+      },
+    ],
+    now: () => nowMs,
+    issueInstallationToken: async (request) => ({
+      accountId: ORGANIZATION_ID,
+      accountLogin: "seorilabs",
+      expiresAt: new Date(nowMs + 4 * 60 * 1000).toISOString(),
+      installationId: INSTALLATION_ID,
+      permissions: structuredClone(request.permissions),
+      repositoryIds: [REPOSITORY_ID],
+      token: Buffer.from("fleet-executor-test-token-material-0001"),
+    }),
+    provider: {
+      async addSecretRepositoryAccess({ operation }) {
+        secretApplyCount += 1;
+        secretSelectedRepositoryIds.add(REPOSITORY_ID);
+        return {
+          bindingRevision: operation.payload.bindingRevision,
+          logicalCredentialId: operation.payload.logicalCredentialId,
+          method: "ADD_SELECTED_REPOSITORY",
+          repositoryId: REPOSITORY_ID,
+          secretName: operation.payload.secretName,
+          state: "UPDATED",
+        };
+      },
+      applyOperation() {},
+      applyProtection() {},
+      async readIdentity() {
+        return {
+          archived: false,
+          defaultBranch: "main",
+          fullName: "seorilabs/example-app",
+          installationId: INSTALLATION_ID,
+          organizationId: ORGANIZATION_ID,
+          private: true,
+          repositoryId: REPOSITORY_ID,
+          sourceSha: SOURCE_SHA,
+        };
+      },
+      readOperation() {},
+      readProtection() {},
+      readProtectionCapability() {},
+      async readProvisioningGate({ gate }) {
+        return {
+          callerContentDigest: gate.callerContentDigest,
+          callerPath: gate.callerPath,
+          callerSourceSha: SOURCE_SHA,
+          credentialApprovalReceiptId: gate.credentialApprovalReceiptId,
+          organizationId: ORGANIZATION_ID,
+          protectionDigest: gate.protectionDigest,
+          providerMode: gate.providerMode,
+          repositoryId: REPOSITORY_ID,
+          rolloutMode: gate.rolloutMode,
+          state: "READY",
+        };
+      },
+      async readSecretRepositoryAccess({ operation }) {
+        if (!secretSelectedRepositoryIds.has(REPOSITORY_ID)) {
+          return {
+            kind: operation.kind,
+            repositoryId: REPOSITORY_ID,
+            state: "NOT_APPLIED",
+          };
+        }
+        const selectedRepositoryIds = [
+          ...secretSelectedRepositoryIds,
+        ].sort();
+        return {
+          bindingRevision: operation.payload.bindingRevision,
+          kind: operation.kind,
+          logicalCredentialId: operation.payload.logicalCredentialId,
+          mutationMethod: "ADD_SELECTED_REPOSITORY",
+          preservedSelectedRepositoryIds: selectedRepositoryIds,
+          repositoryId: REPOSITORY_ID,
+          secretName: operation.payload.secretName,
+          selectedRepositoryIds,
+          visibility: "selected",
+        };
+      },
+    },
+  });
+
+  const controlPlaneAdapter = createTrustedControlPlaneAdapter({
+    provider: {
+      async applyOperation(operation) {
+        controlPlaneApplied.add(operation.idempotencyKey);
+      },
+      async readOperation(operation) {
+        return controlPlaneApplied.has(operation.idempotencyKey)
+          ? {
+              kind: operation.kind,
+              repositoryId: REPOSITORY_ID,
+              sourceSha: SOURCE_SHA,
+              state: "APPLIED",
+            }
+          : {
+              kind: operation.kind,
+              repositoryId: REPOSITORY_ID,
+              state: "NOT_APPLIED",
+            };
+      },
+    },
+  });
+
+  const wifAdapter = createTrustedWifAdapter({
+    organizationId: ORGANIZATION_ID,
+    bindings: [
+      {
+        bindingRevision: 3,
+        logicalCredentialId: "shared/gcp/cloud-build",
+        providerResourceName:
+          "//iam.googleapis.com/projects/123456789/locations/global/" +
+          "workloadIdentityPools/seorilabs/providers/github",
+        serviceAccountEmail:
+          "seorilabs-ci-builder@seorilabs-ci.iam.gserviceaccount.com",
+      },
+    ],
+    provider: {
+      async applyBinding({
+        expected,
+        expectedProviderEtag,
+        expectedServiceAccountPolicyEtag,
+      }) {
+        assert.equal(expectedProviderEtag, providerEtag);
+        assert.equal(
+          expectedServiceAccountPolicyEtag,
+          serviceAccountPolicyEtag,
+        );
+        wifApplyCount += 1;
+        const previousProviderEtag = providerEtag;
+        const previousServiceAccountPolicyEtag = serviceAccountPolicyEtag;
+        providerEtag = "provider-etag-after";
+        serviceAccountPolicyEtag = "policy-etag-after";
+        wifBound = true;
+        return {
+          bindingRevision: expected.bindingRevision,
+          logicalCredentialId: expected.logicalCredentialId,
+          previousProviderEtag,
+          previousServiceAccountPolicyEtag,
+          providerEtag,
+          providerResourceName: expected.providerResourceName,
+          repositoryId: expected.repositoryId,
+          serviceAccountEmail: expected.serviceAccountEmail,
+          serviceAccountPolicyEtag,
+          state: "UPDATED",
+        };
+      },
+      async readBinding({ expected }) {
+        return {
+          ...structuredClone(expected),
+          providerEtag,
+          serviceAccountPolicyEtag,
+          state: wifBound ? "BOUND" : "NOT_APPLIED",
+        };
+      },
+    },
+  });
+
+  const executionStore = createTrustedExecutionStore({
+    provider: {
+      async claimOperation(request) {
+        if (completed.has(request.idempotencyKey)) {
+          return structuredClone(completed.get(request.idempotencyKey));
+        }
+        return {
+          ...structuredClone(request),
+          expiresAt: new Date(nowMs + 4 * 60 * 1000).toISOString(),
+          generation: 5,
+          leaseToken: Buffer.from("fleet-operation-lease-material-0001"),
+          state:
+            request.operationKind === "gcp.wif-binding.ensure"
+              ? "RESUME"
+              : "CLAIMED",
+        };
+      },
+      async completeOperation(request) {
+        const record = {
+          idempotencyKey: request.idempotencyKey,
+          installationId: request.installationId,
+          operationKind: request.operationKind,
+          organizationId: request.organizationId,
+          planDigest: request.planDigest,
+          planGeneration: request.planGeneration,
+          repositoryId: request.repositoryId,
+          sourceSha: request.sourceSha,
+          generation: request.generation,
+          receiptDigest: request.receiptDigest,
+          state: "COMPLETED",
+        };
+        completed.set(request.idempotencyKey, structuredClone(record));
+        return record;
+      },
+      async consumeProtectionApproval(request) {
+        const { expectedGeneration, ...expected } = request;
+        const record = {
+          ...structuredClone(expected),
+          consumedUses: 1,
+          expiresAt: new Date(nowMs + 4 * 60 * 1000).toISOString(),
+          generation: expectedGeneration + 1,
+          maxUses: 1,
+          state: "CONSUMED",
+        };
+        approvals.set(request.planDigest, structuredClone(record));
+        return record;
+      },
+      async readExecutablePlan(request) {
+        return { ...structuredClone(request), generation: 4, state: "EXECUTABLE" };
+      },
+      async readProtectionApproval(request) {
+        if (approvals.has(request.planDigest)) {
+          return structuredClone(approvals.get(request.planDigest));
+        }
+        return {
+          ...structuredClone(request),
+          consumedUses: 0,
+          expiresAt: new Date(nowMs + 4 * 60 * 1000).toISOString(),
+          generation: 8,
+          maxUses: 1,
+          state: "AUTHORIZED",
+        };
+      },
+    },
+  });
+
+  const execute = createTrustedFleetExecutor({
+    organizationId: ORGANIZATION_ID,
+    installationId: INSTALLATION_ID,
+    approvedBundleBinding,
+    readCallerBinding: async () => {
+      throw new Error("unused");
+    },
+    githubAppAdapter,
+    controlPlaneAdapter,
+    wifAdapter,
+    executionStore,
+    now: () => nowMs,
+  });
+
+  return {
+    execute: () => execute(plan),
+    expandSharedState() {
+      secretSelectedRepositoryIds.add("7002");
+      providerEtag = "provider-etag-shared-change";
+      serviceAccountPolicyEtag = "policy-etag-shared-change";
+    },
+    revokeWif() {
+      wifBound = false;
+    },
+    secretApplyCount: () => secretApplyCount,
+    wifApplyCount: () => wifApplyCount,
+  };
+}
+
 function signedRequest(payload, {
   deliveryId = "delivery-0001",
   eventName = "repository",
@@ -231,6 +527,7 @@ async function harness({
   claimDelivery,
   completeDelivery,
   loadWebhookSecret,
+  protectionPolicy = PROTECTION_POLICY,
 } = {}) {
   const binding = resolution ? undefined : await callerBinding({
     fullName: payload.repository.full_name,
@@ -289,6 +586,7 @@ async function harness({
         bootstrapPullRequest: null,
         autonomousOpenPullRequestCount: 0,
       },
+    protectionPolicy,
   });
   const handler = async (request) => {
     const result = await rawHandler(request);
@@ -312,9 +610,12 @@ test("서명된 신규 private repo는 중앙 caller bootstrap 계획을 만든�
       "github.custom-properties.ensure",
       "github.environment.ensure",
       "github.bootstrap-pull-request.ensure",
+      "github.protection.reconcile",
     ],
   );
-  const pullRequest = result.operations.at(-1).payload;
+  const pullRequest = result.operations.find(
+    ({ kind }) => kind === "github.bootstrap-pull-request.ensure",
+  ).payload;
   assert.equal(pullRequest.maximumOpenAutonomousPullRequests, 1);
   assert.equal(pullRequest.baseRef, "main");
   assert.match(
@@ -453,7 +754,7 @@ test("repo당 자율 PR 슬롯이 차면 caller PR을 추가하지 않는다", a
     observed: {
       customProperties: {
         "fleet-managed": "true",
-        "fleet-ruleset": "evaluate",
+        "fleet-ruleset": "shadow",
         "fleet-profile": "react-native",
         "fleet-state": "active",
       },
@@ -576,4 +877,170 @@ test("plan validator는 unknown field와 secret-shaped 확장을 거부한다", 
   assert.equal(rejected.ok, false);
   assert.ok(rejected.diagnostics.includes("PLAN_SCHEMA_ADDITIONALPROPERTIES"));
   assert.doesNotMatch(JSON.stringify(rejected), /not-allowed/u);
+});
+
+test("ACTIVE 보호 뒤 credential provisioning은 별도 1회용 승인 receipt를 요구한다", async () => {
+  const payload = repositoryPayload();
+  const protectionPolicy = {
+    approvalReceiptId: "approval-protection-0001",
+    checkAppIds: {
+      orgContract: "10101",
+      seoriReview: "20202",
+    },
+    providerMode: "REPO_BRANCH_PROTECTION",
+    rolloutMode: "ACTIVE",
+  };
+  const initial = await harness({ payload, protectionPolicy });
+  const initialPlan = await initial.handler(
+    signedRequest(payload, { deliveryId: "delivery-provisioning-source" }),
+  );
+  const caller = initialPlan.operations.find(
+    ({ kind }) => kind === "github.bootstrap-pull-request.ensure",
+  ).payload;
+  const ready = await harness({
+    payload,
+    protectionPolicy,
+    observed: {
+      autonomousOpenPullRequestCount: 0,
+      bootstrapPullRequest: null,
+      callerDigest: caller.contentDigest,
+      customProperties: {
+        "fleet-managed": "true",
+        "fleet-profile": "react-native",
+        "fleet-ruleset": "active",
+        "fleet-state": "active",
+      },
+      environments: ["internal"],
+    },
+  });
+  const readyPlan = await ready.handler(
+    signedRequest(payload, { deliveryId: "delivery-provisioning-ready" }),
+  );
+  const protection = readyPlan.operations.find(
+    ({ kind }) => kind === "github.protection.reconcile",
+  ).payload;
+  const protectionDigest = textDigest(
+    JSON.stringify(
+      canonicalize({
+        defaultBranch: protection.defaultBranch,
+        providerMode: protection.providerMode,
+        requiredStatusChecks: protection.requiredStatusChecks,
+        reviewPolicy: protection.reviewPolicy,
+      }),
+    ),
+  );
+  const provisioningGate = {
+    approvalReceiptId: protection.approvalReceiptId,
+    callerContentDigest: caller.contentDigest,
+    callerPath: caller.path,
+    callerSourceSha: SOURCE_SHA,
+    credentialApprovalReceiptId: "approval-credentials-0001",
+    protectionDigest,
+    providerMode: "REPO_BRANCH_PROTECTION",
+    rolloutMode: "ACTIVE",
+  };
+  const provisioned = await attachFleetProvisioningOperations(readyPlan, {
+    approvedBundleBinding,
+    organizationId: ORGANIZATION_ID,
+    provisioningGate,
+    secretBindings: [
+      {
+        bindingRevision: 4,
+        logicalCredentialId: "shared/apps-in-toss/operator",
+        secretName: "APPS_IN_TOSS_API_KEY",
+      },
+    ],
+    wifBindings: [
+      {
+        bindingRevision: 3,
+        environment: "internal",
+        logicalCredentialId: "shared/gcp/cloud-build",
+      },
+    ],
+  });
+
+  assert.equal(provisioned.outcome, "PROVISIONING_READY");
+  assert.deepEqual(
+    provisioned.operations.map(({ kind }) => kind),
+    [
+      "control-plane.repository.observe",
+      "github.org-secret-visibility.ensure",
+      "gcp.wif-binding.ensure",
+    ],
+  );
+  assert.equal(validatePlan(provisioned), true, JSON.stringify(validatePlan.errors));
+  assert.ok(
+    provisioned.operations.slice(1).every(
+      ({ payload: operationPayload }) =>
+        operationPayload.provisioningGate.credentialApprovalReceiptId ===
+        "approval-credentials-0001",
+    ),
+  );
+
+  const execution = provisioningExecutionHarness(provisioned);
+  const firstExecution = await execution.execute();
+  assert.equal(firstExecution.state, "COMPLETED");
+  assert.equal(execution.secretApplyCount(), 1);
+  assert.equal(execution.wifApplyCount(), 1);
+  const firstSecretReceipt = firstExecution.operations.find(
+    ({ kind }) => kind === "github.org-secret-visibility.ensure",
+  );
+  const firstWifReceipt = firstExecution.operations.find(
+    ({ kind }) => kind === "gcp.wif-binding.ensure",
+  );
+
+  execution.expandSharedState();
+  const replay = await execution.execute();
+  assert.ok(replay.operations.every(({ outcome }) => outcome === "REPLAYED"));
+  assert.equal(execution.secretApplyCount(), 1);
+  assert.equal(execution.wifApplyCount(), 1);
+  const replaySecretReceipt = replay.operations.find(
+    ({ kind }) => kind === "github.org-secret-visibility.ensure",
+  );
+  const replayWifReceipt = replay.operations.find(
+    ({ kind }) => kind === "gcp.wif-binding.ensure",
+  );
+  assert.equal(
+    replaySecretReceipt.observationDigest,
+    firstSecretReceipt.observationDigest,
+  );
+  assert.notEqual(
+    replaySecretReceipt.readbackDigest,
+    firstSecretReceipt.readbackDigest,
+  );
+  assert.equal(
+    replayWifReceipt.observationDigest,
+    firstWifReceipt.observationDigest,
+  );
+  assert.notEqual(
+    replayWifReceipt.readbackDigest,
+    firstWifReceipt.readbackDigest,
+  );
+
+  execution.revokeWif();
+  await assert.rejects(
+    execution.execute(),
+    /FLEET_EXECUTOR_COMPLETED_OPERATION_MISSING/u,
+  );
+  assert.equal(execution.secretApplyCount(), 1);
+  assert.equal(execution.wifApplyCount(), 1);
+
+  await assert.rejects(
+    attachFleetProvisioningOperations(readyPlan, {
+      approvedBundleBinding,
+      organizationId: ORGANIZATION_ID,
+      provisioningGate: {
+        ...provisioningGate,
+        credentialApprovalReceiptId: protection.approvalReceiptId,
+      },
+      secretBindings: [
+        {
+          bindingRevision: 4,
+          logicalCredentialId: "shared/apps-in-toss/operator",
+          secretName: "APPS_IN_TOSS_API_KEY",
+        },
+      ],
+    }),
+    /FLEET_PROVISIONING_PLAN_INVALID/u,
+  );
 });

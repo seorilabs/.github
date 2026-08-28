@@ -14,7 +14,15 @@ repo-contract [저장소 경로]
 
 진단은 문서명, JSON path, 고정 오류 코드만 표시하며 자격증명 값을 출력하지 않습니다.
 
-`@seorilabs/repo-contract/bootstrap`은 GitHub App의 repository·기본 브랜치 push webhook을 검증하고 zero-touch 등록 계획을 만듭니다. webhook secret은 `shared/github/fleet-app-webhook` logical ID를 통해 trusted loader에만 요청하며 반환값에는 포함하지 않습니다. 생성 계획은 `contracts/fleet-bootstrap-plan.schema.json`을 따르고 durable delivery 저장이 성공한 뒤에만 완료됩니다. 실제 GitHub·Backoffice 변경은 idempotency key를 검증하는 별도 trusted executor의 책임입니다.
+`@seorilabs/repo-contract/bootstrap`은 GitHub App의 repository·기본 브랜치 push webhook을 검증하고 zero-touch 등록 계획을 만듭니다. webhook secret은 `shared/github/fleet-app-webhook` logical ID를 통해 trusted loader에만 요청하며 반환값에는 포함하지 않습니다. 생성 계획은 `contracts/fleet-bootstrap-plan.schema.json`을 따르고 durable delivery 저장이 성공한 뒤에만 완료됩니다.
+
+`@seorilabs/repo-contract/trusted-executor`는 durable queue에서 exact plan digest가 `EXECUTABLE`임을 다시 읽은 뒤 GitHub App token을 operation별 repository와 최소 permission으로 한정합니다. custom property, Environment, caller PR, 조직 secret visibility를 실행하고 exact identity/state readback 뒤 secret-free receipt를 저장합니다. WIF는 shared provider와 repo·중앙 workflow·environment를 묶은 compound principal을 사용하는 별도 GCP adapter가 담당합니다. Enterprise는 조직 ruleset, Team은 repo별 branch protection을 사용하며 SHADOW는 read-only, ACTIVE는 별도 승인 뒤 단조 강화만 허용합니다.
+
+조직 secret selected-repository 목록, custom property map, shared WIF etag처럼 다른 repo의 additive 작업으로 변하는 provider superset은 stable satisfaction witness와 현재 `readbackDigest`로 분리합니다. target binding이 유지되면 완료 작업을 mutation 없이 replay하고, target 자체가 사라지면 실패합니다.
+
+`@seorilabs/repo-contract/trusted-candidate-canary`는 CANDIDATE bundle을 Happy Farm과 Lizard Tycoon 두 고정 repo에만 적용하는 전용 경계입니다. 중앙 source/integrity와 Backoffice exact-source manifest를 다시 읽고, exact candidate `job_workflow_ref`에 묶인 `CANDIDATE_WIF_PREBIND` 5분·1회 승인을 CAS로 소비한 뒤 shared WIF binding을 read-before/apply-CAS/read-after 합니다. 그 후에만 static 및 Android build-only caller 두 개를 idempotent PR로 생성합니다. 일반 fleet generator는 계속 APPROVED bundle만 받습니다.
+
+`@seorilabs/repo-contract/trusted-publisher`는 WorkflowBundle signer와 registry publish/readback을 GitHub executor에서 분리합니다. worker는 `shared/workflow-bundle/approval-signing` logical ID만 알고 private key를 받지 않습니다.
 
 `@seorilabs/repo-contract/fleet`의 WorkflowBundle v4 API는 static caller 외에 다음 shadow
 계약을 제공합니다.

@@ -46,7 +46,7 @@
 - `@main`, branch, mutable major tag는 신규 caller에서 사용하지 않는다.
 - 중앙 workflow 변경은 새 SHA의 계약·정적 검증과 선언 마켓별 build-only canary 후 앱별 PR로 올린다. 이전 SHA는 rollback 근거로 남긴다.
 
-신규 Fleet caller는 trusted approval key와 registry readback을 가진 GitHub App reconciler가
+신규 Fleet caller는 trusted approval signer와 registry readback을 가진 GitHub App reconciler가
 [`repo-contract`](../../packages/repo-contract/) library generator로만 만든다.
 v2 workflow는 caller가 runner, install 명령, check 명령을 넘길 수 없고 public repository를
 ARC에서 중앙 차단한다. 기존 명령 주입형 workflow는 consumer shadow parity가 끝날 때까지만
@@ -137,7 +137,7 @@ jobs:
       working_directory: .
 ```
 
-이 파일은 사람이 복사하지 않고 GitHub App reconciler가 검증된 APPROVED bundle에서
+이 파일은 사람이 복사하지 않고 GitHub App trusted executor가 검증된 APPROVED bundle에서
 생성한다. stack 후보가 둘 이상이거나 exact `refs/heads/main` observation이 없으면 생성하지
 않고 `needs_input`으로 멈춘다.
 
@@ -157,8 +157,22 @@ API를 호출하지 않는다. RN private SDK는 RPI에서 일회성 `github.tok
 content-addressed store에 채우고 token 비포함 검사를 통과한 store만 source archive에 싣는다.
 Cloud Build는 이 store를 사용하지만 token이나 `.npmrc` credential은 받지 않는다.
 
-현재 mode는 `SHADOW`, ruleset은 `EVALUATE`다. 기존 caller를 삭제하거나 호출을 강제하지
-않으며 non-promotable contract fixture probe와 실제 RN/Godot pilot parity가 끝나기 전 Active로 바꾸지 않는다.
+현재 WorkflowBundle mode는 `SHADOW`이고 signed contract의 ruleset 의도는 `EVALUATE`다.
+실제 보호 provider는 계정 capability readback으로 고른다. Enterprise는 조직 ruleset,
+Team은 저장소별 `main` branch protection을 사용한다. Team SHADOW는 mutation 없이
+desired/actual diff만 기록하고, 승인된 ACTIVE wave에서만 app ID가 고정된
+`Org Contract / Org Contract`, `Seori Review`, strict/up-to-date와 최소 review 정책을
+단조 강화한다. 기존 bypass, restriction 또는 더 강한 보호를 보존할 수 없으면
+`HUMAN_DECISION_REQUIRED`로 멈춘다.
+
+CANDIDATE bundle은 일반 generator에 넣지 않는다. 전용 trusted canary adapter가 Happy Farm
+`1250442131`과 Lizard Tycoon `1265192029`에만 static 및 Android build-only caller 두 개를
+생성한다. Android caller는 canary PR 자체의 제한된 `pull_request` trigger로 build evidence를
+만들 수 있어 default branch에 workflow가 없을 때도 승격 deadlock이 생기지 않는다. PR보다
+먼저 exact candidate central `job_workflow_ref`와 repo/source/plan에 묶인
+`CANDIDATE_WIF_PREBIND` 5분·1회 승인을 CAS로 소비하고 shared WIF binding의 etag CAS와
+readback을 완료한다. 중앙 callee는 일반 `main` caller 또는 고정 repository ID의 same-repo
+canary PR, exact base source·merge ref·candidate SHA suffix만 허용한다.
 
 ### Xcode Cloud build-only contract
 
