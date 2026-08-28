@@ -3,9 +3,11 @@ name: WorkflowBundle Candidate
 on:
   pull_request:
     paths:
+      - .github/cloud-build/**
       - .github/workflows/**
       - builders/**
       - contracts/**
+      - fixtures/workflow-bundle/**
       - packages/repo-contract/**
       - profiles/**
       - scripts/fleet/**
@@ -13,9 +15,11 @@ on:
   push:
     branches: [main]
     paths:
+      - .github/cloud-build/**
       - .github/workflows/**
       - builders/**
       - contracts/**
+      - fixtures/workflow-bundle/**
       - packages/repo-contract/**
       - profiles/**
       - scripts/fleet/**
@@ -38,6 +42,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Setup pinned Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -52,6 +58,12 @@ jobs:
       - name: Validate contracts and workflows
         run: npm test
 
+      - name: Run non-promotable RN and Godot contract fixture probes
+        run: |
+          set -euo pipefail
+          node scripts/fleet/fixture-canary.mjs react-native "$RUNNER_TEMP/contract-fixtures/react-native.json"
+          node scripts/fleet/fixture-canary.mjs godot "$RUNNER_TEMP/contract-fixtures/godot.json"
+
       - name: Generate immutable candidate
         run: >-
           node packages/repo-contract/src/fleet-cli.mjs bundle
@@ -63,5 +75,13 @@ jobs:
         with:
           name: workflow-bundle-candidate-${{ github.sha }}
           path: ${{ runner.temp }}/workflow-bundle.json
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload non-promotable contract fixture probes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: workflow-bundle-contract-fixtures-${{ github.sha }}
+          path: ${{ runner.temp }}/contract-fixtures/*.json
           if-no-files-found: error
           retention-days: 3

@@ -25,6 +25,13 @@
 - protected branch만 허용하는 `internal` Environment 정합화
 - `.github/workflows/org-contract.yml` bootstrap PR 생성 또는 기존 PR 갱신
 
+WorkflowBundle v4는 Android build-only caller와 Xcode Cloud run envelope의 중앙
+generator/validator도 제공하지만, zero-touch bootstrap plan은 아직 static
+`org-contract.yml`만 생성한다. non-promotable contract fixture probe와 실제 pilot의 두 번 연속 shadow parity,
+WIF·Cloud Build IAM readback, Xcode Cloud workflow readback이 끝난 뒤 별도 wave에서 추가한다.
+따라서 이 변경만으로 기존 release caller, secret visibility, ruleset 또는 provider 상태는
+바뀌지 않는다.
+
 작업별 idempotency key는 repository ID, operation kind와 canonical payload를 묶는다. 이미 열린 bootstrap PR은 갱신하며 새 PR을 만들지 않는다. 다른 자율 PR이 있으면 `WAITING_FOR_PR_SLOT`으로 중단해 repo당 동시 자율 PR 1개를 지킨다.
 
 다음 조건은 추측하거나 우회하지 않는다.
@@ -63,4 +70,6 @@ GitHub App installation token은 매 operation마다 숫자 repository ID 한 �
 - mutation 직전 repository ID·source SHA·open PR count 재검증
 - custom property schema와 Evaluate ruleset을 조직에서 별도 승인 후 생성
 - private RN/Godot canary에서 5분 등록, 10분 bootstrap PR 또는 정확한 `needs_input` 검증
+- Android build caller를 `.github/workflows/android-build-only.yml@refs/heads/main`에만 두고 runtime ref 검증과 ruleset 보호 확인
+- ARC live Pod imageID와 signed WorkflowBundle runner digest 일치 확인
 - 두 번의 shadow parity 전에는 ruleset Active 전환 금지

@@ -20,6 +20,7 @@ import {
   loadResolvedCallerBinding,
   promoteWorkflowBundle,
 } from "../packages/repo-contract/src/fleet.mjs";
+import { CANARY_BUILD_BY_PROFILE } from "./helpers/workflow-bundle-fixtures.mjs";
 
 const ORGANIZATION_ID = "4242";
 const INSTALLATION_ID = "9001";
@@ -37,9 +38,13 @@ const PLATFORM_RELEASE = Object.freeze({
 const EVIDENCE = Object.freeze(
   ["react-native", "godot"].map((profile, index) => ({
     profile,
-    repositoryId: 123 + index,
+    gates: ["static", "build-only"],
+    repositoryId: profile === "react-native" ? 1250442131 : 1265192029,
     sourceSha: "e".repeat(40),
-    runId: 456 + index,
+    workflowBundleSourceSha: BUNDLE_SHA,
+    staticRunId: 456 + index * 2,
+    buildRunId: 457 + index * 2,
+    ...CANARY_BUILD_BY_PROFILE[profile],
     artifactSha256: DIGEST,
   })),
 );
@@ -73,6 +78,14 @@ function trustedSourceReadbackFor(bundle) {
       "contracts/workflow-bundle.schema.json",
       "utf8",
     ),
+    contractAssetContents: Object.fromEntries(
+      await Promise.all(
+        Object.keys(bundle.quality.contractDigests).map(async (path) => [
+          path,
+          await readFile(path, "utf8"),
+        ]),
+      ),
+    ),
     runtimeAssetContents: Object.fromEntries(
       await Promise.all(
         Object.keys(bundle.quality.runtimeAssetDigests).map(async (path) => [
@@ -99,10 +112,35 @@ test.before(async () => {
     platformRelease: PLATFORM_RELEASE,
   });
   const trustedWorkflowSourceReadback = trustedSourceReadbackFor(candidate);
+  const trustedRunnerImageReadback = async (request) => ({
+    ...request,
+    state: "READY",
+    generation: 12,
+    observedAt: new Date(Date.now()).toISOString(),
+  });
   const approved = await promoteWorkflowBundle(candidate, EVIDENCE, {
-    evidenceVerifier: async () => true,
+    evidenceVerifier: async (record, bundle) => ({
+      state: "VERIFIED",
+      profile: record.profile,
+      repositoryId: record.repositoryId,
+      fullName: bundle.quality.canaries[record.profile].fullName,
+      sourceSha: record.sourceSha,
+      workflowBundleSourceSha: record.workflowBundleSourceSha,
+      staticRunId: record.staticRunId,
+      buildRunId: record.buildRunId,
+      cloudBuildId: record.cloudBuildId,
+      builderImage: record.builderImage,
+      cloudBuildConfigSha256: record.cloudBuildConfigSha256,
+      staticConclusion: "success",
+      buildConclusion: "success",
+      staticWorkflowRef: `seorilabs/.github/${bundle.reusableWorkflows[record.profile].path}@${bundle.source.sha}`,
+      buildWorkflowRef: `seorilabs/.github/${bundle.buildWorkflows[record.profile].path}@${bundle.source.sha}`,
+      marketUpload: false,
+      artifactSha256: record.artifactSha256,
+    }),
     approvalSigner: { keyId: "fleet-bootstrap-test", privateKey },
     trustedWorkflowSourceReadback,
+    trustedRunnerImageReadback,
     registryPublisher: async (record) => {
       registry.set(record.subject, structuredClone(record));
       return record;
@@ -112,6 +150,7 @@ test.before(async () => {
     trustedApprovalKeys: new Map([["fleet-bootstrap-test", publicKey]]),
     trustedRegistryReadback: async ({ subject }) => registry.get(subject),
     trustedWorkflowSourceReadback,
+    trustedRunnerImageReadback,
   });
 });
 

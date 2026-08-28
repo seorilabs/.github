@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "profile": "godot",
+  "static": {
+    "canonicalScripts": ["test:core", "check:architecture", "check:release"]
+  },
+  "buildOnly": {
+    "runner": "seorilabs-rpi-arm64",
+    "executor": "cloud-build-x64",
+    "artifact": "android-aab",
+    "marketUpload": false,
+    "builderImage": "asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/godot-android-builder@sha256:b2a9d7a849f1193f42a40864d8487401abb6dc54472fe010b31b2e84e7be2940"
+  }
+}
