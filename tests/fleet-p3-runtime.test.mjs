@@ -208,6 +208,8 @@ test("GCP bootstrap은 canonical wrapper override를 검증하고 public 오류 
   assert.match(source, /P3_GCP_CONTRACT_PARSE_FAILED/u);
   assert.match(source, /P3_GCP_WIF_PROVIDER_RESPONSE_INVALID/u);
   assert.match(source, /P3_GCP_IAM_RESPONSE_INVALID/u);
+  assert.match(source, /git", \["show", object\]/u);
+  assert.match(source, /P3_WORKFLOW_SOURCE_DIGEST_MISMATCH/u);
   assert.match(source, /if \(discoveryRaw === null\)/u);
   assert.match(source, /if \(raw === null\)/u);
   await assert.rejects(

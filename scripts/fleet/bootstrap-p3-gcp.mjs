@@ -111,16 +111,40 @@ function localSourcePreflight() {
   }
   for (const { workflow, sha256 } of cloud.wif.repositories) {
     const object = `${cloud.wif.workflowSourceSha}:${workflow}`;
+    let bytes;
     try {
-      execFileSync("git", ["cat-file", "-e", object], {
+      bytes = execFileSync("git", ["show", object], {
         cwd: repositoryRoot,
-        stdio: "ignore",
+        encoding: null,
+        maxBuffer: 4 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "ignore"],
       });
     } catch {
-      const bytes = readFileSync(join(repositoryRoot, workflow));
-      const actual = createHash("sha256").update(bytes).digest("hex");
-      if (actual !== sha256) fail("P3_WORKFLOW_SOURCE_MISSING");
+      const encoded = run(
+        "gh",
+        [
+          "api",
+          "--method",
+          "GET",
+          `/repos/seorilabs/.github/contents/${workflow}`,
+          "-f",
+          `ref=${cloud.wif.workflowSourceSha}`,
+          "--jq",
+          '.encoding + ":" + .content',
+        ],
+        "P3_WORKFLOW_SOURCE_READ_FAILED",
+      );
+      if (encoded === null || !encoded.startsWith("base64:")) {
+        fail("P3_WORKFLOW_SOURCE_MISSING");
+      }
+      try {
+        bytes = Buffer.from(encoded.slice("base64:".length), "base64");
+      } catch {
+        fail("P3_WORKFLOW_SOURCE_READ_FAILED");
+      }
     }
+    const actual = createHash("sha256").update(bytes).digest("hex");
+    if (actual !== sha256) fail("P3_WORKFLOW_SOURCE_DIGEST_MISMATCH");
   }
 }
 
