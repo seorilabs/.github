@@ -186,17 +186,17 @@ cloudBuild:
     kubernetesIssuer: https://kubernetes.default.svc
     githubAudience: https://github.com/seorilabs
     organizationId: "283115031"
-    workflowBundleSourceSha: a59f5d4e0b850c11f9b2cca165c89c1339851a2c
-    workflowExecutionSha: c328d9bf55f31ba11f53ef06071cc7b76d283617
+    workflowBundleSourceSha: e86018971183031fa36f06415d94375e3359084f
+    workflowExecutionSha: e86018971183031fa36f06415d94375e3359084f
     repositories:
       - fullName: seorilabs/happy-farm
         repositoryId: "1250442131"
-        workflow: .github/workflows/rn-build-android-cloud-v1.yml
-        sha256: c5263a9521a398f5c5ae17b692e22be67dc2feeb9b7da4f8758622c7a29f4bd0
+        workflow: .github/workflows/rn-build-android-cloud-v2.yml
+        sha256: 2dc3e759e458071cd438ebe957be90624656f95eb0279cabf2b94dbbe4285824
       - fullName: seorilabs/lizard-tycoon
         repositoryId: "1265192029"
-        workflow: .github/workflows/godot-build-android-cloud-v1.yml
-        sha256: 372b565a69de01e59a0570b05e8b49c681abd02114df8e7ba9c29c98c0807db3
+        workflow: .github/workflows/godot-build-android-cloud-v2.yml
+        sha256: 11aa0449d5c315066bd7c0223a26c6ff8dde158b37239faf3a9143b3655a25ca
   submitter:
     logicalCredentialId: shared/gcp/cloud-build/submitter
     serviceAccountEmail: seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com

@@ -270,8 +270,8 @@
             "kubernetesIssuer": { "const": "https://kubernetes.default.svc" },
             "githubAudience": { "const": "https://github.com/seorilabs" },
             "organizationId": { "const": "283115031" },
-            "workflowBundleSourceSha": { "const": "a59f5d4e0b850c11f9b2cca165c89c1339851a2c" },
-            "workflowExecutionSha": { "const": "c328d9bf55f31ba11f53ef06071cc7b76d283617" },
+            "workflowBundleSourceSha": { "const": "e86018971183031fa36f06415d94375e3359084f" },
+            "workflowExecutionSha": { "const": "e86018971183031fa36f06415d94375e3359084f" },
             "repositories": {
               "type": "array",
               "minItems": 2,
@@ -796,8 +796,8 @@
       "properties": {
         "fullName": { "const": "seorilabs/happy-farm" },
         "repositoryId": { "const": "1250442131" },
-        "workflow": { "const": ".github/workflows/rn-build-android-cloud-v1.yml" },
-        "sha256": { "const": "c5263a9521a398f5c5ae17b692e22be67dc2feeb9b7da4f8758622c7a29f4bd0" }
+        "workflow": { "const": ".github/workflows/rn-build-android-cloud-v2.yml" },
+        "sha256": { "const": "2dc3e759e458071cd438ebe957be90624656f95eb0279cabf2b94dbbe4285824" }
       }
     },
     "godotWifRepository": {
@@ -807,8 +807,8 @@
       "properties": {
         "fullName": { "const": "seorilabs/lizard-tycoon" },
         "repositoryId": { "const": "1265192029" },
-        "workflow": { "const": ".github/workflows/godot-build-android-cloud-v1.yml" },
-        "sha256": { "const": "372b565a69de01e59a0570b05e8b49c681abd02114df8e7ba9c29c98c0807db3" }
+        "workflow": { "const": ".github/workflows/godot-build-android-cloud-v2.yml" },
+        "sha256": { "const": "11aa0449d5c315066bd7c0223a26c6ff8dde158b37239faf3a9143b3655a25ca" }
       }
     }
   }
