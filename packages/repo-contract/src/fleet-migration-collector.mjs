@@ -67,6 +67,11 @@ const EVIDENCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u;
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const FULL_NAME_PATTERN = /^seorilabs\/[A-Za-z0-9._-]+$/u;
+const PUBLIC_PROVIDER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$/u;
+const PUBLIC_CAPABILITY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/u;
+const PUBLIC_ENVIRONMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$/u;
+const LOGICAL_CREDENTIAL_ID_PATTERN =
+  /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){2,7}$/u;
 const SOURCE_REF_PATTERN =
   /^refs\/heads\/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,126}[A-Za-z0-9])?$/u;
 const CURSOR_PATTERN = /^[A-Za-z0-9._~+/=-]{1,512}$/u;
@@ -264,6 +269,17 @@ function assertEvidenceDigest(value, code) {
   ) {
     throw new Error(`${code}_MISMATCH`);
   }
+}
+
+function isNullableBoundedString(value, minimum, maximum) {
+  if (value === null) return true;
+  if (typeof value !== "string") return false;
+  let length = 0;
+  for (const _character of value) {
+    length += 1;
+    if (length > maximum) return false;
+  }
+  return length >= minimum;
 }
 
 function validateCapabilityPermissions(value) {
@@ -1075,6 +1091,8 @@ function validatePublicEvidence(value, repository, head, organizationId) {
         !EVIDENCE_ID_PATTERN.test(observation.observationId ?? "") ||
         !NUMERIC_ID_PATTERN.test(observation.revision ?? "") ||
         !DIGEST_PATTERN.test(observation.digest ?? "") ||
+        !PUBLIC_PROVIDER_PATTERN.test(observation.provider ?? "") ||
+        !isNullableBoundedString(observation.publicIdentity, 1, 512) ||
         observation.state !== "MATCH",
     ) ||
     value.credentialBindings.some(
@@ -1094,6 +1112,14 @@ function validatePublicEvidence(value, repository, head, organizationId) {
         !EVIDENCE_ID_PATTERN.test(binding.observationId ?? "") ||
         !NUMERIC_ID_PATTERN.test(binding.revision ?? "") ||
         !DIGEST_PATTERN.test(binding.digest ?? "") ||
+        !LOGICAL_CREDENTIAL_ID_PATTERN.test(
+          binding.logicalCredentialId ?? "",
+        ) ||
+        !PUBLIC_PROVIDER_PATTERN.test(binding.provider ?? "") ||
+        !PUBLIC_CAPABILITY_PATTERN.test(binding.capability ?? "") ||
+        !PUBLIC_ENVIRONMENT_PATTERN.test(binding.environment ?? "") ||
+        !isNullableBoundedString(binding.publicIdentity, 1, 512) ||
+        !isNullableBoundedString(binding.fingerprint, 8, 256) ||
         binding.status !== "ACTIVE",
     )
   ) {

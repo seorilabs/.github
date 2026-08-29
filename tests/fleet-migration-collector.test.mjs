@@ -711,6 +711,40 @@ test("candidate substitution과 schema additionalProperties 우회를 거부한�
     collect(staleSnapshot),
     /FLEET_MIGRATION_COLLECTOR_BACKOFFICE_READBACK_MISMATCH/u,
   );
+
+  for (const mutate of [
+    (publicEvidence) => {
+      publicEvidence.providerObservations[0].provider = "invalid provider";
+    },
+    (publicEvidence) => {
+      publicEvidence.providerObservations[0].publicIdentity = "";
+    },
+    (publicEvidence) => {
+      publicEvidence.credentialBindings[0].logicalCredentialId = "shared/short";
+    },
+    (publicEvidence) => {
+      publicEvidence.credentialBindings[0].capability = "invalid capability";
+    },
+    (publicEvidence) => {
+      publicEvidence.credentialBindings[0].fingerprint = "short";
+    },
+  ]) {
+    const malformed = makeCollectorFixture({ count: 2, nowMs: Date.now() });
+    const readBackoffice =
+      malformed.configuration.readBackofficePublicEvidence;
+    malformed.configuration.readBackofficePublicEvidence = async (request) => {
+      const result = await readBackoffice(request);
+      mutate(result.publicEvidence);
+      result.publicEvidence.evidenceDigest = computeFleetEvidenceDigest(
+        result.publicEvidence,
+      );
+      return result;
+    };
+    await assert.rejects(
+      collect(malformed),
+      /FLEET_MIGRATION_COLLECTOR_BACKOFFICE_READBACK_MISMATCH/u,
+    );
+  }
 });
 
 test("secret-shaped public value와 callback exception은 output/error로 유출되지 않는다", async () => {
