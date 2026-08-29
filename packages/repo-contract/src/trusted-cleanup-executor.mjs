@@ -276,11 +276,15 @@ export function createTrustedFleetCleanupGitHubAdapter({ provider } = {}) {
         throw new Error("FLEET_CLEANUP_REPLACEMENT_READBACK_FAILED");
       }
       const { content, ...metadata } = raw;
-      const publicMetadata = clonePublic(
-        metadata,
-        "FLEET_CLEANUP_REPLACEMENT_READBACK_FAILED",
-      );
-      return { ...publicMetadata, content: Buffer.from(content) };
+      try {
+        const publicMetadata = clonePublic(
+          metadata,
+          "FLEET_CLEANUP_REPLACEMENT_READBACK_FAILED",
+        );
+        return { ...publicMetadata, content: Buffer.from(content) };
+      } finally {
+        content.fill(0);
+      }
     },
     async readCommit(request) {
       try {

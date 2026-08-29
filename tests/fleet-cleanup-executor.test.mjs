@@ -700,6 +700,45 @@ test("secret-shaped provider public readback은 값 노출 없이 거부한다",
   assert.equal(message.includes(canary), false);
 });
 
+test("replacement provider 실행 복제본은 성공과 metadata 거부 경로에서 모두 zeroize한다", async () => {
+  const callback = async () => undefined;
+  const buildAdapter = (readReplacementBlob) =>
+    createTrustedFleetCleanupGitHubAdapter({
+      provider: {
+        readMutationGuard: callback,
+        readReplacementBlob,
+        readCommit: callback,
+        createCommit: callback,
+        readRef: callback,
+        createRef: callback,
+        readPullRequest: callback,
+        createPullRequest: callback,
+      },
+    });
+
+  const source = Buffer.from("replacement-provider-copy", "utf8");
+  const adapter = buildAdapter(async () => ({
+    contract: "replacement-readback-v1",
+    content: source,
+  }));
+  const readback = await adapter.readReplacementBlob({});
+  assert.equal(readback.content.toString("utf8"), "replacement-provider-copy");
+  assert.deepEqual(source, Buffer.alloc(source.length));
+  readback.content.fill(0);
+
+  const rejected = Buffer.from("rejected-provider-copy", "utf8");
+  const canary = `github_pat_${"B".repeat(30)}`;
+  const rejectedAdapter = buildAdapter(async () => ({
+    contract: canary,
+    content: rejected,
+  }));
+  await assert.rejects(
+    () => rejectedAdapter.readReplacementBlob({}),
+    /FLEET_CLEANUP_REPLACEMENT_READBACK_FAILED/u,
+  );
+  assert.deepEqual(rejected, Buffer.alloc(rejected.length));
+});
+
 test("trusted adapter surface에는 direct main update나 ref delete가 존재할 수 없다", () => {
   const callback = async () => undefined;
   assert.throws(
