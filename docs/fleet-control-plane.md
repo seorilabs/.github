@@ -225,7 +225,8 @@ submodule, traversal, 대소문자 path 충돌은 허용하지 않는다. 두 ga
 아니며 최초 `BOOTSTRAP` inventory에만 적용한다. 이후 `WAVE` inventory는 직전 신뢰 inventory의
 ID/digest/capturedAt/count를 이어야 하고 세 cleanup count가 하나 이상 감소하며 어느 것도 증가하지
 않아야 한다. 매 wave의 GitHub App coverage와 repository tree observation은 직전 inventory보다
-새로워야 하며, 현재 provider total, pagination, exact source/tree/BLOB, parity 증거가 새
+새로워야 하며, 현재 provider total, pagination, exact source와 non-truncated canonical 전체 tree
+digest, detector 관련 BLOB, parity 증거가 새
 inventory와 일치해야 한다. 또한 각 `WAVE`는 최초 `BOOTSTRAP`부터 직전 `WAVE`까지의 서명된
 compact checkpoint를 `ancestry`에 순서대로 포함하고 `chainDigest`로 전체 순서를 고정한다.
 각 checkpoint의 Ed25519 attestation, root의 38/73/108/87, wave 번호, 직전 ID/digest/count,
@@ -248,13 +249,13 @@ inventory signer와 chain-head authority는 서로 다른 Ed25519 key와 role을
 ```bash
 fleet-contract plan-migration \
   --inventory fleet-migration-inventory.json \
-  --trusted-key-id fleet-inventory-key-0001 \
+  --trusted-key-id platform-fleet-release-20260829-5458c56b \
   --trusted-public-key fleet-inventory-signing-public.pem \
   > fleet-migration-plan.json
 fleet-contract validate-migration-plan \
   --plan fleet-migration-plan.json \
   --inventory fleet-migration-inventory.json \
-  --trusted-key-id fleet-inventory-key-0001 \
+  --trusted-key-id platform-fleet-release-20260829-5458c56b \
   --trusted-public-key fleet-inventory-signing-public.pem
 ```
 
@@ -272,7 +273,7 @@ inventory digest 양쪽에 결합된 필수 검증 입력이다.
 fleet-contract plan-migration \
   --inventory fleet-migration-wave-02.json \
   --prior-inventory fleet-migration-wave-01.json \
-  --trusted-key-id fleet-inventory-key-0001 \
+  --trusted-key-id platform-fleet-release-20260829-5458c56b \
   --trusted-public-key fleet-inventory-signing-public.pem \
   --chain-head fleet-migration-wave-02-chain-head.json \
   --trusted-chain-head-key-id fleet-chain-head-key-0001 \
@@ -287,8 +288,27 @@ replacement binding, evidence ID에 결합된 idempotency key만 포함한다. `
 뿐 실행 권한이 아니다. `READY_FOR_REVIEW`, `BLOCKED`, `NEEDS_INPUT` 모두 동일 inventory와
 프로세스 안에서 신뢰 공개키로 만든 binding이 다시 있어야 의미 검증된다. 별도
 `validateFleetMigrationPlanStructure`는 schema/checksum 구조만 검사하며 권위 검증이 아니다.
-실제 provider collector, durable CAS state authority, inventory attestation issuer, cleanup executor는
-이 plan-only 변경의 범위 밖이다. 이 패키지는 외부 CAS를 구현했다고 주장하지 않으며, trusted live
+read-only provider collector와 inventory attestation issuer의 adapter 계약은
+`@seorilabs/repo-contract/fleet-migration-collector`와
+`@seorilabs/repo-contract/trusted-inventory-issuer`가 제공한다. collector는 전체 cursor chain과
+exact source, non-truncated 전체 tree digest, detector 관련 BLOB 및 Backoffice ACTIVE config와
+signed snapshot 공개 증거를 durable occurrence readback에 묶는다. issuer는 그 occurrence를 다시 읽고 live GitHub App identity, installation에서
+수락된 exact permission union, webhook URL, event union과 `repository` event acceptance가 모두
+같을 때만 Ed25519 `READY`를 발급한다. 이 gate는 이슈 번호나 상태를 하드코딩하지 않으므로 승인 후
+코드 변경 없이 provider readback만으로 열리고, 현재 capability가 부족하면
+`GITHUB_APP_CAPABILITY_UNVERIFIED`로 닫힌다. issuer는 collection 시각으로 소급하지 않고 trusted
+current time을 canonical `signedAt`으로 사용하며 `capturedAt <= signedAt < expiresAt`을 검증한다.
+collection 시점 capability와 issuance 시점의 fresh current capability는 별도 evidence digest로
+구분하고 둘 다 최종 inventory signature에 결합한다. current readback의 timestamp/readback ID는
+새 값이어야 하지만 stable App identity, permission/event union, webhook과 installation scope는
+collection proof와 같아야 한다.
+signer에는 `shared/platform/fleet-release-approval-signing` logical ID와
+`platform-fleet-release-20260829-5458c56b` public key ID를 요구한다. supplied Ed25519
+SPKI fingerprint는 최신 public credential metadata readback과 exact하게 일치해야 하며,
+`FLEET_MIGRATION_INVENTORY_ATTESTATION` purpose로 canonical payload/digest만 signer에 전달한다.
+
+실제 GitHub/Backoffice transport, durable store, signing service, durable CAS state authority와 cleanup
+executor는 별도 운영 adapter다. 이 패키지는 외부 CAS를 구현했다고 주장하지 않으며, trusted live
 readback은 reservation의 현재성 검증 경계일 뿐이다. executor도 mutation 직전에 같은 reservation을
 durable CAS로 소비하고 exact head를 다시 읽는 별도 계약·승인·PR 단위 gate가 필요하다.
 

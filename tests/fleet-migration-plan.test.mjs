@@ -55,6 +55,8 @@ const EXPECTED_COUNTS = Object.freeze({
   workflowFloatingRef: 87,
 });
 const LEGACY_SCHEMA_IDS = Object.freeze({
+  ORG_CONTRACT_APP:
+    "https://seorilabs.github.io/contracts/v1/app.schema.json",
   GOOGLE_PLAY:
     "https://seorilabs.github.io/contracts/v1/markets/google-play.schema.json",
   APP_STORE:
@@ -996,11 +998,12 @@ function makeFleetInventory(contextOptions = {}) {
     );
   }
   const legacyGroups = [
-    ["GOOGLE_PLAY", "play-store/google-play.config.json", 20],
+    ["GOOGLE_PLAY", "play-store/google-play.config.json", 19],
     ["APP_STORE", "app-store/app-store.config.json", 20],
     ["APPS_IN_TOSS", "apps-in-toss/apps-in-toss.config.json", 11],
     ["MARKET_LAUNCH_STATE", "release/market-launch-state.json", 6],
     ["BACKOFFICE_OPERATIONS", ".seorilabs/backoffice.json", 3],
+    ["ORG_CONTRACT_APP", ".seorilabs/app.yaml", 1],
   ];
   for (const [contract, path, count] of legacyGroups) {
     for (let index = 1; index <= count; index += 1) {
@@ -1302,7 +1305,7 @@ test("cross-repo는 PLATFORM_REGISTRY_APP의 P5 App/PlatformFleetBinding readbac
   );
 });
 
-test("provider total과 exhaustive Git tree BLOB scan 증거가 불일치하면 fail-closed한다", () => {
+test("provider total과 canonical tree 및 scoped BLOB 수가 불일치하면 fail-closed한다", () => {
   const wrongTotal = structuredClone(makeFleetInventory());
   wrongTotal.coverage.providerTotalCount += 1;
   signInventory(wrongTotal);
@@ -1311,14 +1314,26 @@ test("provider total과 exhaustive Git tree BLOB scan 증거가 불일치하면 
     /INVENTORY_PAGINATION_CHAIN_MISMATCH|INVENTORY_PROVIDER_TOTAL_MISMATCH/u,
   );
 
-  const partialTree = structuredClone(makeFleetInventory());
-  partialTree.repositories[0].observation.treeReadback.scannedBlobCount -= 1;
-  refreshAndSign(partialTree);
-  const partialPlan = createFleetMigrationPlan(partialTree, {
-    trustedInventoryBinding: trustedBinding(partialTree),
+  const scopedTree = structuredClone(makeFleetInventory());
+  scopedTree.repositories[0].observation.treeReadback.scannedBlobCount -= 1;
+  refreshAndSign(scopedTree);
+  const scopedPlan = createFleetMigrationPlan(scopedTree, {
+    trustedInventoryBinding: trustedBinding(scopedTree),
+  });
+  assert.equal(
+    scopedPlan.reasonCodes.includes("OBSERVATION_TREE_READBACK_MISMATCH"),
+    false,
+  );
+
+  const impossibleTree = structuredClone(makeFleetInventory());
+  impossibleTree.repositories[0].observation.treeReadback.scannedBlobCount =
+    impossibleTree.repositories[0].observation.treeReadback.blobCount + 1;
+  refreshAndSign(impossibleTree);
+  const impossiblePlan = createFleetMigrationPlan(impossibleTree, {
+    trustedInventoryBinding: trustedBinding(impossibleTree),
   });
   assert.ok(
-    partialPlan.reasonCodes.includes("OBSERVATION_TREE_READBACK_MISMATCH"),
+    impossiblePlan.reasonCodes.includes("OBSERVATION_TREE_READBACK_MISMATCH"),
   );
 
   const truncatedTree = structuredClone(makeFleetInventory());

@@ -109,6 +109,10 @@ const NEEDS_INPUT_REASONS = new Set([
   "DETECTION_SCHEMA_MISMATCH",
 ]);
 const LEGACY_CONTRACTS = Object.freeze({
+  ORG_CONTRACT_APP: Object.freeze({
+    schemaId: "https://seorilabs.github.io/contracts/v1/app.schema.json",
+    path: ".seorilabs/app.yaml",
+  }),
   GOOGLE_PLAY: Object.freeze({
     schemaId:
       "https://seorilabs.github.io/contracts/v1/markets/google-play.schema.json",
@@ -2565,7 +2569,7 @@ function observationReasons(repositoryObservation) {
     tree.repositoryId !== repository.id ||
     tree.sourceSha !== repository.sourceSha ||
     tree.treeSha !== observation.treeSha ||
-    tree.blobCount !== tree.scannedBlobCount ||
+    tree.scannedBlobCount > tree.blobCount ||
     tree.blobCount > tree.entryCount ||
     !Number.isFinite(Date.parse(tree.observedAt)) ||
     Date.parse(tree.observedAt) > Date.parse(observation.observedAt)
@@ -3355,7 +3359,7 @@ export const fleetMigrationContract = deepFreeze({
     "prior-trusted-inventory-lineage-and-monotonic-wave-counts",
     "bootstrap-rooted-signed-checkpoint-chain",
     "state-authority-live-cas-reservation-exact-append",
-    "exhaustive-untruncated-commit-tree-blob-readback",
+    "untruncated-canonical-tree-and-detector-scoped-blob-readback",
     "canonical-blob-path-and-single-final-digest",
     "active-config-signed-snapshot-and-market-profile-readback",
     "authoritative-parity-head-total-and-latest-two-matches",
