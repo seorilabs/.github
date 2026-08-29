@@ -24,5 +24,5 @@ images:
 
 timeout: 2400s
 options:
-  machineType: E2_HIGHCPU_8
+  machineType: E2_STANDARD_2
   logging: CLOUD_LOGGING_ONLY
