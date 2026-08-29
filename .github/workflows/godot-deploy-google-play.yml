@@ -1,6 +1,6 @@
 # Seorilabs org 재사용 워크플로우: Godot 게임 Google Play (서명 AAB + 업로드)
 # 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-google-play.yml@<FULL_COMMIT_SHA>
-# 러너: ubuntu-latest (x64). godot --export-release Android → 서명 AAB → WIF 업로드.
+# 러너: x64 필수(runs_on, 기본 ubuntu-latest). godot --export-release Android → 서명 AAB → WIF 업로드.
 # 표준 contract(tools/): set_google_play_version_code.py, upload_google_play_internal.py
 #   (선택) install_android_build_template.sh, build_admob_plugin.sh, check_google_play_readiness.py
 name: Godot Deploy Google Play (reusable)
@@ -68,6 +68,11 @@ on:
         required: false
         default: 30
         type: number
+      runs_on:
+        description: "러너. x64 필요. 기본은 GitHub-hosted."
+        required: false
+        default: "ubuntu-latest"
+        type: string
 
 permissions:
   contents: read
@@ -76,7 +81,7 @@ permissions:
 jobs:
   build-aab:
     name: Godot signed Android App Bundle
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: google-play
 
@@ -180,13 +185,18 @@ jobs:
           [ -f scripts/install_godot_ci_dependencies.sh ] && bash scripts/install_godot_ci_dependencies.sh || true
           curl -L -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.x86_64.zip"
           unzip -q godot.zip
-          sudo mv "Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.x86_64" /usr/local/bin/godot
-          sudo chmod +x /usr/local/bin/godot
+          # 셀프호스티드 러너 컨테이너에는 sudo 도 root 권한도 없다. godot-checks.yml 과
+          # 같은 방식으로 RUNNER_TEMP 아래 설치하고 GITHUB_PATH 로 후속 step 에 노출한다.
+          install_dir="$RUNNER_TEMP/godot-bin"
+          mkdir -p "$install_dir"
+          mv "Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.x86_64" "$install_dir/godot"
+          chmod +x "$install_dir/godot"
+          echo "$install_dir" >> "$GITHUB_PATH"
           curl -L -o export_templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_export_templates.tpz"
           unzip -q export_templates.tpz
           mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
           mv templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}/"
-          godot --version
+          "$install_dir/godot" --version
 
       # GA4 Measurement Protocol 설정(<project>/analytics.config.json)을 secret 에서 복원.
       # 미설정 repo 는 경고만 남기고 통과(애널리틱스 비활성 빌드) — 기존 동작 보존.
