@@ -1,7 +1,7 @@
 # Fleet P3 runtime 전환 기록
 
 P3 WorkflowBundle provenance 기준 source는
-`a59f5d4e0b850c11f9b2cca165c89c1339851a2c`이다. 이 문서는
+`9583e0d21a4a2b23d0b93c4deedb74b6b467aadf`이다. 이 문서는
 2026-08-28~29 KST live readback과 P3 공개 계약을 분리해 기록한다. secret, capability, 승인
 receipt, lease token은 기록하지 않는다.
 

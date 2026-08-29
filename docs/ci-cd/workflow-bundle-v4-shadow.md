@@ -31,13 +31,13 @@ ruleset은 계약 상수 `EVALUATE`에 머문다.
 - Platform static shadow와 release fail-closed receipt 계약
 
 provenance와 execution pin은 같은 의미가 아니다. 현재 bundle source는
-`a59f5d4e0b850c11f9b2cca165c89c1339851a2c`, reusable workflow execution pin은
+`9583e0d21a4a2b23d0b93c4deedb74b6b467aadf`, reusable workflow execution pin은
 `c328d9bf55f31ba11f53ef06071cc7b76d283617`이다. P3 preflight는 두 commit에서 WIF 대상인 두
 Android workflow의 bytes와 SHA-256이 모두 같을 때만 이 분리를 허용한다. 이후 workflow bytes가
 달라지면 새 execution pin을 승인하기 전까지 fail-closed한다.
-이는 비순환 2단계 계약이다. 1단계 `a59f5d4`가 execution pin과 bundle 대상 파일을 먼저
-고정하고, 2단계 검증기는 `a59f5d4`의 전체 contract/runtime snapshot과 `c328d9b`의 네 workflow
-snapshot을 각각 읽는다. 검증기 자신이나 P3 runtime 문서 변경을 bundle digest에 다시 넣지 않는다.
+이는 비순환 2단계 계약이다. `9583e0d`는 표준 label을 포함한 전체 contract/runtime snapshot을
+고정하고, 후속 검증기는 이 commit과 `c328d9b`의 네 workflow snapshot을 각각 읽는다. 검증기
+자신이나 P3 runtime 문서 변경을 bundle digest에 다시 넣지 않는다.
 
 APPROVED bundle의 과거 source를 검증할 때는 현재 파일 목록을 강제하지 않는다. 서명된 bundle
 자체의 contract/runtime digest path를 fixed GitHub origin의 exact commit에서 다시 읽는다.
