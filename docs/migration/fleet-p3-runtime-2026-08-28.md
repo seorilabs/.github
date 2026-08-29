@@ -165,6 +165,14 @@ bootstrap과 trusted executor는 같은 공개 policy generator를 사용한다.
 condition이 두 exact pair만 token exchange하도록 제한한다. 별도의
 `environment/seorilabs_capability` mapping이나 generic workflow regex를 같은 provider에
 덮어쓰는 경로는 제거했다.
+
+GitHub OIDC audience는 `google-github-actions/auth@v3`가 별도 입력 없이 요청하는
+`https://iam.googleapis.com/<exact full provider resource>`로 고정한다. 조직 URL custom
+audience는 현재 e860 workflow bytes의 기본 요청과 달라 STS에서 거부되므로 사용하지 않는다.
+renderer는 numeric project, pool, provider 경로에서 파생한 exact audience만 허용한다. 또한
+cross-project `gcloud builds submit`이 staging bucket 존재 확인 중 `storage.buckets.list`를
+호출하므로 submitter에는 `seorilabs-ci` project의 `roles/storage.bucketViewer`를 명시한다.
+
 기존 cross-product condition은 알려진 legacy condition, mapping, issuer, audience가 모두 exact일
 때만 이관한다. active provider는 먼저 disable하고 legacy 상태를 다시 읽은 뒤 pairwise condition으로
 축소하며, disabled exact readback을 통과한 뒤에만 다시 enable한다. 알 수 없는 drift는 provider를

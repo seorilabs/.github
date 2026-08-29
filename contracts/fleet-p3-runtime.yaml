@@ -188,7 +188,7 @@ cloudBuild:
     kubernetesProvider: microk8s-auth
     githubIssuer: https://token.actions.githubusercontent.com
     kubernetesIssuer: https://kubernetes.default.svc
-    githubAudience: https://github.com/seorilabs
+    githubAudience: https://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
     organizationId: "283115031"
     workflowBundleSourceSha: e86018971183031fa36f06415d94375e3359084f
     workflowExecutionSha: e86018971183031fa36f06415d94375e3359084f
@@ -209,6 +209,8 @@ cloudBuild:
         role: roles/cloudbuild.builds.editor
       - resource: projects/seorilabs-ci
         role: roles/serviceusage.serviceUsageConsumer
+      - resource: projects/seorilabs-ci
+        role: roles/storage.bucketViewer
       - resource: gs://seorilabs-ci_cloudbuild
         role: roles/storage.objectAdmin
       - resource: gs://seorilabs-ci-build-artifacts

@@ -272,7 +272,7 @@
             "kubernetesProvider": { "const": "microk8s-auth" },
             "githubIssuer": { "const": "https://token.actions.githubusercontent.com" },
             "kubernetesIssuer": { "const": "https://kubernetes.default.svc" },
-            "githubAudience": { "const": "https://github.com/seorilabs" },
+            "githubAudience": { "const": "https://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build" },
             "organizationId": { "const": "283115031" },
             "workflowBundleSourceSha": { "const": "e86018971183031fa36f06415d94375e3359084f" },
             "workflowExecutionSha": { "const": "e86018971183031fa36f06415d94375e3359084f" },

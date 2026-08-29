@@ -112,6 +112,22 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
   assert.equal(contract.authBroker.registry.personalOperatorReuseAllowed, false);
   assert.equal(contract.authBroker.registry.catalogStatus, "blocked_missing");
   assert.equal(contract.github.credentialRecovery.approvalGate.state, "HUMAN_REAUTH_REQUIRED");
+  const expectedGithubProvider =
+    "projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build";
+  assert.equal(contract.cloudBuild.provider, expectedGithubProvider);
+  assert.equal(
+    contract.cloudBuild.wif.githubAudience,
+    `https://iam.googleapis.com/${expectedGithubProvider}`,
+  );
+  for (const [field, value] of [
+    ["provider", `${expectedGithubProvider}-lookalike`],
+    ["githubAudience", `https://iam.googleapis.com/${expectedGithubProvider}-lookalike`],
+  ]) {
+    const drifted = structuredClone(contract);
+    if (field === "provider") drifted.cloudBuild.provider = value;
+    else drifted.cloudBuild.wif.githubAudience = value;
+    assert.equal(validate(drifted), false);
+  }
   assert.doesNotMatch(
     recoveryModuleSource,
     /\/usr\/bin\/security|add-generic-password|find-generic-password/u,
@@ -663,6 +679,13 @@ test("Cloud Build identity는 submitter와 executor를 분리하고 resource 단
     ),
   );
   assert.ok(
+    output.submitter.bindings.some(
+      ({ resource, role }) =>
+        resource === "projects/seorilabs-ci" &&
+        role === "roles/storage.bucketViewer",
+    ),
+  );
+  assert.ok(
     output.executor.bindings.some(
       ({ resource, role }) =>
         resource === "gs://seorilabs-ci-build-artifacts" &&
@@ -699,6 +722,10 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   assert.equal(
     output.workflowExecutionSha,
     "e86018971183031fa36f06415d94375e3359084f",
+  );
+  assert.equal(
+    output.workloadIdentity.github.audience,
+    `https://iam.googleapis.com/${contract.cloudBuild.provider}`,
   );
   assert.deepEqual(output.githubActions, contract.cloudBuild.githubActions);
   assert.deepEqual(

@@ -38,6 +38,17 @@ function unique(values) {
 }
 
 function validateSemantics(contract) {
+  const expectedGithubProvider =
+    `projects/${contract.cloudBuild.projectNumber}/locations/global/` +
+    `workloadIdentityPools/${contract.cloudBuild.wif.pool}/providers/` +
+    contract.cloudBuild.wif.githubProvider;
+  if (
+    contract.cloudBuild.provider !== expectedGithubProvider ||
+    contract.cloudBuild.wif.githubAudience !==
+      `https://iam.googleapis.com/${expectedGithubProvider}`
+  ) {
+    fail("P3_GITHUB_WIF_AUDIENCE_INVALID");
+  }
   const propertyNames = contract.github.customProperties.map(
     ({ property_name: name }) => name,
   );
@@ -125,6 +136,15 @@ function validateSemantics(contract) {
     ) {
       fail("P3_CLOUD_BUILD_IAM_INVALID");
     }
+  }
+  if (
+    !contract.cloudBuild.submitter.bindings.some(
+      ({ resource, role }) =>
+        resource === `projects/${contract.cloudBuild.projectId}` &&
+        role === "roles/storage.bucketViewer",
+    )
+  ) {
+    fail("P3_CLOUD_BUILD_IAM_INVALID");
   }
 }
 
