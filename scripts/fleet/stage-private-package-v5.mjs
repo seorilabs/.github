@@ -16,7 +16,6 @@ import {
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
 
@@ -611,7 +610,7 @@ async function main() {
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+if (import.meta.main) {
   main().catch((error) => {
     const code = /^[A-Z0-9_]+$/u.test(error?.message ?? "")
       ? error.message

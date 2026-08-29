@@ -4,7 +4,6 @@ import { execFileSync } from "node:child_process";
 import { appendFile, lstat, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 
 import {
   assertPathWithin,
@@ -415,7 +414,7 @@ async function main() {
   process.stdout.write("WorkflowBundle v5 정적 preflight 통과\n");
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+if (import.meta.main) {
   main().catch((error) => {
     const code = /^[A-Z0-9_:.-]+$/u.test(error?.message ?? "")
       ? error.message

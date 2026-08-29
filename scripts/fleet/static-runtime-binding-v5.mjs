@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 const SHA = /^[0-9a-f]{40}$/u;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
@@ -554,7 +553,7 @@ function appendOutputs(path, binding) {
   );
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (import.meta.main) {
   try {
     if (process.env.BINDING_TARGET) {
       await resolveBuildRuntimeBindingV5(
