@@ -20,6 +20,7 @@ const requiredPackageFiles = [
   ".generated/contracts/app.schema.json",
   ".generated/contracts/credential-consumer.schema.json",
   ".generated/contracts/fleet-bootstrap-plan.schema.json",
+  ".generated/contracts/fleet-standard-labels.json",
   ".generated/contracts/fleet-cleanup-execution-receipt.schema.json",
   ".generated/contracts/fleet-migration-chain-head.schema.json",
   ".generated/contracts/fleet-migration-inventory.schema.json",
@@ -49,6 +50,7 @@ const requiredPackageFiles = [
   "README.md",
   "src/cli.mjs",
   "src/bootstrap.mjs",
+  "src/standard-labels.mjs",
   "src/fleet-migration-collector.mjs",
   "src/fleet-migration.mjs",
   "src/trusted-cleanup-executor.mjs",
@@ -248,6 +250,7 @@ try {
       "--eval",
       [
         'const installed = await import("@seorilabs/repo-contract/bootstrap");',
+        'if (typeof installed.createFleetStandardLabelsPlan !== "function") process.exit(1);',
         'if (typeof installed.createFleetWebhookHandler !== "function") process.exit(1);',
         'if (typeof installed.attachFleetProvisioningOperations !== "function") process.exit(1);',
         'if (typeof installed.validateFleetBootstrapPlan !== "function") process.exit(1);',
@@ -263,6 +266,29 @@ try {
   );
   if (!installedBootstrapCheck.stdout.includes("public export 검증 통과")) {
     throw new Error("배포된 repo-contract에 Fleet bootstrap API가 없습니다.");
+  }
+  const installedLabelsCheck = await execFileAsync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'const installed = await import("@seorilabs/repo-contract/standard-labels");',
+        'if (installed.FLEET_STANDARD_LABEL_CATALOG?.labels?.length !== 12) process.exit(1);',
+        'if (!/^sha256:[0-9a-f]{64}$/.test(installed.FLEET_STANDARD_LABEL_CATALOG_DIGEST ?? "")) process.exit(1);',
+        'if (typeof installed.fleetStandardLabelsPayload !== "function") process.exit(1);',
+        'if (typeof installed.validateFleetStandardLabelsOperation !== "function") process.exit(1);',
+        'process.stdout.write("Fleet standard labels public export 검증 통과\\n");',
+      ].join("\n"),
+    ],
+    {
+      cwd: consumerRoot,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    },
+  );
+  if (!installedLabelsCheck.stdout.includes("public export 검증 통과")) {
+    throw new Error("배포된 repo-contract에 Fleet standard labels API가 없습니다.");
   }
   const installedExecutorCheck = await execFileAsync(
     process.execPath,

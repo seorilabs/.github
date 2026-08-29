@@ -23,6 +23,7 @@
 ## 생성하고 실행하는 작업
 
 - Backoffice repository observation 또는 archive
+- [`fleet-standard-labels.json`](../../contracts/fleet-standard-labels.json)의 고정 12개 label 이름·색상·설명 정합화와 기존 custom label 보존
 - `fleet-managed`, `fleet-profile`, `fleet-state`, `fleet-ruleset=shadow|active` custom property 정합화
 - protected branch만 허용하는 `internal` Environment 정합화
 - `.github/workflows/org-contract.yml` bootstrap PR 생성 또는 기존 PR 갱신
@@ -54,6 +55,8 @@ WIF·Cloud Build IAM readback, Xcode Cloud workflow readback이 끝난 뒤 별�
 - public repository의 별도 runner 정책 부재
 - webhook·provider readback의 ID, 이름 또는 SHA 불일치
 
+위 조건으로 `NEEDS_INPUT`이 되더라도 archived가 아닌 조직 저장소에는 표준 label 계획을 함께 만든다. 기존 전체 cohort는 `createFleetStandardLabelsPlan`으로 동일한 `STANDARD_LABELS_READY` dry-run을 만들고 같은 trusted executor에 전달한다. 이 작업은 public/private, 비어 있는 저장소, `main`이 아닌 기본 브랜치를 모두 지원하지만 숫자 organization·installation·repository ID, exact full name, 현재 archive 상태는 다시 읽는다. label 정합화가 public repository의 ARC 사용이나 caller PR 생성을 허용하는 것은 아니다.
+
 ## trusted executor 경계
 
 `createGitHubAppTrustedAdapter`는 operation마다 숫자 installation ID와 repository ID 하나, 필요한 permission만 지정해 단기 installation token을 발급한다. token Buffer는 provider callback에서만 사용하고 작업 직후 zeroize한다. 모델·worker가 호출하는 executor 결과에는 token, provider response body, 오류 상세가 없다.
@@ -70,6 +73,8 @@ WIF·Cloud Build IAM readback, Xcode Cloud workflow readback이 끝난 뒤 별�
 
 apply 성공 여부가 불명확하거나 source SHA가 바뀌면 완료하지 않는다. 같은 idempotency key로 provider readback부터 재개한다. 이미 완료한 operation도 provider 상태가 없으면 성공으로 간주하지 않는다.
 
+`github.standard-labels.ensure`는 worker 입력을 받지 않는다. schema와 runtime validator가 catalog version, digest, strategy와 12개 전체 label을 exact 비교하므로 일반 caller가 임의 label을 만들 수 없다. `approval:planning`, `approval:release`, `approval:security`는 각각 기획, 배포, signed dependency-audit exception의 사람 승인 gate이며 generic worker claim을 막는다. trusted adapter는 현재 전체 label을 먼저 읽고 fixed label만 이름 기준으로 upsert한 뒤 다시 읽는다. 기존 custom label의 이름·색상·설명이 하나라도 사라지거나 바뀌거나 case-insensitive duplicate가 있으면 완료하지 않는다. 동시에 새 custom label이 추가되는 것은 허용한다. durable audit witness에는 repository ID, operation kind, catalog version/digest와 `MATCH`만 남기고, custom label을 포함한 전체 상태 변화는 별도 `readbackDigest`로 남긴다.
+
 durable receipt는 현재 target의 충족 사실만 고정한다. shared WIF provider/service-account의 etag, 조직 secret의 다른 selected repository, custom property의 다른 key, Environment의 관련 없는 공개 변수처럼 다른 fleet 작업이 늘릴 수 있는 superset 상태는 stable satisfaction witness에서 제외한다. 대신 현재 provider 전체 observation은 별도 `readbackDigest`로 남긴다. 따라서 다른 repo를 추가해도 기존 완료 작업은 mutation 없이 replay되지만 target binding 자체가 사라지면 fail-closed한다.
 
 ## 운영 adapter 권한
@@ -77,6 +82,7 @@ durable receipt는 현재 target의 충족 사실만 고정한다. shared WIF pr
 GitHub App installation token은 매 operation마다 숫자 repository ID 한 개와 필요한 permission만 지정해 발급한다. GitHub는 installation access token을 repository ID와 permission으로 더 좁힐 수 있다.
 
 - repository readback: Metadata read, Contents read
+- 표준 label readback/apply: Issues read/write, Metadata read
 - bootstrap PR: Contents write, Pull requests write, Workflows write
 - repository custom property: Repository custom properties write
 - Environment와 Environment variables: Environments write

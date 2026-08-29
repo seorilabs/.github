@@ -60,6 +60,7 @@ const V4_RUNTIME_AST_DIGEST_BY_PATH = Object.freeze({
 const CONTRACT_FILES = Object.freeze([
   "contracts/app.schema.json",
   "contracts/fleet-bootstrap-plan.schema.json",
+  "contracts/fleet-standard-labels.json",
   "contracts/platform-releases/v0.6.6/platform-release.json",
   "contracts/release-policy.yaml",
   "contracts/test-policy.yaml",

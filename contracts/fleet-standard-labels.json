@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": "seorilabs-standard-labels/v1",
+  "strategy": "UPSERT_FIXED_PRESERVE_CUSTOM",
+  "labels": [
+    {
+      "name": "P1",
+      "color": "B60205",
+      "description": "최우선"
+    },
+    {
+      "name": "P2",
+      "color": "D93F0B",
+      "description": "높음"
+    },
+    {
+      "name": "P3",
+      "color": "FBCA04",
+      "description": "보통"
+    },
+    {
+      "name": "P4",
+      "color": "0E8A16",
+      "description": "낮음"
+    },
+    {
+      "name": "autopilot",
+      "color": "EDEDED",
+      "description": "autopilot이 PR로 해결하는 일감"
+    },
+    {
+      "name": "platform",
+      "color": "0052CC",
+      "description": "Seorilabs Platform 연동"
+    },
+    {
+      "name": "platform-contract",
+      "color": "5319E7",
+      "description": "Seorilabs Platform 계약 변경 대응"
+    },
+    {
+      "name": "blocked",
+      "color": "000000",
+      "description": "선행 조건 미충족으로 보류"
+    },
+    {
+      "name": "no-autopilot",
+      "color": "BFBFBF",
+      "description": "autopilot 루틴 픽업 제외"
+    },
+    {
+      "name": "approval:planning",
+      "color": "FBCA04",
+      "description": "Requires human planning approval before implementation."
+    },
+    {
+      "name": "approval:release",
+      "color": "B60205",
+      "description": "Requires human release approval before deployment."
+    },
+    {
+      "name": "approval:security",
+      "color": "D93F0B",
+      "description": "Requires human security approval before applying an audit exception."
+    }
+  ]
+}

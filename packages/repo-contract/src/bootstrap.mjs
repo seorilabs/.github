@@ -16,6 +16,10 @@ import {
   resolveApprovedBuildWorkflowBinding,
   validateOrgContractCaller,
 } from "./fleet.mjs";
+import {
+  fleetStandardLabelsPayload,
+  validateFleetStandardLabelsOperation,
+} from "./standard-labels.mjs";
 
 const MAX_WEBHOOK_BYTES = 1024 * 1024;
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -108,14 +112,33 @@ export async function validateFleetBootstrapPlan(value) {
   }
   try {
     const validate = await planValidator();
-    const ok = validate(snapshot);
+    const schemaOk = validate(snapshot);
+    const catalogOk =
+      schemaOk &&
+      (snapshot.operations ?? [])
+        .filter(({ kind }) => kind === "github.standard-labels.ensure")
+        .every((item) =>
+          validateFleetStandardLabelsOperation(item, {
+            id: snapshot.repository.id,
+            fullName: snapshot.repository.fullName,
+          }),
+        );
+    const ok = schemaOk && catalogOk;
     return {
       ok,
       diagnostics: ok
         ? []
-        : [...new Set((validate.errors ?? []).map(({ keyword }) => keyword))]
+        : [
+            ...new Set(
+              schemaOk
+                ? ["STANDARD_LABEL_CATALOG_MISMATCH"]
+                : (validate.errors ?? []).map(({ keyword }) =>
+                    `SCHEMA_${keyword.toUpperCase()}`,
+                  ),
+            ),
+          ]
             .sort()
-            .map((keyword) => `PLAN_SCHEMA_${keyword.toUpperCase()}`),
+            .map((diagnostic) => `PLAN_${diagnostic}`),
     };
   } catch {
     return { ok: false, diagnostics: ["PLAN_SCHEMA_UNAVAILABLE"] };
@@ -285,6 +308,14 @@ function operation(kind, repositoryId, payload) {
     ),
     payload: deepFreeze(operationPayload),
   });
+}
+
+function standardLabelsOperation(repository) {
+  return operation(
+    "github.standard-labels.ensure",
+    repository.id,
+    fleetStandardLabelsPayload(repository),
+  );
 }
 
 function validateProtectionPolicy(value) {
@@ -538,13 +569,17 @@ export async function attachFleetProvisioningOperations(
   const protectionOperation = snapshot.operations.find(
     (item) => item.kind === "github.protection.reconcile",
   );
+  const labelsOperation = snapshot.operations.find(
+    (item) => item.kind === "github.standard-labels.ensure",
+  );
   const profile = activeObservation?.payload?.profile;
   if (
     snapshot.outcome !== "READY" ||
     snapshot.reason !== null ||
     repository.sourceSha === null ||
-    snapshot.operations.length !== 2 ||
+    snapshot.operations.length !== 3 ||
     activeObservation?.payload?.state !== "active" ||
+    labelsOperation === undefined ||
     !["react-native", "godot"].includes(profile) ||
     !REPOSITORY_ID_PATTERN.test(organizationId ?? "") ||
     protectionOperation?.payload?.rolloutMode !== "ACTIVE" ||
@@ -576,7 +611,7 @@ export async function attachFleetProvisioningOperations(
   if (!JOB_WORKFLOW_REF_PATTERN.test(jobWorkflowRef)) {
     throw new Error("FLEET_PROVISIONING_BINDING_INVALID");
   }
-  snapshot.operations = [activeObservation];
+  snapshot.operations = [activeObservation, labelsOperation];
   snapshot.outcome = "PROVISIONING_READY";
   for (const binding of environmentVariableBindings.toSorted((left, right) =>
     left.environment.localeCompare(right.environment),
@@ -674,6 +709,44 @@ function needsInputOperations(result, reason) {
       reason,
     }),
   );
+  result.operations.push(standardLabelsOperation(result.repository));
+  return deepFreeze(result);
+}
+
+export async function createFleetStandardLabelsPlan({
+  deliveryId,
+  repository,
+} = {}) {
+  if (
+    !DELIVERY_PATTERN.test(deliveryId ?? "") ||
+    !exactKeys(repository, [
+      "archived",
+      "fullName",
+      "id",
+      "private",
+      "sourceSha",
+    ]) ||
+    !REPOSITORY_ID_PATTERN.test(repository.id ?? "") ||
+    !FULL_NAME_PATTERN.test(repository.fullName ?? "") ||
+    typeof repository.private !== "boolean" ||
+    repository.archived !== false ||
+    (repository.sourceSha !== null &&
+      !SHA_PATTERN.test(repository.sourceSha ?? ""))
+  ) {
+    throw new Error("FLEET_STANDARD_LABEL_PLAN_INPUT_INVALID");
+  }
+  const result = baseResult({
+    action: "repository",
+    deliveryId,
+    outcome: "STANDARD_LABELS_READY",
+    repository,
+    sourceSha: repository.sourceSha,
+  });
+  result.operations.push(standardLabelsOperation(repository));
+  const validation = await validateFleetBootstrapPlan(result);
+  if (!validation.ok) {
+    throw new Error("FLEET_STANDARD_LABEL_PLAN_INVALID");
+  }
   return deepFreeze(result);
 }
 
@@ -747,6 +820,7 @@ async function readyPlan({
       profile,
     }),
   );
+  result.operations.push(standardLabelsOperation(repository));
 
   const properties = expectedProperties(profile, "active", protectionPolicy);
   if (!propertiesMatch(observed.customProperties, properties)) {

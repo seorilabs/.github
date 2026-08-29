@@ -33,6 +33,7 @@
     "outcome": {
       "enum": [
         "READY",
+        "STANDARD_LABELS_READY",
         "PROVISIONING_READY",
         "BOOTSTRAP_PR_OPEN",
         "WAITING_FOR_PR_SLOT",
@@ -66,6 +67,7 @@
         "oneOf": [
           { "$ref": "#/$defs/observeOperation" },
           { "$ref": "#/$defs/archiveOperation" },
+          { "$ref": "#/$defs/standardLabelsOperation" },
           { "$ref": "#/$defs/customPropertiesOperation" },
           { "$ref": "#/$defs/environmentOperation" },
           { "$ref": "#/$defs/ensurePullRequestOperation" },
@@ -154,6 +156,58 @@
           "required": ["repository"],
           "properties": {
             "repository": { "$ref": "#/$defs/repository" }
+          }
+        }
+      }
+    },
+    "standardLabelsOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "idempotencyKey", "payload"],
+      "properties": {
+        "kind": { "const": "github.standard-labels.ensure" },
+        "idempotencyKey": { "$ref": "#/$defs/idempotencyKey" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "catalogDigest",
+            "catalogVersion",
+            "labels",
+            "repositoryFullName",
+            "repositoryId",
+            "strategy"
+          ],
+          "properties": {
+            "catalogDigest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "catalogVersion": { "const": "seorilabs-standard-labels/v1" },
+            "labels": {
+              "type": "array",
+              "minItems": 12,
+              "maxItems": 12,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "color", "description"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 1, "maxLength": 50 },
+                  "color": { "type": "string", "pattern": "^[0-9A-F]{6}$" },
+                  "description": { "type": "string", "maxLength": 100 }
+                }
+              }
+            },
+            "repositoryFullName": {
+              "type": "string",
+              "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+            },
+            "repositoryId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,31}$"
+            },
+            "strategy": { "const": "UPSERT_FIXED_PRESERVE_CUSTOM" }
           }
         }
       }

@@ -2,7 +2,15 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-import { validateFleetBootstrapPlan } from "../packages/repo-contract/src/bootstrap.mjs";
+import {
+  createFleetStandardLabelsPlan,
+  validateFleetBootstrapPlan,
+} from "../packages/repo-contract/src/bootstrap.mjs";
+import {
+  FLEET_STANDARD_LABEL_CATALOG,
+  FLEET_STANDARD_LABEL_CATALOG_DIGEST,
+  fleetStandardLabelsPayload,
+} from "../packages/repo-contract/src/standard-labels.mjs";
 import {
   createGitHubAppTrustedAdapter,
   createTrustedControlPlaneAdapter,
@@ -100,6 +108,13 @@ function protectionOperation({
   });
 }
 
+function standardLabelsOperation() {
+  return operation(
+    "github.standard-labels.ensure",
+    fleetStandardLabelsPayload({ id: REPOSITORY_ID, fullName: FULL_NAME }),
+  );
+}
+
 function bootstrapPlan(protection) {
   return {
     schemaVersion: 1,
@@ -122,6 +137,7 @@ function bootstrapPlan(protection) {
         state: "active",
         profile: "react-native",
       }),
+      standardLabelsOperation(),
       protection,
     ],
   };
@@ -133,6 +149,7 @@ function customPropertiesPlan() {
     ...base,
     operations: [
       base.operations[0],
+      base.operations[1],
       operation("github.custom-properties.ensure", {
         repositoryId: REPOSITORY_ID,
         repositoryFullName: FULL_NAME,
@@ -143,6 +160,30 @@ function customPropertiesPlan() {
           "fleet-state": "active",
         },
       }),
+    ],
+  };
+}
+
+function needsInputLabelsPlan({ sourceSha = null } = {}) {
+  const repository = {
+    id: REPOSITORY_ID,
+    fullName: FULL_NAME,
+    sourceSha,
+  };
+  return {
+    schemaVersion: 1,
+    deliveryId: "delivery-standard-labels-0001",
+    action: "created",
+    outcome: "NEEDS_INPUT",
+    reason: "PUBLIC_REPOSITORY_REQUIRES_POLICY",
+    repository,
+    operations: [
+      operation("control-plane.repository.observe", {
+        reason: "PUBLIC_REPOSITORY_REQUIRES_POLICY",
+        repository,
+        state: "needs_input",
+      }),
+      standardLabelsOperation(),
     ],
   };
 }
@@ -190,6 +231,11 @@ function harness({
   completionGenerationOffset = 0,
   identitySourceSha = SOURCE_SHA,
   initialProtection = rawProtection(),
+  initialLabels = FLEET_STANDARD_LABEL_CATALOG.labels,
+  mutateLabelsAfterApply,
+  identityArchived = false,
+  identityDefaultBranch = "main",
+  identityPrivate = true,
   mutateProtectionAfterApply,
   providerMode = "REPO_BRANCH_PROTECTION",
 } = {}) {
@@ -200,8 +246,10 @@ function harness({
   const completedClaims = new Map();
   const consumedApprovals = new Map();
   const customProperties = {};
+  let labels = structuredClone(initialLabels);
   let protectionApplyCount = 0;
   let githubOperationApplyCount = 0;
+  let standardLabelApplyCount = 0;
   let approvalConsumeCount = 0;
 
   const issueInstallationToken = async (request) => {
@@ -229,6 +277,29 @@ function harness({
         throw new Error("unused");
       },
       async applyOperation({ operation: item }) {
+        if (item.kind === "github.standard-labels.ensure") {
+          githubOperationApplyCount += 1;
+          standardLabelApplyCount += 1;
+          const fixedNames = new Set(
+            item.payload.labels.map(({ name }) => name.toLocaleLowerCase("en-US")),
+          );
+          labels = [
+            ...labels.filter(
+              ({ name }) => !fixedNames.has(name.toLocaleLowerCase("en-US")),
+            ),
+            ...structuredClone(item.payload.labels),
+          ];
+          if (mutateLabelsAfterApply) {
+            labels = mutateLabelsAfterApply(structuredClone(labels));
+          }
+          return {
+            catalogDigest: FLEET_STANDARD_LABEL_CATALOG_DIGEST,
+            catalogVersion: FLEET_STANDARD_LABEL_CATALOG.catalogVersion,
+            method: "UPSERT_FIXED_LABELS_PRESERVE_CUSTOM",
+            repositoryId: REPOSITORY_ID,
+            state: "UPDATED",
+          };
+        }
         if (item.kind !== "github.custom-properties.ensure") {
           throw new Error("unused");
         }
@@ -263,17 +334,24 @@ function harness({
         assert.equal(apiVersion, "2026-03-10");
         assert.equal(credential.includes(Buffer.from("installation-token")), true);
         return {
-          archived: false,
-          defaultBranch: "main",
+          archived: identityArchived,
+          defaultBranch: identityDefaultBranch,
           fullName: FULL_NAME,
           installationId: INSTALLATION_ID,
           organizationId: ORGANIZATION_ID,
-          private: true,
+          private: identityPrivate,
           repositoryId: REPOSITORY_ID,
           sourceSha: identitySourceSha,
         };
       },
       async readOperation({ operation: item }) {
+        if (item.kind === "github.standard-labels.ensure") {
+          return {
+            kind: item.kind,
+            labels: structuredClone(labels),
+            repositoryId: REPOSITORY_ID,
+          };
+        }
         if (item.kind !== "github.custom-properties.ensure") {
           throw new Error("unused");
         }
@@ -434,15 +512,124 @@ function harness({
   return {
     approvalConsumeCount: () => approvalConsumeCount,
     execute,
+    githubAppAdapter,
     issuedTokens,
     permissionRequests,
     protectionApplyCount: () => protectionApplyCount,
     githubOperationApplyCount: () => githubOperationApplyCount,
+    standardLabelApplyCount: () => standardLabelApplyCount,
     addUnrelatedCustomProperty() {
       customProperties["unrelated-provider-property"] = "preserved";
     },
+    addCustomLabel(label) {
+      labels.push(structuredClone(label));
+    },
+    labels() {
+      return structuredClone(labels);
+    },
   };
 }
+
+test("표준 라벨은 public empty repo에도 고정 catalog만 적용하고 custom label을 보존한다", async () => {
+  const existingCustom = {
+    color: "ABCDEF",
+    description: "repository custom",
+    name: "product-area",
+  };
+  const concurrentCustom = {
+    color: "123456",
+    description: "concurrent custom",
+    name: "release-train",
+  };
+  const drifted = [
+    ...structuredClone(FLEET_STANDARD_LABEL_CATALOG.labels.slice(1)),
+    existingCustom,
+  ];
+  const state = harness({
+    identityDefaultBranch: null,
+    identityPrivate: false,
+    identitySourceSha: null,
+    initialLabels: drifted,
+    mutateLabelsAfterApply: (labels) => [...labels, concurrentCustom],
+  });
+  const plan = await createFleetStandardLabelsPlan({
+    deliveryId: "label-reconcile-public-empty",
+    repository: {
+      archived: false,
+      fullName: FULL_NAME,
+      id: REPOSITORY_ID,
+      private: false,
+      sourceSha: null,
+    },
+  });
+  assert.deepEqual(await validateFleetBootstrapPlan(plan), {
+    diagnostics: [],
+    ok: true,
+  });
+
+  const first = await state.execute(plan);
+  assert.equal(first.state, "COMPLETED");
+  assert.equal(state.standardLabelApplyCount(), 1);
+  assert.deepEqual(
+    state.labels().filter(({ name }) =>
+      ["product-area", "release-train"].includes(name),
+    ),
+    [existingCustom, concurrentCustom],
+  );
+  assert.ok(
+    FLEET_STANDARD_LABEL_CATALOG.labels.every((expected) =>
+      state.labels().some(
+        (actual) => canonicalJson(actual) === canonicalJson(expected),
+      ),
+    ),
+  );
+  assert.ok(
+    state.permissionRequests.some(
+      ({ permissions }) =>
+        permissions.issues === "write" && permissions.metadata === "read",
+    ),
+  );
+
+  state.addCustomLabel({
+    color: "654321",
+    description: "post completion",
+    name: "owner-team",
+  });
+  const replay = await state.execute(plan);
+  assert.equal(state.standardLabelApplyCount(), 1);
+  assert.ok(replay.operations.every(({ outcome }) => outcome === "REPLAYED"));
+});
+
+test("표준 라벨 executor는 임의 label payload와 provider duplicate를 fail-closed한다", async () => {
+  const valid = standardLabelsOperation();
+  const forged = structuredClone(valid);
+  forged.payload.labels[0].name = "approval:worker-bypass";
+  const state = harness();
+  await assert.rejects(
+    state.githubAppAdapter.applyOperation(forged, {
+      fullName: FULL_NAME,
+      repositoryId: REPOSITORY_ID,
+      sourceSha: SOURCE_SHA,
+    }),
+    /GITHUB_STANDARD_LABEL_OPERATION_UNTRUSTED/u,
+  );
+  assert.equal(state.standardLabelApplyCount(), 0);
+
+  const duplicate = harness({
+    identityDefaultBranch: null,
+    identityPrivate: false,
+    identitySourceSha: null,
+    initialLabels: [
+      ...structuredClone(FLEET_STANDARD_LABEL_CATALOG.labels),
+      { color: "B60205", description: "duplicate", name: "p1" },
+    ],
+  });
+  await assert.rejects(
+    duplicate.execute(needsInputLabelsPlan()),
+    /FLEET_EXECUTOR_OPERATION_APPLY_FAILED/u,
+  );
+  assert.equal(duplicate.standardLabelApplyCount(), 0);
+});
 
 test("Team SHADOW는 branch protection diff만 관찰하고 mutation하지 않는다", async () => {
   const item = protectionOperation();

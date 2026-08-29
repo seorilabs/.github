@@ -12,6 +12,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 
 import {
   attachFleetProvisioningOperations,
+  createFleetStandardLabelsPlan,
   createFleetWebhookHandler,
   fleetBootstrapContract,
   validateFleetBootstrapPlan,
@@ -29,6 +30,10 @@ import {
   createTrustedFleetExecutor,
   createTrustedWifAdapter,
 } from "../packages/repo-contract/src/trusted-executor.mjs";
+import {
+  FLEET_STANDARD_LABEL_CATALOG,
+  FLEET_STANDARD_LABEL_CATALOG_DIGEST,
+} from "../packages/repo-contract/src/standard-labels.mjs";
 import { CANARY_BUILD_BY_PROFILE } from "./helpers/workflow-bundle-fixtures.mjs";
 
 const ORGANIZATION_ID = "4242";
@@ -253,6 +258,7 @@ function provisioningExecutionHarness(plan) {
   const approvals = new Map();
   const environmentVariables = {};
   const secretSelectedRepositoryIds = new Set();
+  const standardLabels = structuredClone(FLEET_STANDARD_LABEL_CATALOG.labels);
   let environmentVariableApplyCount = 0;
   let secretApplyCount = 0;
   let wifApplyCount = 0;
@@ -302,6 +308,15 @@ function provisioningExecutionHarness(plan) {
         };
       },
       applyOperation({ operation }) {
+        if (operation.kind === "github.standard-labels.ensure") {
+          return {
+            catalogDigest: FLEET_STANDARD_LABEL_CATALOG_DIGEST,
+            catalogVersion: FLEET_STANDARD_LABEL_CATALOG.catalogVersion,
+            method: "UPSERT_FIXED_LABELS_PRESERVE_CUSTOM",
+            repositoryId: REPOSITORY_ID,
+            state: "UNCHANGED",
+          };
+        }
         assert.equal(operation.kind, "github.environment-variables.ensure");
         environmentVariableApplyCount += 1;
         Object.assign(
@@ -323,6 +338,13 @@ function provisioningExecutionHarness(plan) {
         };
       },
       readOperation({ operation }) {
+        if (operation.kind === "github.standard-labels.ensure") {
+          return {
+            kind: operation.kind,
+            labels: structuredClone(standardLabels),
+            repositoryId: REPOSITORY_ID,
+          };
+        }
         assert.equal(operation.kind, "github.environment-variables.ensure");
         const satisfied = Object.entries(operation.payload.variables).every(
           ([name, value]) => environmentVariables[name] === value,
@@ -672,6 +694,7 @@ test("서명된 신규 private repo는 중앙 caller bootstrap 계획을 만든�
     result.operations.map(({ kind }) => kind),
     [
       "control-plane.repository.observe",
+      "github.standard-labels.ensure",
       "github.custom-properties.ensure",
       "github.environment.ensure",
       "github.bootstrap-pull-request.ensure",
@@ -691,6 +714,48 @@ test("서명된 신규 private repo는 중앙 caller bootstrap 계획을 만든�
   assert.equal(textDigest(pullRequest.content), pullRequest.contentDigest);
   assert.ok(getLoadedSecret().every((value) => value === 0));
   assert.doesNotMatch(JSON.stringify(result), /fleet-webhook-secret/u);
+});
+
+test("표준 라벨 dry-run은 public/private 전체 cohort를 계획하고 archived를 제외한다", async () => {
+  for (const isPrivate of [false, true]) {
+    const plan = await createFleetStandardLabelsPlan({
+      deliveryId: `label-reconcile-${isPrivate ? "private" : "public"}`,
+      repository: {
+        archived: false,
+        fullName: "seorilabs/example-app",
+        id: REPOSITORY_ID,
+        private: isPrivate,
+        sourceSha: isPrivate ? SOURCE_SHA : null,
+      },
+    });
+    assert.equal(plan.outcome, "STANDARD_LABELS_READY");
+    assert.deepEqual(plan.operations.map(({ kind }) => kind), [
+      "github.standard-labels.ensure",
+    ]);
+    assert.deepEqual(
+      plan.operations[0].payload.labels
+        .filter(({ name }) => name.startsWith("approval:"))
+        .map(({ name }) => name),
+      ["approval:planning", "approval:release", "approval:security"],
+    );
+    assert.deepEqual(await validateFleetBootstrapPlan(plan), {
+      diagnostics: [],
+      ok: true,
+    });
+  }
+  await assert.rejects(
+    createFleetStandardLabelsPlan({
+      deliveryId: "label-reconcile-archived",
+      repository: {
+        archived: true,
+        fullName: "seorilabs/example-app",
+        id: REPOSITORY_ID,
+        private: true,
+        sourceSha: SOURCE_SHA,
+      },
+    }),
+    /FLEET_STANDARD_LABEL_PLAN_INPUT_INVALID/u,
+  );
 });
 
 test("위조 서명은 payload 파싱과 provider readback 전에 거부된다", async () => {
@@ -782,6 +847,7 @@ test("여러 discovery 후보는 추측 없이 needs_input으로 중단된다", 
   assert.equal(result.reason, "MULTIPLE_CANDIDATES");
   assert.deepEqual(result.operations.map(({ kind }) => kind), [
     "control-plane.repository.observe",
+    "github.standard-labels.ensure",
   ]);
 });
 
@@ -896,6 +962,12 @@ test("public repo는 ARC bootstrap 없이 명시적 정책 입력을 요구한�
   assert.equal(result.outcome, "NEEDS_INPUT");
   assert.equal(result.reason, "PUBLIC_REPOSITORY_REQUIRES_POLICY");
   assert.doesNotMatch(JSON.stringify(result), /bootstrap-pull-request/u);
+  const labels = result.operations.find(
+    ({ kind }) => kind === "github.standard-labels.ensure",
+  );
+  assert.ok(labels);
+  assert.equal(labels.payload.labels.length, 12);
+  assert.equal(labels.payload.strategy, "UPSERT_FIXED_PRESERVE_CUSTOM");
 });
 
 test("public output은 logical credential ID만 가지며 secret export API가 없다", () => {
@@ -942,6 +1014,17 @@ test("plan validator는 unknown field와 secret-shaped 확장을 거부한다", 
   assert.equal(rejected.ok, false);
   assert.ok(rejected.diagnostics.includes("PLAN_SCHEMA_ADDITIONALPROPERTIES"));
   assert.doesNotMatch(JSON.stringify(rejected), /not-allowed/u);
+
+  const arbitraryLabel = structuredClone(valid);
+  const labels = arbitraryLabel.operations.find(
+    ({ kind }) => kind === "github.standard-labels.ensure",
+  );
+  labels.payload.labels[0].name = "approval:worker-bypass";
+  const arbitraryRejected = await validateFleetBootstrapPlan(arbitraryLabel);
+  assert.deepEqual(arbitraryRejected, {
+    ok: false,
+    diagnostics: ["PLAN_STANDARD_LABEL_CATALOG_MISMATCH"],
+  });
 });
 
 test("ACTIVE 보호 뒤 credential provisioning은 별도 1회용 승인 receipt를 요구한다", async () => {
@@ -1037,6 +1120,7 @@ test("ACTIVE 보호 뒤 credential provisioning은 별도 1회용 승인 receipt
     provisioned.operations.map(({ kind }) => kind),
     [
       "control-plane.repository.observe",
+      "github.standard-labels.ensure",
       "github.environment-variables.ensure",
       "github.org-secret-visibility.ensure",
       "gcp.wif-binding.ensure",
@@ -1044,7 +1128,7 @@ test("ACTIVE 보호 뒤 credential provisioning은 별도 1회용 승인 receipt
   );
   assert.equal(validatePlan(provisioned), true, JSON.stringify(validatePlan.errors));
   assert.ok(
-    provisioned.operations.slice(1).every(
+    provisioned.operations.slice(2).every(
       ({ payload: operationPayload }) =>
         operationPayload.provisioningGate.credentialApprovalReceiptId ===
         "approval-credentials-0001",

@@ -6,6 +6,11 @@ import {
   resolveApprovedBuildWorkflowBinding,
   validateOrgContractCaller,
 } from "./fleet.mjs";
+import {
+  FLEET_STANDARD_LABEL_CATALOG,
+  FLEET_STANDARD_LABEL_CATALOG_DIGEST,
+  validateFleetStandardLabelsOperation,
+} from "./standard-labels.mjs";
 
 const ORGANIZATION_LOGIN = "seorilabs";
 const GITHUB_API_ORIGIN = "https://api.github.com";
@@ -42,6 +47,10 @@ const TRUSTED_WIF_ADAPTERS = new WeakSet();
 const TRUSTED_EXECUTION_STORES = new WeakSet();
 
 const GITHUB_OPERATION_WRITE_PERMISSIONS = Object.freeze({
+  "github.standard-labels.ensure": Object.freeze({
+    issues: "write",
+    metadata: "read",
+  }),
   "github.custom-properties.ensure": Object.freeze({
     metadata: "read",
     repository_custom_properties: "write",
@@ -73,6 +82,10 @@ const GITHUB_OPERATION_WRITE_PERMISSIONS = Object.freeze({
 });
 
 const GITHUB_OPERATION_READ_PERMISSIONS = Object.freeze({
+  "github.standard-labels.ensure": Object.freeze({
+    issues: "read",
+    metadata: "read",
+  }),
   "github.custom-properties.ensure": Object.freeze({ metadata: "read" }),
   "github.environment.ensure": Object.freeze({
     actions: "read",
@@ -116,14 +129,15 @@ const ORGANIZATION_PROVISIONING_GATE_PERMISSIONS = Object.freeze({
 const OPERATION_ORDER = Object.freeze({
   "control-plane.repository.observe": 0,
   "control-plane.repository.archive": 0,
-  "github.custom-properties.ensure": 1,
-  "github.environment.ensure": 2,
-  "github.bootstrap-pull-request.ensure": 3,
-  "github.bootstrap-pull-request.update": 3,
-  "github.protection.reconcile": 4,
-  "github.environment-variables.ensure": 5,
-  "github.org-secret-visibility.ensure": 6,
-  "gcp.wif-binding.ensure": 7,
+  "github.standard-labels.ensure": 1,
+  "github.custom-properties.ensure": 2,
+  "github.environment.ensure": 3,
+  "github.bootstrap-pull-request.ensure": 4,
+  "github.bootstrap-pull-request.update": 4,
+  "github.protection.reconcile": 5,
+  "github.environment-variables.ensure": 6,
+  "github.org-secret-visibility.ensure": 7,
+  "gcp.wif-binding.ensure": 8,
 });
 
 function canonicalize(value) {
@@ -665,6 +679,107 @@ function validateMonotonicProtectionReadback(before, after, expected) {
   );
 }
 
+function normalizeStandardLabelsReadback(value, operation, repositoryId) {
+  if (
+    !exactKeys(value, ["kind", "labels", "repositoryId"]) ||
+    value.kind !== operation.kind ||
+    value.repositoryId !== repositoryId ||
+    !Array.isArray(value.labels) ||
+    value.labels.length > 1000
+  ) {
+    throw new Error("STANDARD_LABEL_READBACK_INVALID");
+  }
+  const labels = value.labels.map((label) => {
+    if (
+      !exactKeys(label, ["color", "description", "name"]) ||
+      typeof label.name !== "string" ||
+      label.name.length === 0 ||
+      label.name.length > 50 ||
+      !/^[0-9a-f]{6}$/iu.test(label.color ?? "") ||
+      (label.description !== null &&
+        (typeof label.description !== "string" ||
+          label.description.length > 100))
+    ) {
+      throw new Error("STANDARD_LABEL_READBACK_INVALID");
+    }
+    return {
+      color: label.color.toUpperCase(),
+      description: label.description ?? "",
+      name: label.name,
+    };
+  });
+  const normalizedNames = labels.map(({ name }) =>
+    name.toLocaleLowerCase("en-US"),
+  );
+  if (new Set(normalizedNames).size !== normalizedNames.length) {
+    throw new Error("STANDARD_LABEL_READBACK_INVALID");
+  }
+  const expectedByName = new Map(
+    FLEET_STANDARD_LABEL_CATALOG.labels.map((label) => [
+      label.name.toLocaleLowerCase("en-US"),
+      label,
+    ]),
+  );
+  const actualByName = new Map(
+    labels.map((label) => [label.name.toLocaleLowerCase("en-US"), label]),
+  );
+  const matches = FLEET_STANDARD_LABEL_CATALOG.labels.every(
+    (expected) =>
+      canonicalJson(actualByName.get(expected.name.toLocaleLowerCase("en-US"))) ===
+      canonicalJson(expected),
+  );
+  const customLabels = labels
+    .filter(
+      ({ name }) => !expectedByName.has(name.toLocaleLowerCase("en-US")),
+    )
+    .toSorted((left, right) => left.name.localeCompare(right.name));
+  return deepFreeze({
+    customLabels,
+    labels,
+    observation: {
+      catalogDigest: FLEET_STANDARD_LABEL_CATALOG_DIGEST,
+      catalogVersion: FLEET_STANDARD_LABEL_CATALOG.catalogVersion,
+      customLabelCount: customLabels.length,
+      customLabelsDigest: sha256(canonicalJson(customLabels)),
+      kind: operation.kind,
+      repositoryId,
+      state: matches ? "MATCH" : "DRIFT",
+    },
+  });
+}
+
+function validateStandardLabelApplyReceipt(receipt, operation, repositoryId) {
+  return (
+    exactKeys(receipt, [
+      "catalogDigest",
+      "catalogVersion",
+      "method",
+      "repositoryId",
+      "state",
+    ]) &&
+    receipt.catalogDigest === FLEET_STANDARD_LABEL_CATALOG_DIGEST &&
+    receipt.catalogVersion === FLEET_STANDARD_LABEL_CATALOG.catalogVersion &&
+    receipt.method === "UPSERT_FIXED_LABELS_PRESERVE_CUSTOM" &&
+    receipt.repositoryId === repositoryId &&
+    ["UNCHANGED", "UPDATED"].includes(receipt.state) &&
+    operation.payload.strategy === "UPSERT_FIXED_PRESERVE_CUSTOM"
+  );
+}
+
+function customLabelsPreserved(before, after) {
+  const afterByName = new Map(
+    after.customLabels.map((label) => [
+      label.name.toLocaleLowerCase("en-US"),
+      label,
+    ]),
+  );
+  return before.customLabels.every(
+    (label) =>
+      canonicalJson(afterByName.get(label.name.toLocaleLowerCase("en-US"))) ===
+      canonicalJson(label),
+  );
+}
+
 export function createGitHubAppTrustedAdapter({
   organizationId,
   installationId,
@@ -802,6 +917,15 @@ export function createGitHubAppTrustedAdapter({
         GITHUB_OPERATION_WRITE_PERMISSIONS[operation?.kind] ??
         protectionPermissions(operation, true);
       if (!permissions) throw new Error("GITHUB_OPERATION_NOT_MUTABLE");
+      if (
+        operation.kind === "github.standard-labels.ensure" &&
+        !validateFleetStandardLabelsOperation(operation, {
+          fullName: context?.fullName,
+          id: context?.repositoryId,
+        })
+      ) {
+        throw new Error("GITHUB_STANDARD_LABEL_OPERATION_UNTRUSTED");
+      }
       if (operation.kind === "github.environment-variables.ensure") {
         environmentVariableBindingForOperation(
           operation,
@@ -815,6 +939,46 @@ export function createGitHubAppTrustedAdapter({
         context,
         permissions,
         async (request) => {
+          if (operation.kind === "github.standard-labels.ensure") {
+            const readLabels = async () =>
+              normalizeStandardLabelsReadback(
+                clonePublic(
+                  await provider.readOperation({
+                    ...request,
+                    operation: deepFreeze(structuredClone(operation)),
+                  }),
+                  "GITHUB_OPERATION_READBACK_FAILED",
+                ),
+                operation,
+                context.repositoryId,
+              );
+            const before = await readLabels();
+            if (before.observation.state === "MATCH") return;
+            const receipt = clonePublic(
+              await provider.applyOperation({
+                ...request,
+                operation: deepFreeze(structuredClone(operation)),
+              }),
+              "GITHUB_OPERATION_APPLY_FAILED",
+            );
+            if (
+              !validateStandardLabelApplyReceipt(
+                receipt,
+                operation,
+                context.repositoryId,
+              )
+            ) {
+              throw new Error("invalid standard label receipt");
+            }
+            const after = await readLabels();
+            if (
+              after.observation.state !== "MATCH" ||
+              !customLabelsPreserved(before, after)
+            ) {
+              throw new Error("standard labels or custom labels mismatch");
+            }
+            return;
+          }
           if (operation.kind === "github.org-secret-visibility.ensure") {
             const receipt = clonePublic(
               await provider.addSecretRepositoryAccess({
@@ -895,6 +1059,15 @@ export function createGitHubAppTrustedAdapter({
       }
       const permissions = GITHUB_OPERATION_READ_PERMISSIONS[operation?.kind];
       if (!permissions) throw new Error("GITHUB_OPERATION_READBACK_UNSUPPORTED");
+      if (
+        operation.kind === "github.standard-labels.ensure" &&
+        !validateFleetStandardLabelsOperation(operation, {
+          fullName: context?.fullName,
+          id: context?.repositoryId,
+        })
+      ) {
+        throw new Error("GITHUB_STANDARD_LABEL_OPERATION_UNTRUSTED");
+      }
       if (operation.kind === "github.environment-variables.ensure") {
         environmentVariableBindingForOperation(
           operation,
@@ -907,8 +1080,8 @@ export function createGitHubAppTrustedAdapter({
       return withToken(
         context,
         permissions,
-        async (request) =>
-          clonePublic(
+        async (request) => {
+          const readback = clonePublic(
             operation.kind === "github.org-secret-visibility.ensure"
               ? await provider.readSecretRepositoryAccess({
                   ...request,
@@ -919,7 +1092,15 @@ export function createGitHubAppTrustedAdapter({
                   operation: deepFreeze(structuredClone(operation)),
                 }),
             "GITHUB_OPERATION_READBACK_FAILED",
-          ),
+          );
+          return operation.kind === "github.standard-labels.ensure"
+            ? normalizeStandardLabelsReadback(
+                readback,
+                operation,
+                context.repositoryId,
+              ).observation
+            : readback;
+        },
         "GITHUB_OPERATION_READBACK_FAILED",
       );
     },
@@ -1366,7 +1547,7 @@ function operationTargetsRepository(operation, repository) {
 
 function validateIdentity(
   value,
-  { organizationId, installationId, repository, requiresActiveRepository },
+  { organizationId, installationId, repository, repositoryRequirement },
 ) {
   return (
     exactKeys(value, [
@@ -1390,11 +1571,14 @@ function validateIdentity(
       (typeof value.defaultBranch === "string" &&
         value.defaultBranch.length > 0 &&
         value.defaultBranch.length <= 255)) &&
-    (!requiresActiveRepository ||
-      (value.private === true &&
-        value.archived === false &&
-        value.defaultBranch === "main" &&
-        SHA_PATTERN.test(value.sourceSha ?? "")))
+    (repositoryRequirement === "NONE" ||
+      (repositoryRequirement === "LABELS"
+        ? value.archived === false
+        : repositoryRequirement === "ACTIVE" &&
+          value.private === true &&
+          value.archived === false &&
+          value.defaultBranch === "main" &&
+          SHA_PATTERN.test(value.sourceSha ?? "")))
   );
 }
 
@@ -1419,6 +1603,27 @@ function validateControlPlaneObservation(observation, operation, repository) {
 
 function validateGitHubObservation(observation, operation, repository) {
   const payload = operation.payload;
+  if (operation.kind === "github.standard-labels.ensure") {
+    return (
+      exactKeys(observation, [
+        "catalogDigest",
+        "catalogVersion",
+        "customLabelCount",
+        "customLabelsDigest",
+        "kind",
+        "repositoryId",
+        "state",
+      ]) &&
+      observation.kind === operation.kind &&
+      observation.repositoryId === repository.id &&
+      observation.catalogDigest === FLEET_STANDARD_LABEL_CATALOG_DIGEST &&
+      observation.catalogVersion === FLEET_STANDARD_LABEL_CATALOG.catalogVersion &&
+      Number.isSafeInteger(observation.customLabelCount) &&
+      observation.customLabelCount >= 0 &&
+      DIGEST_PATTERN.test(observation.customLabelsDigest ?? "") &&
+      observation.state === "MATCH"
+    );
+  }
   if (operation.kind === "github.custom-properties.ensure") {
     return (
       exactKeys(observation, ["kind", "properties", "repositoryId"]) &&
@@ -1656,6 +1861,7 @@ function validatePlanSemantics(plan) {
     ARCHIVED: ["control-plane.repository.archive"],
     BOOTSTRAP_PR_OPEN: [
       "control-plane.repository.observe",
+      "github.standard-labels.ensure",
       "github.custom-properties.ensure",
       "github.environment.ensure",
       "github.bootstrap-pull-request.ensure",
@@ -1664,23 +1870,30 @@ function validatePlanSemantics(plan) {
     ],
     DUPLICATE: [],
     IGNORED: [],
-    NEEDS_INPUT: ["control-plane.repository.observe"],
+    NEEDS_INPUT: [
+      "control-plane.repository.observe",
+      "github.standard-labels.ensure",
+    ],
     PROVISIONING_READY: [
       "control-plane.repository.observe",
+      "github.standard-labels.ensure",
       "github.environment-variables.ensure",
       "github.org-secret-visibility.ensure",
       "gcp.wif-binding.ensure",
     ],
     READY: [
       "control-plane.repository.observe",
+      "github.standard-labels.ensure",
       "github.custom-properties.ensure",
       "github.environment.ensure",
       "github.bootstrap-pull-request.ensure",
       "github.bootstrap-pull-request.update",
       "github.protection.reconcile",
     ],
+    STANDARD_LABELS_READY: ["github.standard-labels.ensure"],
     WAITING_FOR_PR_SLOT: [
       "control-plane.repository.observe",
+      "github.standard-labels.ensure",
       "github.custom-properties.ensure",
       "github.environment.ensure",
       "github.protection.reconcile",
@@ -1716,7 +1929,9 @@ function validatePlanSemantics(plan) {
   }
   if (plan.outcome === "NEEDS_INPUT") {
     return (
-      kinds.length === 1 &&
+      kinds.length === 2 &&
+      kinds[0] === "control-plane.repository.observe" &&
+      kinds[1] === "github.standard-labels.ensure" &&
       plan.operations[0].payload?.state === "needs_input"
     );
   }
@@ -1729,8 +1944,9 @@ function validatePlanSemantics(plan) {
     );
     const observation = plan.operations[0];
     return (
-      plan.operations.length === provisioning.length + 1 &&
+      plan.operations.length === provisioning.length + 2 &&
       observation?.kind === "control-plane.repository.observe" &&
+      plan.operations[1]?.kind === "github.standard-labels.ensure" &&
       observation.payload?.state === "active" &&
       provisioning.length > 0 &&
       provisioning.every(
@@ -1740,7 +1956,13 @@ function validatePlanSemantics(plan) {
       )
     );
   }
-  return kinds[0] === "control-plane.repository.observe";
+  if (plan.outcome === "STANDARD_LABELS_READY") {
+    return kinds.length === 1 && kinds[0] === "github.standard-labels.ensure";
+  }
+  return (
+    kinds[0] === "control-plane.repository.observe" &&
+    kinds[1] === "github.standard-labels.ensure"
+  );
 }
 
 function claimBinding(expected) {
@@ -1800,6 +2022,15 @@ function validClaim(claim, expected, now) {
 
 function stableObservationWitness(operation, observation) {
   if (observation === undefined) return undefined;
+  if (operation.kind === "github.standard-labels.ensure") {
+    return {
+      catalogDigest: observation.catalogDigest,
+      catalogVersion: observation.catalogVersion,
+      kind: observation.kind,
+      repositoryId: observation.repositoryId,
+      state: observation.state,
+    };
+  }
   if (operation.kind === "github.custom-properties.ensure") {
     return {
       kind: observation.kind,
@@ -1909,7 +2140,7 @@ export function createTrustedFleetExecutor({
     sourceSha: repository.sourceSha,
   });
 
-  async function readIdentity(repository, requiresActiveRepository) {
+  async function readIdentity(repository, repositoryRequirement) {
     let identity;
     try {
       identity = await githubAppAdapter.readIdentity(
@@ -1923,7 +2154,7 @@ export function createTrustedFleetExecutor({
         organizationId,
         installationId,
         repository,
-        requiresActiveRepository,
+        repositoryRequirement,
       })
     ) {
       throw new Error("FLEET_EXECUTOR_IDENTITY_MISMATCH");
@@ -2099,7 +2330,7 @@ export function createTrustedFleetExecutor({
       ({ kind }) => kind === "github.protection.reconcile",
     );
     if (protectionOperation) {
-      await readIdentity(repository, true);
+      await readIdentity(repository, "ACTIVE");
       try {
         await githubAppAdapter.readProtectionCapability(
           protectionOperation,
@@ -2120,8 +2351,13 @@ export function createTrustedFleetExecutor({
     }
 
     if (snapshot.outcome === "PROVISIONING_READY") {
-      await readIdentity(repository, true);
-      const provisioningOperations = snapshot.operations.slice(1);
+      await readIdentity(repository, "ACTIVE");
+      const provisioningOperations = snapshot.operations.filter(
+        ({ kind }) =>
+          kind === "github.environment-variables.ensure" ||
+          kind === "github.org-secret-visibility.ensure" ||
+          kind === "gcp.wif-binding.ensure",
+      );
       const gate = provisioningOperations[0].payload.provisioningGate;
       if (
         !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u.test(
@@ -2177,9 +2413,12 @@ export function createTrustedFleetExecutor({
     const receipts = [];
     let blocked = false;
     for (const operation of snapshot.operations) {
-      const requiresActiveRepository =
-        !operation.kind.startsWith("control-plane.");
-      await readIdentity(repository, requiresActiveRepository);
+      const repositoryRequirement = operation.kind.startsWith("control-plane.")
+        ? "NONE"
+        : operation.kind === "github.standard-labels.ensure"
+          ? "LABELS"
+          : "ACTIVE";
+      await readIdentity(repository, repositoryRequirement);
 
       const claimRequest = {
         idempotencyKey: operation.idempotencyKey,
@@ -2260,7 +2499,7 @@ export function createTrustedFleetExecutor({
         if (readback.state !== "APPLIED") {
           throw new Error("FLEET_EXECUTOR_OPERATION_READBACK_FAILED");
         }
-        await readIdentity(repository, requiresActiveRepository);
+        await readIdentity(repository, repositoryRequirement);
         const outcome = persistedOutcome(operation, readback);
         const receipt = durableOperationReceipt(
           operation,
