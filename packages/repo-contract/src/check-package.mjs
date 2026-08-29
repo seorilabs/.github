@@ -20,6 +20,9 @@ const requiredPackageFiles = [
   ".generated/contracts/app.schema.json",
   ".generated/contracts/credential-consumer.schema.json",
   ".generated/contracts/fleet-bootstrap-plan.schema.json",
+  ".generated/contracts/fleet-migration-chain-head.schema.json",
+  ".generated/contracts/fleet-migration-inventory.schema.json",
+  ".generated/contracts/fleet-migration-plan.schema.json",
   ".generated/contracts/markets/app-store.schema.json",
   ".generated/contracts/markets/apps-in-toss.schema.json",
   ".generated/contracts/markets/google-play.schema.json",
@@ -34,6 +37,7 @@ const requiredPackageFiles = [
   "README.md",
   "src/cli.mjs",
   "src/bootstrap.mjs",
+  "src/fleet-migration.mjs",
 ];
 
 const cacheRoot = await mkdtemp(join(tmpdir(), "repo-contract-pack-cache-"));
@@ -44,8 +48,7 @@ try {
   if (
     sourceModule.DEFAULT_SCHEMA_PATH !==
       resolve(workspaceRoot, "contracts/app.schema.json") ||
-    sourceModule.DEFAULT_PROFILES_ROOT !==
-      resolve(workspaceRoot, "profiles")
+    sourceModule.DEFAULT_PROFILES_ROOT !== resolve(workspaceRoot, "profiles")
   ) {
     throw new Error("소스 workspace가 생성된 pack snapshot을 우선했습니다.");
   }
@@ -177,8 +180,7 @@ try {
       "@seorilabs/platform-sdk@1.0.0": {
         resolution: {
           integrity: `sha512-${Buffer.alloc(64).toString("base64")}`,
-          tarball:
-            `https://npm.pkg.github.com/download/@seorilabs/platform-sdk/1.0.0/${"a".repeat(40)}`,
+          tarball: `https://npm.pkg.github.com/download/@seorilabs/platform-sdk/1.0.0/${"a".repeat(40)}`,
         },
       },
     },
@@ -209,16 +211,19 @@ try {
       "utf8",
     ),
   ]);
-  const executable = process.platform === "win32"
-    ? resolve(consumerRoot, "node_modules/.bin/repo-contract.cmd")
-    : resolve(consumerRoot, "node_modules/.bin/repo-contract");
+  const executable =
+    process.platform === "win32"
+      ? resolve(consumerRoot, "node_modules/.bin/repo-contract.cmd")
+      : resolve(consumerRoot, "node_modules/.bin/repo-contract");
   const installedCheck = await execFileAsync(executable, [fixtureRoot], {
     cwd: consumerRoot,
     encoding: "utf8",
     maxBuffer: 2 * 1024 * 1024,
   });
   if (!installedCheck.stdout.includes("계약 검증 통과")) {
-    throw new Error("설치된 repo-contract CLI가 fixture를 검증하지 못했습니다.");
+    throw new Error(
+      "설치된 repo-contract CLI가 fixture를 검증하지 못했습니다.",
+    );
   }
   const installedBootstrapCheck = await execFileAsync(
     process.execPath,
@@ -263,7 +268,53 @@ try {
     },
   );
   if (!installedExecutorCheck.stdout.includes("public export 검증 통과")) {
-    throw new Error("배포된 repo-contract에 Fleet trusted executor API가 없습니다.");
+    throw new Error(
+      "배포된 repo-contract에 Fleet trusted executor API가 없습니다.",
+    );
+  }
+  const installedMigrationCheck = await execFileAsync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'const installed = await import("@seorilabs/repo-contract/fleet-migration");',
+        'if (typeof installed.createFleetMigrationPlan !== "function") process.exit(1);',
+        'if (typeof installed.validateFleetMigrationChainHead !== "function") process.exit(1);',
+        'if (typeof installed.validateFleetMigrationPlan !== "function") process.exit(1);',
+        'if (typeof installed.validateFleetMigrationPlanStructure !== "function") process.exit(1);',
+        'if (typeof installed.computeFleetRepositoryReadbackDigest !== "function") process.exit(1);',
+        'if (typeof installed.computeFleetFindingsDigest !== "function") process.exit(1);',
+        'if (typeof installed.computeFleetMigrationInventoryDigest !== "function") process.exit(1);',
+        'if (typeof installed.computeFleetMigrationChainHeadDigest !== "function") process.exit(1);',
+        'if (typeof installed.computeFleetMigrationLineageChainDigest !== "function") process.exit(1);',
+        'if (typeof installed.deriveFleetMigrationInventoryCheckpoint !== "function") process.exit(1);',
+        'if (typeof installed.createFleetMigrationAttestationPayload !== "function") process.exit(1);',
+        'if (typeof installed.createFleetMigrationChainHeadAttestationPayload !== "function") process.exit(1);',
+        'if (typeof installed.loadTrustedFleetMigrationChainHeadBinding !== "function") process.exit(1);',
+        'if (typeof installed.loadTrustedFleetMigrationInventoryBinding !== "function") process.exit(1);',
+        'if (typeof installed.loadTrustedFleetMigrationHistoricalInventoryBinding !== "function") process.exit(1);',
+        'if (typeof installed.computeFleetMigrationReplacementDigest !== "function") process.exit(1);',
+        'if (typeof installed.computeFleetMigrationOutageRecoveryDigest !== "function") process.exit(1);',
+        'if (typeof installed.computeFleetMigrationOwnerScopeDigest !== "function") process.exit(1);',
+        "if (installed.fleetMigrationContract?.executionAllowed !== false) process.exit(1);",
+        'if (installed.fleetMigrationContract?.mode !== "PLAN_ONLY") process.exit(1);',
+        'if (installed.fleetMigrationContract?.inventoryAttestation?.contract !== "seorilabs-fleet-migration-inventory-attestation-v2") process.exit(1);',
+        'if (installed.fleetMigrationContract?.chainHeadAttestation?.role !== "FLEET_MIGRATION_CHAIN_HEAD_AUTHORITY") process.exit(1);',
+        "if (installed.fleetMigrationContract?.initialBaseline?.expectedCounts?.legacyOperationJson !== 73) process.exit(1);",
+        'process.stdout.write("Fleet migration planner public export 검증 통과\\n");',
+      ].join("\n"),
+    ],
+    {
+      cwd: consumerRoot,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    },
+  );
+  if (!installedMigrationCheck.stdout.includes("public export 검증 통과")) {
+    throw new Error(
+      "배포된 repo-contract에 Fleet migration planner API가 없습니다.",
+    );
   }
   const installedCandidateCanaryCheck = await execFileAsync(
     process.execPath,
@@ -287,7 +338,9 @@ try {
       maxBuffer: 2 * 1024 * 1024,
     },
   );
-  if (!installedCandidateCanaryCheck.stdout.includes("public export 검증 통과")) {
+  if (
+    !installedCandidateCanaryCheck.stdout.includes("public export 검증 통과")
+  ) {
     throw new Error("배포된 repo-contract에 candidate canary API가 없습니다.");
   }
   const installedPublisherCheck = await execFileAsync(
@@ -309,7 +362,9 @@ try {
     },
   );
   if (!installedPublisherCheck.stdout.includes("public export 검증 통과")) {
-    throw new Error("배포된 repo-contract에 WorkflowBundle trusted publisher API가 없습니다.");
+    throw new Error(
+      "배포된 repo-contract에 WorkflowBundle trusted publisher API가 없습니다.",
+    );
   }
 } catch (error) {
   checkError = error;

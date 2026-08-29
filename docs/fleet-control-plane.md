@@ -21,15 +21,15 @@ flowchart LR
 
 ## 정본과 책임 경계
 
-| 데이터 | 정본 | 변경 방식 |
-| --- | --- | --- |
-| 앱·마켓·정책 desired state | Backoffice `ConfigRevision` | UI와 AI가 같은 validator/API 사용 |
-| source에서 탐지한 사실 | `DiscoveryObservation` | 고정 source SHA 기준 append-only 수집 |
-| provider 실제 상태 | `ProviderObservation` | 공식 API 또는 격리 adapter readback |
-| 조직 CI 계약 | 이 저장소의 `WorkflowBundle` | canary를 통과한 불변 source SHA |
-| 실제 작업 | 대상 저장소 GitHub Issue | agent lease가 하나씩 claim |
-| 포트폴리오 보기 | `Seorilabs Fleet` Project | Issue 상태 투영만 수행 |
-| 자격증명 원본 | `~/.config/seorilabs` catalog | logical ID와 공개 identity만 제어면에 기록 |
+| 데이터                     | 정본                          | 변경 방식                                  |
+| -------------------------- | ----------------------------- | ------------------------------------------ |
+| 앱·마켓·정책 desired state | Backoffice `ConfigRevision`   | UI와 AI가 같은 validator/API 사용          |
+| source에서 탐지한 사실     | `DiscoveryObservation`        | 고정 source SHA 기준 append-only 수집      |
+| provider 실제 상태         | `ProviderObservation`         | 공식 API 또는 격리 adapter readback        |
+| 조직 CI 계약               | 이 저장소의 `WorkflowBundle`  | canary를 통과한 불변 source SHA            |
+| 실제 작업                  | 대상 저장소 GitHub Issue      | agent lease가 하나씩 claim                 |
+| 포트폴리오 보기            | `Seorilabs Fleet` Project     | Issue 상태 투영만 수행                     |
+| 자격증명 원본              | `~/.config/seorilabs` catalog | logical ID와 공개 identity만 제어면에 기록 |
 
 구현, CI, artifact, upload, processing, device QA, review, approval, deployment,
 public availability는 독립 gate다. 앞 gate의 성공은 뒤 gate를 증명하지 않는다.
@@ -195,6 +195,102 @@ input으로 유지한다. 다음 조건을 모두 만족한 repository wave에�
 Gradle, Xcode project, Godot export preset, Granite config처럼 실제 build source는 삭제 대상이
 아니다. 새 변경은 Backoffice 장애 시 fail-closed하고, 이미 고정된 release candidate만 signed
 snapshot으로 재현한다.
+
+P7 planner는 GitHub App installation ID와 조직 query, provider total, 전체 cursor page chain을
+함께 받는다. 각 default HEAD commit은 recursive Git tree readback의 `truncated=false`, 전체
+entry/blob 수, 실제 scan 수, canonical entry digest에 묶는다. 후보 path는 그 exact tree의
+canonical BLOB만 허용한다. 전체 inventory와 evidence bundle은 신뢰된 외부 공개키의 Ed25519
+attestation으로 검증하며 15분 이하 TTL이 지난 inventory는 재사용하지 않는다.
+
+파일을 보유한 source repository와 설정 대상 PRODUCT_APP은 별도 identity다. 예를 들어
+`seorilabs/platform`의 `registry/apps/*.json`은 source가 Platform producer여도 subject는 P5에서
+확정한 앱 repository/app/platformAppId다. source와 subject 모두 numeric repository ID, exact
+ref/SHA, classification decision revision/ID에 결합한다. 이 cross-repo 예외는 명시적인
+`PLATFORM_REGISTRY_APP`에만 적용하며 P5 App revision/digest와 PlatformFleetBinding
+revision/digest의 ACTIVE readback이 일치해야 한다. 서로 다른 registry record가 한 앱을 가리키거나
+workflow/credential이 다른 앱 subject를 가리키면 중단한다. fork의 PRODUCT_APP 자동 등록,
+오래된 classification decision, 모호한 subject는 `NEEDS_INPUT`으로 중단한다.
+
+삭제 전에는 15분 TTL의 authoritative parity stream revision/head/total과 최신 연속 MATCH 두 건,
+ACTIVE config revision과 signed snapshot에 묶인 build-only artifact, exact replacement digest,
+ACTIVE CredentialBinding의 mapping/scope/consumer/generation 및 replacement에 고정된
+provider/capability/environment/public identity/policy revision, legacy consumer 0, parser disabled,
+rewrite dispatch readback을 모두 검증한다. Git restore는 source tree SHA까지 고정한다. symlink,
+submodule, traversal, 대소문자 path 충돌은 허용하지 않는다. 두 gate가 모두 통과해도 planner는
+삭제나 rewrite를 실행하지 않고 검토 가능한 plan만 만든다. parity `expiresAt`은 inventory 수집
+시각이 아니라 실제 plan 생성·검증 시각과 비교하므로, 그 사이 만료된 readback은 재사용하지 않는다.
+
+2026-08-29 기준선의 예상 입력은 active repository 38개, legacy 운영 JSON 73개,
+`secrets: inherit` 파일 108개, floating 중앙 workflow ref 파일 87개다. 이 수치는 실행 허가가
+아니며 최초 `BOOTSTRAP` inventory에만 적용한다. 이후 `WAVE` inventory는 직전 신뢰 inventory의
+ID/digest/capturedAt/count를 이어야 하고 세 cleanup count가 하나 이상 감소하며 어느 것도 증가하지
+않아야 한다. 매 wave의 GitHub App coverage와 repository tree observation은 직전 inventory보다
+새로워야 하며, 현재 provider total, pagination, exact source/tree/BLOB, parity 증거가 새
+inventory와 일치해야 한다. 또한 각 `WAVE`는 최초 `BOOTSTRAP`부터 직전 `WAVE`까지의 서명된
+compact checkpoint를 `ancestry`에 순서대로 포함하고 `chainDigest`로 전체 순서를 고정한다.
+각 checkpoint의 Ed25519 attestation, root의 38/73/108/87, wave 번호, 직전 ID/digest/count,
+수집 시각과 단조 감소를 전부 다시 검증한다. 따라서 유효한 키로 서명됐더라도 존재하지 않는
+parent를 주장하거나 중간 checkpoint를 바꾼 `WAVE`는 다음 wave의 trusted anchor가 될 수 없다.
+inventory 자체 chain이나 signed artifact의 TTL만으로는 최신 head rollback과 동일 parent의
+sibling fan-out을 증명할 수 없으므로, 모든 `WAVE`는 Backoffice state authority가 durable
+compare-and-swap으로 exact current generation/head에서 candidate
+inventory ID/digest/signedAt으로 단일 reservation을 확보한 뒤 5분 이하로 발행한
+`fleet-migration-chain-head` artifact를 요구한다. 이 artifact의 head
+`waveNumber/inventoryId/inventoryDigest/chainDigest`는 current의 직전 checkpoint와 정확히 같아야
+한다. artifact의 `head.stateGeneration`과 reservation의 expected generation이 같고 reserved
+generation은 정확히 1 증가해야 한다. loader는 artifact 서명만 믿지 않고 trusted state-authority
+adapter에서 현재 reservation을 live readback해 전체 artifact와 대조한다. 따라서 state가 다른
+reservation으로 진행된 뒤의 old head와 동일 parent의 sibling child는 current binding을 얻지 못한다.
+inventory signer와 chain-head authority는 서로 다른 Ed25519 key와 role을 사용하며, WAVE 검증 시
+합쳐진 inventory trust set 전체를 key ID와 SPKI fingerprint로 다시 대조한다. live readback adapter가
+없거나 head가 만료됐거나 두 role의 key가 겹치면 WAVE binding을 발급하지 않는다.
+
+```bash
+fleet-contract plan-migration \
+  --inventory fleet-migration-inventory.json \
+  --trusted-key-id fleet-inventory-key-0001 \
+  --trusted-public-key fleet-inventory-signing-public.pem \
+  > fleet-migration-plan.json
+fleet-contract validate-migration-plan \
+  --plan fleet-migration-plan.json \
+  --inventory fleet-migration-inventory.json \
+  --trusted-key-id fleet-inventory-key-0001 \
+  --trusted-public-key fleet-inventory-signing-public.pem
+```
+
+후속 wave에는 inventory trust root, 직전 inventory, candidate-bound CAS reservation head, 별도
+state authority trust root와 현재 reservation을 읽는 trusted adapter를 추가한다. standalone CLI는
+이 adapter를 자체 구현하거나 artifact 파일로 대체하지 않으며, Backoffice live adapter가 주입되지
+않으면 `FLEET_MIGRATION_STATE_AUTHORITY_READBACK_REQUIRED`로 fail-closed한다. 더 오래된 ancestor 파일을 CLI에
+별도로 전달하지 않아도 되는 이유는 직전 inventory 자체가 `BOOTSTRAP`까지의 서명된 compact
+checkpoint chain을 포함하기 때문이다. 이 chain은 참고 metadata가 아니라 inventory attestation v2와
+inventory digest 양쪽에 결합된 필수 검증 입력이다.
+
+```bash
+# trusted Backoffice adapter를 주입한 wrapper가 전달하는 인자 예시다.
+# standalone fleet-contract binary만 실행하면 live readback 부재로 실패한다.
+fleet-contract plan-migration \
+  --inventory fleet-migration-wave-02.json \
+  --prior-inventory fleet-migration-wave-01.json \
+  --trusted-key-id fleet-inventory-key-0001 \
+  --trusted-public-key fleet-inventory-signing-public.pem \
+  --chain-head fleet-migration-wave-02-chain-head.json \
+  --trusted-chain-head-key-id fleet-chain-head-key-0001 \
+  --trusted-chain-head-public-key fleet-chain-head-signing-public.pem \
+  > fleet-migration-wave-02-plan.json
+```
+
+migration plan 출력은 symlink나 저장소 파일을 덮어쓰지 않도록 stdout만 허용한다. plan에는
+replacement bytes나 secret 값이 없고, source, 단일 final replacement digest, proof bundle,
+trusted inventory binding, source/subject classification revision, public CredentialBinding mapping,
+replacement binding, evidence ID에 결합된 idempotency key만 포함한다. `planDigest`는 손상 탐지용 checksum일
+뿐 실행 권한이 아니다. `READY_FOR_REVIEW`, `BLOCKED`, `NEEDS_INPUT` 모두 동일 inventory와
+프로세스 안에서 신뢰 공개키로 만든 binding이 다시 있어야 의미 검증된다. 별도
+`validateFleetMigrationPlanStructure`는 schema/checksum 구조만 검사하며 권위 검증이 아니다.
+실제 provider collector, durable CAS state authority, inventory attestation issuer, cleanup executor는
+이 plan-only 변경의 범위 밖이다. 이 패키지는 외부 CAS를 구현했다고 주장하지 않으며, trusted live
+readback은 reservation의 현재성 검증 경계일 뿐이다. executor도 mutation 직전에 같은 reservation을
+durable CAS로 소비하고 exact head를 다시 읽는 별도 계약·승인·PR 단위 gate가 필요하다.
 
 ## 강제 전환 순서
 
