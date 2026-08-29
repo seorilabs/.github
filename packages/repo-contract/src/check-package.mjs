@@ -477,6 +477,8 @@ try {
         'const installed = await import("@seorilabs/repo-contract/workflow-bundle-v5");',
         'if (typeof installed.createWorkflowBundleV5 !== "function") process.exit(1);',
         'if (typeof installed.generateStaticCallerV5 !== "function") process.exit(1);',
+        'if (typeof installed.generateCandidateStaticCallerV5 !== "function") process.exit(1);',
+        'if (typeof installed.generateCandidateBuildCallerV5 !== "function") process.exit(1);',
         'if (installed.workflowBundleV5Contract?.bundleVersion !== "5.0.0") process.exit(1);',
         'process.stdout.write("WorkflowBundle v5 public export 검증 통과\\n");',
       ].join("\n"),
