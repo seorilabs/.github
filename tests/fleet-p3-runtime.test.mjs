@@ -717,11 +717,11 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   assert.doesNotMatch(output.confirmation, /e86018971183/u);
   assert.equal(
     output.workflowBundleSourceSha,
-    "e86018971183031fa36f06415d94375e3359084f",
+    "0b6346713a64f6309fa32d1d3e09747c9db4ccb4",
   );
   assert.equal(
     output.workflowExecutionSha,
-    "e86018971183031fa36f06415d94375e3359084f",
+    "0b6346713a64f6309fa32d1d3e09747c9db4ccb4",
   );
   assert.equal(
     output.workloadIdentity.github.audience,
@@ -738,8 +738,8 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   assert.equal(
     output.workloadIdentity.github.attributeCondition,
     "assertion.repository_owner_id == '283115031' && " +
-      "((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@e86018971183031fa36f06415d94375e3359084f') || " +
-      "(assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@e86018971183031fa36f06415d94375e3359084f'))",
+      "((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@0b6346713a64f6309fa32d1d3e09747c9db4ccb4') || " +
+      "(assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@0b6346713a64f6309fa32d1d3e09747c9db4ccb4'))",
   );
   const capabilities = contract.cloudBuild.wif.repositories.map(
     ({ repositoryId, workflow }) => ({
@@ -1135,11 +1135,11 @@ test("Secret Manager bootstrap은 role partition을 two-phase 적용하고 rollb
   assert.equal(plan.provisioning.plaintextTransport, "fd3");
   assert.equal(
     plan.workflowBundleSourceSha,
-    "e86018971183031fa36f06415d94375e3359084f",
+    "0b6346713a64f6309fa32d1d3e09747c9db4ccb4",
   );
   assert.equal(
     plan.workflowExecutionSha,
-    "e86018971183031fa36f06415d94375e3359084f",
+    "0b6346713a64f6309fa32d1d3e09747c9db4ccb4",
   );
   assert.match(plan.confirmation, /^fleet-p3-secrets-[a-f0-9]{12}$/u);
   assert.doesNotMatch(plan.confirmation, /e86018971183/u);
