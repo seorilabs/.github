@@ -306,6 +306,28 @@ export async function auditFoundationReadiness({ desired, reader, context }) {
       diagnostics.push({ code: 'FOUNDATION_RBAC_INVENTORY_DRIFT', kind, name });
     }
   }
+  const expectedNetworkSurfaces = new Set(desired.items
+    .filter(({ kind }) => ['Service', 'NetworkPolicy'].includes(kind))
+    .map(({ kind, metadata }) => `${kind}\0${metadata.name}`));
+  const networkSurfaces = listItems(await reader.list(['services', 'networkpolicies'], namespace));
+  const observedNetworkSurfaces = new Set();
+  for (const item of networkSurfaces) {
+    const key = `${item?.kind}\0${item?.metadata?.name}`;
+    observedNetworkSurfaces.add(key);
+    if (!expectedNetworkSurfaces.has(key)) {
+      diagnostics.push({
+        code: 'UNDECLARED_NETWORK_SURFACE_PRESENT',
+        kind: item?.kind ?? 'Unknown',
+        name: item?.metadata?.name ?? 'unknown',
+      });
+    }
+  }
+  for (const key of expectedNetworkSurfaces) {
+    if (!observedNetworkSurfaces.has(key)) {
+      const [kind, name] = key.split('\0');
+      diagnostics.push({ code: 'FOUNDATION_NETWORK_INVENTORY_DRIFT', kind, name });
+    }
+  }
   const serviceAccounts = desired.items
     .filter(({ kind }) => kind === 'ServiceAccount')
     .map(({ metadata }) => metadata.name);

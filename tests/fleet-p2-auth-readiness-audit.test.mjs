@@ -49,6 +49,7 @@ function resourceKey(kind, name) {
 function readerFixture({
   allowedSecretAuthorization = [],
   mutate,
+  networkSurfaceItems,
   namespaceRbacItems,
   runtimeItems = [],
   staleConfigMaps = [],
@@ -79,6 +80,12 @@ function readerFixture({
           .filter(({ kind }) => ['Role', 'RoleBinding'].includes(kind))
           .map(({ kind, metadata }) => resources.get(resourceKey(kind, metadata.name)));
         return { apiVersion: 'v1', kind: 'List', items: namespaceRbacItems ?? exact };
+      }
+      if (kinds.includes('services')) {
+        const exact = desired.items
+          .filter(({ kind }) => ['Service', 'NetworkPolicy'].includes(kind))
+          .map(({ kind, metadata }) => resources.get(resourceKey(kind, metadata.name)));
+        return { apiVersion: 'v1', kind: 'List', items: networkSurfaceItems ?? exact };
       }
       return { apiVersion: 'v1', kind: 'List', items: runtimeItems };
     },
@@ -187,6 +194,43 @@ test('readiness auditor rejects Service exposure and NetworkPolicy endPort exten
     code === 'FOUNDATION_RESOURCE_DRIFT' && kind === 'Service' && name === 'auth-broker'));
   assert.ok(result.diagnostics.some(({ code, kind, name }) =>
     code === 'FOUNDATION_RESOURCE_DRIFT' && kind === 'NetworkPolicy' && name === 'broker-allowed-traffic'));
+});
+
+test('readiness auditor rejects additional LoadBalancer Service and allow-all NetworkPolicy inventory', async () => {
+  const exact = desired.items
+    .filter(({ kind }) => ['Service', 'NetworkPolicy'].includes(kind))
+    .map(liveResource);
+  const reader = readerFixture({
+    networkSurfaceItems: [
+      ...exact,
+      {
+        apiVersion: 'v1',
+        kind: 'Service',
+        metadata: { name: 'public-broker', namespace },
+        spec: {
+          selector: { 'app.kubernetes.io/name': 'seori-auth-broker' },
+          ports: [{ name: 'https', port: 443, targetPort: 8443, protocol: 'TCP' }],
+          type: 'LoadBalancer',
+        },
+      },
+      {
+        apiVersion: 'networking.k8s.io/v1',
+        kind: 'NetworkPolicy',
+        metadata: { name: 'allow-all', namespace },
+        spec: {
+          podSelector: {},
+          policyTypes: ['Ingress', 'Egress'],
+          ingress: [{}],
+          egress: [{}],
+        },
+      },
+    ],
+  });
+  const result = await auditFoundationReadiness({ desired, reader, context });
+  assert.ok(result.diagnostics.some(({ code, kind, name }) =>
+    code === 'UNDECLARED_NETWORK_SURFACE_PRESENT' && kind === 'Service' && name === 'public-broker'));
+  assert.ok(result.diagnostics.some(({ code, kind, name }) =>
+    code === 'UNDECLARED_NETWORK_SURFACE_PRESENT' && kind === 'NetworkPolicy' && name === 'allow-all'));
 });
 
 test('readiness CLI uses only bounded get and non-secret authorization readback', async () => {
