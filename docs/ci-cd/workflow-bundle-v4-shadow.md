@@ -69,6 +69,13 @@ preflight, tracked-secret scan, dependency audit와 canonical script는 앱 경�
 `SCRIPT ERROR` 또는 `ERROR:`는 제품 오류로 fail-closed한다. Godot 자체의 non-zero exit와
 중립 probe의 script error도 계속 실패한다.
 
+pnpm의 transitive 보안 보정은 lockfile 최상위 `overrides` 중 package selector와 정식 npm의
+stable exact version 조합만 격리 staging workspace에 재현한다. range, tag, alias, prerelease,
+Git/HTTP/file source와 64개 초과 override는 package token을 사용하기 전에 거부한다. 앱의 원본
+`pnpm-workspace.yaml`을 통째로 복사하지 않으므로 build script 허용이나 registry 설정은 실행면에
+전파되지 않는다. override를 사용해도 high 이상 dependency audit는 그대로 차단하며, 감사 예외는
+별도의 서명·만료·exact source 정책 없이는 허용하지 않는다.
+
 ## Android build-only
 
 caller는 중앙 generator만 만들며 사용자 입력 없이 Backoffice-bound `source_sha`, resolved

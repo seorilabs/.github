@@ -2078,6 +2078,101 @@ test("pnpm and npm staging require exact Platform lock evidence and never retain
   );
 });
 
+test("pnpm staging preserves only exact stable public-registry overrides from the locked graph", async () => {
+  const { root } = await fixtureRepository("saju-reader");
+  const lockPath = join(root, "pnpm-lock.yaml");
+  const originalLock = await readFile(lockPath, "utf8");
+  await writeFile(lockPath, originalLock.replace(
+    "\nimporters:\n",
+    [
+      "\noverrides:",
+      "  find-my-way: 9.7.0",
+      "  '@fastify/middie': 9.3.2",
+      "  fastify: 5.8.5",
+      "",
+      "importers:",
+      "",
+    ].join("\n"),
+  ));
+
+  const inspected = await inspectExactPlatformDependencyV5({
+    repoRoot: root,
+    dependencyRoot: ".",
+    packageManager: "pnpm",
+  });
+  assert.deepEqual({ ...inspected.pnpmOverrides }, {
+    "@fastify/middie": "9.3.2",
+    fastify: "5.8.5",
+    "find-my-way": "9.7.0",
+  });
+
+  const cacheRoot = join(root, ".seorilabs-pnpm-store");
+  let spawnCalls = 0;
+  await stageExactPlatformDependencyV5({
+    repoRoot: root,
+    dependencyRoot: ".",
+    packageManager: "pnpm",
+    cacheRoot,
+    token: "token-that-must-never-be-persisted",
+    childEnvironment: { HOME: "/tmp/fixture-home", PATH: "/usr/bin:/bin" },
+    spawn: (_command, _args, options) => {
+      spawnCalls += 1;
+      if (spawnCalls === 1) {
+        const stagedWorkspace = parse(readFileSync(join(options.cwd, "pnpm-workspace.yaml"), "utf8"));
+        assert.deepEqual(stagedWorkspace.overrides, {
+          "@fastify/middie": "9.3.2",
+          fastify: "5.8.5",
+          "find-my-way": "9.7.0",
+        });
+        mkdirSync(join(cacheRoot, "content"), { recursive: true });
+        writeFileSync(join(cacheRoot, "content", "package.tgz"), "public-package-bytes");
+      }
+      return { status: 0, signal: null };
+    },
+  });
+  assert.equal(spawnCalls, 2);
+
+  for (const target of ["^5.8.5", "npm:fastify@5.8.5", "git+https://example.invalid/fork.git#deadbeef"]) {
+    const invalid = parse(await readFile(lockPath, "utf8"));
+    invalid.overrides.fastify = target;
+    await writeFile(lockPath, JSON.stringify(invalid));
+    await assert.rejects(
+      inspectExactPlatformDependencyV5({
+        repoRoot: root,
+        dependencyRoot: ".",
+        packageManager: "pnpm",
+      }),
+      /PNPM_OVERRIDE_SOURCE_FORBIDDEN/u,
+    );
+  }
+
+  const invalidSelector = parse(await readFile(lockPath, "utf8"));
+  invalidSelector.overrides = { "fastify@^4": "5.8.5" };
+  await writeFile(lockPath, JSON.stringify(invalidSelector));
+  await assert.rejects(
+    inspectExactPlatformDependencyV5({
+      repoRoot: root,
+      dependencyRoot: ".",
+      packageManager: "pnpm",
+    }),
+    /PNPM_OVERRIDE_SOURCE_FORBIDDEN/u,
+  );
+
+  const excessive = parse(await readFile(lockPath, "utf8"));
+  excessive.overrides = Object.fromEntries(
+    Array.from({ length: 65 }, (_, index) => [`package-${index}`, "1.0.0"]),
+  );
+  await writeFile(lockPath, JSON.stringify(excessive));
+  await assert.rejects(
+    inspectExactPlatformDependencyV5({
+      repoRoot: root,
+      dependencyRoot: ".",
+      packageManager: "pnpm",
+    }),
+    /PNPM_OVERRIDES_INVALID/u,
+  );
+});
+
 test("new workflows are build-only, private ARC routed, checksum-bound, and retain evidence for three days", async () => {
   const [staticWorkflow, godotWorkflow, aitWorkflow, androidWorkflow, cloudBuild] = await Promise.all([
     readFile(".github/workflows/js-static-checks-v1.yml", "utf8"),

@@ -31,6 +31,8 @@ const PUBLIC_REGISTRY = "https://registry.npmjs.org";
 const PRIVATE_REGISTRY = "https://npm.pkg.github.com";
 const PINNED_PACKAGE_MANAGERS = Object.freeze({ npm: "11.13.0", pnpm: "11.3.0" });
 const EXACT_VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/u;
+const EXACT_STABLE_VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
+const PNPM_OVERRIDE_SELECTOR = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))?$/u;
 const PACKAGE_SECTIONS = [
   "dependencies",
   "devDependencies",
@@ -39,6 +41,7 @@ const PACKAGE_SECTIONS = [
 ];
 const MAX_PACKAGE_BYTES = 2 * 1024 * 1024;
 const MAX_LOCK_BYTES = 24 * 1024 * 1024;
+const MAX_PNPM_OVERRIDES = 64;
 const CHILD_ENVIRONMENT_KEYS = Object.freeze([
   "CI",
   "COREPACK_HOME",
@@ -181,6 +184,27 @@ function verifyPnpmLock(lock, version) {
     fail("PLATFORM_PACKAGE_LOCK_RESOLUTION_INVALID");
   }
   return resolution.integrity;
+}
+
+function validatedPnpmOverrides(value) {
+  if (value === undefined) return Object.freeze({});
+  if (value === null || Array.isArray(value) || typeof value !== "object") {
+    fail("PNPM_OVERRIDES_INVALID");
+  }
+  const entries = Object.entries(value);
+  if (entries.length > MAX_PNPM_OVERRIDES) fail("PNPM_OVERRIDES_INVALID");
+  const normalized = Object.create(null);
+  for (const [selector, target] of entries.sort(([left], [right]) => left.localeCompare(right))) {
+    if (
+      !PNPM_OVERRIDE_SELECTOR.test(selector) ||
+      typeof target !== "string" ||
+      !EXACT_STABLE_VERSION.test(target)
+    ) {
+      fail("PNPM_OVERRIDE_SOURCE_FORBIDDEN");
+    }
+    normalized[selector] = target;
+  }
+  return Object.freeze(normalized);
 }
 
 function verifyNpmLock(lock, version) {
@@ -347,6 +371,9 @@ export async function inspectExactPlatformDependencyV5({
     fail("LOCKFILE_INVALID");
   }
   validateLockSources(lock);
+  const pnpmOverrides = packageManager === "pnpm"
+    ? validatedPnpmOverrides(lock?.overrides)
+    : Object.freeze({});
   const integrity = packageManager === "pnpm"
     ? verifyPnpmLock(lock, version)
     : verifyNpmLock(lock, version);
@@ -357,6 +384,7 @@ export async function inspectExactPlatformDependencyV5({
     dependencyRoot,
     lockPath: lockRelative,
     integrity,
+    pnpmOverrides,
   });
 }
 
@@ -365,6 +393,7 @@ async function writeTrustedStagingMetadata({
   dependencyRoot,
   packageManager,
   lockPath,
+  pnpmOverrides,
   stagingRoot,
 }) {
   const packagePaths = trackedPackagePaths(repoRoot, dependencyRoot);
@@ -395,15 +424,20 @@ async function writeTrustedStagingMetadata({
     const workspaceDirectories = relativePackagePaths
       .filter((path) => path !== "package.json")
       .map((path) => dirname(path));
+    const workspace = workspaceDirectories.length === 0
+      ? ["packages: []"]
+      : ["packages:", ...workspaceDirectories.map((path) => `  - ${JSON.stringify(path)}`)];
+    const overrides = Object.entries(pnpmOverrides ?? {});
+    if (overrides.length > 0) {
+      workspace.push(
+        "overrides:",
+        ...overrides.map(([selector, target]) =>
+          `  ${JSON.stringify(selector)}: ${JSON.stringify(target)}`),
+      );
+    }
     await writeFile(
       join(stagingRoot, "pnpm-workspace.yaml"),
-      workspaceDirectories.length === 0
-        ? "packages: []\n"
-        : [
-            "packages:",
-            ...workspaceDirectories.map((path) => `  - ${JSON.stringify(path)}`),
-            "",
-          ].join("\n"),
+      `${workspace.join("\n")}\n`,
       { flag: "wx", mode: 0o600 },
     );
   }
@@ -507,6 +541,7 @@ export async function stageExactPlatformDependencyV5({
     dependencyRoot,
     packageManager,
     lockPath: inspected.lockPath,
+    pnpmOverrides: inspected.pnpmOverrides,
     stagingRoot,
   });
   await writeFile(
