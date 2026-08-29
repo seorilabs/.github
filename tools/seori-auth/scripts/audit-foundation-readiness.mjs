@@ -9,6 +9,9 @@ const TIMEOUT_MS = 15_000;
 const KUBECTL = '/usr/local/bin/kubectl';
 const RENDERER = fileURLToPath(new URL('../../../scripts/fleet/render-p3-runtime.mjs', import.meta.url));
 const CREDENTIAL_ANNOTATION = /(?:credential|secret|image[-_.]?pull|registry[-_.]?auth|gcp-service-account|role-arn|client-id)/iu;
+const SECRET_AUTHORIZATION_VERBS = Object.freeze([
+  'create', 'delete', 'deletecollection', 'get', 'list', 'patch', 'update', 'watch',
+]);
 const RESOURCE_NAMES = Object.freeze({
   Namespace: 'namespace',
   ConfigMap: 'configmap',
@@ -33,7 +36,15 @@ function stop(code) {
   throw new FoundationReadinessError(code);
 }
 
-function childJson(executable, args, { allowEmpty = false } = {}) {
+function childRead(executable, args, {
+  acceptedExitCodes = [0],
+  allowEmpty = false,
+  json = true,
+} = {}) {
+  if (
+    !Array.isArray(acceptedExitCodes) || acceptedExitCodes.length === 0 ||
+    acceptedExitCodes.some((code) => !Number.isSafeInteger(code) || code < 0)
+  ) stop('READBACK_EXIT_CODE_POLICY_INVALID');
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, {
       shell: false,
@@ -63,13 +74,17 @@ function childJson(executable, args, { allowEmpty = false } = {}) {
     });
     child.once('close', (code, signal) => {
       clearTimeout(timer);
-      if (code !== 0 || signal !== null || bytes > MAX_OUTPUT_BYTES || stderrBytes > MAX_OUTPUT_BYTES) {
+      if (!acceptedExitCodes.includes(code) || signal !== null || bytes > MAX_OUTPUT_BYTES || stderrBytes > MAX_OUTPUT_BYTES) {
         reject(new FoundationReadinessError('READBACK_CHILD_FAILED'));
         return;
       }
       const text = Buffer.concat(stdout).toString('utf8').trim();
       if (allowEmpty && text === '') {
         resolve(undefined);
+        return;
+      }
+      if (!json) {
+        resolve(text);
         return;
       }
       try {
@@ -84,7 +99,7 @@ function childJson(executable, args, { allowEmpty = false } = {}) {
 function kubectlReader(context) {
   const base = ['--context', context, 'get'];
   return Object.freeze({
-    get: (kind, name, namespace) => childJson(KUBECTL, [
+    get: (kind, name, namespace) => childRead(KUBECTL, [
       ...base,
       RESOURCE_NAMES[kind],
       name,
@@ -92,13 +107,28 @@ function kubectlReader(context) {
       '--output=json',
       '--ignore-not-found=true',
     ], { allowEmpty: true }),
-    list: (resources, namespace) => childJson(KUBECTL, [
+    list: (resources, namespace) => childRead(KUBECTL, [
       ...base,
       resources.join(','),
       '--namespace', namespace,
       '--output=json',
     ]),
+    canI: async ({ verb, resource, namespace, serviceAccount }) => {
+      const answer = await childRead(KUBECTL, [
+        '--context', context,
+        'auth', 'can-i', verb, resource,
+        '--namespace', namespace,
+        '--as', `system:serviceaccount:${namespace}:${serviceAccount}`,
+      ], { acceptedExitCodes: [0, 1], json: false });
+      if (!['yes', 'no'].includes(answer)) stop('AUTHORIZATION_READBACK_INVALID');
+      return answer === 'yes';
+    },
   });
+}
+
+function exactKeys(value, expected) {
+  return value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.keys(value).toSorted().join('\0') === [...expected].toSorted().join('\0');
 }
 
 function containsExpected(actual, expected) {
@@ -139,11 +169,41 @@ function readyCondition(resource) {
   return resource?.status?.conditions?.some(({ type, status }) => type === 'Ready' && status === 'True') === true;
 }
 
+function serviceMatches(actual, expected) {
+  const allowedSpecKeys = [
+    'clusterIP', 'clusterIPs', 'internalTrafficPolicy', 'ipFamilies', 'ipFamilyPolicy',
+    'ports', 'selector', 'sessionAffinity', 'type',
+  ];
+  if (!exactKeys(actual.spec, allowedSpecKeys)) return false;
+  if (
+    actual.spec.type !== 'ClusterIP' || actual.spec.sessionAffinity !== 'None' ||
+    actual.spec.internalTrafficPolicy !== 'Cluster' || actual.spec.ipFamilyPolicy !== 'SingleStack' ||
+    typeof actual.spec.clusterIP !== 'string' || actual.spec.clusterIP.length === 0 ||
+    actual.spec.clusterIP === 'None' ||
+    !isDeepStrictEqual(actual.spec.clusterIPs, [actual.spec.clusterIP]) ||
+    !Array.isArray(actual.spec.ipFamilies) || actual.spec.ipFamilies.length !== 1 ||
+    !['IPv4', 'IPv6'].includes(actual.spec.ipFamilies[0]) ||
+    !isDeepStrictEqual(actual.spec.selector, expected.spec.selector) ||
+    !Array.isArray(actual.spec.ports) || actual.spec.ports.length !== expected.spec.ports.length
+  ) return false;
+  return actual.spec.ports.every((port, index) =>
+    exactKeys(port, Object.keys(expected.spec.ports[index])) &&
+    isDeepStrictEqual(port, expected.spec.ports[index]),
+  );
+}
+
+function networkPolicyMatches(actual, expected) {
+  return exactKeys(actual.spec, Object.keys(expected.spec)) &&
+    isDeepStrictEqual(actual.spec, expected.spec);
+}
+
 function resourceMatches(actual, expected) {
   if (
     actual?.apiVersion !== expected.apiVersion || actual?.kind !== expected.kind ||
     !metadataMatches(actual.metadata ?? {}, expected.metadata ?? {}, expected.kind)
   ) return false;
+  if (expected.kind === 'Service') return serviceMatches(actual, expected);
+  if (expected.kind === 'NetworkPolicy') return networkPolicyMatches(actual, expected);
   for (const [key, value] of Object.entries(expected)) {
     if (['apiVersion', 'kind', 'metadata'].includes(key)) continue;
     const actualValue = expected.kind === 'Role' && key === 'rules' && actual[key] == null
@@ -195,7 +255,8 @@ export async function auditFoundationReadiness({ desired, reader, context }) {
   if (
     !desired || desired.kind !== 'List' || !Array.isArray(desired.items) ||
     desired.items.length === 0 || typeof context !== 'string' || context.length === 0 ||
-    !reader || typeof reader.get !== 'function' || typeof reader.list !== 'function'
+    !reader || typeof reader.get !== 'function' || typeof reader.list !== 'function' ||
+    typeof reader.canI !== 'function'
   ) stop('READINESS_INPUT_INVALID');
   const namespace = publicBinding(desired).namespace;
   const diagnostics = contractDiagnostics(desired);
@@ -223,8 +284,48 @@ export async function auditFoundationReadiness({ desired, reader, context }) {
       item.metadata.name !== expectedConfigMap
     ) diagnostics.push({ code: 'STALE_PUBLIC_BINDING_PRESENT', kind: 'ConfigMap', name: item.metadata.name });
   }
+  const expectedRbac = new Set(desired.items
+    .filter(({ kind }) => ['Role', 'RoleBinding'].includes(kind))
+    .map(({ kind, metadata }) => `${kind}\0${metadata.name}`));
+  const namespaceRbac = listItems(await reader.list(['roles', 'rolebindings'], namespace));
+  const observedRbac = new Set();
+  for (const item of namespaceRbac) {
+    const key = `${item?.kind}\0${item?.metadata?.name}`;
+    observedRbac.add(key);
+    if (!expectedRbac.has(key)) {
+      diagnostics.push({
+        code: 'UNDECLARED_NAMESPACE_RBAC_PRESENT',
+        kind: item?.kind ?? 'Unknown',
+        name: item?.metadata?.name ?? 'unknown',
+      });
+    }
+  }
+  for (const key of expectedRbac) {
+    if (!observedRbac.has(key)) {
+      const [kind, name] = key.split('\0');
+      diagnostics.push({ code: 'FOUNDATION_RBAC_INVENTORY_DRIFT', kind, name });
+    }
+  }
+  const serviceAccounts = desired.items
+    .filter(({ kind }) => kind === 'ServiceAccount')
+    .map(({ metadata }) => metadata.name);
+  for (const serviceAccount of serviceAccounts) {
+    for (const verb of SECRET_AUTHORIZATION_VERBS) {
+      if (await reader.canI({ verb, resource: 'secrets', namespace, serviceAccount })) {
+        diagnostics.push({
+          code: 'SECRET_AUTHORIZATION_PRESENT',
+          kind: 'ServiceAccount',
+          name: serviceAccount,
+          verb,
+        });
+      }
+    }
+  }
   const runtime = listItems(await reader.list(
-    ['deployments', 'statefulsets', 'daemonsets', 'jobs', 'pods', 'persistentvolumeclaims'],
+    [
+      'deployments', 'statefulsets', 'daemonsets', 'jobs', 'cronjobs', 'pods',
+      'replicasets', 'replicationcontrollers', 'persistentvolumeclaims',
+    ],
     namespace,
   ));
   for (const item of runtime) {
@@ -245,7 +346,7 @@ export async function auditFoundationReadiness({ desired, reader, context }) {
 
 async function main() {
   if (process.argv.length !== 2) stop('READINESS_ARGUMENTS_INVALID');
-  const desired = await childJson(process.execPath, [RENDERER, 'auth-broker-foundation']);
+  const desired = await childRead(process.execPath, [RENDERER, 'auth-broker-foundation']);
   const binding = publicBinding(desired);
   const context = binding.canary?.kubernetesContext;
   if (typeof context !== 'string' || context.length === 0) stop('CURRENT_CONTRACT_CONTEXT_INVALID');

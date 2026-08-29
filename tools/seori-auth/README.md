@@ -210,17 +210,19 @@ public command는 fd4로, strict public result는 fd5로 전달합니다. adapte
 ## 운영 활성화 gate
 
 native attestor/launcher, HMAC journal, encrypted filesystem Browser Vault, 분리된
-password/TOTP service, mTLS runtime과 Kubernetes renderer는 구현되어 deterministic
-fake-account canary로 검증됩니다. built-in canary는 암호화 profile round-trip과 stale clone
-정리, 실제 TOTP 생성 뒤 실행 복사본 zeroize·비반환, `human` 계정의 factor load/injection 0회
-stop gate를 함께 확인합니다. 그러나 이 package만으로 실제 provider나 cluster가
-자동 활성화되지는 않습니다. 다음 외부 binding을 모두 검증하기 전에는 production
+password/TOTP factor service와 mTLS server primitive, Kubernetes renderer는 구현되어 있습니다.
+built-in fake-account canary는 암호화 profile round-trip과 stale clone 정리, 실제 TOTP 생성 뒤
+실행 복사본 zeroize·비반환, `human` 계정의 factor load/injection 0회 stop gate를 같은 process의
+in-process factor contract로 확인합니다. broker에서 분리 workload로 향하는 production mTLS factor
+client나 실제 provider browser adapter를 실행하는 canary가 아닙니다. 이 package만으로 실제
+provider나 cluster가 자동 활성화되지는 않습니다. 다음 외부 binding을 모두 검증하기 전에는 production
 credential을 연결하거나 manifest를 apply하지 않습니다.
 
 - broker 전용 OS/container identity와 worker가 읽을 수 없는 state/Vault mount
 - scheduler가 peer UID/GID/PID를 승인된 run/repo/SHA principal로 바꾸는 resolver
 - broker process 자체와 adapter를 native helper로 시작하는 immutable image/launchd unit
-- Kubernetes mTLS client/server CA, exact SPIFFE identity와 scheduler run-attestation signing key
+- broker→factor production mTLS client 구현, client/server CA, exact SPIFFE identity와 scheduler
+  run-attestation signing key
 - journal MAC key, 외부 head checkpoint, Vault key의 Secret Manager logical binding
 - provider별 정확한 origin/redirect/public account identity와 egress-proxy allowlist
 - provider별 browser 실행·종료·identity readback·crash reconciliation을 구현한 immutable
@@ -244,9 +246,12 @@ one-shot Job을 생성합니다. 실제 실행은
 먼저 exact readback하고 없는 경우에만 server dry-run 뒤 create합니다. AlreadyExists와 결과 불명은
 mutation을 반복하지 않으며 admitted Pod의 PUBLIC no-pull 또는 PACKAGES_READER exact-one binding까지
 검증합니다. 현재 공개 계약과 live foundation의 차이는 Secret을 조회하지 않는 read-only auditor로
-확인합니다. auditor는 Namespace, ServiceAccount, RBAC, NetworkPolicy, Service, cert-manager 공개
-객체를 exact readback하고 stale binding과 미선언 workload/PVC가 있거나 계약의 외부 gate가
-`ready`가 아니면 exit 1로 중단합니다.
+확인합니다. auditor는 Namespace, ServiceAccount, namespace 전체 Role/RoleBinding,
+각 auth-broker ServiceAccount의 effective Secret 권한을 `kubectl auth can-i`로 확인하고
+NetworkPolicy, Service, cert-manager 공개 객체를 exact readback합니다. stale binding,
+Secret 권한, Service 노출 확장, NetworkPolicy port 확장,
+미선언 Deployment/StatefulSet/DaemonSet/Job/CronJob/Pod/ReplicaSet/ReplicationController/PVC가
+있거나 계약의 외부 gate가 `ready`가 아니면 exit 1로 중단합니다.
 
 ```sh
 node scripts/audit-foundation-readiness.mjs
