@@ -284,7 +284,7 @@ test('native Secret Manager store accepts only its pre-bound logical id and nume
   copy.fill(0);
 });
 
-test('container entrypoint canary returns only public success state', async () => {
+test('container entrypoint canary covers Vault, TOTP, and human stop gate while returning only public state', async () => {
   const { stdout, stderr } = await execFileAsync(process.execPath, [
     runtimeEntrypoint,
     'canary',
