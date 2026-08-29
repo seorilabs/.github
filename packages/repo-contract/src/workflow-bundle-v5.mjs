@@ -97,6 +97,18 @@ const TRUSTED_CANDIDATE_BUNDLES = new WeakMap();
 const TRUSTED_BINDINGS = new WeakMap();
 const TRUST_BINDING_TTL_MS = 5 * 60 * 1000;
 const SAFE_SEGMENT = /^[A-Za-z0-9_@-]+(?:\.[A-Za-z0-9_@-]+)*$/u;
+const CANDIDATE_CANARIES = Object.freeze({
+  "1250442131": Object.freeze({
+    fullName: "seorilabs/happy-farm",
+    staticProfile: "react-native",
+    buildProfile: "react-native-android",
+  }),
+  "1265192029": Object.freeze({
+    fullName: "seorilabs/lizard-tycoon",
+    staticProfile: "godot",
+    buildProfile: "godot-android",
+  }),
+});
 
 function fail(code) {
   throw new Error(code);
@@ -835,6 +847,18 @@ function selectedBuild(manifest, target) {
   return candidates[0];
 }
 
+function candidateCanary(manifest, diagnostic) {
+  const allowed = CANDIDATE_CANARIES[manifest.repositoryId];
+  if (
+    !allowed ||
+    manifest.fullName !== allowed.fullName ||
+    manifest.staticBinding.profile !== allowed.staticProfile
+  ) {
+    fail(diagnostic);
+  }
+  return allowed;
+}
+
 function buildCaller(bundle, manifest, target, { candidate = false } = {}) {
   if (manifest.state !== "ACTIVE") fail(`${manifest.state}_BUILD_CALLER_FORBIDDEN`);
   const binding = selectedBuild(manifest, target);
@@ -846,16 +870,8 @@ function buildCaller(bundle, manifest, target, { candidate = false } = {}) {
     fail("BUILD_WORKFLOW_UNAVAILABLE");
   }
   if (candidate) {
-    const allowed = {
-      "1250442131": ["seorilabs/happy-farm", "react-native", "react-native-android"],
-      "1265192029": ["seorilabs/lizard-tycoon", "godot", "godot-android"],
-    }[manifest.repositoryId];
-    if (
-      !allowed ||
-      manifest.fullName !== allowed[0] ||
-      manifest.staticBinding.profile !== allowed[1] ||
-      binding.buildProfile !== allowed[2]
-    ) {
+    const allowed = candidateCanary(manifest, "CANDIDATE_BUILD_REPOSITORY_NOT_ALLOWED");
+    if (binding.buildProfile !== allowed.buildProfile) {
       fail("CANDIDATE_BUILD_REPOSITORY_NOT_ALLOWED");
     }
   }
@@ -883,19 +899,26 @@ function buildCaller(bundle, manifest, target, { candidate = false } = {}) {
   });
 }
 
-export function generateStaticCallerV5({ approvedBundleBinding, resolvedBinding } = {}) {
-  const bundle = bundleFrom(approvedBundleBinding);
-  const manifest = manifestFrom(resolvedBinding);
+function staticCaller(bundle, manifest, { candidate = false } = {}) {
   if (manifest.state === "DEPRECATED") fail("DEPRECATED_NO_CALLER");
+  if (candidate) candidateCanary(manifest, "CANDIDATE_STATIC_REPOSITORY_NOT_ALLOWED");
+  if (candidate && (
+    manifest.workflowBundleBinding?.sourceSha !== bundle.source.sha ||
+    manifest.workflowBundleBinding?.payloadDigest !== bundle.integrity.payloadDigest
+  )) {
+    fail("STATIC_BUNDLE_BINDING_MISMATCH");
+  }
   const staticBinding = manifest.staticBinding;
   const workflow = bundle.staticProfiles[staticBinding.profile];
   return workflowDocument({
     name: "Org Contract",
-    on: {
-      pull_request: { branches: ["main"] },
-      push: { branches: ["main"] },
-      workflow_dispatch: {},
-    },
+    on: candidate
+      ? { pull_request: { paths: [".github/workflows/org-contract.yml"] } }
+      : {
+          pull_request: { branches: ["main"] },
+          push: { branches: ["main"] },
+          workflow_dispatch: {},
+        },
     permissions: staticPermissions(staticBinding.profile),
     concurrency: {
       group: "org-contract-${{ github.repository_id }}-${{ github.ref }}",
@@ -909,6 +932,21 @@ export function generateStaticCallerV5({ approvedBundleBinding, resolvedBinding 
   });
 }
 
+export function generateStaticCallerV5({ approvedBundleBinding, resolvedBinding } = {}) {
+  return staticCaller(bundleFrom(approvedBundleBinding), manifestFrom(resolvedBinding));
+}
+
+export function generateCandidateStaticCallerV5({
+  candidateBundleBinding,
+  resolvedBinding,
+} = {}) {
+  return staticCaller(
+    candidateBundleFrom(candidateBundleBinding),
+    manifestFrom(resolvedBinding),
+    { candidate: true },
+  );
+}
+
 export function validateStaticCallerV5(caller, options = {}) {
   try {
     const expected = generateStaticCallerV5(options);
@@ -918,6 +956,23 @@ export function validateStaticCallerV5(caller, options = {}) {
       ok: exact && !forbidden,
       diagnostics: Object.freeze([
         ...(!exact ? ["STATIC_CALLER_NOT_EXACT"] : []),
+        ...(forbidden ? ["STATIC_CALLER_FORBIDDEN_REFERENCE"] : []),
+      ]),
+    });
+  } catch (error) {
+    return Object.freeze({ ok: false, diagnostics: Object.freeze([error.message]) });
+  }
+}
+
+export function validateCandidateStaticCallerV5(caller, options = {}) {
+  try {
+    const expected = generateCandidateStaticCallerV5(options);
+    const exact = caller === expected;
+    const forbidden = /secrets:\s*inherit|@main\b/u.test(caller);
+    return Object.freeze({
+      ok: exact && !forbidden,
+      diagnostics: Object.freeze([
+        ...(!exact ? ["CANDIDATE_STATIC_CALLER_NOT_EXACT"] : []),
         ...(forbidden ? ["STATIC_CALLER_FORBIDDEN_REFERENCE"] : []),
       ]),
     });

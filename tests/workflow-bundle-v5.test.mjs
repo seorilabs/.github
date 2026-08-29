@@ -21,6 +21,7 @@ import { parse } from "yaml";
 import {
   createWorkflowBundleV5,
   generateCandidateBuildCallerV5,
+  generateCandidateStaticCallerV5,
   generateBuildCallerV5,
   generateStaticCallerV5,
   generateXcodeCloudRunV5,
@@ -30,6 +31,7 @@ import {
   promoteWorkflowBundleV5,
   validateBuildCallerV5,
   validateCandidateBuildCallerV5,
+  validateCandidateStaticCallerV5,
   validateStaticCallerV5,
   validateWorkflowBundleV5,
   workflowBundleV5Contract,
@@ -887,6 +889,7 @@ test("candidate canary generator permits only Happy Farm RN and Lizard Tycoon Go
         commandDirectory: ".",
       },
       buildProfile: "react-native-android",
+      staticWorkflow: "js-static-checks-v1.yml",
       workflow: "rn-build-android-cloud-v2.yml",
       permissions: ["contents: read", "id-token: write", "packages: read"],
     },
@@ -901,6 +904,7 @@ test("candidate canary generator permits only Happy Farm RN and Lizard Tycoon Go
         commandDirectory: ".",
       },
       buildProfile: "godot-android",
+      staticWorkflow: "godot-checks-v3.yml",
       workflow: "godot-build-android-cloud-v2.yml",
       permissions: ["contents: read", "id-token: write"],
     },
@@ -933,6 +937,28 @@ test("candidate canary generator permits only Happy Farm RN and Lizard Tycoon Go
       }],
     };
     const resolved = await resolvedBinding(root, manifest);
+    const candidateStaticCaller = generateCandidateStaticCallerV5({
+      candidateBundleBinding,
+      resolvedBinding: resolved,
+    });
+    const candidateStaticDocument = parse(candidateStaticCaller);
+    assert.deepEqual(candidateStaticDocument.on, {
+      pull_request: { paths: [".github/workflows/org-contract.yml"] },
+    });
+    assert.equal(
+      candidateStaticDocument.jobs["org-contract"].uses,
+      `seorilabs/.github/.github/workflows/${fixture.staticWorkflow}@${WORKFLOW_EXECUTION_SHA}`,
+    );
+    assert.equal(candidateStaticDocument.permissions["id-token"], "write");
+    assert.doesNotMatch(
+      candidateStaticCaller,
+      /push:|workflow_dispatch:|\bwith:|secrets:|runs-on:|@main\b/u,
+    );
+    assert.equal(validateCandidateStaticCallerV5(candidateStaticCaller, {
+      candidateBundleBinding,
+      resolvedBinding: resolved,
+    }).ok, true);
+
     const candidateCaller = generateCandidateBuildCallerV5({
       candidateBundleBinding,
       resolvedBinding: resolved,
@@ -991,6 +1017,10 @@ test("candidate canary generator permits only Happy Farm RN and Lizard Tycoon Go
     }],
   };
   const crossedBinding = await resolvedBinding(root, crossed);
+  assert.throws(() => generateCandidateStaticCallerV5({
+    candidateBundleBinding,
+    resolvedBinding: crossedBinding,
+  }), /CANDIDATE_STATIC_REPOSITORY_NOT_ALLOWED/u);
   assert.throws(() => generateCandidateBuildCallerV5({
     candidateBundleBinding,
     resolvedBinding: crossedBinding,
