@@ -81,6 +81,32 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
   );
   assert.equal(contract.authBroker.state.encryptionRequired, true);
   assert.equal(contract.authBroker.state.encryptionStatus, "blocked_unverified");
+  assert.deepEqual(
+    {
+      claimName: contract.authBroker.state.claimName,
+      volumeName: contract.authBroker.state.volumeName,
+      nodeName: contract.authBroker.state.nodeName,
+      mapperName: contract.authBroker.state.mapperName,
+      mountFstype: contract.authBroker.state.mountFstype,
+      size: contract.authBroker.state.size,
+      storageClassName: contract.authBroker.state.storageClassName,
+      accessModes: contract.authBroker.state.accessModes,
+      volumeMode: contract.authBroker.state.volumeMode,
+      reclaimPolicy: contract.authBroker.state.reclaimPolicy,
+    },
+    {
+      claimName: "seori-auth-state",
+      volumeName: "seori-auth-state-rpi5",
+      nodeName: "rpi5",
+      mapperName: "seori-auth-state",
+      mountFstype: "ext4",
+      size: "10Gi",
+      storageClassName: "microk8s-hostpath",
+      accessModes: ["ReadWriteOnce"],
+      volumeMode: "Filesystem",
+      reclaimPolicy: "Retain",
+    },
+  );
   assert.equal(contract.authBroker.registry.credentialId, "shared/github/packages-reader");
   assert.equal(contract.authBroker.registry.personalOperatorReuseAllowed, false);
   assert.equal(contract.authBroker.registry.catalogStatus, "blocked_missing");

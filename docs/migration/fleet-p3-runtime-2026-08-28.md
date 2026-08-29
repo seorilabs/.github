@@ -38,6 +38,8 @@ receipt, lease token은 기록하지 않는다.
   process-local memory에서 해제하되 signed native Keychain helper 전에는 write를 차단하는 adapter
 - `scripts/fleet/bootstrap-p3-secret-manager.mjs`: broker/password/TOTP별 네 exact secret version과
   secret-level accessor binding의 기본 dry-run, two-phase apply, readback, provider-disable rollback
+- `scripts/fleet/verify-p2-state-encryption.mjs`: RPI5 dm-crypt host attestation과 exact Retain
+  PV/PVC strict server dry-run. 공개 fingerprint와 PV/PVC identity만 출력하며 provisioning은 하지 않음
 - `tests/fleet-p3-runtime.test.mjs`: strict schema, 최소 권한 분리, secret 비노출, RBAC 0권한,
   exact pilot과 fail-closed manifest 검증
 
@@ -177,3 +179,10 @@ node scripts/fleet/bootstrap-p3-secret-manager.mjs rollback '<plan이 반환한 
 현재 provisioner의 project IAM readback은 `PERMISSION_DENIED`이므로 resource 부재로 판단하지
 않는다. 실제 네 secret/version, secret-level IAM, WIF 활성화, workload와 fake canary는 모두
 미적용·미검증 상태다.
+
+2026-08-30에는 RPI5 state encryption을 mutation 없이 확인하는 attestor와 pre-provisioned
+Retain PV/PVC server-dry-run verifier를 추가했다. fake `mountinfo`/`lsblk`/`kubectl` fixture에서
+dm-crypt ext4만 통과하고 direct ext4, mapper look-alike, 암호화 누락, wrong node/storage class,
+`Delete` reclaim policy, PV/PVC drift는 fail-closed한다. 실제 RPI5 host attestation과 live PV/PVC
+provision/readback은 수행하지 않았으므로 encrypted state gate와
+`encryptionStatus: blocked_unverified`는 그대로다.

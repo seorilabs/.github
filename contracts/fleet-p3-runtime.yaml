@@ -376,8 +376,15 @@ authBroker:
   wifAudience: //iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/microk8s-auth
   state:
     claimName: seori-auth-state
+    volumeName: seori-auth-state-rpi5
     storageClassName: microk8s-hostpath
     size: 10Gi
+    accessModes: [ReadWriteOnce]
+    volumeMode: Filesystem
+    reclaimPolicy: Retain
+    nodeName: rpi5
+    mapperName: seori-auth-state
+    mountFstype: ext4
     encryptionRequired: true
     encryptionStatus: blocked_unverified
   trustedWorkers:

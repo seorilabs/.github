@@ -91,6 +91,28 @@ readback이 없으면 workload apply를 중단합니다. renderer가 `imagePullS
 현재 구현 작업은 live RBAC, Secret Manager IAM, TLS material, PVC 또는 provider 계정을
 생성·변경하지 않습니다.
 
+## RPI5 encrypted state 검증 경계
+
+fleet runtime 계약은 broker state를 RPI5의 exact dm-crypt mapper와 `ext4`, 사전 결합된
+`ReadWriteOnce`/`Filesystem` PVC, `Retain` local PV로 제한합니다. 저장소 루트에서 다음 두
+검증을 순서대로 실행합니다.
+
+```sh
+node scripts/fleet/verify-p2-state-encryption.mjs host
+node scripts/fleet/verify-p2-state-encryption.mjs server-dry-run
+```
+
+`host`는 exact node와 dm-crypt backing을 검증하고 device mapper 여부, filesystem type,
+backing identity의 SHA-256 fingerprint만 반환합니다. device·mapper 이름이나 mount path는
+반환하지 않습니다. `server-dry-run`은 같은 attestation에 결합된 PV/PVC를 Kubernetes API의
+strict server dry-run으로 검증하고 공개 PV/PVC identity, size, access mode, volume mode,
+reclaim policy, storage class, node만 반환합니다. 실행 명령은 고정 `vzyx-cluster`에서
+`kubectl create --dry-run=server`뿐이며 PV/PVC를 생성하거나 기존 객체를 변경하지 않습니다.
+
+두 검증의 성공은 실제 provisioning 승인이 아닙니다. host attestation 공개 결과를 검토한 뒤
+별도 승인으로 Retain PV/PVC를 pre-provision하고, live 객체와 encrypted backing을 다시
+readback하기 전까지 `encryptionStatus: blocked_unverified`를 유지합니다.
+
 projected identity volume은 고정 mount
 `/var/run/seori-auth/projected-identity`와 고정 leaf `token`만 제공합니다. Kubernetes의
 atomic symlink ABI는 native helper가 Linux `openat2`의 beneath/no-magiclink/no-cross-mount
