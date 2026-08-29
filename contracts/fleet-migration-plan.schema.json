@@ -4,44 +4,106 @@
   "title": "Seorilabs Fleet P7 plan-only migration plan",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "mode", "executionAllowed", "inventory", "outcome", "reasonCodes", "repositories", "planDigest"],
+  "required": [
+    "schemaVersion",
+    "mode",
+    "executionAllowed",
+    "inventory",
+    "outcome",
+    "reasonCodes",
+    "repositories",
+    "planDigest"
+  ],
   "properties": {
     "schemaVersion": { "const": 1 },
     "mode": { "const": "PLAN_ONLY" },
     "executionAllowed": { "const": false },
     "inventory": { "$ref": "#/$defs/inventorySummary" },
     "outcome": { "$ref": "#/$defs/outcome" },
-    "reasonCodes": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/reasonCode" } },
-    "repositories": { "type": "array", "minItems": 1, "maxItems": 10000, "items": { "$ref": "#/$defs/repositoryPlan" } },
+    "reasonCodes": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/reasonCode" }
+    },
+    "repositories": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": { "$ref": "#/$defs/repositoryPlan" }
+    },
     "planDigest": { "$ref": "#/$defs/digest" }
   },
   "$defs": {
     "numericId": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
+    "generation": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,31})$"
+    },
     "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-    "dateTime": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$" },
-    "sourceRef": { "type": "string", "pattern": "^refs/heads/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,126}[A-Za-z0-9])?$" },
-    "relativePath": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:\\/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$" },
-    "keyId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$" },
-    "evidenceId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$" },
-    "category": { "enum": ["LEGACY_OPERATION_JSON", "WORKFLOW_SECRETS_INHERIT", "WORKFLOW_FLOATING_REF", "UNCLASSIFIED"] },
+    "dateTime": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$"
+    },
+    "sourceRef": {
+      "type": "string",
+      "pattern": "^refs/heads/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,126}[A-Za-z0-9])?$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:\\/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+    },
+    "keyId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+    },
+    "evidenceId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+    },
+    "category": {
+      "enum": [
+        "LEGACY_OPERATION_JSON",
+        "WORKFLOW_SECRETS_INHERIT",
+        "WORKFLOW_FLOATING_REF",
+        "UNCLASSIFIED"
+      ]
+    },
     "outcome": { "enum": ["READY_FOR_REVIEW", "BLOCKED", "NEEDS_INPUT"] },
-    "buildTarget": { "enum": ["ORG_CONTRACT_STATIC", "ANDROID", "IOS", "APPS_IN_TOSS", "WEB"] },
+    "buildTarget": {
+      "enum": ["ORG_CONTRACT_STATIC", "ANDROID", "IOS", "APPS_IN_TOSS", "WEB"]
+    },
     "reasonCode": {
       "enum": [
         "TRUSTED_INVENTORY_BINDING_MISSING",
         "TRUSTED_INVENTORY_BINDING_MISMATCH",
         "INITIAL_BASELINE_MISMATCH",
+        "INVENTORY_LINEAGE_REQUIRED",
+        "INVENTORY_LINEAGE_MISMATCH",
+        "INVENTORY_COUNTS_NOT_MONOTONIC",
+        "CHAIN_HEAD_REQUIRED",
+        "CHAIN_HEAD_MISMATCH",
         "INVENTORY_COVERAGE_INCOMPLETE",
         "INVENTORY_PAGINATION_CHAIN_MISMATCH",
         "INVENTORY_REPOSITORY_DIGEST_MISMATCH",
         "INVENTORY_TIME_MISMATCH",
+        "INVENTORY_TTL_INVALID",
+        "INVENTORY_EXPIRED",
+        "INVENTORY_PROVIDER_TOTAL_MISMATCH",
         "ACTIVE_REPOSITORY_COUNT_MISMATCH",
         "CANDIDATE_COUNT_MISMATCH",
         "REPOSITORY_IDENTITY_DUPLICATE",
         "OBSERVATION_SOURCE_MISMATCH",
         "OBSERVATION_FINDINGS_DIGEST_MISMATCH",
+        "OBSERVATION_TREE_READBACK_MISMATCH",
         "DETECTOR_SOURCE_MISMATCH",
+        "REPOSITORY_CLASSIFICATION_MISMATCH",
+        "SUBJECT_BINDING_MISMATCH",
+        "PLATFORM_FLEET_BINDING_MISSING",
+        "PLATFORM_FLEET_BINDING_MISMATCH",
         "UNSAFE_RELATIVE_PATH",
         "PATH_CANONICAL_COLLISION",
         "PATH_SOURCE_COLLISION",
@@ -64,8 +126,14 @@
         "SOURCE_READBACK_MISMATCH",
         "PARITY_REQUIRES_LATEST_CONTIGUOUS_MATCHES",
         "PARITY_STREAM_MISMATCH",
+        "PARITY_HEAD_MISMATCH",
+        "PARITY_READBACK_EXPIRED",
         "BUILD_ONLY_MISSING",
         "BUILD_ONLY_MISMATCH",
+        "CREDENTIAL_BINDING_MISSING",
+        "CREDENTIAL_BINDING_MISMATCH",
+        "CONSUMER_READBACK_MISSING",
+        "CONSUMER_READBACK_MISMATCH",
         "GIT_ROLLBACK_MISSING",
         "GIT_ROLLBACK_MISMATCH",
         "OUTAGE_RECOVERY_MISSING",
@@ -77,7 +145,8 @@
       ]
     },
     "gitEntry": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["kind", "mode", "objectSha"],
       "properties": {
         "kind": { "const": "BLOB" },
@@ -86,8 +155,15 @@
       }
     },
     "counts": {
-      "type": "object", "additionalProperties": false,
-      "required": ["activeRepositories", "legacyOperationJson", "workflowSecretsInherit", "workflowFloatingRef", "unclassified"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activeRepositories",
+        "legacyOperationJson",
+        "workflowSecretsInherit",
+        "workflowFloatingRef",
+        "unclassified"
+      ],
       "properties": {
         "activeRepositories": { "type": "integer", "minimum": 0 },
         "legacyOperationJson": { "type": "integer", "minimum": 0 },
@@ -97,18 +173,42 @@
       }
     },
     "findingCounts": {
-      "type": "object", "additionalProperties": false,
-      "required": ["legacyOperationJson", "workflowSecretsInherit", "workflowFloatingRef", "unclassified"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "legacyOperationJson",
+        "workflowSecretsInherit",
+        "workflowFloatingRef",
+        "unclassified"
+      ],
       "properties": {
-        "legacyOperationJson": { "type": "integer", "minimum": 0, "maximum": 10000 },
-        "workflowSecretsInherit": { "type": "integer", "minimum": 0, "maximum": 10000 },
-        "workflowFloatingRef": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "legacyOperationJson": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "workflowSecretsInherit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "workflowFloatingRef": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
         "unclassified": { "type": "integer", "minimum": 0, "maximum": 10000 }
       }
     },
     "expectedCounts": {
-      "type": "object", "additionalProperties": false,
-      "required": ["activeRepositories", "legacyOperationJson", "workflowSecretsInherit", "workflowFloatingRef"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activeRepositories",
+        "legacyOperationJson",
+        "workflowSecretsInherit",
+        "workflowFloatingRef"
+      ],
       "properties": {
         "activeRepositories": { "type": "integer", "minimum": 0 },
         "legacyOperationJson": { "type": "integer", "minimum": 0 },
@@ -116,62 +216,416 @@
         "workflowFloatingRef": { "type": "integer", "minimum": 0 }
       }
     },
+    "inventoryLineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "waveNumber",
+        "priorInventoryId",
+        "priorInventoryDigest",
+        "priorCapturedAt",
+        "priorObservedCounts",
+        "rootInventoryId",
+        "rootInventoryDigest",
+        "chainDigest",
+        "ancestorCount"
+      ],
+      "properties": {
+        "mode": { "enum": ["BOOTSTRAP", "WAVE"] },
+        "waveNumber": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "priorInventoryId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        },
+        "priorInventoryDigest": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }]
+        },
+        "priorCapturedAt": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/dateTime" }]
+        },
+        "priorObservedCounts": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/expectedCounts" }]
+        },
+        "rootInventoryId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        },
+        "rootInventoryDigest": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }]
+        },
+        "chainDigest": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }]
+        },
+        "ancestorCount": { "type": "integer", "minimum": 0, "maximum": 1000 }
+      }
+    },
     "bindingSummary": {
-      "type": "object", "additionalProperties": false,
-      "required": ["state", "keyId", "policyRevision", "signedAt", "inventoryDigest"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "keyId",
+        "policyRevision",
+        "signedAt",
+        "inventoryDigest"
+      ],
       "properties": {
         "state": { "enum": ["VERIFIED", "MISSING"] },
         "keyId": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/keyId" }] },
-        "policyRevision": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }] },
-        "signedAt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/dateTime" }] },
+        "policyRevision": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        },
+        "signedAt": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/dateTime" }]
+        },
         "inventoryDigest": { "$ref": "#/$defs/digest" }
       }
     },
+    "chainHeadSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "keyId",
+        "policyRevision",
+        "signedAt",
+        "authorityRevision",
+        "readbackId",
+        "observedAt",
+        "expiresAt",
+        "chainHeadDigest",
+        "stateGeneration",
+        "reservationId",
+        "reservedGeneration",
+        "waveNumber",
+        "inventoryId",
+        "inventoryDigest",
+        "chainDigest",
+        "candidateInventoryDigest"
+      ],
+      "properties": {
+        "state": { "enum": ["VERIFIED", "MISSING", "NOT_APPLICABLE"] },
+        "keyId": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/keyId" }] },
+        "policyRevision": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }] },
+        "signedAt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/dateTime" }] },
+        "authorityRevision": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }] },
+        "readbackId": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }] },
+        "observedAt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/dateTime" }] },
+        "expiresAt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/dateTime" }] },
+        "chainHeadDigest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+        "stateGeneration": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/generation" }] },
+        "reservationId": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }] },
+        "reservedGeneration": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/generation" }] },
+        "waveNumber": { "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 0, "maximum": 1000 }] },
+        "inventoryId": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }] },
+        "inventoryDigest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+        "chainDigest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+        "candidateInventoryDigest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] }
+      }
+    },
     "inventorySummary": {
-      "type": "object", "additionalProperties": false,
-      "required": ["inventoryId", "capturedAt", "organizationId", "detectorSourceSha", "coverageReadbackId", "repositoriesDigest", "expectedCounts", "observedCounts", "binding"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inventoryId",
+        "capturedAt",
+        "expiresAt",
+        "organizationId",
+        "detectorSourceSha",
+        "installationId",
+        "coverageReadbackId",
+        "coverageSnapshotId",
+        "providerTotalCount",
+        "repositoriesDigest",
+        "expectedCounts",
+        "observedCounts",
+        "lineage",
+        "binding",
+        "chainHead"
+      ],
       "properties": {
         "inventoryId": { "$ref": "#/$defs/evidenceId" },
         "capturedAt": { "$ref": "#/$defs/dateTime" },
+        "expiresAt": { "$ref": "#/$defs/dateTime" },
         "organizationId": { "$ref": "#/$defs/numericId" },
         "detectorSourceSha": { "$ref": "#/$defs/sha" },
+        "installationId": { "$ref": "#/$defs/numericId" },
         "coverageReadbackId": { "$ref": "#/$defs/evidenceId" },
+        "coverageSnapshotId": { "$ref": "#/$defs/evidenceId" },
+        "providerTotalCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
         "repositoriesDigest": { "$ref": "#/$defs/digest" },
         "expectedCounts": { "$ref": "#/$defs/expectedCounts" },
         "observedCounts": { "$ref": "#/$defs/counts" },
-        "binding": { "$ref": "#/$defs/bindingSummary" }
+        "lineage": { "$ref": "#/$defs/inventoryLineage" },
+        "binding": { "$ref": "#/$defs/bindingSummary" },
+        "chainHead": { "$ref": "#/$defs/chainHeadSummary" }
+      }
+    },
+    "repositoryClassification": {
+      "enum": ["PRODUCT_APP", "INFRA_REPO", "PLATFORM_PRODUCER", "EXCLUDED"]
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "appId",
+        "repositoryId",
+        "fullName",
+        "sourceRef",
+        "sourceSha",
+        "platformAppId",
+        "classificationDecisionRevision",
+        "classificationDecisionId"
+      ],
+      "properties": {
+        "kind": { "enum": ["PRODUCT_APP", "REPOSITORY"] },
+        "appId": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$" }
+          ]
+        },
+        "repositoryId": { "$ref": "#/$defs/numericId" },
+        "fullName": {
+          "type": "string",
+          "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+        },
+        "sourceRef": { "$ref": "#/$defs/sourceRef" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "platformAppId": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$" }
+          ]
+        },
+        "classificationDecisionRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "classificationDecisionId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        }
+      }
+    },
+    "namedCredentialBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "secretName",
+        "logicalCredentialId",
+        "provider",
+        "capability",
+        "environment",
+        "publicIdentity",
+        "fingerprint",
+        "policyRevision"
+      ],
+      "properties": {
+        "secretName": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{1,127}$"
+        },
+        "logicalCredentialId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+){2,7}$"
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$"
+        },
+        "capability": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$"
+        },
+        "environment": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$"
+        },
+        "publicIdentity": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 512 }
+          ]
+        },
+        "fingerprint": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 8, "maxLength": 256 }
+          ]
+        },
+        "policyRevision": { "$ref": "#/$defs/evidenceId" }
+      }
+    },
+    "evidenceSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceReadbackId",
+        "platformFleetBindingObservationId",
+        "parityStreamId",
+        "parityHeadObservationId",
+        "parityHeadSequence",
+        "parityTotalObservations",
+        "buildRunIds",
+        "credentialObservationIds",
+        "consumerReadbackId",
+        "gitRestoreValidationId",
+        "ownerApprovalId",
+        "controlPlaneReadbackId"
+      ],
+      "properties": {
+        "sourceReadbackId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        },
+        "platformFleetBindingObservationId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        },
+        "parityStreamId": { "$ref": "#/$defs/evidenceId" },
+        "parityHeadObservationId": { "$ref": "#/$defs/evidenceId" },
+        "parityHeadSequence": { "type": "integer", "minimum": 2 },
+        "parityTotalObservations": { "type": "integer", "minimum": 2 },
+        "buildRunIds": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/numericId" }
+        },
+        "credentialObservationIds": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/evidenceId" }
+        },
+        "consumerReadbackId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        },
+        "gitRestoreValidationId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        },
+        "ownerApprovalId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        },
+        "controlPlaneReadbackId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        }
       }
     },
     "change": {
-      "type": "object", "additionalProperties": false,
-      "required": ["migrationId", "idempotencyKey", "categories", "findingCounts", "operation", "path", "gitEntry", "contentDigest", "requiredBuildTargets", "replacementDigest", "proofDigest", "outcome", "reasonCodes"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "migrationId",
+        "idempotencyKey",
+        "categories",
+        "findingCounts",
+        "operation",
+        "path",
+        "gitEntry",
+        "contentDigest",
+        "subject",
+        "requiredBuildTargets",
+        "replacementDigest",
+        "replacementBindingDigest",
+        "namedCredentialBindings",
+        "proofDigest",
+        "evidence",
+        "outcome",
+        "reasonCodes"
+      ],
       "properties": {
         "migrationId": { "$ref": "#/$defs/digest" },
         "idempotencyKey": { "$ref": "#/$defs/digest" },
-        "categories": { "type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/category" } },
+        "categories": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/category" }
+        },
         "findingCounts": { "$ref": "#/$defs/findingCounts" },
         "operation": { "enum": ["DELETE", "REWRITE", "NONE"] },
         "path": { "$ref": "#/$defs/relativePath" },
         "gitEntry": { "$ref": "#/$defs/gitEntry" },
         "contentDigest": { "$ref": "#/$defs/digest" },
-        "requiredBuildTargets": { "type": "array", "minItems": 1, "maxItems": 5, "uniqueItems": true, "items": { "$ref": "#/$defs/buildTarget" } },
-        "replacementDigest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+        "subject": { "$ref": "#/$defs/subject" },
+        "requiredBuildTargets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/buildTarget" }
+        },
+        "replacementDigest": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }]
+        },
+        "replacementBindingDigest": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }]
+        },
+        "namedCredentialBindings": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/namedCredentialBinding" }
+        },
         "proofDigest": { "$ref": "#/$defs/digest" },
+        "evidence": { "$ref": "#/$defs/evidenceSummary" },
         "outcome": { "$ref": "#/$defs/outcome" },
-        "reasonCodes": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/reasonCode" } }
+        "reasonCodes": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/reasonCode" }
+        }
       }
     },
     "repositoryPlan": {
-      "type": "object", "additionalProperties": false,
-      "required": ["repositoryId", "fullName", "sourceRef", "sourceSha", "outcome", "reasonCodes", "changes"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repositoryId",
+        "fullName",
+        "sourceRef",
+        "sourceSha",
+        "fork",
+        "classification",
+        "classificationDecisionRevision",
+        "classificationDecisionId",
+        "outcome",
+        "reasonCodes",
+        "changes"
+      ],
       "properties": {
         "repositoryId": { "$ref": "#/$defs/numericId" },
-        "fullName": { "type": "string", "pattern": "^seorilabs/[A-Za-z0-9._-]+$" },
+        "fullName": {
+          "type": "string",
+          "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+        },
         "sourceRef": { "$ref": "#/$defs/sourceRef" },
         "sourceSha": { "$ref": "#/$defs/sha" },
+        "fork": { "type": "boolean" },
+        "classification": { "$ref": "#/$defs/repositoryClassification" },
+        "classificationDecisionRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "classificationDecisionId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        },
         "outcome": { "$ref": "#/$defs/outcome" },
-        "reasonCodes": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/reasonCode" } },
-        "changes": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/change" } }
+        "reasonCodes": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/reasonCode" }
+        },
+        "changes": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/change" }
+        }
       }
     }
   }

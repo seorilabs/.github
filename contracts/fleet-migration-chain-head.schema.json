@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.com/contracts/fleet-migration-chain-head.schema.json",
+  "title": "Seorilabs Fleet Migration Chain Head",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "contract",
+    "authorityRole",
+    "organization",
+    "installationId",
+    "authorityRevision",
+    "readbackId",
+    "observedAt",
+    "expiresAt",
+    "head",
+    "candidate",
+    "reservation",
+    "attestation"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "contract": { "const": "seorilabs-fleet-migration-chain-head-v1" },
+    "authorityRole": { "const": "FLEET_MIGRATION_CHAIN_HEAD_AUTHORITY" },
+    "organization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "login"],
+      "properties": {
+        "id": { "$ref": "#/$defs/numericId" },
+        "login": { "const": "seorilabs" }
+      }
+    },
+    "installationId": { "$ref": "#/$defs/numericId" },
+    "authorityRevision": { "$ref": "#/$defs/evidenceId" },
+    "readbackId": { "$ref": "#/$defs/evidenceId" },
+    "observedAt": { "$ref": "#/$defs/dateTime" },
+    "expiresAt": { "$ref": "#/$defs/dateTime" },
+    "head": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stateGeneration",
+        "waveNumber",
+        "inventoryId",
+        "inventoryDigest",
+        "chainDigest",
+        "rootInventoryId",
+        "rootInventoryDigest",
+        "observedCounts",
+        "inventoryKeyId",
+        "inventoryPolicyRevision",
+        "inventorySignedAt"
+      ],
+      "properties": {
+        "stateGeneration": { "$ref": "#/$defs/generation" },
+        "waveNumber": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "inventoryId": { "$ref": "#/$defs/evidenceId" },
+        "inventoryDigest": { "$ref": "#/$defs/digest" },
+        "chainDigest": { "$ref": "#/$defs/nullableDigest" },
+        "rootInventoryId": { "$ref": "#/$defs/evidenceId" },
+        "rootInventoryDigest": { "$ref": "#/$defs/digest" },
+        "observedCounts": { "$ref": "#/$defs/expectedCounts" },
+        "inventoryKeyId": { "$ref": "#/$defs/keyId" },
+        "inventoryPolicyRevision": { "$ref": "#/$defs/evidenceId" },
+        "inventorySignedAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "waveNumber",
+        "inventoryId",
+        "inventoryDigest",
+        "inventorySignedAt"
+      ],
+      "properties": {
+        "waveNumber": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "inventoryId": { "$ref": "#/$defs/evidenceId" },
+        "inventoryDigest": { "$ref": "#/$defs/digest" },
+        "inventorySignedAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "reservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "reservationId",
+        "state",
+        "expectedGeneration",
+        "reservedGeneration",
+        "reservedAt"
+      ],
+      "properties": {
+        "contract": {
+          "const": "seorilabs-fleet-migration-chain-head-cas-reservation-v1"
+        },
+        "reservationId": { "$ref": "#/$defs/evidenceId" },
+        "state": { "const": "RESERVED" },
+        "expectedGeneration": { "$ref": "#/$defs/generation" },
+        "reservedGeneration": { "$ref": "#/$defs/generation" },
+        "reservedAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "attestation": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "algorithm",
+            "role",
+            "keyId",
+            "policyRevision",
+            "signedAt",
+            "chainHeadDigest",
+            "value"
+          ],
+          "properties": {
+            "algorithm": { "const": "Ed25519" },
+            "role": { "const": "FLEET_MIGRATION_CHAIN_HEAD_AUTHORITY" },
+            "keyId": { "$ref": "#/$defs/keyId" },
+            "policyRevision": { "$ref": "#/$defs/evidenceId" },
+            "signedAt": { "$ref": "#/$defs/dateTime" },
+            "chainHeadDigest": { "$ref": "#/$defs/digest" },
+            "value": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{86}$"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "numericId": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
+    "generation": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,31})$"
+    },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "nullableDigest": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }]
+    },
+    "dateTime": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$"
+    },
+    "evidenceId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+    },
+    "keyId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+    },
+    "count": { "type": "integer", "minimum": 0, "maximum": 100000 },
+    "expectedCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activeRepositories",
+        "legacyOperationJson",
+        "workflowSecretsInherit",
+        "workflowFloatingRef"
+      ],
+      "properties": {
+        "activeRepositories": { "$ref": "#/$defs/count" },
+        "legacyOperationJson": { "$ref": "#/$defs/count" },
+        "workflowSecretsInherit": { "$ref": "#/$defs/count" },
+        "workflowFloatingRef": { "$ref": "#/$defs/count" }
+      }
+    }
+  }
+}

@@ -23,6 +23,7 @@ const JSON_SCHEMAS = [
   "contracts/credential-consumer.schema.json",
   "contracts/provider-auth-matrix.schema.json",
   "contracts/fleet-bootstrap-plan.schema.json",
+  "contracts/fleet-migration-chain-head.schema.json",
   "contracts/fleet-migration-inventory.schema.json",
   "contracts/fleet-migration-plan.schema.json",
   "contracts/markets/app-store.schema.json",
@@ -127,6 +128,25 @@ test("P0-P5 이관 단계와 P5 안전 삭제 gate를 문서 계약으로 고정
   assert.match(cleanup, /이 문서는 삭제 승인이 아니며/u);
   assert.match(cleanup, /사용자 명시 승인/u);
   assert.match(cleanup, /확인되지 않은 consumer/u);
+});
+
+test("P7 chain head는 외부 durable CAS와 live current reservation readback을 명시한다", async () => {
+  const controlPlane = await readFile(
+    resolve(REPOSITORY_ROOT, "docs/fleet-control-plane.md"),
+    "utf8",
+  );
+  const packageReadme = await readFile(
+    resolve(REPOSITORY_ROOT, "packages/repo-contract/README.md"),
+    "utf8",
+  );
+
+  for (const document of [controlPlane, packageReadme]) {
+    assert.match(document, /durable CAS|durable compare-and-swap/u);
+    assert.match(document, /live readback|trustedStateAuthorityReadback/u);
+    assert.match(document, /STATE_AUTHORITY_READBACK_REQUIRED/u);
+  }
+  assert.match(controlPlane, /외부 CAS를 구현했다고 주장하지 않/u);
+  assert.match(controlPlane, /mutation 직전에 같은 reservation을/u);
 });
 
 test("Contract Checks는 읽기 전용 중앙 정적 검증만 수행한다", async () => {

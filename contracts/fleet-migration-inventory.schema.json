@@ -5,15 +5,26 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion", "inventoryId", "capturedAt", "organization", "detector",
-    "coverage", "expectedCounts", "repositories", "attestation"
+    "schemaVersion",
+    "inventoryId",
+    "capturedAt",
+    "expiresAt",
+    "organization",
+    "detector",
+    "coverage",
+    "expectedCounts",
+    "lineage",
+    "repositories",
+    "attestation"
   ],
   "properties": {
     "schemaVersion": { "const": 1 },
     "inventoryId": { "$ref": "#/$defs/evidenceId" },
     "capturedAt": { "$ref": "#/$defs/dateTime" },
+    "expiresAt": { "$ref": "#/$defs/dateTime" },
     "organization": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["id", "login"],
       "properties": {
         "id": { "$ref": "#/$defs/numericId" },
@@ -21,8 +32,15 @@
       }
     },
     "detector": {
-      "type": "object", "additionalProperties": false,
-      "required": ["repositoryId", "fullName", "sourceRef", "sourceSha", "contract"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repositoryId",
+        "fullName",
+        "sourceRef",
+        "sourceSha",
+        "contract"
+      ],
       "properties": {
         "repositoryId": { "$ref": "#/$defs/numericId" },
         "fullName": { "const": "seorilabs/.github" },
@@ -32,25 +50,59 @@
       }
     },
     "coverage": {
-      "type": "object", "additionalProperties": false,
-      "required": ["provider", "readbackId", "observedAt", "complete", "nextCursor", "activeRepositoryCount", "repositoriesDigest", "pages"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "installationId",
+        "query",
+        "readbackId",
+        "snapshotId",
+        "observedAt",
+        "complete",
+        "nextCursor",
+        "providerTotalCount",
+        "activeRepositoryCount",
+        "repositoriesDigest",
+        "pages"
+      ],
       "properties": {
         "provider": { "const": "GITHUB_APP_INSTALLATION_REPOSITORY_READBACK" },
+        "installationId": { "$ref": "#/$defs/numericId" },
+        "query": { "$ref": "#/$defs/coverageQuery" },
         "readbackId": { "$ref": "#/$defs/evidenceId" },
+        "snapshotId": { "$ref": "#/$defs/evidenceId" },
         "observedAt": { "$ref": "#/$defs/dateTime" },
         "complete": { "type": "boolean" },
         "nextCursor": { "$ref": "#/$defs/nullableCursor" },
-        "activeRepositoryCount": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "providerTotalCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "activeRepositoryCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
         "repositoriesDigest": { "$ref": "#/$defs/digest" },
         "pages": {
-          "type": "array", "minItems": 1, "maxItems": 1000,
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
           "items": { "$ref": "#/$defs/coveragePage" }
         }
       }
     },
     "expectedCounts": {
-      "type": "object", "additionalProperties": false,
-      "required": ["activeRepositories", "legacyOperationJson", "workflowSecretsInherit", "workflowFloatingRef"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activeRepositories",
+        "legacyOperationJson",
+        "workflowSecretsInherit",
+        "workflowFloatingRef"
+      ],
       "properties": {
         "activeRepositories": { "$ref": "#/$defs/count" },
         "legacyOperationJson": { "$ref": "#/$defs/count" },
@@ -58,8 +110,11 @@
         "workflowFloatingRef": { "$ref": "#/$defs/count" }
       }
     },
+    "lineage": { "$ref": "#/$defs/inventoryLineage" },
     "repositories": {
-      "type": "array", "minItems": 1, "maxItems": 10000,
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
       "items": { "$ref": "#/$defs/repositoryObservation" }
     },
     "attestation": {
@@ -70,43 +125,388 @@
     "numericId": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
     "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-    "dateTime": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$" },
-    "evidenceId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$" },
+    "dateTime": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$"
+    },
+    "evidenceId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+    },
     "appId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$" },
-    "ownerId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{2,127}$" },
-    "keyId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$" },
+    "ownerId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{2,127}$"
+    },
+    "keyId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+    },
+    "nullableAppId": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/appId" }]
+    },
+    "nullableEvidenceId": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+    },
+    "nullableDigest": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }]
+    },
+    "nullableKeyId": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/keyId" }]
+    },
     "count": { "type": "integer", "minimum": 0, "maximum": 100000 },
-    "sourceRef": { "type": "string", "pattern": "^refs/heads/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,126}[A-Za-z0-9])?$" },
-    "relativePath": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:\\/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$" },
-    "cursor": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[A-Za-z0-9._~+/=-]+$" },
-    "nullableCursor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/cursor" }] },
+    "expectedCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activeRepositories",
+        "legacyOperationJson",
+        "workflowSecretsInherit",
+        "workflowFloatingRef"
+      ],
+      "properties": {
+        "activeRepositories": { "$ref": "#/$defs/count" },
+        "legacyOperationJson": { "$ref": "#/$defs/count" },
+        "workflowSecretsInherit": { "$ref": "#/$defs/count" },
+        "workflowFloatingRef": { "$ref": "#/$defs/count" }
+      }
+    },
+    "inventoryLineage": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "waveNumber",
+            "priorInventoryId",
+            "priorInventoryDigest",
+            "priorCapturedAt",
+            "priorObservedCounts",
+            "rootInventoryId",
+            "rootInventoryDigest",
+            "chainDigest",
+            "ancestry"
+          ],
+          "properties": {
+            "mode": { "const": "BOOTSTRAP" },
+            "waveNumber": { "const": 0 },
+            "priorInventoryId": { "const": null },
+            "priorInventoryDigest": { "const": null },
+            "priorCapturedAt": { "const": null },
+            "priorObservedCounts": { "const": null },
+            "rootInventoryId": { "const": null },
+            "rootInventoryDigest": { "const": null },
+            "chainDigest": { "const": null },
+            "ancestry": { "type": "array", "maxItems": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "waveNumber",
+            "priorInventoryId",
+            "priorInventoryDigest",
+            "priorCapturedAt",
+            "priorObservedCounts",
+            "rootInventoryId",
+            "rootInventoryDigest",
+            "chainDigest",
+            "ancestry"
+          ],
+          "properties": {
+            "mode": { "const": "WAVE" },
+            "waveNumber": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "priorInventoryId": { "$ref": "#/$defs/evidenceId" },
+            "priorInventoryDigest": { "$ref": "#/$defs/digest" },
+            "priorCapturedAt": { "$ref": "#/$defs/dateTime" },
+            "priorObservedCounts": { "$ref": "#/$defs/expectedCounts" },
+            "rootInventoryId": { "$ref": "#/$defs/evidenceId" },
+            "rootInventoryDigest": { "$ref": "#/$defs/digest" },
+            "chainDigest": { "$ref": "#/$defs/digest" },
+            "ancestry": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1000,
+              "items": { "$ref": "#/$defs/inventoryCheckpoint" }
+            }
+          }
+        }
+      ]
+    },
+    "lineageCommitment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "waveNumber",
+        "priorInventoryId",
+        "priorInventoryDigest",
+        "priorCapturedAt",
+        "priorObservedCounts",
+        "rootInventoryId",
+        "rootInventoryDigest",
+        "chainDigest"
+      ],
+      "properties": {
+        "mode": { "enum": ["BOOTSTRAP", "WAVE"] },
+        "waveNumber": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "priorInventoryId": { "$ref": "#/$defs/nullableEvidenceId" },
+        "priorInventoryDigest": { "$ref": "#/$defs/nullableDigest" },
+        "priorCapturedAt": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/dateTime" }]
+        },
+        "priorObservedCounts": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/expectedCounts" }]
+        },
+        "rootInventoryId": { "$ref": "#/$defs/nullableEvidenceId" },
+        "rootInventoryDigest": { "$ref": "#/$defs/nullableDigest" },
+        "chainDigest": { "$ref": "#/$defs/nullableDigest" }
+      }
+    },
+    "inventoryCheckpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inventoryId",
+        "inventoryDigest",
+        "capturedAt",
+        "expiresAt",
+        "organizationId",
+        "organizationLogin",
+        "installationId",
+        "coverageProvider",
+        "coverageQuery",
+        "coverageObservedAt",
+        "coverageReadbackId",
+        "coverageSnapshotId",
+        "providerTotalCount",
+        "detectorSourceSha",
+        "repositoriesDigest",
+        "expectedCounts",
+        "lineageCommitment",
+        "attestation"
+      ],
+      "properties": {
+        "inventoryId": { "$ref": "#/$defs/evidenceId" },
+        "inventoryDigest": { "$ref": "#/$defs/digest" },
+        "capturedAt": { "$ref": "#/$defs/dateTime" },
+        "expiresAt": { "$ref": "#/$defs/dateTime" },
+        "organizationId": { "$ref": "#/$defs/numericId" },
+        "organizationLogin": { "const": "seorilabs" },
+        "installationId": { "$ref": "#/$defs/numericId" },
+        "coverageProvider": {
+          "const": "GITHUB_APP_INSTALLATION_REPOSITORY_READBACK"
+        },
+        "coverageQuery": { "$ref": "#/$defs/coverageQuery" },
+        "coverageObservedAt": { "$ref": "#/$defs/dateTime" },
+        "coverageReadbackId": { "$ref": "#/$defs/evidenceId" },
+        "coverageSnapshotId": { "$ref": "#/$defs/evidenceId" },
+        "providerTotalCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "detectorSourceSha": { "$ref": "#/$defs/sha" },
+        "repositoriesDigest": { "$ref": "#/$defs/digest" },
+        "expectedCounts": { "$ref": "#/$defs/expectedCounts" },
+        "lineageCommitment": { "$ref": "#/$defs/lineageCommitment" },
+        "attestation": { "$ref": "#/$defs/inventoryAttestation" }
+      }
+    },
+    "sourceRef": {
+      "type": "string",
+      "pattern": "^refs/heads/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,126}[A-Za-z0-9])?$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:\\/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+    },
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z0-9._~+/=-]+$"
+    },
+    "nullableCursor": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/cursor" }]
+    },
+    "repositoryClassification": {
+      "enum": ["PRODUCT_APP", "INFRA_REPO", "PLATFORM_PRODUCER", "EXCLUDED"]
+    },
+    "coverageQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["organizationLogin", "archived", "pageSize"],
+      "properties": {
+        "organizationLogin": { "const": "seorilabs" },
+        "archived": { "const": false },
+        "pageSize": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
     "marketBuildTarget": { "enum": ["ANDROID", "IOS", "APPS_IN_TOSS", "WEB"] },
-    "buildTarget": { "enum": ["ORG_CONTRACT_STATIC", "ANDROID", "IOS", "APPS_IN_TOSS", "WEB"] },
+    "buildTarget": {
+      "enum": ["ORG_CONTRACT_STATIC", "ANDROID", "IOS", "APPS_IN_TOSS", "WEB"]
+    },
     "coveragePage": {
-      "type": "object", "additionalProperties": false,
-      "required": ["pageNumber", "requestCursor", "responseNextCursor", "repositoryIds", "pageDigest"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pageNumber",
+        "requestCursor",
+        "responseNextCursor",
+        "hasNextPage",
+        "providerTotalCount",
+        "repositoryIds",
+        "pageDigest"
+      ],
       "properties": {
         "pageNumber": { "type": "integer", "minimum": 1, "maximum": 1000 },
         "requestCursor": { "$ref": "#/$defs/nullableCursor" },
         "responseNextCursor": { "$ref": "#/$defs/nullableCursor" },
-        "repositoryIds": { "type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": { "$ref": "#/$defs/numericId" } },
+        "hasNextPage": { "type": "boolean" },
+        "providerTotalCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "repositoryIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/numericId" }
+        },
         "pageDigest": { "$ref": "#/$defs/digest" }
       }
     },
     "repository": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "fullName", "defaultRef", "sourceSha", "archived"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "fullName",
+        "defaultRef",
+        "sourceSha",
+        "archived",
+        "fork",
+        "classification",
+        "classificationDecisionRevision",
+        "classificationDecisionId"
+      ],
       "properties": {
         "id": { "$ref": "#/$defs/numericId" },
-        "fullName": { "type": "string", "pattern": "^seorilabs/[A-Za-z0-9._-]+$" },
+        "fullName": {
+          "type": "string",
+          "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+        },
         "defaultRef": { "$ref": "#/$defs/sourceRef" },
         "sourceSha": { "$ref": "#/$defs/sha" },
-        "archived": { "const": false }
+        "archived": { "const": false },
+        "fork": { "type": "boolean" },
+        "classification": { "$ref": "#/$defs/repositoryClassification" },
+        "classificationDecisionRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "classificationDecisionId": { "$ref": "#/$defs/nullableEvidenceId" }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "appId",
+        "repositoryId",
+        "fullName",
+        "sourceRef",
+        "sourceSha",
+        "platformAppId",
+        "classificationDecisionRevision",
+        "classificationDecisionId"
+      ],
+      "properties": {
+        "kind": { "enum": ["PRODUCT_APP", "REPOSITORY"] },
+        "appId": { "$ref": "#/$defs/nullableAppId" },
+        "repositoryId": { "$ref": "#/$defs/numericId" },
+        "fullName": {
+          "type": "string",
+          "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+        },
+        "sourceRef": { "$ref": "#/$defs/sourceRef" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "platformAppId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/appId" }]
+        },
+        "classificationDecisionRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "classificationDecisionId": { "$ref": "#/$defs/nullableEvidenceId" }
+      }
+    },
+    "treeReadback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "readbackId",
+        "observedAt",
+        "repositoryId",
+        "sourceSha",
+        "treeSha",
+        "recursive",
+        "truncated",
+        "entryCount",
+        "blobCount",
+        "scannedBlobCount",
+        "canonicalEntriesDigest",
+        "evidenceDigest"
+      ],
+      "properties": {
+        "provider": { "const": "GITHUB_GIT_TREE" },
+        "readbackId": { "$ref": "#/$defs/evidenceId" },
+        "observedAt": { "$ref": "#/$defs/dateTime" },
+        "repositoryId": { "$ref": "#/$defs/numericId" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "treeSha": { "$ref": "#/$defs/sha" },
+        "recursive": { "const": true },
+        "truncated": { "const": false },
+        "entryCount": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+        "blobCount": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+        "scannedBlobCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "canonicalEntriesDigest": { "$ref": "#/$defs/digest" },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
       }
     },
     "discoveryObservation": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "observedAt", "repositoryId", "sourceRef", "sourceSha", "treeSha", "findingsDigest"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "observedAt",
+        "repositoryId",
+        "sourceRef",
+        "sourceSha",
+        "treeSha",
+        "treeReadback",
+        "findingsDigest"
+      ],
       "properties": {
         "id": { "$ref": "#/$defs/evidenceId" },
         "observedAt": { "$ref": "#/$defs/dateTime" },
@@ -114,11 +514,13 @@
         "sourceRef": { "$ref": "#/$defs/sourceRef" },
         "sourceSha": { "$ref": "#/$defs/sha" },
         "treeSha": { "$ref": "#/$defs/sha" },
+        "treeReadback": { "$ref": "#/$defs/treeReadback" },
         "findingsDigest": { "$ref": "#/$defs/digest" }
       }
     },
     "gitEntry": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["kind", "mode", "objectSha"],
       "properties": {
         "kind": { "const": "BLOB" },
@@ -127,49 +529,116 @@
       }
     },
     "legacyDetection": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["type", "contract", "schemaId", "matchedBy", "detectorSha"],
       "properties": {
         "type": { "const": "LEGACY_OPERATION_JSON" },
-        "contract": { "enum": ["GOOGLE_PLAY", "APP_STORE", "APPS_IN_TOSS", "MARKET_LAUNCH_STATE", "PLATFORM_REGISTRY_APP", "BACKOFFICE_OPERATIONS"] },
+        "contract": {
+          "enum": [
+            "GOOGLE_PLAY",
+            "APP_STORE",
+            "APPS_IN_TOSS",
+            "MARKET_LAUNCH_STATE",
+            "PLATFORM_REGISTRY_APP",
+            "BACKOFFICE_OPERATIONS"
+          ]
+        },
         "schemaId": { "type": "string", "minLength": 16, "maxLength": 256 },
         "matchedBy": { "const": "SCHEMA_VALIDATION" },
         "detectorSha": { "$ref": "#/$defs/sha" }
       }
     },
     "secretsInheritDetection": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["type", "detectorSha", "occurrenceLines"],
       "properties": {
         "type": { "const": "WORKFLOW_SECRETS_INHERIT" },
         "detectorSha": { "$ref": "#/$defs/sha" },
-        "occurrenceLines": { "type": "array", "minItems": 1, "maxItems": 1000, "uniqueItems": true, "items": { "type": "integer", "minimum": 1, "maximum": 1000000 } }
+        "occurrenceLines": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+        }
       }
     },
     "floatingRefDetection": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "detectorSha", "calledWorkflow", "ref", "occurrenceLines"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "detectorSha",
+        "calledWorkflow",
+        "ref",
+        "occurrenceLines"
+      ],
       "properties": {
         "type": { "const": "WORKFLOW_FLOATING_REF" },
         "detectorSha": { "$ref": "#/$defs/sha" },
-        "calledWorkflow": { "type": "string", "pattern": "^seorilabs/\\.github/\\.github/workflows/[a-z0-9-]+\\.yml$" },
-        "ref": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$" },
-        "occurrenceLines": { "type": "array", "minItems": 1, "maxItems": 1000, "uniqueItems": true, "items": { "type": "integer", "minimum": 1, "maximum": 1000000 } }
+        "calledWorkflow": {
+          "type": "string",
+          "pattern": "^seorilabs/\\.github/\\.github/workflows/[a-z0-9-]+\\.yml$"
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"
+        },
+        "occurrenceLines": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+        }
       }
     },
     "unclassifiedDetection": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["type", "detectorSha", "reason", "candidateKinds"],
       "properties": {
         "type": { "const": "UNCLASSIFIED" },
         "detectorSha": { "$ref": "#/$defs/sha" },
-        "reason": { "enum": ["MULTIPLE_MATCHES", "UNSUPPORTED_PATH", "INCOMPLETE_CONTENT_READBACK", "NON_CENTRAL_FLOATING_REF", "UNSAFE_GIT_ENTRY"] },
-        "candidateKinds": { "type": "array", "maxItems": 3, "uniqueItems": true, "items": { "enum": ["LEGACY_OPERATION_JSON", "WORKFLOW_SECRETS_INHERIT", "WORKFLOW_FLOATING_REF"] } }
+        "reason": {
+          "enum": [
+            "MULTIPLE_MATCHES",
+            "UNSUPPORTED_PATH",
+            "INCOMPLETE_CONTENT_READBACK",
+            "NON_CENTRAL_FLOATING_REF",
+            "UNSAFE_GIT_ENTRY"
+          ]
+        },
+        "candidateKinds": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "LEGACY_OPERATION_JSON",
+              "WORKFLOW_SECRETS_INHERIT",
+              "WORKFLOW_FLOATING_REF"
+            ]
+          }
+        }
       }
     },
     "resolvedManifestReplacement": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "appId", "configRevisionId", "configRevisionDigest", "signedSnapshotDigest", "signatureKeyId", "policyRevision"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "appId",
+        "configRevisionId",
+        "configRevisionDigest",
+        "signedSnapshotDigest",
+        "signatureKeyId",
+        "policyRevision"
+      ],
       "properties": {
         "type": { "const": "SIGNED_RESOLVED_MANIFEST" },
         "appId": { "$ref": "#/$defs/appId" },
@@ -181,37 +650,137 @@
       }
     },
     "explicitSecretsReplacement": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "replacementBlobDigest", "workflowBundleSha", "namedCredentialLogicalIds"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "replacementBlobDigest",
+        "workflowBundleSha",
+        "namedCredentialBindings"
+      ],
       "properties": {
         "type": { "const": "EXPLICIT_SECRET_MAPPING" },
         "replacementBlobDigest": { "$ref": "#/$defs/digest" },
         "workflowBundleSha": { "$ref": "#/$defs/sha" },
-        "namedCredentialLogicalIds": { "type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+){2,7}$" } }
+        "namedCredentialBindings": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/namedCredentialBinding" }
+        }
+      }
+    },
+    "namedCredentialBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "secretName",
+        "logicalCredentialId",
+        "provider",
+        "capability",
+        "environment",
+        "publicIdentity",
+        "fingerprint",
+        "policyRevision"
+      ],
+      "properties": {
+        "secretName": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{1,127}$"
+        },
+        "logicalCredentialId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+){2,7}$"
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$"
+        },
+        "capability": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$"
+        },
+        "environment": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$"
+        },
+        "publicIdentity": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 512 }
+          ]
+        },
+        "fingerprint": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 8, "maxLength": 256 }
+          ]
+        },
+        "policyRevision": { "$ref": "#/$defs/evidenceId" }
       }
     },
     "pinnedWorkflowReplacement": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "replacementBlobDigest", "workflowBundleSha", "workflowRef"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "replacementBlobDigest",
+        "workflowBundleSha",
+        "workflowRef"
+      ],
       "properties": {
         "type": { "const": "PINNED_WORKFLOW_CALLER" },
         "replacementBlobDigest": { "$ref": "#/$defs/digest" },
         "workflowBundleSha": { "$ref": "#/$defs/sha" },
-        "workflowRef": { "type": "string", "pattern": "^seorilabs/\\.github/\\.github/workflows/[a-z0-9-]+\\.yml@[0-9a-f]{40}$" }
+        "workflowRef": {
+          "type": "string",
+          "pattern": "^seorilabs/\\.github/\\.github/workflows/[a-z0-9-]+\\.yml@[0-9a-f]{40}$"
+        }
       }
     },
-    "replacement": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/resolvedManifestReplacement" }, { "$ref": "#/$defs/explicitSecretsReplacement" }, { "$ref": "#/$defs/pinnedWorkflowReplacement" }] },
+    "replacement": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/resolvedManifestReplacement" },
+        { "$ref": "#/$defs/explicitSecretsReplacement" },
+        { "$ref": "#/$defs/pinnedWorkflowReplacement" }
+      ]
+    },
     "activeConfigReadback": {
       "oneOf": [
         { "type": "null" },
         {
-          "type": "object", "additionalProperties": false,
-          "required": ["observationId", "observedAt", "appId", "repositoryId", "sourceSha", "configRevisionId", "configRevisionDigest", "signedSnapshotDigest", "signatureKeyId", "policyRevision", "ownerId", "state", "evidenceDigest"],
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observationId",
+            "observedAt",
+            "appId",
+            "repositoryId",
+            "sourceSha",
+            "configRevisionId",
+            "configRevisionDigest",
+            "signedSnapshotDigest",
+            "signatureKeyId",
+            "policyRevision",
+            "ownerId",
+            "state",
+            "evidenceDigest"
+          ],
           "properties": {
-            "observationId": { "$ref": "#/$defs/evidenceId" }, "observedAt": { "$ref": "#/$defs/dateTime" }, "appId": { "$ref": "#/$defs/appId" },
-            "repositoryId": { "$ref": "#/$defs/numericId" }, "sourceSha": { "$ref": "#/$defs/sha" }, "configRevisionId": { "$ref": "#/$defs/evidenceId" },
-            "configRevisionDigest": { "$ref": "#/$defs/digest" }, "signedSnapshotDigest": { "$ref": "#/$defs/digest" }, "signatureKeyId": { "$ref": "#/$defs/keyId" },
-            "policyRevision": { "$ref": "#/$defs/evidenceId" }, "ownerId": { "$ref": "#/$defs/ownerId" }, "state": { "const": "ACTIVE" }, "evidenceDigest": { "$ref": "#/$defs/digest" }
+            "observationId": { "$ref": "#/$defs/evidenceId" },
+            "observedAt": { "$ref": "#/$defs/dateTime" },
+            "appId": { "$ref": "#/$defs/appId" },
+            "repositoryId": { "$ref": "#/$defs/numericId" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "configRevisionId": { "$ref": "#/$defs/evidenceId" },
+            "configRevisionDigest": { "$ref": "#/$defs/digest" },
+            "signedSnapshotDigest": { "$ref": "#/$defs/digest" },
+            "signatureKeyId": { "$ref": "#/$defs/keyId" },
+            "policyRevision": { "$ref": "#/$defs/evidenceId" },
+            "ownerId": { "$ref": "#/$defs/ownerId" },
+            "state": { "const": "ACTIVE" },
+            "evidenceDigest": { "$ref": "#/$defs/digest" }
           }
         }
       ]
@@ -220,23 +789,48 @@
       "oneOf": [
         { "type": "null" },
         {
-          "type": "object", "additionalProperties": false,
-          "required": ["observationId", "observedAt", "appId", "repositoryId", "sourceSha", "configRevisionId", "state", "marketBuildTargets", "evidenceDigest"],
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observationId",
+            "observedAt",
+            "appId",
+            "repositoryId",
+            "sourceSha",
+            "configRevisionId",
+            "state",
+            "marketBuildTargets",
+            "evidenceDigest"
+          ],
           "properties": {
-            "observationId": { "$ref": "#/$defs/evidenceId" }, "observedAt": { "$ref": "#/$defs/dateTime" }, "appId": { "$ref": "#/$defs/appId" },
-            "repositoryId": { "$ref": "#/$defs/numericId" }, "sourceSha": { "$ref": "#/$defs/sha" }, "configRevisionId": { "$ref": "#/$defs/evidenceId" },
-            "state": { "const": "ACTIVE" }, "marketBuildTargets": { "type": "array", "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/marketBuildTarget" } },
+            "observationId": { "$ref": "#/$defs/evidenceId" },
+            "observedAt": { "$ref": "#/$defs/dateTime" },
+            "appId": { "$ref": "#/$defs/appId" },
+            "repositoryId": { "$ref": "#/$defs/numericId" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "configRevisionId": { "$ref": "#/$defs/evidenceId" },
+            "state": { "const": "ACTIVE" },
+            "marketBuildTargets": {
+              "type": "array",
+              "maxItems": 4,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/marketBuildTarget" }
+            },
             "evidenceDigest": { "$ref": "#/$defs/digest" }
           }
         }
       ]
     },
     "workflowBinding": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["target", "workflowRef", "builderDigest"],
       "properties": {
         "target": { "$ref": "#/$defs/buildTarget" },
-        "workflowRef": { "type": "string", "pattern": "^seorilabs/\\.github/\\.github/workflows/[a-z0-9-]+\\.yml@[0-9a-f]{40}$" },
+        "workflowRef": {
+          "type": "string",
+          "pattern": "^seorilabs/\\.github/\\.github/workflows/[a-z0-9-]+\\.yml@[0-9a-f]{40}$"
+        },
         "builderDigest": { "$ref": "#/$defs/digest" }
       }
     },
@@ -244,12 +838,82 @@
       "oneOf": [
         { "type": "null" },
         {
-          "type": "object", "additionalProperties": false,
-          "required": ["observationId", "observedAt", "appId", "repositoryId", "sourceSha", "workflowBundleSha", "state", "bindings", "evidenceDigest"],
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observationId",
+            "observedAt",
+            "appId",
+            "repositoryId",
+            "sourceSha",
+            "workflowBundleSha",
+            "state",
+            "bindings",
+            "evidenceDigest"
+          ],
           "properties": {
-            "observationId": { "$ref": "#/$defs/evidenceId" }, "observedAt": { "$ref": "#/$defs/dateTime" }, "appId": { "$ref": "#/$defs/appId" },
-            "repositoryId": { "$ref": "#/$defs/numericId" }, "sourceSha": { "$ref": "#/$defs/sha" }, "workflowBundleSha": { "$ref": "#/$defs/sha" },
-            "state": { "const": "APPROVED" }, "bindings": { "type": "array", "minItems": 1, "maxItems": 5, "items": { "$ref": "#/$defs/workflowBinding" } },
+            "observationId": { "$ref": "#/$defs/evidenceId" },
+            "observedAt": { "$ref": "#/$defs/dateTime" },
+            "appId": { "$ref": "#/$defs/nullableAppId" },
+            "repositoryId": { "$ref": "#/$defs/numericId" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "workflowBundleSha": { "$ref": "#/$defs/sha" },
+            "state": { "const": "APPROVED" },
+            "bindings": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 5,
+              "items": { "$ref": "#/$defs/workflowBinding" }
+            },
+            "evidenceDigest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "platformFleetBindingReadback": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observationId",
+            "observedAt",
+            "appId",
+            "appRevision",
+            "appDigest",
+            "appRepositoryId",
+            "appSourceSha",
+            "platformAppId",
+            "platformRepositoryId",
+            "platformSourceSha",
+            "classificationDecisionRevision",
+            "classificationDecisionId",
+            "bindingRevision",
+            "bindingDigest",
+            "state",
+            "evidenceDigest"
+          ],
+          "properties": {
+            "observationId": { "$ref": "#/$defs/evidenceId" },
+            "observedAt": { "$ref": "#/$defs/dateTime" },
+            "appId": { "$ref": "#/$defs/appId" },
+            "appRevision": { "$ref": "#/$defs/numericId" },
+            "appDigest": { "$ref": "#/$defs/digest" },
+            "appRepositoryId": { "$ref": "#/$defs/numericId" },
+            "appSourceSha": { "$ref": "#/$defs/sha" },
+            "platformAppId": { "$ref": "#/$defs/appId" },
+            "platformRepositoryId": { "$ref": "#/$defs/numericId" },
+            "platformSourceSha": { "$ref": "#/$defs/sha" },
+            "classificationDecisionRevision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            },
+            "classificationDecisionId": { "$ref": "#/$defs/evidenceId" },
+            "bindingRevision": { "$ref": "#/$defs/numericId" },
+            "bindingDigest": { "$ref": "#/$defs/digest" },
+            "state": { "const": "ACTIVE" },
             "evidenceDigest": { "$ref": "#/$defs/digest" }
           }
         }
@@ -259,54 +923,304 @@
       "oneOf": [
         { "type": "null" },
         {
-          "type": "object", "additionalProperties": false,
-          "required": ["observationId", "observedAt", "repositoryId", "sourceRef", "sourceSha", "path", "gitEntry", "contentDigest", "state", "evidenceDigest"],
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observationId",
+            "observedAt",
+            "repositoryId",
+            "sourceRef",
+            "sourceSha",
+            "treeSha",
+            "path",
+            "gitEntry",
+            "contentDigest",
+            "state",
+            "evidenceDigest"
+          ],
           "properties": {
-            "observationId": { "$ref": "#/$defs/evidenceId" }, "observedAt": { "$ref": "#/$defs/dateTime" }, "repositoryId": { "$ref": "#/$defs/numericId" },
-            "sourceRef": { "$ref": "#/$defs/sourceRef" }, "sourceSha": { "$ref": "#/$defs/sha" }, "path": { "$ref": "#/$defs/relativePath" },
-            "gitEntry": { "$ref": "#/$defs/gitEntry" }, "contentDigest": { "$ref": "#/$defs/digest" }, "state": { "const": "MATCH" }, "evidenceDigest": { "$ref": "#/$defs/digest" }
+            "observationId": { "$ref": "#/$defs/evidenceId" },
+            "observedAt": { "$ref": "#/$defs/dateTime" },
+            "repositoryId": { "$ref": "#/$defs/numericId" },
+            "sourceRef": { "$ref": "#/$defs/sourceRef" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "treeSha": { "$ref": "#/$defs/sha" },
+            "path": { "$ref": "#/$defs/relativePath" },
+            "gitEntry": { "$ref": "#/$defs/gitEntry" },
+            "contentDigest": { "$ref": "#/$defs/digest" },
+            "state": { "const": "MATCH" },
+            "evidenceDigest": { "$ref": "#/$defs/digest" }
           }
         }
       ]
     },
     "parityObservation": {
-      "type": "object", "additionalProperties": false,
-      "required": ["sequence", "observationId", "previousObservationId", "observedAt", "sourceSha", "currentContentDigest", "replacementDigest", "state", "evidenceDigest"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "observationId",
+        "previousObservationId",
+        "observedAt",
+        "sourceSha",
+        "subjectRepositoryId",
+        "subjectSourceSha",
+        "appId",
+        "currentContentDigest",
+        "replacementDigest",
+        "state",
+        "evidenceDigest"
+      ],
       "properties": {
-        "sequence": { "type": "integer", "minimum": 1, "maximum": 1000000 }, "observationId": { "$ref": "#/$defs/evidenceId" },
-        "previousObservationId": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }] }, "observedAt": { "$ref": "#/$defs/dateTime" },
-        "sourceSha": { "$ref": "#/$defs/sha" }, "currentContentDigest": { "$ref": "#/$defs/digest" }, "replacementDigest": { "$ref": "#/$defs/digest" },
-        "state": { "enum": ["MATCH", "MISMATCH"] }, "evidenceDigest": { "$ref": "#/$defs/digest" }
+        "sequence": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "observationId": { "$ref": "#/$defs/evidenceId" },
+        "previousObservationId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        },
+        "observedAt": { "$ref": "#/$defs/dateTime" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "subjectRepositoryId": { "$ref": "#/$defs/numericId" },
+        "subjectSourceSha": { "$ref": "#/$defs/sha" },
+        "appId": { "$ref": "#/$defs/nullableAppId" },
+        "currentContentDigest": { "$ref": "#/$defs/digest" },
+        "replacementDigest": { "$ref": "#/$defs/digest" },
+        "state": { "enum": ["MATCH", "MISMATCH"] },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
       }
     },
     "parityStream": {
-      "type": "object", "additionalProperties": false,
-      "required": ["streamId", "observations"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "streamId",
+        "readbackRevision",
+        "readbackAt",
+        "expiresAt",
+        "headObservationId",
+        "headSequence",
+        "totalObservations",
+        "observations",
+        "evidenceDigest"
+      ],
       "properties": {
         "streamId": { "$ref": "#/$defs/evidenceId" },
-        "observations": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/parityObservation" } }
+        "readbackRevision": { "$ref": "#/$defs/numericId" },
+        "readbackAt": { "$ref": "#/$defs/dateTime" },
+        "expiresAt": { "$ref": "#/$defs/dateTime" },
+        "headObservationId": { "$ref": "#/$defs/evidenceId" },
+        "headSequence": { "type": "integer", "minimum": 2, "maximum": 1000000 },
+        "totalObservations": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 1000000
+        },
+        "observations": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/parityObservation" }
+        },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
       }
     },
     "buildProof": {
-      "type": "object", "additionalProperties": false,
-      "required": ["target", "runRepositoryId", "runId", "runAttempt", "completedAt", "sourceSha", "workflowBundleSha", "workflowRef", "builderDigest", "state", "artifactDigest", "evidenceDigest"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "runRepositoryId",
+        "runId",
+        "runAttempt",
+        "completedAt",
+        "appId",
+        "sourceSha",
+        "configRevisionId",
+        "configRevisionDigest",
+        "signedSnapshotDigest",
+        "signatureKeyId",
+        "policyRevision",
+        "replacementDigest",
+        "workflowBundleSha",
+        "workflowRef",
+        "builderDigest",
+        "state",
+        "artifactDigest",
+        "evidenceDigest"
+      ],
       "properties": {
-        "target": { "$ref": "#/$defs/buildTarget" }, "runRepositoryId": { "$ref": "#/$defs/numericId" }, "runId": { "$ref": "#/$defs/numericId" },
-        "runAttempt": { "type": "integer", "minimum": 1, "maximum": 1000 }, "completedAt": { "$ref": "#/$defs/dateTime" }, "sourceSha": { "$ref": "#/$defs/sha" },
-        "workflowBundleSha": { "$ref": "#/$defs/sha" }, "workflowRef": { "type": "string", "pattern": "^seorilabs/\\.github/\\.github/workflows/[a-z0-9-]+\\.yml@[0-9a-f]{40}$" },
-        "builderDigest": { "$ref": "#/$defs/digest" }, "state": { "const": "PASSED" }, "artifactDigest": { "$ref": "#/$defs/digest" }, "evidenceDigest": { "$ref": "#/$defs/digest" }
+        "target": { "$ref": "#/$defs/buildTarget" },
+        "runRepositoryId": { "$ref": "#/$defs/numericId" },
+        "runId": { "$ref": "#/$defs/numericId" },
+        "runAttempt": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "completedAt": { "$ref": "#/$defs/dateTime" },
+        "appId": { "$ref": "#/$defs/nullableAppId" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "configRevisionId": { "$ref": "#/$defs/nullableEvidenceId" },
+        "configRevisionDigest": { "$ref": "#/$defs/nullableDigest" },
+        "signedSnapshotDigest": { "$ref": "#/$defs/nullableDigest" },
+        "signatureKeyId": { "$ref": "#/$defs/nullableKeyId" },
+        "policyRevision": { "$ref": "#/$defs/nullableEvidenceId" },
+        "replacementDigest": { "$ref": "#/$defs/digest" },
+        "workflowBundleSha": { "$ref": "#/$defs/sha" },
+        "workflowRef": {
+          "type": "string",
+          "pattern": "^seorilabs/\\.github/\\.github/workflows/[a-z0-9-]+\\.yml@[0-9a-f]{40}$"
+        },
+        "builderDigest": { "$ref": "#/$defs/digest" },
+        "state": { "const": "PASSED" },
+        "artifactDigest": { "$ref": "#/$defs/digest" },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
       }
+    },
+    "credentialBindingReadback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observationId",
+        "observedAt",
+        "appId",
+        "repositoryId",
+        "sourceSha",
+        "secretName",
+        "logicalCredentialId",
+        "provider",
+        "capability",
+        "environment",
+        "publicIdentity",
+        "fingerprint",
+        "consumer",
+        "scopeDigest",
+        "status",
+        "credentialGeneration",
+        "policyGeneration",
+        "policyRevision",
+        "replacementBlobDigest",
+        "evidenceDigest"
+      ],
+      "properties": {
+        "observationId": { "$ref": "#/$defs/evidenceId" },
+        "observedAt": { "$ref": "#/$defs/dateTime" },
+        "appId": { "$ref": "#/$defs/nullableAppId" },
+        "repositoryId": { "$ref": "#/$defs/numericId" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "secretName": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{1,127}$"
+        },
+        "logicalCredentialId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+){2,7}$"
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$"
+        },
+        "capability": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$"
+        },
+        "environment": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$"
+        },
+        "publicIdentity": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 512 }
+          ]
+        },
+        "fingerprint": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 8, "maxLength": 256 }
+          ]
+        },
+        "consumer": { "type": "string", "minLength": 8, "maxLength": 1024 },
+        "scopeDigest": { "$ref": "#/$defs/digest" },
+        "status": { "const": "ACTIVE" },
+        "credentialGeneration": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000
+        },
+        "policyGeneration": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000
+        },
+        "policyRevision": { "$ref": "#/$defs/evidenceId" },
+        "replacementBlobDigest": { "$ref": "#/$defs/digest" },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "consumerReadback": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observationId",
+            "readbackRevision",
+            "observedAt",
+            "repositoryId",
+            "sourceSha",
+            "path",
+            "operation",
+            "replacementDigest",
+            "consumerGraphDigest",
+            "legacyConsumerCount",
+            "parserFallbackState",
+            "dispatchReadbackState",
+            "state",
+            "evidenceDigest"
+          ],
+          "properties": {
+            "observationId": { "$ref": "#/$defs/evidenceId" },
+            "readbackRevision": { "$ref": "#/$defs/numericId" },
+            "observedAt": { "$ref": "#/$defs/dateTime" },
+            "repositoryId": { "$ref": "#/$defs/numericId" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "path": { "$ref": "#/$defs/relativePath" },
+            "operation": { "enum": ["DELETE", "REWRITE"] },
+            "replacementDigest": { "$ref": "#/$defs/digest" },
+            "consumerGraphDigest": { "$ref": "#/$defs/digest" },
+            "legacyConsumerCount": { "const": 0 },
+            "parserFallbackState": { "enum": ["DISABLED", "NOT_APPLICABLE"] },
+            "dispatchReadbackState": { "enum": ["MATCH", "NOT_APPLICABLE"] },
+            "state": { "const": "MATCH" },
+            "evidenceDigest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
     },
     "gitRestoreProof": {
       "oneOf": [
         { "type": "null" },
         {
-          "type": "object", "additionalProperties": false,
-          "required": ["sourceSha", "path", "originalGitEntry", "originalContentDigest", "state", "restoreValidationId", "verifiedAt", "evidenceDigest"],
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sourceSha",
+            "sourceTreeSha",
+            "path",
+            "originalGitEntry",
+            "originalContentDigest",
+            "state",
+            "restoreValidationId",
+            "verifiedAt",
+            "evidenceDigest"
+          ],
           "properties": {
-            "sourceSha": { "$ref": "#/$defs/sha" }, "path": { "$ref": "#/$defs/relativePath" }, "originalGitEntry": { "$ref": "#/$defs/gitEntry" },
-            "originalContentDigest": { "$ref": "#/$defs/digest" }, "state": { "const": "VERIFIED" }, "restoreValidationId": { "$ref": "#/$defs/evidenceId" },
-            "verifiedAt": { "$ref": "#/$defs/dateTime" }, "evidenceDigest": { "$ref": "#/$defs/digest" }
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "sourceTreeSha": { "$ref": "#/$defs/sha" },
+            "path": { "$ref": "#/$defs/relativePath" },
+            "originalGitEntry": { "$ref": "#/$defs/gitEntry" },
+            "originalContentDigest": { "$ref": "#/$defs/digest" },
+            "state": { "const": "VERIFIED" },
+            "restoreValidationId": { "$ref": "#/$defs/evidenceId" },
+            "verifiedAt": { "$ref": "#/$defs/dateTime" },
+            "evidenceDigest": { "$ref": "#/$defs/digest" }
           }
         }
       ]
@@ -315,13 +1229,35 @@
       "oneOf": [
         { "type": "null" },
         {
-          "type": "object", "additionalProperties": false,
-          "required": ["appId", "repositoryId", "sourceSha", "configRevisionId", "configRevisionDigest", "signedSnapshotDigest", "signatureKeyId", "policyRevision", "releaseReproductionDigest", "state", "verifiedAt", "evidenceDigest"],
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "appId",
+            "repositoryId",
+            "sourceSha",
+            "configRevisionId",
+            "configRevisionDigest",
+            "signedSnapshotDigest",
+            "signatureKeyId",
+            "policyRevision",
+            "releaseReproductionDigest",
+            "state",
+            "verifiedAt",
+            "evidenceDigest"
+          ],
           "properties": {
-            "appId": { "$ref": "#/$defs/appId" }, "repositoryId": { "$ref": "#/$defs/numericId" }, "sourceSha": { "$ref": "#/$defs/sha" },
-            "configRevisionId": { "$ref": "#/$defs/evidenceId" }, "configRevisionDigest": { "$ref": "#/$defs/digest" }, "signedSnapshotDigest": { "$ref": "#/$defs/digest" }, "signatureKeyId": { "$ref": "#/$defs/keyId" },
-            "policyRevision": { "$ref": "#/$defs/evidenceId" }, "releaseReproductionDigest": { "$ref": "#/$defs/digest" }, "state": { "const": "VERIFIED" },
-            "verifiedAt": { "$ref": "#/$defs/dateTime" }, "evidenceDigest": { "$ref": "#/$defs/digest" }
+            "appId": { "$ref": "#/$defs/appId" },
+            "repositoryId": { "$ref": "#/$defs/numericId" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "configRevisionId": { "$ref": "#/$defs/evidenceId" },
+            "configRevisionDigest": { "$ref": "#/$defs/digest" },
+            "signedSnapshotDigest": { "$ref": "#/$defs/digest" },
+            "signatureKeyId": { "$ref": "#/$defs/keyId" },
+            "policyRevision": { "$ref": "#/$defs/evidenceId" },
+            "releaseReproductionDigest": { "$ref": "#/$defs/digest" },
+            "state": { "const": "VERIFIED" },
+            "verifiedAt": { "$ref": "#/$defs/dateTime" },
+            "evidenceDigest": { "$ref": "#/$defs/digest" }
           }
         }
       ]
@@ -330,17 +1266,30 @@
       "oneOf": [
         { "type": "null" },
         {
-          "type": "object", "additionalProperties": false,
-          "required": ["ownerId", "approvalId", "scopeDigest", "state", "approvedAt", "evidenceDigest"],
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ownerId",
+            "approvalId",
+            "scopeDigest",
+            "state",
+            "approvedAt",
+            "evidenceDigest"
+          ],
           "properties": {
-            "ownerId": { "$ref": "#/$defs/ownerId" }, "approvalId": { "$ref": "#/$defs/evidenceId" }, "scopeDigest": { "$ref": "#/$defs/digest" },
-            "state": { "const": "APPROVED" }, "approvedAt": { "$ref": "#/$defs/dateTime" }, "evidenceDigest": { "$ref": "#/$defs/digest" }
+            "ownerId": { "$ref": "#/$defs/ownerId" },
+            "approvalId": { "$ref": "#/$defs/evidenceId" },
+            "scopeDigest": { "$ref": "#/$defs/digest" },
+            "state": { "const": "APPROVED" },
+            "approvedAt": { "$ref": "#/$defs/dateTime" },
+            "evidenceDigest": { "$ref": "#/$defs/digest" }
           }
         }
       ]
     },
     "rollbackProof": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["gitRestore", "backofficeOutageRecovery", "ownerGate"],
       "properties": {
         "gitRestore": { "$ref": "#/$defs/gitRestoreProof" },
@@ -352,57 +1301,143 @@
       "oneOf": [
         { "type": "null" },
         {
-          "type": "object", "additionalProperties": false,
-          "required": ["providerObservationId", "providerObservationRevision", "gateLedgerId", "gateLedgerRevision", "observedAt", "repositoryId", "appId", "sourceSha", "configRevisionId", "configRevisionDigest", "signedSnapshotDigest", "signatureKeyId", "policyRevision", "ownerId", "replacementDigest", "state", "evidenceDigest"],
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "providerObservationId",
+            "providerObservationRevision",
+            "gateLedgerId",
+            "gateLedgerRevision",
+            "observedAt",
+            "repositoryId",
+            "appId",
+            "sourceSha",
+            "configRevisionId",
+            "configRevisionDigest",
+            "signedSnapshotDigest",
+            "signatureKeyId",
+            "policyRevision",
+            "ownerId",
+            "replacementDigest",
+            "state",
+            "evidenceDigest"
+          ],
           "properties": {
-            "providerObservationId": { "$ref": "#/$defs/evidenceId" }, "providerObservationRevision": { "$ref": "#/$defs/numericId" },
-            "gateLedgerId": { "$ref": "#/$defs/evidenceId" }, "gateLedgerRevision": { "$ref": "#/$defs/numericId" }, "observedAt": { "$ref": "#/$defs/dateTime" },
-            "repositoryId": { "$ref": "#/$defs/numericId" }, "appId": { "$ref": "#/$defs/appId" }, "sourceSha": { "$ref": "#/$defs/sha" },
-            "configRevisionId": { "$ref": "#/$defs/evidenceId" }, "configRevisionDigest": { "$ref": "#/$defs/digest" }, "signedSnapshotDigest": { "$ref": "#/$defs/digest" },
-            "signatureKeyId": { "$ref": "#/$defs/keyId" }, "policyRevision": { "$ref": "#/$defs/evidenceId" }, "ownerId": { "$ref": "#/$defs/ownerId" },
-            "replacementDigest": { "$ref": "#/$defs/digest" }, "state": { "const": "MATCH" }, "evidenceDigest": { "$ref": "#/$defs/digest" }
+            "providerObservationId": { "$ref": "#/$defs/evidenceId" },
+            "providerObservationRevision": { "$ref": "#/$defs/numericId" },
+            "gateLedgerId": { "$ref": "#/$defs/evidenceId" },
+            "gateLedgerRevision": { "$ref": "#/$defs/numericId" },
+            "observedAt": { "$ref": "#/$defs/dateTime" },
+            "repositoryId": { "$ref": "#/$defs/numericId" },
+            "appId": { "$ref": "#/$defs/nullableAppId" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "configRevisionId": { "$ref": "#/$defs/nullableEvidenceId" },
+            "configRevisionDigest": { "$ref": "#/$defs/nullableDigest" },
+            "signedSnapshotDigest": { "$ref": "#/$defs/nullableDigest" },
+            "signatureKeyId": { "$ref": "#/$defs/nullableKeyId" },
+            "policyRevision": { "$ref": "#/$defs/nullableEvidenceId" },
+            "ownerId": { "$ref": "#/$defs/ownerId" },
+            "replacementDigest": { "$ref": "#/$defs/digest" },
+            "state": { "const": "MATCH" },
+            "evidenceDigest": { "$ref": "#/$defs/digest" }
           }
         }
       ]
     },
     "proofs": {
-      "type": "object", "additionalProperties": false,
-      "required": ["activeConfigReadback", "marketProfileReadback", "workflowBundleReadback", "sourceReadback", "parityStream", "buildOnly", "rollback", "controlPlaneReadback"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activeConfigReadback",
+        "marketProfileReadback",
+        "workflowBundleReadback",
+        "platformFleetBindingReadback",
+        "sourceReadback",
+        "parityStream",
+        "buildOnly",
+        "credentialBindings",
+        "consumerReadback",
+        "rollback",
+        "controlPlaneReadback"
+      ],
       "properties": {
         "activeConfigReadback": { "$ref": "#/$defs/activeConfigReadback" },
         "marketProfileReadback": { "$ref": "#/$defs/marketProfileReadback" },
         "workflowBundleReadback": { "$ref": "#/$defs/workflowBundleReadback" },
+        "platformFleetBindingReadback": {
+          "$ref": "#/$defs/platformFleetBindingReadback"
+        },
         "sourceReadback": { "$ref": "#/$defs/sourceReadback" },
         "parityStream": { "$ref": "#/$defs/parityStream" },
-        "buildOnly": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/buildProof" } },
+        "buildOnly": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/buildProof" }
+        },
+        "credentialBindings": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/credentialBindingReadback" }
+        },
+        "consumerReadback": { "$ref": "#/$defs/consumerReadback" },
         "rollback": { "$ref": "#/$defs/rollbackProof" },
         "controlPlaneReadback": { "$ref": "#/$defs/controlPlaneReadback" }
       }
     },
     "candidate": {
-      "type": "object", "additionalProperties": false,
-      "required": ["path", "gitEntry", "contentDigest", "detection", "replacement", "proofs"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "gitEntry",
+        "contentDigest",
+        "subject",
+        "detection",
+        "replacement",
+        "proofs"
+      ],
       "properties": {
         "path": { "$ref": "#/$defs/relativePath" },
         "gitEntry": { "$ref": "#/$defs/gitEntry" },
         "contentDigest": { "$ref": "#/$defs/digest" },
-        "detection": { "oneOf": [{ "$ref": "#/$defs/legacyDetection" }, { "$ref": "#/$defs/secretsInheritDetection" }, { "$ref": "#/$defs/floatingRefDetection" }, { "$ref": "#/$defs/unclassifiedDetection" }] },
+        "subject": { "$ref": "#/$defs/subject" },
+        "detection": {
+          "oneOf": [
+            { "$ref": "#/$defs/legacyDetection" },
+            { "$ref": "#/$defs/secretsInheritDetection" },
+            { "$ref": "#/$defs/floatingRefDetection" },
+            { "$ref": "#/$defs/unclassifiedDetection" }
+          ]
+        },
         "replacement": { "$ref": "#/$defs/replacement" },
         "proofs": { "$ref": "#/$defs/proofs" }
       }
     },
     "repositoryObservation": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["repository", "observation", "candidates"],
       "properties": {
         "repository": { "$ref": "#/$defs/repository" },
         "observation": { "$ref": "#/$defs/discoveryObservation" },
-        "candidates": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/candidate" } }
+        "candidates": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/candidate" }
+        }
       }
     },
     "inventoryAttestation": {
-      "type": "object", "additionalProperties": false,
-      "required": ["algorithm", "keyId", "policyRevision", "signedAt", "inventoryDigest", "value"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "keyId",
+        "policyRevision",
+        "signedAt",
+        "inventoryDigest",
+        "value"
+      ],
       "properties": {
         "algorithm": { "const": "Ed25519" },
         "keyId": { "$ref": "#/$defs/keyId" },
