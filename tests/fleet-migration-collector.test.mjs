@@ -590,8 +590,11 @@ test("Git tree의 공백, plus, Unicode와 backslash path를 손실 없이 diges
     "addons/FBLPromise+All.h",
     "assets/요약 아이콘.png",
     String.raw`assets/literal\backslash.txt`,
+    "assets/\u{e000}.txt",
+    "assets/\u{10000}.txt",
   ];
   const readTree = fixture.configuration.readRepositoryTree;
+  let expectedEntries;
   fixture.configuration.readRepositoryTree = async (request) => {
     const tree = await readTree(request);
     if (request.repositoryId === fixture.repositories[0].id) {
@@ -604,13 +607,32 @@ test("Git tree의 공백, plus, Unicode와 backslash path를 손실 없이 diges
           size: 1,
         })),
       );
+      expectedEntries = structuredClone(tree.entries).sort((left, right) =>
+        Buffer.compare(
+          Buffer.from(left.path, "utf8"),
+          Buffer.from(right.path, "utf8"),
+        ),
+      );
     }
     return tree;
   };
   const collected = await collect(fixture, { ...REQUEST, mode: "FIXTURE" });
+  const repository = collected.inventory.repositories[0];
   assert.equal(
-    collected.inventory.repositories[0].observation.treeReadback.entryCount,
+    repository.observation.treeReadback.entryCount,
     1 + extraPaths.length,
+  );
+  assert.equal(
+    repository.observation.treeReadback.canonicalEntriesDigest,
+    sha256(
+      canonicalJson({
+        contract: "seorilabs-fleet-migration-tree-entries-v1",
+        repositoryId: repository.repository.id,
+        sourceSha: repository.repository.sourceSha,
+        treeSha: repository.observation.treeSha,
+        entries: expectedEntries,
+      }),
+    ),
   );
 });
 

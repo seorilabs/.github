@@ -233,6 +233,21 @@ function isSafeGitTreePath(path) {
   );
 }
 
+// isSafeGitTreePath가 유효한 UTF-8 round-trip을 먼저 보장한다. 유효한 Unicode의
+// UTF-8 byte 순서는 code point 순서와 같으므로 비교마다 Buffer를 만들 필요가 없다.
+function compareSafeUtf8Paths(left, right) {
+  let leftOffset = 0;
+  let rightOffset = 0;
+  while (leftOffset < left.length && rightOffset < right.length) {
+    const leftPoint = left.codePointAt(leftOffset);
+    const rightPoint = right.codePointAt(rightOffset);
+    if (leftPoint !== rightPoint) return leftPoint < rightPoint ? -1 : 1;
+    leftOffset += leftPoint > 0xffff ? 2 : 1;
+    rightOffset += rightPoint > 0xffff ? 2 : 1;
+  }
+  return leftOffset < left.length ? 1 : rightOffset < right.length ? -1 : 0;
+}
+
 async function trustedReadback(callback, request, code) {
   try {
     const result = await callback(deepFreeze(structuredClone(request)));
@@ -685,7 +700,7 @@ function validateTree(value, repository, head) {
   }
   const entries = value.entries
     .map(validateTreeEntry)
-    .sort((left, right) => compareUtf8(left.path, right.path));
+    .sort((left, right) => compareSafeUtf8Paths(left.path, right.path));
   const paths = new Set();
   for (const entry of entries) {
     if (paths.has(entry.path)) {
