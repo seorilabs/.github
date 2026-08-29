@@ -152,3 +152,10 @@ short-lived installation token을 발급하는 exact capability executor가 별�
 `P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED`로 중단하며 ambient personal token으로 우회하지 않는다.
 이 CLI의 API client 자체도 GET만 허용하며 contract의 ready flag를 바꿔도 ambient `gh` mutation
 경로가 열리지 않는다.
+
+helper source와 adapter는 각각 `scripts/fleet/native/github-keychain-helper.swift`,
+`scripts/fleet/github-keychain-native-store.mjs`다. adapter는 외부에서 고정한 helper SHA-256과 Apple
+Team ID를 요구하고, helper는 같은 Team ID의 non-ad-hoc designated requirement를 자체 검증한다.
+두 exact target 외의 service/account, secret이 포함된 argv·environment, prompt 가능한 ACL, readback
+불일치, 부분 batch 보상 실패는 모두 fail-closed다. fixture 및 unsigned compile gate 통과만으로
+`blocked_unverified`를 `ready`로 바꾸지 않는다.

@@ -9,7 +9,7 @@ import {
   randomBytes,
 } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -20,6 +20,7 @@ import { parse, stringify } from "yaml";
 
 import { githubAppReadback } from "../scripts/fleet/github-app-readback.mjs";
 import { recoverGithubAppCredentials } from "../scripts/fleet/github-credential-recovery.mjs";
+import { openGithubKeychainCredentialStore } from "../scripts/fleet/github-keychain-native-store.mjs";
 import {
   createTrustedWifAdapter,
   createTrustedWifProviderPolicy,
@@ -166,6 +167,20 @@ test("GitHub App bootstrap은 active Backoffice App을 재사용하고 새 App�
     output.credentialRecovery.trustedAdapter.credentialStore,
     "security-framework-native-helper",
   );
+  assert.deepEqual(
+    {
+      nativeModule: output.credentialRecovery.trustedAdapter.nativeModule,
+      nativeEntrypoint: output.credentialRecovery.trustedAdapter.nativeEntrypoint,
+      helperIdentifier: output.credentialRecovery.trustedAdapter.helperIdentifier,
+      binaryProtocol: output.credentialRecovery.trustedAdapter.binaryProtocol,
+    },
+    {
+      nativeModule: "scripts/fleet/github-keychain-native-store.mjs",
+      nativeEntrypoint: "openGithubKeychainCredentialStore",
+      helperIdentifier: "com.seorilabs.fleet.github-keychain-helper",
+      binaryProtocol: "binary-stdin-v1",
+    },
+  );
   assert.equal(output.credentialRecovery.plaintextPolicy.newKeyGenerationAllowed, false);
   assert.deepEqual(
     output.credentialRecovery.mappings.map(({ targetCredentialId }) => targetCredentialId),
@@ -259,7 +274,33 @@ function tamperSealedNonce(ciphertextBase64) {
   return bytes.toString("base64");
 }
 
-test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하고 backup/readback을 강제한다", async () => {
+test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하고 backup/readback을 강제한다", async (context) => {
+  const fixtureRoot = await mkdtemp(join(tmpdir(), "p3-github-keychain-fixture-"));
+  context.after(() => rm(fixtureRoot, { recursive: true, force: true }));
+  const fixtureSource = await readFile(
+    "tests/fixtures/github-keychain-helper-fixture.mjs",
+    "utf8",
+  );
+  async function openFixtureStore(name) {
+    const fixturePath = join(fixtureRoot, name);
+    await writeFile(
+      fixturePath,
+      fixtureSource.replace(/^#![^\n]*/u, `#!${process.execPath}`),
+      { mode: 0o755 },
+    );
+    await chmod(fixturePath, 0o755);
+    const fixtureBytes = await readFile(fixturePath);
+    try {
+      return await openGithubKeychainCredentialStore({
+        helperPath: await realpath(fixturePath),
+        helperSha256: createHash("sha256").update(fixtureBytes).digest("hex"),
+        teamIdentifier: "SEORIFIX01",
+      });
+    } finally {
+      fixtureBytes.fill(0);
+    }
+  }
+  const credentialStore = await openFixtureStore("github-keychain-helper-fixture.mjs");
   const recoveryPair = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const appPair = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const appPrivateKey = Buffer.from(
@@ -310,7 +351,6 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
   syntheticContract.github.credentialRecovery.source.manifestSha256 =
     createHash("sha256").update(sourceBytes).digest("hex");
   const phases = [];
-  const storedEntries = [];
   const registered = [];
   const result = await recoverGithubAppCredentials({
     contract: syntheticContract,
@@ -339,13 +379,7 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
         registerBatch: async (entries) => registered.push(...entries),
         removeBatch: async () => assert.fail("successful recovery must not rollback catalog"),
       },
-      credentialStore: {
-        writeBatch: async (entries) => {
-          assert.deepEqual(entries.map(({ secret }) => secret), [appPrivateKey, webhook]);
-          storedEntries.push(...entries);
-        },
-        removeBatch: async () => assert.fail("successful recovery must not rollback keychain"),
-      },
+      credentialStore,
     },
   });
   assert.equal(result.state, "RECOVERED");
@@ -358,7 +392,21 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
     ],
   );
   assert.equal(registered.length, 2);
-  assert.ok(storedEntries.every(({ secret }) => secret.every((byte) => byte === 0)));
+  const appPublicKey = Buffer.from(
+    appPair.publicKey.export({ format: "der", type: "spki" }),
+  );
+  try {
+    assert.equal(
+      result.appPublicKeyFingerprintSha256,
+      createHash("sha256").update(appPublicKey).digest("hex"),
+    );
+  } finally {
+    appPublicKey.fill(0);
+  }
+  assert.equal(
+    result.webhookFingerprintSha256,
+    createHash("sha256").update(webhook).digest("hex"),
+  );
   assert.ok(sourceBytes.every((byte) => byte === 0));
   assert.ok(recoveryBytes.every((byte) => byte === 0));
   assert.doesNotMatch(JSON.stringify(result), /BEGIN PRIVATE|github_pat_|webhook-secret/u);
@@ -371,7 +419,6 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
   const tamperedContract = structuredClone(syntheticContract);
   tamperedContract.github.credentialRecovery.source.manifestSha256 =
     createHash("sha256").update(tamperedBytes).digest("hex");
-  const mutationCountBeforeTamper = storedEntries.length;
   await assert.rejects(
     recoverGithubAppCredentials({
       contract: tamperedContract,
@@ -386,10 +433,7 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
           registerBatch: async () => assert.fail("tampered payload must not register"),
           removeBatch: async () => assert.fail("tampered payload must not rollback catalog"),
         },
-        credentialStore: {
-          writeBatch: async () => assert.fail("tampered payload must not write"),
-          removeBatch: async () => assert.fail("tampered payload must not rollback store"),
-        },
+        credentialStore,
       },
     }),
     (error) => {
@@ -397,7 +441,6 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
       return true;
     },
   );
-  assert.equal(storedEntries.length, mutationCountBeforeTamper);
 
   const blockedSource = Buffer.from("not-read");
   const blockedRecovery = Buffer.from("not-read");
@@ -415,10 +458,7 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
           registerBatch: async () => {},
           removeBatch: async () => {},
         },
-        credentialStore: {
-          writeBatch: async () => {},
-          removeBatch: async () => {},
-        },
+        credentialStore,
       },
     }),
     (error) => {
@@ -429,7 +469,58 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
   assert.ok(blockedSource.every((byte) => byte === 0));
   assert.ok(blockedRecovery.every((byte) => byte === 0));
 
-  const cleanup = { catalog: 0, store: 0 };
+  const untrustedSource = Buffer.from("not-read");
+  const untrustedRecovery = Buffer.from("not-read");
+  await assert.rejects(
+    recoverGithubAppCredentials({
+      contract: syntheticContract,
+      sourceBytes: untrustedSource,
+      recoveryBytes: untrustedRecovery,
+      adapters: {
+        approval: { authorize: async () => true },
+        appIdentity: { read: async () => result.appIdentity },
+        backupRestore: { verify: async () => true },
+        catalog: {
+          targetsAbsent: async () => true,
+          registerBatch: async () => {},
+          removeBatch: async () => {},
+        },
+        credentialStore: { writeBatch: async () => {}, removeBatch: async () => {} },
+      },
+    }),
+    (error) => error.code === "P3_GITHUB_RECOVERY_TRUSTED_ADAPTERS_REQUIRED",
+  );
+  assert.ok(untrustedSource.every((byte) => byte === 0));
+  assert.ok(untrustedRecovery.every((byte) => byte === 0));
+
+  const failedCredentialStore = await openFixtureStore(
+    "github-keychain-compensation-failed.mjs",
+  );
+  await assert.rejects(
+    recoverGithubAppCredentials({
+      contract: syntheticContract,
+      sourceBytes: Buffer.from(stringify(source)),
+      recoveryBytes: Buffer.from(stringify(recoveryDocument)),
+      adapters: {
+        approval: { authorize: async () => true },
+        appIdentity: { read: async () => result.appIdentity },
+        backupRestore: { verify: async () => true },
+        catalog: {
+          targetsAbsent: async () => true,
+          registerBatch: async () => assert.fail("failed native write must not register"),
+          removeBatch: async () => assert.fail("failed native write must not remove catalog"),
+        },
+        credentialStore: failedCredentialStore,
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, "P3_GITHUB_KEYCHAIN_BATCH_COMPENSATION_FAILED");
+      assert.equal(error.compensationFailed, true);
+      return true;
+    },
+  );
+
+  const cleanup = { catalog: 0 };
   await assert.rejects(
     recoverGithubAppCredentials({
       contract: syntheticContract,
@@ -449,12 +540,7 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
             throw new Error("cleanup detail must not escape");
           },
         },
-        credentialStore: {
-          writeBatch: async () => {},
-          removeBatch: async () => {
-            cleanup.store += 1;
-          },
-        },
+        credentialStore,
       },
     }),
     (error) => {
@@ -464,7 +550,7 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
       return true;
     },
   );
-  assert.deepEqual(cleanup, { catalog: 1, store: 1 });
+  assert.deepEqual(cleanup, { catalog: 1 });
   appPrivateKey.fill(0);
   webhook.fill(0);
   label.fill(0);

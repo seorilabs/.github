@@ -116,12 +116,32 @@ private key와 webhook의 local canonical source는 현재 없다. exact source
 사람 승인 gate다. source digest 및 encrypted key 존재, recovery credential active, target ID
 부재, 복구 전 backup/restore 검증을 모두 확인해야 시작할 수 있다. plaintext는 stdout, argv,
 environment, log, 파일, commit, PR을 통과할 수 없다. trusted adapter는 nonce-prefixed
-AES-256-GCM/RSA-OAEP ciphertext와 recovery key를 process-local memory에서 처리한다. signed
-Security.framework native helper의 exact code identity, unattended ACL, locked/permission/item-not-found
-분리, batch compensation이 검증되기 전에는 `HUMAN_REAUTH_REQUIRED`이며 `security -w` CLI로
+AES-256-GCM/RSA-OAEP ciphertext와 recovery key를 process-local memory에서 처리한다.
+`scripts/fleet/native/github-keychain-helper.swift`와
+`scripts/fleet/github-keychain-native-store.mjs`는 두 고정 logical ID만 받는 binary-stdin 경계,
+자체 code-signature 검증, exact self-only ACL readback, UI 금지, item-not-found 분리와 부분 batch
+compensation을 구현한다. 외부 `CredentialBinding`에 고정된 helper SHA-256·Apple Team ID와 helper가
+검증한 designated requirement가 모두 일치해야 adapter가 열린다. macOS의 modern access-control
+flag는 실행 binary의 designated requirement를 ACL로 표현하지 못하므로, helper는 Security.framework의
+`SecAccess` application ACL을 사용하고 모든 민감 authorization이 exact self 하나·prompt flag 0인지
+다시 읽어 fail-closed한다. signed production binary와 실제 unattended Keychain readback이 아직
+없으므로 계약 state는 계속 `blocked_unverified`이고 `HUMAN_REAUTH_REQUIRED`이며 `security -w` CLI로
 우회하지 않는다. 등록 후 logical ID active, App identity
 exact, 복구 후 backup/restore 검증을 readback해야 완료다. 이번 변경에서는 복호화·등록·cluster
 Secret 생성 등 외부 mutation을 수행하지 않았다.
+
+코드 게이트는 macOS에서 fixture helper와 production 분기의 ad-hoc 서명 거부를 함께 검증한다.
+
+```bash
+node scripts/fleet/build-github-keychain-helper.mjs --fixture
+node scripts/fleet/build-github-keychain-helper.mjs --compile-gate
+node --test tests/github-keychain-native-store.test.mjs tests/fleet-p3-runtime.test.mjs
+```
+
+production build는 승인된 코드서명 identity와 공개 Team ID를 명시해야 하며, build script가 hardened
+runtime 서명·strict verification·helper self-attestation을 모두 통과한 뒤에만 산출물을 교체한다.
+그 다음 별도 승인 run에서 public helper binding을 고정하고 `preflight`의 exact item-not-found를
+확인한다. 이 단계까지는 Keychain write도 credential catalog mutation도 수행하지 않는다.
 
 같은 readback에서 개인 `shared/github/operator`의 private package metadata 접근은 확인됐지만
 조직 canonical identity로 승격하지 않는다. GitHub의 non-Actions private GHCR pull 경계에 따라

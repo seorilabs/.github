@@ -115,10 +115,11 @@ installation acceptance만 `HUMAN_REAUTH_REQUIRED` gate로 분리한다. 기존 
 encrypted field를 신규 key 생성 없이 offline 복구해 분리 logical ID로 등록하는 작업은 별도
 backup/restore approval gate이며 자동 retry하지 않는다.
 복구 adapter는 nonce-prefixed ciphertext와 recovery key를 process-local memory에서 직접 해제한다.
-signed Security.framework native helper의 code identity와 unattended Keychain ACL이 아직 없으므로
-실제 write는 `HUMAN_REAUTH_REQUIRED`로 차단한다. `security -w`, stdout, argv, environment, 평문
-파일을 사용하지 않으며 helper 검증 뒤에도 App private key의 공개 SPKI fingerprint와 logical ID
-상태만 반환한다. GitHub 조직 mutation은
+Security.framework helper와 binary-stdin store는 구현됐지만, 승인된 Apple code-signing identity로
+서명된 immutable binary의 SHA-256·Team ID·designated requirement 및 실제 unattended ACL readback은
+아직 고정되지 않았다. 따라서 실제 write는 계속 `HUMAN_REAUTH_REQUIRED`로 차단한다. `security -w`,
+stdout, argv, environment, 평문 파일을 사용하지 않으며 helper 검증 뒤에도 App private key의 공개
+SPKI fingerprint와 logical ID 상태만 반환한다. GitHub 조직 mutation은
 복구 key로 만든 short-lived installation token과 exact capability adapter가 아직 검증되지 않아
 ambient personal token apply를 명시적으로 차단한다.
 

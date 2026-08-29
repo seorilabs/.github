@@ -8,6 +8,8 @@ import {
 } from "node:crypto";
 import { parseAllDocuments } from "yaml";
 
+import { isGithubKeychainCredentialStore } from "./github-keychain-native-store.mjs";
+
 function fail(code) {
   const error = new Error(code);
   error.code = code;
@@ -178,6 +180,7 @@ function validateAdapters(adapters) {
     typeof adapters.catalog.targetsAbsent !== "function" ||
     typeof adapters.catalog.registerBatch !== "function" ||
     typeof adapters.catalog.removeBatch !== "function" ||
+    !isGithubKeychainCredentialStore(adapters.credentialStore) ||
     typeof adapters.credentialStore.writeBatch !== "function" ||
     typeof adapters.credentialStore.removeBatch !== "function"
   ) {
@@ -210,7 +213,6 @@ export async function recoverGithubAppCredentials({
   let registered = false;
   let publicPlan = { targets: [] };
   try {
-    validateAdapters(adapters);
     const recovery = contract?.github?.credentialRecovery;
     const app = contract?.github?.app;
     if (!recovery || !app?.reuseExisting) {
@@ -219,6 +221,7 @@ export async function recoverGithubAppCredentials({
     if (recovery.trustedAdapter?.state !== "ready") {
       fail("P3_GITHUB_RECOVERY_NATIVE_HELPER_REQUIRED");
     }
+    validateAdapters(adapters);
     publicPlan = {
       operation: recovery.approvalGate.operation,
       source: recovery.source,
@@ -309,7 +312,7 @@ export async function recoverGithubAppCredentials({
       typeof error?.code === "string" && /^P3_[A-Z0-9_]+$/u.test(error.code)
         ? error.code
         : "P3_GITHUB_RECOVERY_TRUSTED_ADAPTER_FAILED";
-    let cleanupFailed = false;
+    let cleanupFailed = error?.compensationFailed === true;
     if (registered) {
       try {
         await adapters.catalog.removeBatch(publicPlan.targets);

@@ -77,6 +77,10 @@ github:
       module: scripts/fleet/github-credential-recovery.mjs
       entrypoint: recoverGithubAppCredentials
       credentialStore: security-framework-native-helper
+      nativeModule: scripts/fleet/github-keychain-native-store.mjs
+      nativeEntrypoint: openGithubKeychainCredentialStore
+      helperIdentifier: com.seorilabs.fleet.github-keychain-helper
+      binaryProtocol: binary-stdin-v1
       plaintextTransport: process-local-buffer-to-native-helper
       requiredReadback:
         - signed_helper_code_identity

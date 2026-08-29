@@ -147,12 +147,16 @@
             "trustedAdapter": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["state", "module", "entrypoint", "credentialStore", "plaintextTransport", "requiredReadback"],
+              "required": ["state", "module", "entrypoint", "credentialStore", "nativeModule", "nativeEntrypoint", "helperIdentifier", "binaryProtocol", "plaintextTransport", "requiredReadback"],
               "properties": {
                 "state": { "const": "blocked_unverified" },
                 "module": { "const": "scripts/fleet/github-credential-recovery.mjs" },
                 "entrypoint": { "const": "recoverGithubAppCredentials" },
                 "credentialStore": { "const": "security-framework-native-helper" },
+                "nativeModule": { "const": "scripts/fleet/github-keychain-native-store.mjs" },
+                "nativeEntrypoint": { "const": "openGithubKeychainCredentialStore" },
+                "helperIdentifier": { "const": "com.seorilabs.fleet.github-keychain-helper" },
+                "binaryProtocol": { "const": "binary-stdin-v1" },
                 "plaintextTransport": { "const": "process-local-buffer-to-native-helper" },
                 "requiredReadback": {
                   "type": "array", "minItems": 5, "maxItems": 5,
