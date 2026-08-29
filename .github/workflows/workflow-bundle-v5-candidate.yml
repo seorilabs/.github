@@ -88,7 +88,13 @@ jobs:
       - name: Validate truly cold npm and pnpm fixture installs
         env:
           WORKFLOW_BUNDLE_V5_COLD_CACHE: '1'
-        run: node --test tests/workflow-bundle-v5-cold-cache.test.mjs
+        run: |
+          set -euo pipefail
+          test "$(npm --version)" = 11.13.0
+          corepack enable
+          COREPACK_NPM_REGISTRY=https://registry.npmjs.org corepack prepare pnpm@11.3.0 --activate
+          test "$(pnpm --version)" = 11.3.0
+          node --test tests/workflow-bundle-v5-cold-cache.test.mjs
 
       - name: Validate installable repo-contract package
         run: npm run pack:check
