@@ -32,6 +32,7 @@ const DEPENDENCY_SECTIONS = Object.freeze([
   "peerDependencies",
 ]);
 const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u;
+const SAFE_DIAGNOSTIC_CODE = /^[A-Za-z0-9_:.-]+$/u;
 
 function fail(code) {
   throw new Error(code);
@@ -416,7 +417,7 @@ async function main() {
 
 if (import.meta.main) {
   main().catch((error) => {
-    const code = /^[A-Z0-9_:.-]+$/u.test(error?.message ?? "")
+    const code = SAFE_DIAGNOSTIC_CODE.test(error?.message ?? "")
       ? error.message
       : "STATIC_PREFLIGHT_FAILED";
     process.stderr.write(`오류: ${code}\n`);

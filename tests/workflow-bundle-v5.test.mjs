@@ -1060,6 +1060,37 @@ test("Godot preflight runs from the central checkout without npm runtime bootstr
   assert.match(result.stdout, /isolated Godot preflight passed/u);
 });
 
+test("Godot preflight CLI preserves the exact missing quality script diagnostic", async () => {
+  const { root, manifest } = await fixtureRepository("godot-runtime");
+  const packagePath = join(root, "package.json");
+  const packageManifest = JSON.parse(await readFile(packagePath, "utf8"));
+  delete packageManifest.scripts["check:release"];
+  await writeFile(packagePath, `${JSON.stringify(packageManifest, null, 2)}\n`);
+
+  const result = spawnSync(process.execPath, [
+    resolve("scripts/fleet/static-preflight-v5.mjs"),
+    "--repo-root",
+    root,
+    "--profile",
+    manifest.staticBinding.profile,
+    "--package-manager",
+    "null",
+    "--workspace-root",
+    manifest.staticBinding.workspaceRoot,
+    "--command-directory",
+    manifest.staticBinding.commandDirectory,
+    "--github-output",
+    join(root, "github-output"),
+  ], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH },
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /오류: QUALITY_SCRIPT_MISSING_check:release/u);
+  assert.doesNotMatch(result.stderr, /STATIC_PREFLIGHT_FAILED/u);
+});
+
 test("Godot preflight requires exact scripts and classifies dependency audit state", async () => {
   const [missingScript, unlockedDependency, publicLock] = await Promise.all([
     fixtureRepository("godot-runtime"),
