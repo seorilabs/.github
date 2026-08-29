@@ -1,0 +1,123 @@
+name: WorkflowBundle v5 Candidate
+
+on:
+  pull_request:
+    paths:
+      - .github/cloud-build/capacitor-android-build-only-v1.yaml
+      - .github/cloud-build/godot-android-build-only.yaml
+      - .github/cloud-build/rn-android-build-only.yaml
+      - .github/workflows/ait-build-only-v1.yml
+      - .github/workflows/capacitor-build-android-cloud-v1.yml
+      - .github/workflows/godot-build-android-cloud-v1.yml
+      - .github/workflows/godot-checks-v3.yml
+      - .github/workflows/js-static-checks-v1.yml
+      - .github/workflows/rn-build-android-cloud-v1.yml
+      - .github/workflows/workflow-bundle-v5-candidate.yml
+      - contracts/workflow-bundle-v5*
+      - contracts/xcode-cloud-run-v5.schema.json
+      - fixtures/workflow-bundle-v5/**
+      - packages/repo-contract/**
+      - package.json
+      - package-lock.json
+      - profiles/**-v5.yaml
+      - scripts/fleet/**-v5.mjs
+      - scripts/fleet/godot-diagnostic-gate.mjs
+      - scripts/fleet/secret-scan.mjs
+      - scripts/fleet/v5-paths.mjs
+      - tests/workflow-bundle-v5*.test.mjs
+  push:
+    branches: [main]
+    paths:
+      - .github/cloud-build/capacitor-android-build-only-v1.yaml
+      - .github/cloud-build/godot-android-build-only.yaml
+      - .github/cloud-build/rn-android-build-only.yaml
+      - .github/workflows/ait-build-only-v1.yml
+      - .github/workflows/capacitor-build-android-cloud-v1.yml
+      - .github/workflows/godot-build-android-cloud-v1.yml
+      - .github/workflows/godot-checks-v3.yml
+      - .github/workflows/js-static-checks-v1.yml
+      - .github/workflows/rn-build-android-cloud-v1.yml
+      - .github/workflows/workflow-bundle-v5-candidate.yml
+      - contracts/workflow-bundle-v5*
+      - contracts/xcode-cloud-run-v5.schema.json
+      - fixtures/workflow-bundle-v5/**
+      - packages/repo-contract/**
+      - package.json
+      - package-lock.json
+      - profiles/**-v5.yaml
+      - scripts/fleet/**-v5.mjs
+      - scripts/fleet/godot-diagnostic-gate.mjs
+      - scripts/fleet/secret-scan.mjs
+      - scripts/fleet/v5-paths.mjs
+      - tests/workflow-bundle-v5*.test.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-bundle-v5-${{ github.repository_id }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  candidate:
+    name: WorkflowBundle v5 Candidate
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout exact candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+          cache: npm
+
+      - name: Install locked contract dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Validate v5 contracts and fixtures
+        run: node --test tests/workflow-bundle-v5.test.mjs
+
+      - name: Validate truly cold npm and pnpm fixture installs
+        env:
+          WORKFLOW_BUNDLE_V5_COLD_CACHE: '1'
+        run: |
+          set -euo pipefail
+          test "$(npm --version)" = 11.13.0
+          corepack enable
+          COREPACK_NPM_REGISTRY=https://registry.npmjs.org corepack prepare pnpm@11.3.0 --activate
+          (cd "$RUNNER_TEMP" && test "$(pnpm --version)" = 11.3.0)
+          node --test tests/workflow-bundle-v5-cold-cache.test.mjs
+
+      - name: Validate installable repo-contract package
+        run: npm run pack:check
+
+      - name: Generate immutable v5 candidate
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          OUTPUT_PATH: ${{ runner.temp }}/workflow-bundle-v5.json
+        run: |
+          node --input-type=module - <<'NODE'
+          import { writeFile } from "node:fs/promises";
+          import { createWorkflowBundleV5 } from "./packages/repo-contract/src/workflow-bundle-v5.mjs";
+          const candidate = await createWorkflowBundleV5({
+            sourceSha: process.env.SOURCE_SHA,
+            workflowExecutionSha: process.env.SOURCE_SHA,
+          });
+          await writeFile(process.env.OUTPUT_PATH, JSON.stringify(candidate, null, 2) + "\n", { mode: 0o644, flag: "wx" });
+          NODE
+
+      - name: Upload v5 candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: workflow-bundle-v5-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/workflow-bundle-v5.json
+          if-no-files-found: error
+          retention-days: 3

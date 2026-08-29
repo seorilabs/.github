@@ -1,0 +1,29 @@
+schemaVersion: 2
+id: ait-web
+contract: org-v5
+runtime: ait-web
+
+quality:
+  commandProvider: package-json-scripts
+  packageManagers:
+    - npm
+    - pnpm
+  requiredScripts:
+    - test:core
+    - check:architecture
+    - check:release
+
+sourceSignals:
+  dependencies:
+    - '@apps-in-toss/web-framework'
+  requiredFiles:
+    - granite.config.ts
+
+sharedSdk:
+  distribution: package
+  package: '@seorilabs/platform-sdk'
+  versionRequirement: exact-semver
+  dependencyLockRequired: true
+
+build:
+  aitProfile: ait-web

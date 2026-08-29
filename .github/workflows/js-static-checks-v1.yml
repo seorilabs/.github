@@ -1,0 +1,362 @@
+# WorkflowBundle v5 candidate. Static checks only; no build, upload, or deployment.
+name: JS Static Checks v1
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+jobs:
+  resolve-binding:
+    name: Resolve Fleet Binding
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 5
+    outputs:
+      bundle_repository: ${{ steps.bundle-identity.outputs.repository }}
+      bundle_sha: ${{ steps.bundle-identity.outputs.sha }}
+      bundle_ref: ${{ steps.bundle-identity.outputs.ref }}
+      application_source_sha: ${{ steps.runtime-binding.outputs.application_source_sha }}
+      binding_source_sha: ${{ steps.runtime-binding.outputs.binding_source_sha }}
+      called_workflow_path: ${{ steps.runtime-binding.outputs.called_workflow_path }}
+      profile: ${{ steps.runtime-binding.outputs.profile }}
+      package_manager: ${{ steps.runtime-binding.outputs.package_manager }}
+      workspace_root: ${{ steps.runtime-binding.outputs.workspace_root }}
+      command_directory: ${{ steps.runtime-binding.outputs.command_directory }}
+      enforcement_mode: ${{ steps.runtime-binding.outputs.enforcement_mode }}
+      config_revision_id: ${{ steps.runtime-binding.outputs.config_revision_id }}
+      config_revision: ${{ steps.runtime-binding.outputs.config_revision }}
+      config_revision_digest: ${{ steps.runtime-binding.outputs.config_revision_digest }}
+      signed_snapshot_digest: ${{ steps.runtime-binding.outputs.signed_snapshot_digest }}
+      snapshot_signature_key_id: ${{ steps.runtime-binding.outputs.snapshot_signature_key_id }}
+      snapshot_signature_policy_revision: ${{ steps.runtime-binding.outputs.snapshot_signature_policy_revision }}
+      snapshot_signature_digest: ${{ steps.runtime-binding.outputs.snapshot_signature_digest }}
+      manifest_digest: ${{ steps.runtime-binding.outputs.manifest_digest }}
+
+    steps:
+      - name: Validate called reusable workflow identity
+        id: bundle-identity
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = "seorilabs/.github/.github/workflows/js-static-checks-v1.yml@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
+          '
+
+      - name: Checkout exact WorkflowBundle source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.bundle-identity.outputs.repository }}
+          ref: ${{ steps.bundle-identity.outputs.sha }}
+          path: .seorilabs-workflow-bundle
+          persist-credentials: false
+
+      - name: Resolve signed runtime binding for exact event source
+        id: runtime-binding
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          APPLICATION_SOURCE_SHA: ${{ github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          FULL_NAME: ${{ github.repository }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          JOB_WORKFLOW_REPOSITORY: ${{ steps.bundle-identity.outputs.repository }}
+          JOB_WORKFLOW_SHA: ${{ steps.bundle-identity.outputs.sha }}
+          JOB_WORKFLOW_REF: ${{ steps.bundle-identity.outputs.ref }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: node .seorilabs-workflow-bundle/scripts/fleet/static-runtime-binding-v5.mjs
+
+  quality:
+    name: Fleet JS Quality
+    needs: resolve-binding
+    if: ${{ needs.resolve-binding.result == 'success' }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: read
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout exact WorkflowBundle source without OIDC
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.resolve-binding.outputs.bundle_repository }}
+          ref: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          path: .seorilabs-workflow-bundle
+          persist-credentials: false
+
+      - name: Setup pinned Node before application checkout
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+
+      - name: Prepare pinned package managers without package credentials
+        shell: bash
+        env:
+          PACKAGE_MANAGER: ${{ needs.resolve-binding.outputs.package_manager }}
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/workflow-bundle-v5-user.npmrc
+          NPM_CONFIG_GLOBALCONFIG: ${{ runner.temp }}/workflow-bundle-v5-global.npmrc
+          NPM_CONFIG_LOCATION: global
+        run: |
+          set -euo pipefail
+          test -z "${NODE_AUTH_TOKEN:-}"
+          test "$NPM_CONFIG_USERCONFIG" != "$NPM_CONFIG_GLOBALCONFIG"
+          test ! -e "$NPM_CONFIG_USERCONFIG"
+          test ! -e "$NPM_CONFIG_GLOBALCONFIG"
+          install -m 600 /dev/null "$NPM_CONFIG_USERCONFIG"
+          install -m 600 /dev/null "$NPM_CONFIG_GLOBALCONFIG"
+          test "$(npm --version)" = 11.13.0
+          if [[ "$PACKAGE_MANAGER" = pnpm ]]; then
+            corepack enable
+            COREPACK_NPM_REGISTRY=https://registry.npmjs.org corepack prepare pnpm@11.3.0 --activate
+            test "$(pnpm --version)" = 11.3.0
+          else
+            test "$PACKAGE_MANAGER" = npm
+          fi
+
+      - name: Install exact WorkflowBundle runtime dependencies without package credentials
+        shell: bash
+        env:
+          BUNDLE_SHA: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          CALLED_WORKFLOW_PATH: ${{ needs.resolve-binding.outputs.called_workflow_path }}
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/workflow-bundle-v5-user.npmrc
+          NPM_CONFIG_GLOBALCONFIG: ${{ runner.temp }}/workflow-bundle-v5-global.npmrc
+        run: |
+          set -euo pipefail
+          test -z "${NODE_AUTH_TOKEN:-}"
+          test "$NPM_CONFIG_USERCONFIG" != "$NPM_CONFIG_GLOBALCONFIG"
+          test -f "$NPM_CONFIG_USERCONFIG"
+          test -f "$NPM_CONFIG_GLOBALCONFIG"
+          bundle_root="$GITHUB_WORKSPACE/.seorilabs-workflow-bundle"
+          test "$(git -C "$bundle_root" rev-parse HEAD)" = "$BUNDLE_SHA"
+          node --input-type=module - "$bundle_root/package-lock.json" <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const lock = JSON.parse(await readFile(process.argv[2], "utf8"));
+          const visit = (value, field = "") => {
+            if (Array.isArray(value)) return value.forEach((child) => visit(child, field));
+            if (value && typeof value === "object") return Object.entries(value).forEach(([key, child]) => visit(child, key));
+            if (field !== "resolved" || typeof value !== "string") return;
+            if (!/^https?:/u.test(value)) {
+              if (!value.split("/").every((segment) => segment && segment !== "." && segment !== ".." && /^[A-Za-z0-9_@.-]+$/u.test(segment))) process.exit(1);
+              return;
+            }
+            const url = new URL(value);
+            if (url.protocol !== "https:" || url.origin !== "https://registry.npmjs.org" || url.username || url.password || url.port || url.search || url.hash) process.exit(1);
+          };
+          visit(lock);
+          NODE
+          npm ci --prefix "$bundle_root" --ignore-scripts --registry=https://registry.npmjs.org --userconfig="$NPM_CONFIG_USERCONFIG" --no-audit --no-fund
+
+      - name: Checkout exact application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          path: .seorilabs-application
+          persist-credentials: false
+
+      - name: Verify source and binding paths
+        shell: bash
+        env:
+          APPLICATION_SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          PROFILE: ${{ needs.resolve-binding.outputs.profile }}
+          PACKAGE_MANAGER: ${{ needs.resolve-binding.outputs.package_manager }}
+          WORKSPACE_ROOT: ${{ needs.resolve-binding.outputs.workspace_root }}
+          COMMAND_DIRECTORY: ${{ needs.resolve-binding.outputs.command_directory }}
+        run: |
+          set -euo pipefail
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application"
+          test "$(git -C "$application_root" rev-parse HEAD)" = "$APPLICATION_SOURCE_SHA"
+          node .seorilabs-workflow-bundle/scripts/fleet/static-preflight-v5.mjs \
+            --repo-root "$application_root" \
+            --profile "$PROFILE" \
+            --package-manager "$PACKAGE_MANAGER" \
+            --workspace-root "$WORKSPACE_ROOT" \
+            --command-directory "$COMMAND_DIRECTORY"
+          node .seorilabs-workflow-bundle/scripts/fleet/secret-scan.mjs "$application_root"
+
+      - name: Stage exactly locked dependency cache in an isolated process
+        shell: bash
+        working-directory: .seorilabs-workflow-bundle
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          PACKAGE_MANAGER: ${{ needs.resolve-binding.outputs.package_manager }}
+          WORKSPACE_ROOT: ${{ needs.resolve-binding.outputs.workspace_root }}
+        run: |
+          set -euo pipefail
+          ulimit -c 0
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application"
+          if [[ "$PACKAGE_MANAGER" = pnpm ]]; then
+            cache_root="$application_root/.seorilabs-pnpm-store"
+          else
+            cache_root="$application_root/.seorilabs-npm-cache"
+          fi
+          node scripts/fleet/stage-private-package-v5.mjs \
+            "$application_root" "$WORKSPACE_ROOT" "$PACKAGE_MANAGER" "$cache_root"
+
+      - name: Install exactly locked dependencies offline
+        shell: bash
+        env:
+          PACKAGE_MANAGER: ${{ needs.resolve-binding.outputs.package_manager }}
+          WORKSPACE_ROOT: ${{ needs.resolve-binding.outputs.workspace_root }}
+        run: |
+          set -euo pipefail
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application"
+          cd "$application_root/$WORKSPACE_ROOT"
+          if [[ "$PACKAGE_MANAGER" = pnpm ]]; then
+            NPM_CONFIG_OFFLINE=true NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
+              pnpm install --frozen-lockfile --trust-lockfile --offline --ignore-scripts --store-dir "$application_root/.seorilabs-pnpm-store"
+          else
+            NPM_CONFIG_OFFLINE=true NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
+              npm ci --offline --ignore-scripts --cache "$application_root/.seorilabs-npm-cache" --no-audit --no-fund
+          fi
+
+      - name: Run application lifecycle only after package credentials are gone
+        shell: bash
+        env:
+          PACKAGE_MANAGER: ${{ needs.resolve-binding.outputs.package_manager }}
+          WORKSPACE_ROOT: ${{ needs.resolve-binding.outputs.workspace_root }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/.seorilabs-application/$WORKSPACE_ROOT"
+          if [[ "$PACKAGE_MANAGER" = pnpm ]]; then
+            pnpm rebuild
+          else
+            npm rebuild
+          fi
+
+      - name: Run canonical static contract
+        shell: bash
+        env:
+          PACKAGE_MANAGER: ${{ needs.resolve-binding.outputs.package_manager }}
+          COMMAND_DIRECTORY: ${{ needs.resolve-binding.outputs.command_directory }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/.seorilabs-application/$COMMAND_DIRECTORY"
+          if [[ "$PACKAGE_MANAGER" = pnpm ]]; then
+            pnpm test:core
+            pnpm check:architecture
+            pnpm check:release
+          else
+            npm run test:core
+            npm run check:architecture
+            npm run check:release
+          fi
+
+  evidence:
+    name: Isolated static provenance
+    needs:
+      - resolve-binding
+      - quality
+    if: ${{ needs.quality.result == 'success' }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    timeout-minutes: 5
+
+    steps:
+      - name: Write target-discriminated static evidence in a fresh job
+        shell: bash
+        env:
+          PROFILE: ${{ needs.resolve-binding.outputs.profile }}
+          APPLICATION_SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          BINDING_SOURCE_SHA: ${{ needs.resolve-binding.outputs.binding_source_sha }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLED_WORKFLOW_PATH: ${{ needs.resolve-binding.outputs.called_workflow_path }}
+          BUNDLE_SHA: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          CONFIG_REVISION_ID: ${{ needs.resolve-binding.outputs.config_revision_id }}
+          CONFIG_REVISION: ${{ needs.resolve-binding.outputs.config_revision }}
+          CONFIG_REVISION_DIGEST: ${{ needs.resolve-binding.outputs.config_revision_digest }}
+          SIGNED_SNAPSHOT_DIGEST: ${{ needs.resolve-binding.outputs.signed_snapshot_digest }}
+          SNAPSHOT_SIGNATURE_KEY_ID: ${{ needs.resolve-binding.outputs.snapshot_signature_key_id }}
+          SNAPSHOT_SIGNATURE_POLICY_REVISION: ${{ needs.resolve-binding.outputs.snapshot_signature_policy_revision }}
+          SNAPSHOT_SIGNATURE_DIGEST: ${{ needs.resolve-binding.outputs.snapshot_signature_digest }}
+          MANIFEST_DIGEST: ${{ needs.resolve-binding.outputs.manifest_digest }}
+        run: |
+          set -euo pipefail
+          evidence_root="$RUNNER_TEMP/static-evidence"
+          mkdir -p "$evidence_root"
+          printf '%s\n' "static:$PROFILE:$APPLICATION_SOURCE_SHA:$BINDING_SOURCE_SHA:$BUNDLE_SHA" > "$evidence_root/result.txt"
+          artifact_sha256="$(sha256sum "$evidence_root/result.txt" | cut -d ' ' -f 1)"
+          export ARTIFACT_SHA256="sha256:$artifact_sha256"
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            const evidence = {
+              schemaVersion: 2,
+              target: "static",
+              profile: process.env.PROFILE,
+              repositoryId: Number(process.env.GITHUB_REPOSITORY_ID),
+              fullName: process.env.GITHUB_REPOSITORY,
+              sourceSha: process.env.APPLICATION_SOURCE_SHA,
+              bindingSourceSha: process.env.BINDING_SOURCE_SHA,
+              callerWorkflowRef: process.env.CALLER_WORKFLOW_REF,
+              manifestDigest: process.env.MANIFEST_DIGEST,
+              workflowExecutionSha: process.env.BUNDLE_SHA,
+              workflowRef: "seorilabs/.github/" + process.env.CALLED_WORKFLOW_PATH + "@" + process.env.BUNDLE_SHA,
+              runId: Number(process.env.GITHUB_RUN_ID),
+              runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+              configRevisionId: process.env.CONFIG_REVISION_ID,
+              configRevision: Number(process.env.CONFIG_REVISION),
+              configRevisionDigest: process.env.CONFIG_REVISION_DIGEST,
+              signedSnapshotDigest: process.env.SIGNED_SNAPSHOT_DIGEST,
+              snapshotSignatureKeyId: process.env.SNAPSHOT_SIGNATURE_KEY_ID,
+              snapshotSignaturePolicyRevision: process.env.SNAPSHOT_SIGNATURE_POLICY_REVISION,
+              snapshotSignatureDigest: process.env.SNAPSHOT_SIGNATURE_DIGEST,
+              artifactSha256: process.env.ARTIFACT_SHA256,
+            };
+            writeFileSync(process.env.RUNNER_TEMP + "/static-evidence/provenance.json", JSON.stringify(evidence, null, 2) + "\n", { mode: 0o644 });
+          '
+
+      - name: Upload static evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: org-contract-${{ github.repository_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/static-evidence
+          if-no-files-found: error
+          retention-days: 3
+
+  org-contract:
+    name: Org Contract
+    needs:
+      - resolve-binding
+      - quality
+      - evidence
+    if: ${{ always() }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Apply lifecycle enforcement
+        shell: bash
+        env:
+          BINDING_RESULT: ${{ needs.resolve-binding.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          EVIDENCE_RESULT: ${{ needs.evidence.result }}
+          ENFORCEMENT_MODE: ${{ needs.resolve-binding.outputs.enforcement_mode }}
+        run: |
+          test "$BINDING_RESULT" = success
+          if [[ "$ENFORCEMENT_MODE" = SHADOW ]]; then
+            echo "PAUSED 저장소 shadow 결과: $QUALITY_RESULT"
+            exit 0
+          fi
+          test "$ENFORCEMENT_MODE" = ENFORCE
+          test "$QUALITY_RESULT" = success
+          test "$EVIDENCE_RESULT" = success

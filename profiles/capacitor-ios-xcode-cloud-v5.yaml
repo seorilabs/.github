@@ -1,0 +1,11 @@
+schemaVersion: 2
+id: capacitor-ios-xcode-cloud
+contract: org-v5
+target: ios
+executor: xcode-cloud
+githubWorkflow: forbidden
+artifactKind: xcode-archive
+requiredScripts:
+  - ci_scripts/ci_post_clone.sh
+  - ci_scripts/ci_pre_xcodebuild.sh
+marketUpload: false

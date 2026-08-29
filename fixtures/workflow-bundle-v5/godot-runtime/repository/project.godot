@@ -1,0 +1,12 @@
+; Minimal application fixture for the WorkflowBundle v5 Godot runtime binding.
+
+config_version=5
+
+[application]
+
+config/name="WorkflowBundle v5 Godot Runtime Canary"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

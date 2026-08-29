@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "state": "ACTIVE",
+  "repositoryId": "7002",
+  "fullName": "seorilabs/trait-test-hub",
+  "sourceSha": "8813d60baee3d5f0273b67f4cc8fd37f9fd5de24",
+  "sourceRef": "refs/heads/main",
+  "observationId": "observation-trait-v5",
+  "observationDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+  "configRevisionId": "config-trait-v5-r1",
+  "configRevision": 1,
+  "configRevisionDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "signedSnapshotDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "snapshotSignature": {
+    "keyId": "control-plane-snapshot-v1",
+    "policyRevision": "snapshot-policy-v1",
+    "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+  },
+  "staticBinding": {
+    "profile": "react-native",
+    "packageManager": "pnpm",
+    "workspaceRoot": ".",
+    "commandDirectory": "."
+  },
+  "buildBindings": [
+    {
+      "target": "ait",
+      "buildProfile": "ait-granite",
+      "executionRoot": "apps/ait",
+      "dependencyRoot": ".",
+      "scriptPath": "scripts/build-ait.sh",
+      "artifactKind": "ait"
+    }
+  ]
+}

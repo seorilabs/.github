@@ -1,0 +1,374 @@
+# WorkflowBundle v5 candidate. Dynamic Godot static checks only; no build or deployment.
+name: Godot Checks v3
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  resolve-binding:
+    name: Resolve Fleet Binding
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 5
+    outputs:
+      bundle_repository: ${{ steps.bundle-identity.outputs.repository }}
+      bundle_sha: ${{ steps.bundle-identity.outputs.sha }}
+      bundle_ref: ${{ steps.bundle-identity.outputs.ref }}
+      application_source_sha: ${{ steps.runtime-binding.outputs.application_source_sha }}
+      binding_source_sha: ${{ steps.runtime-binding.outputs.binding_source_sha }}
+      called_workflow_path: ${{ steps.runtime-binding.outputs.called_workflow_path }}
+      profile: ${{ steps.runtime-binding.outputs.profile }}
+      package_manager: ${{ steps.runtime-binding.outputs.package_manager }}
+      workspace_root: ${{ steps.runtime-binding.outputs.workspace_root }}
+      command_directory: ${{ steps.runtime-binding.outputs.command_directory }}
+      enforcement_mode: ${{ steps.runtime-binding.outputs.enforcement_mode }}
+      config_revision_id: ${{ steps.runtime-binding.outputs.config_revision_id }}
+      config_revision: ${{ steps.runtime-binding.outputs.config_revision }}
+      config_revision_digest: ${{ steps.runtime-binding.outputs.config_revision_digest }}
+      signed_snapshot_digest: ${{ steps.runtime-binding.outputs.signed_snapshot_digest }}
+      snapshot_signature_key_id: ${{ steps.runtime-binding.outputs.snapshot_signature_key_id }}
+      snapshot_signature_policy_revision: ${{ steps.runtime-binding.outputs.snapshot_signature_policy_revision }}
+      snapshot_signature_digest: ${{ steps.runtime-binding.outputs.snapshot_signature_digest }}
+      manifest_digest: ${{ steps.runtime-binding.outputs.manifest_digest }}
+
+    steps:
+      - name: Validate called reusable workflow identity
+        id: bundle-identity
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = "seorilabs/.github/.github/workflows/godot-checks-v3.yml@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
+          '
+
+      - name: Checkout exact WorkflowBundle source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.bundle-identity.outputs.repository }}
+          ref: ${{ steps.bundle-identity.outputs.sha }}
+          path: .seorilabs-workflow-bundle
+          persist-credentials: false
+
+      - name: Resolve signed runtime binding for exact event source
+        id: runtime-binding
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          APPLICATION_SOURCE_SHA: ${{ github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          FULL_NAME: ${{ github.repository }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          JOB_WORKFLOW_REPOSITORY: ${{ steps.bundle-identity.outputs.repository }}
+          JOB_WORKFLOW_SHA: ${{ steps.bundle-identity.outputs.sha }}
+          JOB_WORKFLOW_REF: ${{ steps.bundle-identity.outputs.ref }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: node .seorilabs-workflow-bundle/scripts/fleet/static-runtime-binding-v5.mjs
+
+  quality:
+    name: Fleet Godot Quality
+    needs: resolve-binding
+    if: ${{ needs.resolve-binding.result == 'success' }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact WorkflowBundle source without OIDC
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.resolve-binding.outputs.bundle_repository }}
+          ref: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          path: .seorilabs-workflow-bundle
+          persist-credentials: false
+
+      - name: Setup pinned Node before application checkout
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+
+      - name: Validate bundled npm and prepare trusted configuration
+        shell: bash
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/workflow-bundle-v5-godot-user.npmrc
+          NPM_CONFIG_GLOBALCONFIG: ${{ runner.temp }}/workflow-bundle-v5-godot-global.npmrc
+          NPM_CONFIG_LOCATION: global
+        run: |
+          set -euo pipefail
+          test -z "${NODE_AUTH_TOKEN:-}"
+          test "$NPM_CONFIG_USERCONFIG" != "$NPM_CONFIG_GLOBALCONFIG"
+          test ! -e "$NPM_CONFIG_USERCONFIG"
+          test ! -e "$NPM_CONFIG_GLOBALCONFIG"
+          install -m 600 /dev/null "$NPM_CONFIG_USERCONFIG"
+          install -m 600 /dev/null "$NPM_CONFIG_GLOBALCONFIG"
+          test "$(npm --version)" = 11.13.0
+
+      - name: Checkout exact application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          path: .seorilabs-application
+          persist-credentials: false
+
+      - name: Verify Godot source and signed binding
+        id: godot-preflight
+        shell: bash
+        env:
+          APPLICATION_SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          CALLED_WORKFLOW_PATH: ${{ needs.resolve-binding.outputs.called_workflow_path }}
+          PROFILE: ${{ needs.resolve-binding.outputs.profile }}
+          PACKAGE_MANAGER: ${{ needs.resolve-binding.outputs.package_manager }}
+          WORKSPACE_ROOT: ${{ needs.resolve-binding.outputs.workspace_root }}
+          COMMAND_DIRECTORY: ${{ needs.resolve-binding.outputs.command_directory }}
+        run: |
+          set -euo pipefail
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application"
+          test "$(git -C "$application_root" rev-parse HEAD)" = "$APPLICATION_SOURCE_SHA"
+          test "$CALLED_WORKFLOW_PATH" = .github/workflows/godot-checks-v3.yml
+          test "$PROFILE" = godot
+          test "$PACKAGE_MANAGER" = null
+          node .seorilabs-workflow-bundle/scripts/fleet/static-preflight-v5.mjs \
+            --repo-root "$application_root" \
+            --profile "$PROFILE" \
+            --package-manager "$PACKAGE_MANAGER" \
+            --workspace-root "$WORKSPACE_ROOT" \
+            --command-directory "$COMMAND_DIRECTORY" \
+            --github-output "$GITHUB_OUTPUT"
+          node .seorilabs-workflow-bundle/scripts/fleet/secret-scan.mjs "$application_root"
+
+      - name: Audit a validated public npm lock without application registry state
+        if: ${{ steps.godot-preflight.outputs.dependency_mode == 'PUBLIC_NPM_LOCK_AUDIT' }}
+        shell: bash
+        env:
+          COMMAND_DIRECTORY: ${{ needs.resolve-binding.outputs.command_directory }}
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/workflow-bundle-v5-godot-user.npmrc
+          NPM_CONFIG_GLOBALCONFIG: ${{ runner.temp }}/workflow-bundle-v5-godot-global.npmrc
+        run: |
+          set -euo pipefail
+          test -z "${NODE_AUTH_TOKEN:-}"
+          test "$NPM_CONFIG_USERCONFIG" != "$NPM_CONFIG_GLOBALCONFIG"
+          test -f "$NPM_CONFIG_USERCONFIG"
+          test -f "$NPM_CONFIG_GLOBALCONFIG"
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application/$COMMAND_DIRECTORY"
+          audit_root="$RUNNER_TEMP/workflow-bundle-v5-godot-audit"
+          test ! -e "$audit_root"
+          install -d -m 700 "$audit_root"
+          install -m 600 "$application_root/package.json" "$audit_root/package.json"
+          install -m 600 "$application_root/package-lock.json" "$audit_root/package-lock.json"
+          test ! -e "$audit_root/.npmrc"
+          cd "$audit_root"
+          env -u NODE_AUTH_TOKEN npm audit \
+            --package-lock-only \
+            --ignore-scripts \
+            --audit-level=high \
+            --registry=https://registry.npmjs.org \
+            --userconfig="$NPM_CONFIG_USERCONFIG"
+
+      - name: Record the absence of managed Godot dependencies
+        if: ${{ steps.godot-preflight.outputs.dependency_mode == 'NO_MANAGED_DEPENDENCIES' }}
+        shell: bash
+        run: echo 'Godot dependency boundary - no managed dependencies or lockfile' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install pinned Godot when the runner image differs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v godot >/dev/null 2>&1 && godot --version | grep -Eq '^4\.7\.2\.stable'; then
+            exit 0
+          fi
+          case "${RUNNER_ARCH:-}" in
+            ARM64)
+              archive="Godot_v4.7.2-stable_linux.arm64.zip"
+              expected_sha="5dd0d86405cf7e8adf79fb6377b38ba682a2846cb378ffe5364f38c01ad29b9d"
+              binary="Godot_v4.7.2-stable_linux.arm64"
+              ;;
+            X64)
+              archive="Godot_v4.7.2-stable_linux.x86_64.zip"
+              expected_sha="cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4"
+              binary="Godot_v4.7.2-stable_linux.x86_64"
+              ;;
+            *) echo "지원하지 않는 runner architecture" >&2; exit 1 ;;
+          esac
+          url="https://github.com/godotengine/godot/releases/download/4.7.2-stable/$archive"
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/godot.zip" "$url"
+          echo "$expected_sha  $RUNNER_TEMP/godot.zip" | sha256sum --check --status
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot-bin"
+          chmod +x "$RUNNER_TEMP/godot-bin/$binary"
+          mv "$RUNNER_TEMP/godot-bin/$binary" "$RUNNER_TEMP/godot-bin/godot"
+          "$RUNNER_TEMP/godot-bin/godot" --version | grep -Eq '^4\.7\.2\.stable'
+          echo "$RUNNER_TEMP/godot-bin" >> "$GITHUB_PATH"
+
+      - name: Probe pinned Godot toolchain diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          probe_root="$RUNNER_TEMP/godot-toolchain-probe"
+          test ! -e "$probe_root"
+          install -d -m 700 "$probe_root"
+          install -m 600 \
+            "$GITHUB_WORKSPACE/.seorilabs-workflow-bundle/fixtures/workflow-bundle-v5/godot-runtime/toolchain-probe/project.godot" \
+            "$probe_root/project.godot"
+          godot --headless \
+            --path "$probe_root" \
+            --import --quit-after 1 2>&1 \
+            | tee "$RUNNER_TEMP/godot-toolchain.log"
+
+      - name: Import exact Godot application source
+        shell: bash
+        env:
+          COMMAND_DIRECTORY: ${{ needs.resolve-binding.outputs.command_directory }}
+        run: |
+          set -euo pipefail
+          godot --headless \
+            --path "$GITHUB_WORKSPACE/.seorilabs-application/$COMMAND_DIRECTORY" \
+            --import --quit-after 1 2>&1 \
+            | tee "$RUNNER_TEMP/godot-import.log"
+
+      - name: Reject product Godot diagnostics
+        shell: bash
+        run: |
+          node .seorilabs-workflow-bundle/scripts/fleet/godot-diagnostic-gate.mjs \
+            --toolchain-log "$RUNNER_TEMP/godot-toolchain.log" \
+            --application-log "$RUNNER_TEMP/godot-import.log" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Run exact Godot repository quality scripts without credentials
+        shell: bash
+        env:
+          COMMAND_DIRECTORY: ${{ needs.resolve-binding.outputs.command_directory }}
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/workflow-bundle-v5-godot-user.npmrc
+          NPM_CONFIG_GLOBALCONFIG: ${{ runner.temp }}/workflow-bundle-v5-godot-global.npmrc
+          NPM_CONFIG_LOCATION: global
+        run: |
+          set -euo pipefail
+          test -z "${NODE_AUTH_TOKEN:-}"
+          test "$NPM_CONFIG_USERCONFIG" != "$NPM_CONFIG_GLOBALCONFIG"
+          test -f "$NPM_CONFIG_USERCONFIG"
+          test -f "$NPM_CONFIG_GLOBALCONFIG"
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application/$COMMAND_DIRECTORY"
+          npm --location=global --prefix="$application_root" --ignore-scripts run test:core
+          npm --location=global --prefix="$application_root" --ignore-scripts run check:architecture
+          npm --location=global --prefix="$application_root" --ignore-scripts run check:release
+
+  evidence:
+    name: Isolated Godot provenance
+    needs:
+      - resolve-binding
+      - quality
+    if: ${{ needs.quality.result == 'success' }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    timeout-minutes: 5
+
+    steps:
+      - name: Write Godot target evidence in a fresh job
+        shell: bash
+        env:
+          PROFILE: ${{ needs.resolve-binding.outputs.profile }}
+          APPLICATION_SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          BINDING_SOURCE_SHA: ${{ needs.resolve-binding.outputs.binding_source_sha }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLED_WORKFLOW_PATH: ${{ needs.resolve-binding.outputs.called_workflow_path }}
+          BUNDLE_SHA: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          CONFIG_REVISION_ID: ${{ needs.resolve-binding.outputs.config_revision_id }}
+          CONFIG_REVISION: ${{ needs.resolve-binding.outputs.config_revision }}
+          CONFIG_REVISION_DIGEST: ${{ needs.resolve-binding.outputs.config_revision_digest }}
+          SIGNED_SNAPSHOT_DIGEST: ${{ needs.resolve-binding.outputs.signed_snapshot_digest }}
+          SNAPSHOT_SIGNATURE_KEY_ID: ${{ needs.resolve-binding.outputs.snapshot_signature_key_id }}
+          SNAPSHOT_SIGNATURE_POLICY_REVISION: ${{ needs.resolve-binding.outputs.snapshot_signature_policy_revision }}
+          SNAPSHOT_SIGNATURE_DIGEST: ${{ needs.resolve-binding.outputs.snapshot_signature_digest }}
+          MANIFEST_DIGEST: ${{ needs.resolve-binding.outputs.manifest_digest }}
+        run: |
+          set -euo pipefail
+          test "$PROFILE" = godot
+          test "$CALLED_WORKFLOW_PATH" = .github/workflows/godot-checks-v3.yml
+          evidence_root="$RUNNER_TEMP/static-evidence"
+          mkdir -p "$evidence_root"
+          printf '%s\n' "static:$PROFILE:$APPLICATION_SOURCE_SHA:$BINDING_SOURCE_SHA:$BUNDLE_SHA" > "$evidence_root/result.txt"
+          artifact_sha256="$(sha256sum "$evidence_root/result.txt" | cut -d ' ' -f 1)"
+          export ARTIFACT_SHA256="sha256:$artifact_sha256"
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            const evidence = {
+              schemaVersion: 2,
+              target: "static",
+              profile: process.env.PROFILE,
+              repositoryId: Number(process.env.GITHUB_REPOSITORY_ID),
+              fullName: process.env.GITHUB_REPOSITORY,
+              sourceSha: process.env.APPLICATION_SOURCE_SHA,
+              bindingSourceSha: process.env.BINDING_SOURCE_SHA,
+              callerWorkflowRef: process.env.CALLER_WORKFLOW_REF,
+              manifestDigest: process.env.MANIFEST_DIGEST,
+              workflowExecutionSha: process.env.BUNDLE_SHA,
+              workflowRef: "seorilabs/.github/" + process.env.CALLED_WORKFLOW_PATH + "@" + process.env.BUNDLE_SHA,
+              runId: Number(process.env.GITHUB_RUN_ID),
+              runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+              configRevisionId: process.env.CONFIG_REVISION_ID,
+              configRevision: Number(process.env.CONFIG_REVISION),
+              configRevisionDigest: process.env.CONFIG_REVISION_DIGEST,
+              signedSnapshotDigest: process.env.SIGNED_SNAPSHOT_DIGEST,
+              snapshotSignatureKeyId: process.env.SNAPSHOT_SIGNATURE_KEY_ID,
+              snapshotSignaturePolicyRevision: process.env.SNAPSHOT_SIGNATURE_POLICY_REVISION,
+              snapshotSignatureDigest: process.env.SNAPSHOT_SIGNATURE_DIGEST,
+              artifactSha256: process.env.ARTIFACT_SHA256,
+            };
+            writeFileSync(process.env.RUNNER_TEMP + "/static-evidence/provenance.json", JSON.stringify(evidence, null, 2) + "\n", { mode: 0o644 });
+          '
+
+      - name: Upload Godot static evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: org-contract-${{ github.repository_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/static-evidence
+          if-no-files-found: error
+          retention-days: 3
+
+  org-contract:
+    name: Org Contract
+    needs:
+      - resolve-binding
+      - quality
+      - evidence
+    if: ${{ always() }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Apply lifecycle enforcement
+        shell: bash
+        env:
+          BINDING_RESULT: ${{ needs.resolve-binding.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          EVIDENCE_RESULT: ${{ needs.evidence.result }}
+          ENFORCEMENT_MODE: ${{ needs.resolve-binding.outputs.enforcement_mode }}
+        run: |
+          test "$BINDING_RESULT" = success
+          if [[ "$ENFORCEMENT_MODE" = SHADOW ]]; then
+            echo "PAUSED 저장소 shadow 결과: $QUALITY_RESULT"
+            exit 0
+          fi
+          test "$ENFORCEMENT_MODE" = ENFORCE
+          test "$QUALITY_RESULT" = success
+          test "$EVIDENCE_RESULT" = success

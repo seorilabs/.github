@@ -1,0 +1,12 @@
+; Trusted neutral project used to separate fixed Godot toolchain diagnostics.
+
+config_version=5
+
+[application]
+
+config/name="WorkflowBundle v5 Godot Toolchain Probe"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

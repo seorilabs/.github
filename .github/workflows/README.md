@@ -23,7 +23,12 @@
 |---|---|---|
 | `rn-static-checks-v2.yml` | Fleet RN 고정 품질 게이트와 provenance | private ARC, public ubuntu |
 | `godot-checks-v2.yml` | Fleet Godot 고정 품질·import 게이트와 provenance | private ARC, public ubuntu |
+| `godot-checks-v3.yml` | v5 OIDC runtime binding에 결합된 Godot import·진단 게이트와 target evidence | private ARC, public ubuntu |
 | `workflow-bundle-candidate.yml` | 불변 WorkflowBundle candidate 생성·검증 | private ARC, public ubuntu |
+| `workflow-bundle-v5-candidate.yml` | v5 split binding 계약과 Saju/Trait/Godot fixture candidate 생성·검증 | private ARC, public ubuntu |
+| `js-static-checks-v1.yml` | OIDC runtime manifest에 결합된 RN·Capacitor·AIT web canonical static gate와 target evidence | private ARC, public ubuntu |
+| `ait-build-only-v1.yml` | exact source에서 AIT 1개와 checksum provenance 생성, 업로드 없음 | private ARC, public ubuntu |
+| `capacitor-build-android-cloud-v1.yml` | Capacitor exact source를 x64 Cloud Build에서 build-only AAB로 생성 | private ARC submit + x64 Cloud Build |
 | `rn-build-android-cloud-v1.yml` | RN exact source를 Cloud Build에 제출하고 build-only AAB 회수 | private ARC submit + x64 Cloud Build |
 | `godot-build-android-cloud-v1.yml` | Godot exact source를 Cloud Build에 제출하고 build-only AAB 회수 | private ARC submit + x64 Cloud Build |
 | `rn-static-checks.yml` | RN/Node 정적 게이트(명령 주입) | ARC(또는 ubuntu) |
@@ -48,6 +53,16 @@
 
 신규 Fleet caller는 trusted approval signer와 registry readback을 가진 GitHub App reconciler가
 [`repo-contract`](../../packages/repo-contract/) library generator로만 만든다.
+JS와 Godot v3 static caller는 source/config snapshot을 포함하지 않는다. `github.workflow_ref`로 caller를,
+`job.workflow_ref`·`job.workflow_sha`로 called reusable workflow를 구분하고, push·dispatch는
+event SHA에 결합한다. PR query는 merge SHA와 base SHA를 분리하고 Backoffice가 open PR의
+base/head repository·ref·base SHA·merge SHA를 trusted GitHub App readback으로 exact 검증한다.
+불일치와 stale readback은 OIDC-only job에서 fail-closed한다.
+따라서 caller 설치 커밋이나 다음 main 커밋이 embedded SHA를 stale하게 만들지 않는다.
+called workflow 경로는 JS profile과 npm/pnpm 또는 Godot profile과 null package manager 조합에
+exact하게 묶는다. 기존 Godot v2와 WorkflowBundle v4.1은 변경하지 않는다. 현재 v5 승격 범위는 static profile 네 개뿐이다. AIT·Capacitor Android·Xcode build 정의는
+후보와 cold-cache 검증에는 포함하지만 signed build runtime route가 별도 검토되기 전에는
+caller를 만들지 않으며, 직접 호출해도 OIDC 전용 resolve job이 app checkout 전에 fail-closed한다.
 v2 workflow는 caller가 runner, install 명령, check 명령을 넘길 수 없고 public repository를
 ARC에서 중앙 차단한다. 기존 명령 주입형 workflow는 consumer shadow parity가 끝날 때까지만
 유지하며 신규 caller에서 사용하지 않는다.

@@ -1,0 +1,58 @@
+steps:
+  - id: build-only
+    name: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:ed73c852159547ce3b7e36ef7759a8db25e1b4ac08f1fee4f5eebf7ce2cd2100
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        workspace_root="$(realpath /workspace)"
+        execution_root="$(realpath "/workspace/${_SEORI_EXECUTION_ROOT}")"
+        dependency_root="$(realpath "/workspace/${_SEORI_DEPENDENCY_ROOT}")"
+        case "$execution_root" in "$workspace_root"|"$workspace_root"/*) ;; *) exit 1 ;; esac
+        case "$dependency_root" in "$workspace_root"|"$workspace_root"/*) ;; *) exit 1 ;; esac
+        test ! -L "$execution_root"
+        test ! -L "$dependency_root"
+        test -f "$execution_root/build.env"
+        test -f "$workspace_root/scripts/build-android.sh"
+        test "$(node --version)" = v24.16.0
+        test "$(npm --version)" = 11.13.0
+        export npm_config_userconfig=/dev/null
+        case "${_SEORI_PACKAGE_MANAGER}" in
+          pnpm)
+            test "$(pnpm --version)" = 11.3.0
+            private_cache="$(realpath /workspace/.seorilabs-pnpm-store)"
+            test "$private_cache" = /workspace/.seorilabs-pnpm-store
+            export pnpm_config_store_dir="$private_cache"
+            export pnpm_config_enable_global_virtual_store=false
+            export pnpm_config_offline=true
+            cd "$dependency_root"
+            pnpm install --frozen-lockfile --trust-lockfile --offline --ignore-scripts --store-dir "$private_cache"
+            pnpm rebuild
+            ;;
+          npm)
+            private_cache="$(realpath /workspace/.seorilabs-npm-cache)"
+            test "$private_cache" = /workspace/.seorilabs-npm-cache
+            export npm_config_cache="$private_cache"
+            export npm_config_offline=true
+            cd "$dependency_root"
+            npm ci --offline --ignore-scripts --cache "$private_cache" --no-audit --no-fund
+            npm rebuild
+            ;;
+          *) exit 1 ;;
+        esac
+        export SEORI_ANDROID_AAB_OUTPUT=/workspace/app-release.aab
+        export SEORI_BUILD_MODE=build-only
+        export SEORI_SOURCE_SHA=${_SEORI_SOURCE_SHA}
+        rm -f "$SEORI_ANDROID_AAB_OUTPUT"
+        cd "$execution_root"
+        bash "$workspace_root/scripts/build-android.sh"
+        test -s "$SEORI_ANDROID_AAB_OUTPUT"
+        test "$(find /workspace -type f -name '*.aab' | wc -l | tr -d ' ')" = 1
+artifacts:
+  objects:
+    location: ${_SEORI_ARTIFACT_URI}
+    paths:
+      - app-release.aab
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 2400s

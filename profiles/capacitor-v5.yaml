@@ -1,0 +1,37 @@
+schemaVersion: 2
+id: capacitor
+contract: org-v5
+runtime: capacitor
+
+quality:
+  commandProvider: package-json-scripts
+  packageManagers:
+    - npm
+    - pnpm
+  requiredScripts:
+    - test:core
+    - check:architecture
+    - check:release
+
+sourceSignals:
+  dependencies:
+    - '@capacitor/core'
+  requiredFiles:
+    - capacitor.config.ts
+  nativeTargets:
+    android:
+      - android/app/build.gradle
+      - android/app/build.gradle.kts
+    ios:
+      - ios/App/App.xcodeproj/project.pbxproj
+
+sharedSdk:
+  distribution: package
+  package: '@seorilabs/platform-sdk'
+  versionRequirement: exact-semver
+  dependencyLockRequired: true
+
+build:
+  androidProfile: capacitor-android
+  iosProfile: capacitor-ios-xcode-cloud
+  aitProfile: ait-web

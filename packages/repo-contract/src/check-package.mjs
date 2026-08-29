@@ -31,13 +31,25 @@ const requiredPackageFiles = [
   ".generated/contracts/test-policy.yaml",
   ".generated/contracts/workflow-bundle.schema.json",
   ".generated/contracts/workflow-bundle-source.yaml",
+  ".generated/contracts/workflow-bundle-v5-resolved-binding.schema.json",
+  ".generated/contracts/workflow-bundle-v5-static-runtime-readback.schema.json",
+  ".generated/contracts/workflow-bundle-v5-source.yaml",
+  ".generated/contracts/workflow-bundle-v5.schema.json",
+  ".generated/contracts/xcode-cloud-run-v5.schema.json",
   ".generated/contracts/xcode-cloud-run.schema.json",
   ".generated/profiles/godot.yaml",
   ".generated/profiles/react-native.yaml",
+  ".generated/profiles/ait-granite-v5.yaml",
+  ".generated/profiles/ait-web-build-v5.yaml",
+  ".generated/profiles/ait-web-v5.yaml",
+  ".generated/profiles/capacitor-android-v5.yaml",
+  ".generated/profiles/capacitor-ios-xcode-cloud-v5.yaml",
+  ".generated/profiles/capacitor-v5.yaml",
   "README.md",
   "src/cli.mjs",
   "src/bootstrap.mjs",
   "src/fleet-migration.mjs",
+  "src/workflow-bundle-v5.mjs",
 ];
 
 const cacheRoot = await mkdtemp(join(tmpdir(), "repo-contract-pack-cache-"));
@@ -365,6 +377,28 @@ try {
     throw new Error(
       "배포된 repo-contract에 WorkflowBundle trusted publisher API가 없습니다.",
     );
+  }
+  const installedV5Check = await execFileAsync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'const installed = await import("@seorilabs/repo-contract/workflow-bundle-v5");',
+        'if (typeof installed.createWorkflowBundleV5 !== "function") process.exit(1);',
+        'if (typeof installed.generateStaticCallerV5 !== "function") process.exit(1);',
+        'if (installed.workflowBundleV5Contract?.bundleVersion !== "5.0.0") process.exit(1);',
+        'process.stdout.write("WorkflowBundle v5 public export 검증 통과\\n");',
+      ].join("\n"),
+    ],
+    {
+      cwd: consumerRoot,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    },
+  );
+  if (!installedV5Check.stdout.includes("v5 public export 검증 통과")) {
+    throw new Error("배포된 repo-contract에 WorkflowBundle v5 API가 없습니다.");
   }
 } catch (error) {
   checkError = error;

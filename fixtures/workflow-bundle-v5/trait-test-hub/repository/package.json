@@ -1,0 +1,13 @@
+{
+  "name": "trait-test-hub-v5-fixture",
+  "private": true,
+  "packageManager": "pnpm@11.3.0",
+  "scripts": {
+    "test:core": "node --test",
+    "check:architecture": "node --check scripts/architecture.mjs",
+    "check:release": "node --check scripts/release.mjs"
+  },
+  "dependencies": {
+    "@seorilabs/platform-sdk": "1.2.3"
+  }
+}

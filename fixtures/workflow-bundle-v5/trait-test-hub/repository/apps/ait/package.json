@@ -1,0 +1,12 @@
+{
+  "name": "@seorilabs/trait-test-ait-v5-fixture",
+  "private": true,
+  "scripts": {
+    "build": "ait build"
+  },
+  "dependencies": {
+    "@apps-in-toss/framework": "2.10.7",
+    "@granite-js/react-native": "1.0.33",
+    "react-native": "0.84.0"
+  }
+}

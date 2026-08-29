@@ -1,0 +1,15 @@
+{
+  "name": "ungeul-app-v5-fixture",
+  "private": true,
+  "packageManager": "pnpm@11.3.0",
+  "scripts": {
+    "test:core": "node --test",
+    "check:architecture": "node --check scripts/architecture.mjs",
+    "check:release": "node --check scripts/release.mjs"
+  },
+  "dependencies": {
+    "@apps-in-toss/web-framework": "2.10.7",
+    "@capacitor/core": "8.5.0",
+    "@seorilabs/platform-sdk": "1.2.3"
+  }
+}
