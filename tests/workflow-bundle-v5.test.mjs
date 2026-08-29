@@ -463,7 +463,10 @@ test("v5 candidate CI runs the cold npm and pnpm fixtures instead of silently sk
   assert.equal(coldCacheStep.env.WORKFLOW_BUNDLE_V5_COLD_CACHE, "1");
   assert.match(coldCacheStep.run, /test "\$\(npm --version\)" = 11\.13\.0/u);
   assert.match(coldCacheStep.run, /corepack prepare pnpm@11\.3\.0 --activate/u);
-  assert.match(coldCacheStep.run, /test "\$\(pnpm --version\)" = 11\.3\.0/u);
+  assert.match(
+    coldCacheStep.run,
+    /\(cd "\$RUNNER_TEMP" && test "\$\(pnpm --version\)" = 11\.3\.0\)/u,
+  );
   assert.match(coldCacheStep.run, /node --test tests\/workflow-bundle-v5-cold-cache\.test\.mjs/u);
 });
 
