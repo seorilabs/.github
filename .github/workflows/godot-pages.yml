@@ -75,11 +75,13 @@ jobs:
           esac
           bin="Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.${arch}"
           curl -L -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/${bin}.zip"
-          unzip -q godot.zip && sudo mv "$bin" /usr/local/bin/godot && sudo chmod +x /usr/local/bin/godot
+          install_dir="$RUNNER_TEMP/godot-bin"
+          unzip -q godot.zip && mkdir -p "$install_dir" && mv "$bin" "$install_dir/godot" && chmod +x "$install_dir/godot"
+          echo "$install_dir" >> "$GITHUB_PATH"
           tdir="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
           curl -L -o tpl.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_export_templates.tpz"
           unzip -q tpl.tpz && mkdir -p "$tdir" && mv templates/* "$tdir/"
-          godot --version
+          "$install_dir/godot" --version
 
       - name: Export Godot Web
         shell: bash
