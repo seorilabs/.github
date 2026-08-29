@@ -184,7 +184,7 @@ function trustedTime(clock) {
         : typeof value === "string"
           ? Date.parse(value)
           : Number.NaN;
-  if (!Number.isFinite(milliseconds)) {
+  if (!Number.isSafeInteger(milliseconds)) {
     throw new Error("FLEET_MIGRATION_COLLECTOR_TIME_INVALID");
   }
   return milliseconds;

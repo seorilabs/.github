@@ -4,6 +4,7 @@ import {
   generateKeyPairSync,
   sign as signEd25519,
 } from "node:crypto";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -35,6 +36,12 @@ const REQUEST = Object.freeze({
   mode: "READ_ONLY_SHADOW",
   requestedRunId: "fleet-collector-run-0001",
 });
+const inventorySchema = JSON.parse(
+  readFileSync(
+    new URL("../contracts/fleet-migration-inventory.schema.json", import.meta.url),
+    "utf8",
+  ),
+);
 
 function sha256(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -103,6 +110,26 @@ async function collect(fixture, request = REQUEST) {
     fixture.configuration,
   ).collect(request);
 }
+
+test("collector trusted time은 canonical 정수 밀리초만 허용한다", async () => {
+  const fixture = makeCollectorFixture({ count: 2, nowMs: Date.now() });
+  fixture.configuration.clock = () => Date.now() + 0.5;
+
+  await assert.rejects(
+    collect(fixture),
+    /FLEET_MIGRATION_COLLECTOR_TIME_INVALID/u,
+  );
+});
+
+test("collector evidence schema는 classification decision 계약과 일치한다", () => {
+  const properties =
+    inventorySchema.$defs.collectorBackofficeEvidence.properties;
+
+  assert.equal(properties.classificationDecisionRevision.minimum, 1);
+  assert.deepEqual(properties.classificationDecisionId, {
+    $ref: "#/$defs/evidenceId",
+  });
+});
 
 function makeIssuer(
   fixture,

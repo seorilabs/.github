@@ -1800,10 +1800,10 @@
         "classification": { "$ref": "#/$defs/repositoryClassification" },
         "classificationDecisionRevision": {
           "type": "integer",
-          "minimum": 0,
+          "minimum": 1,
           "maximum": 1000000
         },
-        "classificationDecisionId": { "$ref": "#/$defs/nullableEvidenceId" },
+        "classificationDecisionId": { "$ref": "#/$defs/evidenceId" },
         "app": { "$ref": "#/$defs/collectorAppReadback" },
         "activeConfig": { "$ref": "#/$defs/collectorActiveConfigReadback" },
         "signedSnapshot": {
