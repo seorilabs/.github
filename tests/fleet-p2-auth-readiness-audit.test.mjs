@@ -46,15 +46,29 @@ function resourceKey(kind, name) {
   return `${kind}\0${name}`;
 }
 
+function withExternalGateState(source, state) {
+  const copy = structuredClone(source);
+  const configMap = copy.items.find(({ kind }) => kind === 'ConfigMap');
+  const binding = JSON.parse(configMap.data['bindings.json']);
+  binding.registry.catalogStatus = state;
+  binding.registry.kubernetesStatus = state;
+  binding.secretManager.state = state;
+  binding.secretManager.provisioning.state = state;
+  binding.state.encryptionStatus = state;
+  configMap.data['bindings.json'] = JSON.stringify(binding);
+  return copy;
+}
+
 function readerFixture({
   allowedSecretAuthorization = [],
+  desiredState = desired,
   mutate,
   networkSurfaceItems,
   namespaceRbacItems,
   runtimeItems = [],
   staleConfigMaps = [],
 } = {}) {
-  const resources = new Map(desired.items.map((resource) => {
+  const resources = new Map(desiredState.items.map((resource) => {
     const live = liveResource(resource);
     mutate?.(live);
     return [resourceKey(resource.kind, resource.metadata.name), live];
@@ -71,18 +85,18 @@ function readerFixture({
       if (kinds.length === 1 && kinds[0] === 'configmaps') {
         const current = resources.get(resourceKey(
           'ConfigMap',
-          desired.items.find(({ kind }) => kind === 'ConfigMap').metadata.name,
+          desiredState.items.find(({ kind }) => kind === 'ConfigMap').metadata.name,
         ));
         return { apiVersion: 'v1', kind: 'List', items: [current, ...staleConfigMaps] };
       }
       if (kinds.includes('roles')) {
-        const exact = desired.items
+        const exact = desiredState.items
           .filter(({ kind }) => ['Role', 'RoleBinding'].includes(kind))
           .map(({ kind, metadata }) => resources.get(resourceKey(kind, metadata.name)));
         return { apiVersion: 'v1', kind: 'List', items: namespaceRbacItems ?? exact };
       }
       if (kinds.includes('services')) {
-        const exact = desired.items
+        const exact = desiredState.items
           .filter(({ kind }) => ['Service', 'NetworkPolicy'].includes(kind))
           .map(({ kind, metadata }) => resources.get(resourceKey(kind, metadata.name)));
         return { apiVersion: 'v1', kind: 'List', items: networkSurfaceItems ?? exact };
@@ -98,8 +112,9 @@ function readerFixture({
 }
 
 test('readiness auditor exact-matches live foundation and remains blocked by current external gates', async () => {
-  const reader = readerFixture();
-  const result = await auditFoundationReadiness({ desired, reader, context });
+  const blockedDesired = withExternalGateState(desired, 'blocked');
+  const reader = readerFixture({ desiredState: blockedDesired });
+  const result = await auditFoundationReadiness({ desired: blockedDesired, reader, context });
   assert.equal(result.state, 'BLOCKED');
   assert.deepEqual(result.diagnostics, [
     { code: 'REGISTRY_GATE_BLOCKED' },
@@ -109,6 +124,22 @@ test('readiness auditor exact-matches live foundation and remains blocked by cur
   assert.ok(reader.calls.every((call) => ['get', 'list', 'canI'].includes(call.operation)));
   assert.ok(reader.calls.every((call) =>
     call.operation === 'canI' || (call.kind !== 'Secret' && !call.kinds?.includes('secrets'))));
+});
+
+test('readiness auditor rejects an absent or mismatched contract namespace before readback', async () => {
+  for (const namespaceValue of [undefined, '', 'other-namespace']) {
+    const invalidDesired = structuredClone(desired);
+    const configMap = invalidDesired.items.find(({ kind }) => kind === 'ConfigMap');
+    const binding = JSON.parse(configMap.data['bindings.json']);
+    binding.namespace = namespaceValue;
+    configMap.data['bindings.json'] = JSON.stringify(binding);
+    const reader = readerFixture({ desiredState: invalidDesired });
+    await assert.rejects(
+      () => auditFoundationReadiness({ desired: invalidDesired, reader, context }),
+      /CURRENT_CONTRACT_NAMESPACE_INVALID/u,
+    );
+    assert.deepEqual(reader.calls, []);
+  }
 });
 
 test('readiness auditor reports SA default drift, stale binding, and undeclared runtime without mutation', async () => {

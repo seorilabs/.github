@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process';
+import { constants as fsConstants, realpathSync } from 'node:fs';
+import { access, lstat, realpath } from 'node:fs/promises';
+import { isAbsolute, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const TIMEOUT_MS = 15_000;
-const KUBECTL = '/usr/local/bin/kubectl';
+const DEFAULT_KUBECTL = '/usr/local/bin/kubectl';
 const RENDERER = fileURLToPath(new URL('../../../scripts/fleet/render-p3-runtime.mjs', import.meta.url));
 const CREDENTIAL_ANNOTATION = /(?:credential|secret|image[-_.]?pull|registry[-_.]?auth|gcp-service-account|role-arn|client-id)/iu;
 const SECRET_AUTHORIZATION_VERBS = Object.freeze([
@@ -96,10 +99,29 @@ function childRead(executable, args, {
   });
 }
 
-function kubectlReader(context) {
+async function resolveKubectlPath() {
+  const configured = process.env.SEORILABS_KUBECTL ?? DEFAULT_KUBECTL;
+  if (!isAbsolute(configured)) stop('READBACK_KUBECTL_PATH_INVALID');
+  try {
+    const [entry, canonical] = await Promise.all([
+      lstat(configured),
+      realpath(configured),
+    ]);
+    await access(configured, fsConstants.X_OK);
+    if (!entry.isFile() || entry.isSymbolicLink() || canonical !== configured) {
+      stop('READBACK_KUBECTL_PATH_INVALID');
+    }
+  } catch (error) {
+    if (error instanceof FoundationReadinessError) throw error;
+    stop('READBACK_KUBECTL_PATH_INVALID');
+  }
+  return configured;
+}
+
+function kubectlReader(context, executable) {
   const base = ['--context', context, 'get'];
   return Object.freeze({
-    get: (kind, name, namespace) => childRead(KUBECTL, [
+    get: (kind, name, namespace) => childRead(executable, [
       ...base,
       RESOURCE_NAMES[kind],
       name,
@@ -107,14 +129,14 @@ function kubectlReader(context) {
       '--output=json',
       '--ignore-not-found=true',
     ], { allowEmpty: true }),
-    list: (resources, namespace) => childRead(KUBECTL, [
+    list: (resources, namespace) => childRead(executable, [
       ...base,
       resources.join(','),
       '--namespace', namespace,
       '--output=json',
     ]),
     canI: async ({ verb, resource, namespace, serviceAccount }) => {
-      const answer = await childRead(KUBECTL, [
+      const answer = await childRead(executable, [
         '--context', context,
         'auth', 'can-i', verb, resource,
         '--namespace', namespace,
@@ -231,6 +253,18 @@ function publicBinding(desired) {
   }
 }
 
+function contractNamespace(desired) {
+  const namespace = publicBinding(desired).namespace;
+  const canonicalNamespace = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
+  const namespaceResources = desired.items.filter(({ kind }) => kind === 'Namespace');
+  if (
+    typeof namespace !== 'string' || !canonicalNamespace.test(namespace) ||
+    namespaceResources.length !== 1 || namespaceResources[0]?.metadata?.name !== namespace ||
+    desired.items.some((item) => item.kind !== 'Namespace' && item?.metadata?.namespace !== namespace)
+  ) stop('CURRENT_CONTRACT_NAMESPACE_INVALID');
+  return namespace;
+}
+
 function contractDiagnostics(desired) {
   const binding = publicBinding(desired);
   const diagnostics = [];
@@ -258,7 +292,7 @@ export async function auditFoundationReadiness({ desired, reader, context }) {
     !reader || typeof reader.get !== 'function' || typeof reader.list !== 'function' ||
     typeof reader.canI !== 'function'
   ) stop('READINESS_INPUT_INVALID');
-  const namespace = publicBinding(desired).namespace;
+  const namespace = contractNamespace(desired);
   const diagnostics = contractDiagnostics(desired);
   for (const expected of desired.items) {
     const resourceName = RESOURCE_NAMES[expected.kind];
@@ -372,12 +406,22 @@ async function main() {
   const binding = publicBinding(desired);
   const context = binding.canary?.kubernetesContext;
   if (typeof context !== 'string' || context.length === 0) stop('CURRENT_CONTRACT_CONTEXT_INVALID');
-  const result = await auditFoundationReadiness({ desired, reader: kubectlReader(context), context });
+  const executable = await resolveKubectlPath();
+  const result = await auditFoundationReadiness({ desired, reader: kubectlReader(context, executable), context });
   process.stdout.write(`${JSON.stringify(result)}\n`);
   if (result.state !== 'READY') process.exitCode = 1;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+function isDirectExecution() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectExecution()) {
   main().catch((error) => {
     process.stderr.write(`${JSON.stringify({ state: 'FAILED', code: error?.code ?? 'READINESS_AUDIT_FAILED' })}\n`);
     process.exitCode = 1;
