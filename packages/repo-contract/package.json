@@ -13,6 +13,7 @@
     "./fleet": "./src/fleet.mjs",
     "./fleet-migration-collector": "./src/fleet-migration-collector.mjs",
     "./fleet-migration": "./src/fleet-migration.mjs",
+    "./trusted-cleanup-executor": "./src/trusted-cleanup-executor.mjs",
     "./trusted-candidate-canary": "./src/trusted-candidate-canary.mjs",
     "./trusted-executor": "./src/trusted-executor.mjs",
     "./workflow-bundle-v5": "./src/workflow-bundle-v5.mjs",

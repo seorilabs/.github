@@ -20,6 +20,7 @@ const requiredPackageFiles = [
   ".generated/contracts/app.schema.json",
   ".generated/contracts/credential-consumer.schema.json",
   ".generated/contracts/fleet-bootstrap-plan.schema.json",
+  ".generated/contracts/fleet-cleanup-execution-receipt.schema.json",
   ".generated/contracts/fleet-migration-chain-head.schema.json",
   ".generated/contracts/fleet-migration-inventory.schema.json",
   ".generated/contracts/fleet-migration-plan.schema.json",
@@ -50,6 +51,7 @@ const requiredPackageFiles = [
   "src/bootstrap.mjs",
   "src/fleet-migration-collector.mjs",
   "src/fleet-migration.mjs",
+  "src/trusted-cleanup-executor.mjs",
   "src/workflow-bundle-v5.mjs",
   "src/trusted-inventory-issuer.mjs",
 ];
@@ -382,6 +384,38 @@ try {
   if (!installedIssuerCheck.stdout.includes("public export 검증 통과")) {
     throw new Error(
       "배포된 repo-contract에 Fleet migration inventory issuer API가 없습니다.",
+    );
+  }
+  const installedCleanupExecutorCheck = await execFileAsync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'const installed = await import("@seorilabs/repo-contract/trusted-cleanup-executor");',
+        'if (typeof installed.createTrustedFleetCleanupGitHubAdapter !== "function") process.exit(1);',
+        'if (typeof installed.createTrustedFleetCleanupStateStore !== "function") process.exit(1);',
+        'if (typeof installed.createTrustedFleetCleanupExecutor !== "function") process.exit(1);',
+        'if (typeof installed.computeFleetCleanupApprovalScopeDigest !== "function") process.exit(1);',
+        'if (typeof installed.validateFleetCleanupExecutionReceipt !== "function") process.exit(1);',
+        'if (installed.trustedFleetCleanupExecutorContract?.mode !== "READY_PR_ONLY") process.exit(1);',
+        'if (installed.trustedFleetCleanupExecutorContract?.repositoryReadyPullRequestLimit !== 1) process.exit(1);',
+        'if (installed.trustedFleetCleanupExecutorContract?.directDefaultBranchMutationAllowed !== false) process.exit(1);',
+        'if (installed.trustedFleetCleanupExecutorContract?.resultUnknownRetryAllowed !== false) process.exit(1);',
+        'process.stdout.write("Fleet cleanup executor public export 검증 통과\\n");',
+      ].join("\n"),
+    ],
+    {
+      cwd: consumerRoot,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    },
+  );
+  if (
+    !installedCleanupExecutorCheck.stdout.includes("public export 검증 통과")
+  ) {
+    throw new Error(
+      "배포된 repo-contract에 Fleet cleanup executor API가 없습니다.",
     );
   }
   const installedCandidateCanaryCheck = await execFileAsync(
