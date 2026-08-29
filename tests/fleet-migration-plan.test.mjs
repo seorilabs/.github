@@ -2544,6 +2544,40 @@ test("migration CLI는 trusted public key로 READY를 만들고 stdout 외 파�
       "utf8",
     );
     await symlink(protectedPath, symlinkPath);
+
+    const missingInventoryError = captureWriter();
+    const missingInventory = await runFleetCli({
+      argv: ["plan-migration"],
+      stdout: captureWriter().stream,
+      stderr: missingInventoryError.stream,
+    });
+    assert.equal(missingInventory, 1);
+    assert.match(
+      missingInventoryError.read(),
+      /MIGRATION_INVENTORY_REQUIRED/u,
+    );
+
+    const missingPlanError = captureWriter();
+    const missingPlan = await runFleetCli({
+      argv: ["validate-migration-plan", "--inventory", inventoryPath],
+      stdout: captureWriter().stream,
+      stderr: missingPlanError.stream,
+    });
+    assert.equal(missingPlan, 1);
+    assert.match(missingPlanError.read(), /MIGRATION_PLAN_REQUIRED/u);
+
+    const missingValidationInventoryError = captureWriter();
+    const missingValidationInventory = await runFleetCli({
+      argv: ["validate-migration-plan", "--plan", protectedPath],
+      stdout: captureWriter().stream,
+      stderr: missingValidationInventoryError.stream,
+    });
+    assert.equal(missingValidationInventory, 1);
+    assert.match(
+      missingValidationInventoryError.read(),
+      /MIGRATION_INVENTORY_REQUIRED/u,
+    );
+
     const stdout = captureWriter();
     const stderr = captureWriter();
     const rejected = await runFleetCli({

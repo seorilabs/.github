@@ -31,6 +31,11 @@ function parseOptions(argv) {
   return options;
 }
 
+function requireOption(options, name, errorCode) {
+  if (options[name] === undefined) throw new Error(errorCode);
+  return options[name];
+}
+
 async function loadEd25519PublicKey(path, errorPrefix) {
   const encodedKey = await readFile(path, "utf8");
   if (/PRIVATE KEY/u.test(encodedKey)) {
@@ -209,7 +214,12 @@ export async function runFleetCli({
       if (options.output !== undefined) {
         throw new Error("MIGRATION_STDOUT_ONLY");
       }
-      const inventory = JSON.parse(await readFile(options.inventory, "utf8"));
+      const inventoryPath = requireOption(
+        options,
+        "inventory",
+        "MIGRATION_INVENTORY_REQUIRED",
+      );
+      const inventory = JSON.parse(await readFile(inventoryPath, "utf8"));
       const now = clock();
       const trustedInventoryKeys = await loadInventoryTrustRoots(options);
       const priorInput = await loadPriorMigrationInput(
@@ -234,8 +244,18 @@ export async function runFleetCli({
     }
 
     if (command === "validate-migration-plan") {
-      const plan = JSON.parse(await readFile(options.plan, "utf8"));
-      const inventory = JSON.parse(await readFile(options.inventory, "utf8"));
+      const planPath = requireOption(
+        options,
+        "plan",
+        "MIGRATION_PLAN_REQUIRED",
+      );
+      const inventoryPath = requireOption(
+        options,
+        "inventory",
+        "MIGRATION_INVENTORY_REQUIRED",
+      );
+      const plan = JSON.parse(await readFile(planPath, "utf8"));
+      const inventory = JSON.parse(await readFile(inventoryPath, "utf8"));
       const now = clock();
       const trustedInventoryKeys = await loadInventoryTrustRoots(options);
       const priorInput = await loadPriorMigrationInput(
