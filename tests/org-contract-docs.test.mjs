@@ -23,6 +23,7 @@ const JSON_SCHEMAS = [
   "contracts/credential-consumer.schema.json",
   "contracts/provider-auth-matrix.schema.json",
   "contracts/fleet-bootstrap-plan.schema.json",
+  "contracts/fleet-cleanup-execution-receipt.schema.json",
   "contracts/fleet-migration-chain-head.schema.json",
   "contracts/fleet-migration-inventory.schema.json",
   "contracts/fleet-migration-plan.schema.json",

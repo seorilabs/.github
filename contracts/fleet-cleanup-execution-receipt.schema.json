@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.com/contracts/fleet-cleanup-execution-receipt.schema.json",
+  "title": "Seorilabs Fleet cleanup Ready PR execution receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "contract",
+    "state",
+    "replayed",
+    "runId",
+    "workerId",
+    "organizationId",
+    "installationId",
+    "issuanceDigest",
+    "inventoryDigest",
+    "planDigest",
+    "repository",
+    "branch",
+    "pullRequest",
+    "authority",
+    "ledger",
+    "receiptDigest"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "contract": { "const": "seorilabs-fleet-cleanup-execution-v1" },
+    "state": { "const": "READY_PR_CREATED" },
+    "replayed": { "type": "boolean" },
+    "runId": { "$ref": "#/$defs/executionId" },
+    "workerId": { "$ref": "#/$defs/executionId" },
+    "organizationId": { "$ref": "#/$defs/numericId" },
+    "installationId": { "$ref": "#/$defs/numericId" },
+    "issuanceDigest": { "$ref": "#/$defs/digest" },
+    "inventoryDigest": { "$ref": "#/$defs/digest" },
+    "planDigest": { "$ref": "#/$defs/digest" },
+    "repository": { "$ref": "#/$defs/repository" },
+    "branch": { "$ref": "#/$defs/branch" },
+    "pullRequest": { "$ref": "#/$defs/pullRequest" },
+    "authority": { "$ref": "#/$defs/authority" },
+    "ledger": { "$ref": "#/$defs/ledger" },
+    "receiptDigest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "numericId": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,31}$"
+    },
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "executionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "fullName",
+        "sourceSha",
+        "defaultRef",
+        "treeSha"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/numericId" },
+        "fullName": {
+          "type": "string",
+          "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+        },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "defaultRef": {
+          "type": "string",
+          "pattern": "^refs/heads/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,126}[A-Za-z0-9])?$"
+        },
+        "treeSha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "branch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "commitSha"],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^refs/heads/seori/fleet-cleanup/[1-9][0-9]{0,31}/[0-9a-f]{12}$"
+        },
+        "commitSha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "pullRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "number",
+        "url",
+        "state",
+        "isDraft",
+        "baseRef",
+        "headRef",
+        "headSha"
+      ],
+      "properties": {
+        "number": { "type": "integer", "minimum": 1 },
+        "url": {
+          "type": "string",
+          "pattern": "^https://github\\.com/seorilabs/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$"
+        },
+        "state": { "const": "OPEN" },
+        "isDraft": { "const": false },
+        "baseRef": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,126}[A-Za-z0-9])?$"
+        },
+        "headRef": {
+          "type": "string",
+          "pattern": "^seori/fleet-cleanup/[1-9][0-9]{0,31}/[0-9a-f]{12}$"
+        },
+        "headSha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reservationId", "stateGeneration"],
+      "properties": {
+        "reservationId": { "$ref": "#/$defs/executionId" },
+        "stateGeneration": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "operationId", "receiptDigest"],
+      "properties": {
+        "kind": {
+          "enum": ["CREATE_COMMIT", "CREATE_REF", "CREATE_PR"]
+        },
+        "operationId": { "$ref": "#/$defs/digest" },
+        "receiptDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generation", "digest", "steps"],
+      "properties": {
+        "generation": { "type": "integer", "minimum": 1 },
+        "digest": { "$ref": "#/$defs/digest" },
+        "steps": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            {
+              "allOf": [
+                { "$ref": "#/$defs/step" },
+                {
+                  "type": "object",
+                  "properties": { "kind": { "const": "CREATE_COMMIT" } }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                { "$ref": "#/$defs/step" },
+                {
+                  "type": "object",
+                  "properties": { "kind": { "const": "CREATE_REF" } }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                { "$ref": "#/$defs/step" },
+                {
+                  "type": "object",
+                  "properties": { "kind": { "const": "CREATE_PR" } }
+                }
+              ]
+            }
+          ],
+          "items": false
+        }
+      }
+    }
+  }
+}

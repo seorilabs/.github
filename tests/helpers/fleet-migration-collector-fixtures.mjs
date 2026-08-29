@@ -443,7 +443,7 @@ function completeProofs({
   });
   const sourceReadback = evidence({
     observationId: evidenceId("source-readback", token),
-    observedAt: new Date(context.nowMs - 4 * 60_000).toISOString(),
+    observedAt: new Date(context.nowMs - 30_000).toISOString(),
     repositoryId: sourceRepository.id,
     sourceRef: sourceRepository.defaultRef,
     sourceSha: sourceRepository.sourceSha,
@@ -1023,11 +1023,30 @@ export function makeCollectorFixture({
     }),
     readBackofficePublicEvidence: async (request) => {
       const repository = repositoriesById.get(request.repositoryId);
+      const candidates = request.detections.map((scanned) =>
+        candidateForDetection(context, repository, scanned),
+      );
+      const workflowCandidatesByPath = new Map();
+      for (const candidate of candidates) {
+        if (!candidate.detection.type.startsWith("WORKFLOW_")) continue;
+        const group = workflowCandidatesByPath.get(candidate.path) ?? [];
+        group.push(candidate);
+        workflowCandidatesByPath.set(candidate.path, group);
+      }
+      for (const group of workflowCandidatesByPath.values()) {
+        if (group.length < 2) continue;
+        const proofSource =
+          group.find(
+            ({ detection }) =>
+              detection.type === "WORKFLOW_SECRETS_INHERIT",
+          ) ?? group[0];
+        for (const candidate of group) {
+          candidate.proofs = structuredClone(proofSource.proofs);
+        }
+      }
       return {
         publicEvidence: publicBackofficeEvidence(context, repository),
-        candidates: request.detections.map((scanned) =>
-          candidateForDetection(context, repository, scanned),
-        ),
+        candidates,
       };
     },
     claimOccurrence: durable.claim,

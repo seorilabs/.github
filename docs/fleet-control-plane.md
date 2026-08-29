@@ -307,10 +307,25 @@ signer에는 `shared/platform/fleet-release-approval-signing` logical ID와
 SPKI fingerprint는 최신 public credential metadata readback과 exact하게 일치해야 하며,
 `FLEET_MIGRATION_INVENTORY_ATTESTATION` purpose로 canonical payload/digest만 signer에 전달한다.
 
-실제 GitHub/Backoffice transport, durable store, signing service, durable CAS state authority와 cleanup
-executor는 별도 운영 adapter다. 이 패키지는 외부 CAS를 구현했다고 주장하지 않으며, trusted live
-readback은 reservation의 현재성 검증 경계일 뿐이다. executor도 mutation 직전에 같은 reservation을
-durable CAS로 소비하고 exact head를 다시 읽는 별도 계약·승인·PR 단위 gate가 필요하다.
+`@seorilabs/repo-contract/trusted-cleanup-executor`는 위 authoritative `BOOTSTRAP` issuance와
+같은 프로세스에서 다시 만든 trusted inventory binding, `PLAN_ONLY` plan을 실행과 각 mutation 직전에
+재검증한다. 외부 state authority에서 exact generation과 chain-head binding을 durable CAS로 reserve하고,
+mutation 직전 numeric repository ID/full name/source SHA/default HEAD/tree/BLOB, issue approval scope/TTL,
+`autopilot`, 열린 autonomous Ready PR 수를 다시 읽는다. `blocked`, `no-autopilot`, `approval:*`는
+fail-closed한다. 한 reservation은 한 source repository의 새 branch와 Ready PR 하나만 만들며 plan에
+고정된 legacy 삭제와 exact replacement digest만 commit에 넣는다. default branch 직접 변경과 ref 삭제
+API는 없고, `CREATE_COMMIT → CREATE_REF → CREATE_PR`를 durable ledger에 기록한다. 각 단계는
+provider readback-first로 재개하며 한 번 `DISPATCHED`된 단계는 이후 readback이 `ABSENT`여도 mutation을
+반복하지 않는다. 완료 직전에 exact commit, branch ref, 열린 Ready PR과 deterministic operation ID를
+다시 확인한다. 다음으로 lease와 stale execution generation을 검사해 state generation을 정확히 한 번
+증가시키고 secret-free receipt만 반환한다.
+
+실제 GitHub/Backoffice transport, durable store, signing service와 live state authority 구현은 별도
+운영 adapter다. 이 패키지는 외부 CAS를 구현했다고 주장하지 않으며 executor는 mutation 직전에 같은 reservation을
+다시 검증해 소비한다. 현재 core와 fixture는 실제 provider mutation, 38개 active repo shadow parity, cleanup
+PR 생성, legacy 파일 삭제 완료를 주장하지 않는다. `WAVE` execution은 별도 authoritative wave issuer와
+current chain-head adapter가 연결되기 전까지 fail-closed하며, 공개 배포와 ruleset Active 전환은 이
+executor 범위가 아니다.
 
 ## 강제 전환 순서
 
