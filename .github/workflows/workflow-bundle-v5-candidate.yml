@@ -8,10 +8,10 @@ on:
       - .github/cloud-build/rn-android-build-only.yaml
       - .github/workflows/ait-build-only-v1.yml
       - .github/workflows/capacitor-build-android-cloud-v1.yml
-      - .github/workflows/godot-build-android-cloud-v1.yml
+      - .github/workflows/godot-build-android-cloud-v2.yml
       - .github/workflows/godot-checks-v3.yml
       - .github/workflows/js-static-checks-v1.yml
-      - .github/workflows/rn-build-android-cloud-v1.yml
+      - .github/workflows/rn-build-android-cloud-v2.yml
       - .github/workflows/workflow-bundle-v5-candidate.yml
       - contracts/workflow-bundle-v5*
       - contracts/xcode-cloud-run-v5.schema.json
@@ -33,10 +33,10 @@ on:
       - .github/cloud-build/rn-android-build-only.yaml
       - .github/workflows/ait-build-only-v1.yml
       - .github/workflows/capacitor-build-android-cloud-v1.yml
-      - .github/workflows/godot-build-android-cloud-v1.yml
+      - .github/workflows/godot-build-android-cloud-v2.yml
       - .github/workflows/godot-checks-v3.yml
       - .github/workflows/js-static-checks-v1.yml
-      - .github/workflows/rn-build-android-cloud-v1.yml
+      - .github/workflows/rn-build-android-cloud-v2.yml
       - .github/workflows/workflow-bundle-v5-candidate.yml
       - contracts/workflow-bundle-v5*
       - contracts/xcode-cloud-run-v5.schema.json

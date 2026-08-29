@@ -18,11 +18,14 @@ const CONTRACTS_ROOT = SOURCE_WORKSPACE
 const SOURCE_PATH = "contracts/workflow-bundle-v5-source.yaml";
 const SCHEMA_PATH = "contracts/workflow-bundle-v5.schema.json";
 const BINDING_SCHEMA_PATH = "contracts/workflow-bundle-v5-resolved-binding.schema.json";
+const BUILD_RUNTIME_SCHEMA_PATH =
+  "contracts/workflow-bundle-v5-build-runtime-readback.schema.json";
 const STATIC_RUNTIME_SCHEMA_PATH =
   "contracts/workflow-bundle-v5-static-runtime-readback.schema.json";
 const XCODE_SCHEMA_PATH = "contracts/xcode-cloud-run-v5.schema.json";
 const CONTRACT_FILES = Object.freeze([
   BINDING_SCHEMA_PATH,
+  BUILD_RUNTIME_SCHEMA_PATH,
   STATIC_RUNTIME_SCHEMA_PATH,
   SCHEMA_PATH,
   SOURCE_PATH,
@@ -33,6 +36,8 @@ const CONTRACT_FILES = Object.freeze([
   "profiles/capacitor-android-v5.yaml",
   "profiles/capacitor-ios-xcode-cloud-v5.yaml",
   "profiles/capacitor-v5.yaml",
+  "profiles/godot-android-v5.yaml",
+  "profiles/react-native-android-v5.yaml",
 ]);
 const RUNTIME_ASSET_FILES = Object.freeze([
   "package.json",
@@ -42,10 +47,10 @@ const RUNTIME_ASSET_FILES = Object.freeze([
   ".github/cloud-build/rn-android-build-only.yaml",
   ".github/workflows/ait-build-only-v1.yml",
   ".github/workflows/capacitor-build-android-cloud-v1.yml",
-  ".github/workflows/godot-build-android-cloud-v1.yml",
+  ".github/workflows/godot-build-android-cloud-v2.yml",
   ".github/workflows/godot-checks-v3.yml",
   ".github/workflows/js-static-checks-v1.yml",
-  ".github/workflows/rn-build-android-cloud-v1.yml",
+  ".github/workflows/rn-build-android-cloud-v2.yml",
   ".github/workflows/workflow-bundle-v5-candidate.yml",
   "fixtures/workflow-bundle-v5/saju-reader/binding.json",
   "fixtures/workflow-bundle-v5/saju-reader/repository/build.env",
@@ -88,6 +93,7 @@ const RUNTIME_ASSET_FILES = Object.freeze([
 const SHA = /^[0-9a-f]{40}$/u;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const TRUSTED_BUNDLES = new WeakMap();
+const TRUSTED_CANDIDATE_BUNDLES = new WeakMap();
 const TRUSTED_BINDINGS = new WeakMap();
 const TRUST_BINDING_TTL_MS = 5 * 60 * 1000;
 const SAFE_SEGMENT = /^[A-Za-z0-9_@-]+(?:\.[A-Za-z0-9_@-]+)*$/u;
@@ -195,6 +201,38 @@ function sha256(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
+function approvalEnvelope(bundle, evidenceDigest) {
+  return {
+    schemaVersion: 1,
+    kind: "WORKFLOW_BUNDLE_V5_APPROVAL",
+    registryId: "seorilabs-workflow-bundles-v5",
+    subject: `workflow-bundle-v5:${bundle.source.sha}`,
+    bundleVersion: bundle.bundleVersion,
+    source: structuredClone(bundle.source),
+    candidateDigest: bundle.integrity.payloadDigest,
+    evidenceDigest,
+    contractDigestsDigest: sha256(canonicalJson(bundle.quality.contractDigests)),
+    runtimeAssetDigestsDigest: sha256(canonicalJson(bundle.quality.runtimeAssetDigests)),
+  };
+}
+
+export function createWorkflowBundleV5ApprovalPayload(bundle, evidence) {
+  const candidate = structuredClone(bundle);
+  const records = structuredClone(evidence);
+  if (candidate?.approval?.state !== "CANDIDATE" || !Array.isArray(records)) {
+    fail("WORKFLOW_BUNDLE_APPROVAL_PAYLOAD_INVALID");
+  }
+  const envelope = deepFreeze(
+    approvalEnvelope(candidate, sha256(canonicalJson(records))),
+  );
+  const payload = Buffer.from(canonicalJson(envelope), "utf8");
+  return Object.freeze({
+    envelope,
+    payload,
+    payloadDigest: sha256(payload),
+  });
+}
+
 function payloadOf(bundle) {
   const { integrity: _integrity, ...payload } = bundle;
   return payload;
@@ -299,6 +337,7 @@ export async function createWorkflowBundleV5({
     },
     promotionScope: source.promotionScope,
     staticRuntimeBinding: source.staticRuntimeBinding,
+    buildRuntimeBinding: source.buildRuntimeBinding,
     staticProfiles: Object.fromEntries(
       Object.entries(source.staticProfiles).map(([profile, record]) => [
         profile,
@@ -386,6 +425,15 @@ export async function loadApprovedWorkflowBundleV5(
     ...payloadOf(snapshot),
     approval: { state: "CANDIDATE", evidence: [] },
   }).integrity.payloadDigest;
+  const candidate = {
+    ...structuredClone(snapshot),
+    approval: { state: "CANDIDATE", evidence: [] },
+    integrity: { algorithm: "sha256", payloadDigest: candidateDigest },
+  };
+  const approvalPayload = createWorkflowBundleV5ApprovalPayload(
+    candidate,
+    snapshot.approval.evidence,
+  );
   const verification = await trustedApprovalVerifier({
     source: structuredClone(snapshot.source),
     candidateDigest,
@@ -394,6 +442,8 @@ export async function loadApprovedWorkflowBundleV5(
     evidence: structuredClone(snapshot.approval.evidence),
     contractDigests: structuredClone(snapshot.quality.contractDigests),
     runtimeAssetDigests: structuredClone(snapshot.quality.runtimeAssetDigests),
+    approvalPayload: Buffer.from(approvalPayload.payload),
+    approvalPayloadDigest: approvalPayload.payloadDigest,
   });
   if (
     verification?.state !== "VERIFIED" ||
@@ -407,7 +457,8 @@ export async function loadApprovedWorkflowBundleV5(
       sha256(canonicalJson(snapshot.quality.contractDigests)) ||
     verification.runtimeAssetDigestsDigest !==
       sha256(canonicalJson(snapshot.quality.runtimeAssetDigests)) ||
-    verification.evidenceDigest !== sha256(canonicalJson(snapshot.approval.evidence))
+    verification.evidenceDigest !== sha256(canonicalJson(snapshot.approval.evidence)) ||
+    verification.approvalPayloadDigest !== approvalPayload.payloadDigest
   ) {
     fail("WORKFLOW_BUNDLE_APPROVAL_UNTRUSTED");
   }
@@ -419,11 +470,53 @@ export async function loadApprovedWorkflowBundleV5(
   return binding;
 }
 
+export async function loadCandidateWorkflowBundleV5(
+  bundle,
+  { trustedCandidateVerifier, repoRoot = WORKSPACE_ROOT } = {},
+) {
+  const snapshot = deepFreeze(structuredClone(bundle));
+  const validation = await validateWorkflowBundleV5(snapshot, { repoRoot });
+  if (!validation.ok) fail(validation.diagnostics[0]);
+  if (snapshot.approval.state !== "CANDIDATE") fail("WORKFLOW_BUNDLE_NOT_CANDIDATE");
+  if (snapshot.source.sha !== snapshot.source.workflowExecutionSha) {
+    fail("WORKFLOW_BUNDLE_CANDIDATE_SOURCE_MISMATCH");
+  }
+  if (typeof trustedCandidateVerifier !== "function") {
+    fail("TRUSTED_CANDIDATE_VERIFIER_REQUIRED");
+  }
+  const verification = await trustedCandidateVerifier({
+    source: structuredClone(snapshot.source),
+    payloadDigest: snapshot.integrity.payloadDigest,
+    contractDigests: structuredClone(snapshot.quality.contractDigests),
+    runtimeAssetDigests: structuredClone(snapshot.quality.runtimeAssetDigests),
+  });
+  if (
+    verification?.state !== "VERIFIED" ||
+    verification.payloadDigest !== snapshot.integrity.payloadDigest ||
+    verification.sourceSha !== snapshot.source.sha ||
+    verification.workflowExecutionSha !== snapshot.source.workflowExecutionSha ||
+    verification.contractDigestsDigest !==
+      sha256(canonicalJson(snapshot.quality.contractDigests)) ||
+    verification.runtimeAssetDigestsDigest !==
+      sha256(canonicalJson(snapshot.quality.runtimeAssetDigests))
+  ) {
+    fail("WORKFLOW_BUNDLE_CANDIDATE_UNTRUSTED");
+  }
+  const binding = Object.freeze({});
+  TRUSTED_CANDIDATE_BUNDLES.set(binding, {
+    value: snapshot,
+    expiresAt: Date.now() + TRUST_BINDING_TTL_MS,
+  });
+  return binding;
+}
+
 const REQUIRED_EVIDENCE = Object.freeze([
   "static:react-native",
   "static:godot",
   "static:capacitor",
   "static:ait-web",
+  "build:react-native-android",
+  "build:godot-android",
 ]);
 
 function evidenceIdentity(record) {
@@ -431,12 +524,38 @@ function evidenceIdentity(record) {
 }
 
 function evidenceRuntimeMatches(bundle, record) {
-  const runtime = record.target === "static" && bundle.staticProfiles[record.profile];
+  const profile = record.target === "static" ? record.profile : record.buildProfile;
+  const runtime = record.target === "static"
+    ? bundle.staticProfiles[profile]
+    : record.target === "build"
+      ? bundle.buildProfiles[profile]
+      : undefined;
+  const promoted = record.target === "static"
+    ? bundle.promotionScope.staticProfiles
+    : bundle.promotionScope.buildProfiles;
+  const canary = {
+    "react-native-android": [1250442131, "seorilabs/happy-farm"],
+    "godot-android": [1265192029, "seorilabs/lizard-tycoon"],
+  }[profile];
+  const cloudBuildConfig = {
+    "react-native-android": ".github/cloud-build/rn-android-build-only.yaml",
+    "godot-android": ".github/cloud-build/godot-android-build-only.yaml",
+  }[profile];
   return Boolean(
     runtime &&
-    bundle.promotionScope.staticProfiles.includes(record.profile) &&
+    promoted.includes(profile) &&
     runtime.sha === record.workflowExecutionSha &&
-    record.workflowRef === `seorilabs/.github/${runtime.path}@${runtime.sha}`,
+    record.workflowRef ===
+      `seorilabs/.github/${record.target === "static" ? runtime.path : runtime.workflow}@${runtime.sha}` &&
+    (record.target !== "build" || (
+      record.repositoryId === canary?.[0] &&
+      record.fullName === canary?.[1] &&
+      record.sourceSha === record.bindingSourceSha &&
+      record.bundlePayloadDigest === bundle.integrity.payloadDigest &&
+      record.builderImage === runtime.builderImage &&
+      record.cloudBuildConfigSha256 === bundle.quality.runtimeAssetDigests[cloudBuildConfig] &&
+      record.marketUpload === false
+    )),
   );
 }
 
@@ -462,6 +581,11 @@ const EVIDENCE_READBACK_FIELDS = Object.freeze([
   "snapshotSignaturePolicyRevision",
   "snapshotSignatureDigest",
   "artifactSha256",
+  "bundlePayloadDigest",
+  "cloudBuildId",
+  "builderImage",
+  "cloudBuildConfigSha256",
+  "marketUpload",
 ]);
 
 export async function promoteWorkflowBundleV5(
@@ -521,12 +645,17 @@ export async function promoteWorkflowBundleV5(
     verified.push(structuredClone(record));
   }
   const evidenceDigest = sha256(canonicalJson(verified));
+  const approvalPayload = createWorkflowBundleV5ApprovalPayload(
+    candidateSnapshot,
+    verified,
+  );
   const signature = await trustedApprovalSigner({
-    source: structuredClone(candidateSnapshot.source),
-    candidateDigest: candidateSnapshot.integrity.payloadDigest,
-    evidenceDigest,
-    contractDigestsDigest: sha256(canonicalJson(candidateSnapshot.quality.contractDigests)),
-    runtimeAssetDigestsDigest: sha256(canonicalJson(candidateSnapshot.quality.runtimeAssetDigests)),
+    ...structuredClone(approvalPayload.envelope),
+    algorithm: "Ed25519",
+    credentialId: "shared/workflow-bundle/approval-signing",
+    keyPurpose: "WORKFLOW_BUNDLE_V5_APPROVAL",
+    payload: Buffer.from(approvalPayload.payload),
+    payloadDigest: approvalPayload.payloadDigest,
   });
   const approved = withIntegrity({
     ...payloadOf(candidateSnapshot),
@@ -543,6 +672,15 @@ function bundleFrom(binding) {
     : undefined;
   if (!record) fail("APPROVED_WORKFLOW_BUNDLE_BINDING_REQUIRED");
   if (record.expiresAt <= Date.now()) fail("APPROVED_WORKFLOW_BUNDLE_BINDING_EXPIRED");
+  return record.value;
+}
+
+function candidateBundleFrom(binding) {
+  const record = binding !== null && typeof binding === "object"
+    ? TRUSTED_CANDIDATE_BUNDLES.get(binding)
+    : undefined;
+  if (!record) fail("CANDIDATE_WORKFLOW_BUNDLE_BINDING_REQUIRED");
+  if (record.expiresAt <= Date.now()) fail("CANDIDATE_WORKFLOW_BUNDLE_BINDING_EXPIRED");
   return record.value;
 }
 
@@ -585,8 +723,12 @@ async function validateBindingPaths(repoRoot, manifest) {
       fail("BUILD_BINDING_PATH_RELATION_INVALID");
     }
     const executionPrefix = binding.executionRoot === "." ? "" : `${binding.executionRoot}/`;
-    if (binding.buildProfile === "capacitor-android") {
+    if (["react-native-android", "godot-android", "capacitor-android"].includes(
+      binding.buildProfile,
+    )) {
       await resolveSafeFile(repoRoot, `${executionPrefix}build.env`);
+    }
+    if (binding.buildProfile === "capacitor-android") {
       await resolveSafeFile(repoRoot, `${executionPrefix}capacitor.config.ts`);
     }
     if (binding.buildProfile === "capacitor-ios-xcode-cloud") {
@@ -681,6 +823,67 @@ function staticPermissions(profile) {
     : { contents: "read", "id-token": "write", packages: "read" };
 }
 
+function buildPermissions(profile) {
+  return profile === "react-native-android"
+    ? { contents: "read", "id-token": "write", packages: "read" }
+    : { contents: "read", "id-token": "write" };
+}
+
+function selectedBuild(manifest, target) {
+  if (target !== "android") fail("BUILD_TARGET_INVALID");
+  const candidates = manifest.buildBindings.filter((binding) => binding.target === target);
+  if (candidates.length !== 1) fail("BUILD_BINDING_NOT_EXACT");
+  return candidates[0];
+}
+
+function buildCaller(bundle, manifest, target, { candidate = false } = {}) {
+  if (manifest.state !== "ACTIVE") fail(`${manifest.state}_BUILD_CALLER_FORBIDDEN`);
+  const binding = selectedBuild(manifest, target);
+  if (!bundle.promotionScope.buildProfiles.includes(binding.buildProfile)) {
+    fail("BUILD_PROFILE_NOT_PROMOTED");
+  }
+  const workflow = bundle.buildProfiles[binding.buildProfile];
+  if (!workflow || workflow.target !== target || workflow.workflow === null) {
+    fail("BUILD_WORKFLOW_UNAVAILABLE");
+  }
+  if (candidate) {
+    const allowed = {
+      "1250442131": ["seorilabs/happy-farm", "react-native", "react-native-android"],
+      "1265192029": ["seorilabs/lizard-tycoon", "godot", "godot-android"],
+    }[manifest.repositoryId];
+    if (
+      !allowed ||
+      manifest.fullName !== allowed[0] ||
+      manifest.staticBinding.profile !== allowed[1] ||
+      binding.buildProfile !== allowed[2]
+    ) {
+      fail("CANDIDATE_BUILD_REPOSITORY_NOT_ALLOWED");
+    }
+  }
+  if (
+    manifest.workflowBundleBinding?.sourceSha !== bundle.source.sha ||
+    manifest.workflowBundleBinding?.payloadDigest !== bundle.integrity.payloadDigest
+  ) {
+    fail("BUILD_BUNDLE_BINDING_MISMATCH");
+  }
+  return workflowDocument({
+    name: "Android Build-only",
+    on: candidate
+      ? { pull_request: { paths: [".github/workflows/android-build-only.yml"] } }
+      : { workflow_dispatch: {} },
+    permissions: buildPermissions(binding.buildProfile),
+    concurrency: {
+      group: "android-build-${{ github.repository_id }}-${{ github.ref }}",
+      "cancel-in-progress": false,
+    },
+    jobs: {
+      "android-build": {
+        uses: `seorilabs/.github/${workflow.workflow}@${workflow.sha}`,
+      },
+    },
+  });
+}
+
 export function generateStaticCallerV5({ approvedBundleBinding, resolvedBinding } = {}) {
   const bundle = bundleFrom(approvedBundleBinding);
   const manifest = manifestFrom(resolvedBinding);
@@ -731,12 +934,20 @@ export function generateBuildCallerV5({
 } = {}) {
   const bundle = bundleFrom(approvedBundleBinding);
   const manifest = manifestFrom(resolvedBinding);
-  if (manifest.state !== "ACTIVE") fail(`${manifest.state}_BUILD_CALLER_FORBIDDEN`);
-  if (!["android", "ait"].includes(target)) fail("BUILD_TARGET_INVALID");
-  if (bundle.promotionScope.buildProfiles.length !== 0) {
-    fail("WORKFLOW_BUNDLE_BUILD_PROMOTION_SCOPE_INVALID");
-  }
-  fail("BUILD_RUNTIME_BINDING_UNAVAILABLE");
+  return buildCaller(bundle, manifest, target);
+}
+
+export function generateCandidateBuildCallerV5({
+  candidateBundleBinding,
+  resolvedBinding,
+  target,
+} = {}) {
+  return buildCaller(
+    candidateBundleFrom(candidateBundleBinding),
+    manifestFrom(resolvedBinding),
+    target,
+    { candidate: true },
+  );
 }
 
 export function validateBuildCallerV5(caller, options = {}) {
@@ -756,6 +967,23 @@ export function validateBuildCallerV5(caller, options = {}) {
   }
 }
 
+export function validateCandidateBuildCallerV5(caller, options = {}) {
+  try {
+    const expected = generateCandidateBuildCallerV5(options);
+    const exact = caller === expected;
+    const forbidden = /secrets:\s*inherit|@main\b/u.test(caller);
+    return Object.freeze({
+      ok: exact && !forbidden,
+      diagnostics: Object.freeze([
+        ...(!exact ? ["CANDIDATE_BUILD_CALLER_NOT_EXACT"] : []),
+        ...(forbidden ? ["BUILD_CALLER_FORBIDDEN_REFERENCE"] : []),
+      ]),
+    });
+  } catch (error) {
+    return Object.freeze({ ok: false, diagnostics: Object.freeze([error.message]) });
+  }
+}
+
 export async function generateXcodeCloudRunV5({
   approvedBundleBinding,
   resolvedBinding,
@@ -766,8 +994,8 @@ export async function generateXcodeCloudRunV5({
   const bundle = bundleFrom(approvedBundleBinding);
   const manifest = manifestFrom(resolvedBinding);
   if (manifest.state !== "ACTIVE") fail(`${manifest.state}_XCODE_RUN_FORBIDDEN`);
-  if (bundle.promotionScope.buildProfiles.length !== 0) {
-    fail("WORKFLOW_BUNDLE_BUILD_PROMOTION_SCOPE_INVALID");
+  if (!bundle.promotionScope.buildProfiles.includes("capacitor-ios-xcode-cloud")) {
+    fail("BUILD_PROFILE_NOT_PROMOTED");
   }
   void productId;
   void workflowId;
@@ -781,7 +1009,7 @@ export const workflowBundleV5Contract = Object.freeze({
   staticProfiles: Object.freeze(["react-native", "godot", "capacitor", "ait-web"]),
   promotionScope: Object.freeze({
     staticProfiles: Object.freeze(["react-native", "godot", "capacitor", "ait-web"]),
-    buildProfiles: Object.freeze([]),
+    buildProfiles: Object.freeze(["react-native-android", "godot-android"]),
   }),
   buildProfiles: Object.freeze([
     "react-native-android",
@@ -793,6 +1021,14 @@ export const workflowBundleV5Contract = Object.freeze({
   ]),
   lifecycle: Object.freeze({ ACTIVE: "ENFORCE", PAUSED: "SHADOW", DEPRECATED: "NO_CALLER" }),
   namedSecrets: 0,
+  approval: Object.freeze({
+    algorithm: "Ed25519",
+    credentialId: "shared/workflow-bundle/approval-signing",
+    keyPurpose: "WORKFLOW_BUNDLE_V5_APPROVAL",
+    registryId: "seorilabs-workflow-bundles-v5",
+    subject: "workflow-bundle-v5:{sourceSha}",
+    canonicalization: "recursive-key-sort-json-utf8-no-newline",
+  }),
   staticRuntimeBinding: Object.freeze({
     authentication: "github-oidc",
     sourceStrategy: "event-sha-with-pr-base-binding",
@@ -807,6 +1043,25 @@ export const workflowBundleV5Contract = Object.freeze({
         path: ".github/workflows/godot-checks-v3.yml",
         profiles: Object.freeze(["godot"]),
         packageManagers: Object.freeze([null]),
+      }),
+    }),
+  }),
+  buildRuntimeBinding: Object.freeze({
+    authentication: "github-oidc",
+    sourceStrategy: "exact-main-or-fixed-canary-pr-base",
+    candidatePolicy: "fixed-repository-and-workflow-sha",
+    candidateBranchTemplate:
+      "seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}",
+    calledWorkflows: Object.freeze({
+      reactNativeAndroid: Object.freeze({
+        path: ".github/workflows/rn-build-android-cloud-v2.yml",
+        profile: "react-native-android",
+        packageManager: "pnpm",
+      }),
+      godotAndroid: Object.freeze({
+        path: ".github/workflows/godot-build-android-cloud-v2.yml",
+        profile: "godot-android",
+        packageManager: null,
       }),
     }),
   }),

@@ -36,16 +36,21 @@ tree/BLOB 증거는 non-truncated canonical 전체 tree digest와 detector 관�
 
 `@seorilabs/repo-contract/workflow-bundle-v5`는 앱 소스가 아닌 Backoffice의 서명된
 resolved binding을 받아 `staticBinding`과 target별 `buildBindings`를 분리합니다.
-현재 v5 승격 범위는 static 네 profile뿐이며 `buildProfiles`는 빈 목록입니다. JS와 Godot v3
+현재 v5 승격 범위는 static 네 profile과 `react-native-android`, `godot-android` build-only
+profile입니다. JS와 Godot v3
 static caller는 source/config를 파일에 고정하지 않는 무입력 caller입니다. 실행 시 GitHub OIDC로 exact event
 SHA의 Backoffice manifest를 다시 읽습니다. push와 workflow_dispatch는 exact main SHA에
 결합합니다. PR query는 merge SHA를 application source로, base SHA를 signed config binding
 source로 분리하고, Backoffice가 open PR의 base/head repository·ref·base SHA·merge SHA를 trusted
 GitHub App readback으로 exact 검증해야만 manifest를 반환합니다. 불일치는 fail-closed합니다.
-PAUSED는 runtime static SHADOW,
-DEPRECATED는 no-caller입니다. Capacitor, Granite AIT, AIT web과 Xcode Cloud build 정의는
-cold-cache·격리 후보 검증만 수행하며, 별도로 검토된 signed build OIDC 계약이 생기기 전에는
-caller/runtime 생성기가 `BUILD_RUNTIME_BINDING_UNAVAILABLE`로 app checkout 전에 멈춥니다.
+PAUSED는 runtime static SHADOW이고 build는 금지하며 DEPRECATED는 no-caller입니다. RN/Godot
+Android caller는 source/config 입력이 없는 full-SHA thin caller입니다. 실행 시 앱 checkout 전에
+GitHub OIDC로 `workflowBundleBinding`, exact ConfigRevision, signed snapshot과 한 개의 Android
+`buildBinding`을 다시 읽습니다. 승인 전 실행은 Happy Farm과 Lizard Tycoon의 exact same-repo
+canary PR만 허용하고 승인 후 일반 caller는 main의 `workflow_dispatch`만 허용합니다. 두 경로는
+각각 `CANDIDATE`/`APPROVED` bundle registry 상태와 exact called workflow SHA를 요구합니다.
+Capacitor, Granite AIT, AIT web과 Xcode Cloud build 정의는 계속 cold-cache·격리 후보 검증만
+수행하며 promotion scope 밖에서는 fail-closed합니다.
 Godot v3는 `job.workflow_ref`의 exact 경로와 `godot`/`packageManager: null` 조합을 함께
 검증하며 앱 코드 job과 provenance job을 분리합니다. 기존 Godot v2와 WorkflowBundle v4.1은
 변경하지 않습니다.

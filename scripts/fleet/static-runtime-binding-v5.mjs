@@ -22,19 +22,31 @@ const STATIC_CALLED_WORKFLOWS = Object.freeze({
   }),
 });
 const BUILD_RUNTIME_CONTRACTS = Object.freeze({
-  ait: Object.freeze({
-    callerPath: ".github/workflows/ait-build-only.yml",
-    calledWorkflowPath: ".github/workflows/ait-build-only-v1.yml",
-    profiles: Object.freeze(["ait-granite", "ait-web"]),
-    artifactKind: "ait",
-    scriptPath: "scripts/build-ait.sh",
-  }),
-  android: Object.freeze({
+  reactNativeAndroid: Object.freeze({
     callerPath: ".github/workflows/android-build-only.yml",
-    calledWorkflowPath: ".github/workflows/capacitor-build-android-cloud-v1.yml",
-    profiles: Object.freeze(["capacitor-android"]),
+    calledWorkflowPath: ".github/workflows/rn-build-android-cloud-v2.yml",
+    profile: "react-native-android",
+    packageManager: "pnpm",
     artifactKind: "android-aab",
     scriptPath: "scripts/build-android.sh",
+  }),
+  godotAndroid: Object.freeze({
+    callerPath: ".github/workflows/android-build-only.yml",
+    calledWorkflowPath: ".github/workflows/godot-build-android-cloud-v2.yml",
+    profile: "godot-android",
+    packageManager: null,
+    artifactKind: "android-aab",
+    scriptPath: "scripts/build-android.sh",
+  }),
+});
+const BUILD_CANARIES = Object.freeze({
+  "1250442131": Object.freeze({
+    fullName: "seorilabs/happy-farm",
+    profile: "react-native-android",
+  }),
+  "1265192029": Object.freeze({
+    fullName: "seorilabs/lizard-tycoon",
+    profile: "godot-android",
   }),
 });
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -54,6 +66,19 @@ export const staticRuntimeBindingV5Contract = Object.freeze({
     calledWorkflowSha: "job.workflow_sha",
     calledWorkflowRepository: "job.workflow_repository",
   }),
+});
+
+export const buildRuntimeBindingV5Contract = Object.freeze({
+  origin: staticRuntimeBindingV5Contract.origin,
+  endpoint: staticRuntimeBindingV5Contract.endpoint,
+  audience: staticRuntimeBindingV5Contract.audience,
+  authentication: "github-oidc",
+  sourceStrategy: "exact-main-or-fixed-canary-pr-base",
+  candidatePolicy: "fixed-repository-and-workflow-sha",
+  candidateBranchTemplate:
+    "seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}",
+  calledWorkflows: BUILD_RUNTIME_CONTRACTS,
+  canaries: BUILD_CANARIES,
 });
 
 function fail(code) {
@@ -422,70 +447,252 @@ export async function resolveStaticRuntimeBindingV5(
   });
 }
 
-function validateBuildContext(context, target) {
-  const contract = BUILD_RUNTIME_CONTRACTS[target];
-  if (!contract) fail("BUILD_RUNTIME_TARGET_INVALID");
+function validateBuildContext(context) {
+  const eventSourceSha = context?.eventSourceSha ?? context?.applicationSourceSha;
   if (
-    context?.eventName !== "workflow_dispatch" ||
-    context?.eventRef !== "refs/heads/main" ||
     context?.repositoryPrivate !== "true" ||
     !REPOSITORY_ID.test(context?.repositoryId ?? "") ||
     !FULL_NAME.test(context?.fullName ?? "") ||
-    !SHA.test(context?.applicationSourceSha ?? "") ||
+    !SHA.test(eventSourceSha ?? "") ||
     !positiveIntegerString(context?.runId) ||
-    !positiveIntegerString(context?.runAttempt)
+    !positiveIntegerString(context?.runAttempt) ||
+    context.jobWorkflowRepository !== "seorilabs/.github" ||
+    !SHA.test(context.jobWorkflowSha ?? "")
   ) {
     fail("BUILD_RUNTIME_CONTEXT_INVALID");
   }
-  const expectedCalledRef =
-    `seorilabs/.github/${contract.calledWorkflowPath}@${context.jobWorkflowSha}`;
-  if (
-    context.jobWorkflowRepository !== "seorilabs/.github" ||
-    !SHA.test(context.jobWorkflowSha ?? "") ||
-    context.jobWorkflowRef !== expectedCalledRef
-  ) {
-    fail("BUILD_RUNTIME_CALLED_WORKFLOW_IDENTITY_INVALID");
-  }
-  if (
-    context.callerWorkflowRef !==
-      `${context.fullName}/${contract.callerPath}@refs/heads/main`
-  ) {
+  const contract = Object.values(BUILD_RUNTIME_CONTRACTS).find(
+    ({ calledWorkflowPath }) =>
+      context.jobWorkflowRef ===
+        `seorilabs/.github/${calledWorkflowPath}@${context.jobWorkflowSha}`,
+  );
+  if (!contract) fail("BUILD_RUNTIME_CALLED_WORKFLOW_IDENTITY_INVALID");
+  const expectedCaller = `${context.fullName}/${contract.callerPath}@${context.eventRef}`;
+  if (context.callerWorkflowRef !== expectedCaller) {
     fail("BUILD_RUNTIME_CALLER_WORKFLOW_IDENTITY_INVALID");
   }
-  return contract;
+  if (context.eventName === "workflow_dispatch") {
+    if (
+      context.eventRef !== "refs/heads/main" ||
+      (context.pullRequestBaseSha ?? "") !== "" ||
+      (context.pullRequestHeadRepository ?? "") !== "" ||
+      (context.pullRequestHeadRef ?? "") !== ""
+    ) {
+      fail("BUILD_RUNTIME_MAIN_IDENTITY_INVALID");
+    }
+    return Object.freeze({
+      applicationSourceSha: eventSourceSha,
+      contract,
+      eventSourceSha,
+      mode: "APPROVED",
+      schema: "workflow-bundle-v5-build",
+    });
+  }
+  const canary = BUILD_CANARIES[context.repositoryId];
+  if (
+    context.eventName !== "pull_request" ||
+    !canary ||
+    canary.fullName !== context.fullName ||
+    canary.profile !== contract.profile ||
+    !/^refs\/pull\/[1-9][0-9]*\/merge$/u.test(context.eventRef ?? "") ||
+    !SHA.test(context.pullRequestBaseSha ?? "") ||
+    context.pullRequestHeadRepository !== context.fullName ||
+    context.pullRequestHeadRef !==
+      `seori/workflow-bundle-v5-canary/${context.repositoryId}/${context.jobWorkflowSha.slice(0, 12)}`
+  ) {
+    fail("BUILD_RUNTIME_CANDIDATE_IDENTITY_INVALID");
+  }
+  return Object.freeze({
+    applicationSourceSha: context.pullRequestBaseSha,
+    contract,
+    eventSourceSha,
+    mode: "CANDIDATE",
+    schema: "workflow-bundle-v5-build-canary",
+  });
 }
 
-function validateExpectedBuildInputs(inputs, contract, sourceSha) {
+function validateBuildManifestResponse(response, request, contract) {
+  const responseKeys = [
+    "schemaVersion", "state", "mode", "repositoryId", "fullName",
+    "applicationSourceSha", "eventSourceSha", "manifestDigest", "manifest",
+  ];
+  const manifestKeys = [
+    "schemaVersion", "lifecycleState", "repositoryId", "fullName", "sourceSha",
+    "sourceRef", "observationId", "observationDigest", "configRevisionId",
+    "configRevision", "configRevisionDigest", "signedSnapshotDigest",
+    "snapshotSignature", "workflowBundle", "buildBinding",
+  ];
+  const signatureKeys = ["keyId", "policyRevision", "digest"];
+  const workflowBundleKeys = ["sourceSha", "payloadDigest", "approvalState", "buildProfiles"];
+  const bindingKeys = [
+    "target", "buildProfile", "packageManager", "executionRoot", "dependencyRoot",
+    "scriptPath", "artifactKind",
+  ];
+  const manifest = response?.manifest;
+  const binding = manifest?.buildBinding;
+  const workflowBundle = manifest?.workflowBundle;
   if (
-    inputs?.sourceSha !== sourceSha ||
-    !contract.profiles.includes(inputs?.buildProfile) ||
-    !["npm", "pnpm"].includes(inputs?.packageManager) ||
-    !safeDirectory(inputs?.executionRoot) ||
-    !safeDirectory(inputs?.dependencyRoot) ||
-    inputs?.scriptPath !== contract.scriptPath ||
-    inputs?.artifactKind !== contract.artifactKind ||
-    !PUBLIC_ID.test(inputs?.configRevisionId ?? "") ||
-    !positiveIntegerString(inputs?.configRevision) ||
-    !SHA256.test(inputs?.configRevisionDigest ?? "") ||
-    !SHA256.test(inputs?.signedSnapshotDigest ?? "") ||
-    !PUBLIC_ID.test(inputs?.snapshotSignatureKeyId ?? "") ||
-    !PUBLIC_ID.test(inputs?.snapshotSignaturePolicyRevision ?? "") ||
-    !SHA256.test(inputs?.snapshotSignatureDigest ?? "")
+    !exactKeys(response, responseKeys) ||
+    response.schemaVersion !== 1 ||
+    response.state !== "VERIFIED" ||
+    response.mode !== request.mode ||
+    response.repositoryId !== request.repositoryId ||
+    response.fullName !== request.fullName ||
+    response.applicationSourceSha !== request.applicationSourceSha ||
+    response.eventSourceSha !== request.eventSourceSha ||
+    !exactKeys(manifest, manifestKeys) ||
+    manifest.schemaVersion !== 1 ||
+    !["ACTIVE", "PAUSED", "DEPRECATED"].includes(manifest.lifecycleState) ||
+    manifest.repositoryId !== request.repositoryId ||
+    manifest.fullName !== request.fullName ||
+    manifest.sourceSha !== request.applicationSourceSha ||
+    manifest.sourceRef !== "refs/heads/main" ||
+    !PUBLIC_ID.test(manifest.observationId ?? "") ||
+    !SHA256.test(manifest.observationDigest ?? "") ||
+    !PUBLIC_ID.test(manifest.configRevisionId ?? "") ||
+    !Number.isSafeInteger(manifest.configRevision) ||
+    manifest.configRevision < 1 ||
+    !SHA256.test(manifest.configRevisionDigest ?? "") ||
+    !SHA256.test(manifest.signedSnapshotDigest ?? "") ||
+    !exactKeys(manifest.snapshotSignature, signatureKeys) ||
+    !PUBLIC_ID.test(manifest.snapshotSignature.keyId ?? "") ||
+    !PUBLIC_ID.test(manifest.snapshotSignature.policyRevision ?? "") ||
+    !SHA256.test(manifest.snapshotSignature.digest ?? "") ||
+    !exactKeys(workflowBundle, workflowBundleKeys) ||
+    workflowBundle.sourceSha !== request.workflowExecutionSha ||
+    !SHA256.test(workflowBundle.payloadDigest ?? "") ||
+    workflowBundle.approvalState !== request.mode ||
+    canonicalJson(workflowBundle.buildProfiles) !==
+      canonicalJson(["react-native-android", "godot-android"]) ||
+    !exactKeys(binding, bindingKeys) ||
+    binding.target !== "android" ||
+    binding.buildProfile !== contract.profile ||
+    binding.packageManager !== contract.packageManager ||
+    !safeDirectory(binding.executionRoot) ||
+    !safeDirectory(binding.dependencyRoot) ||
+    binding.scriptPath !== contract.scriptPath ||
+    binding.artifactKind !== contract.artifactKind ||
+    !SHA256.test(response.manifestDigest ?? "") ||
+    response.manifestDigest !== sha256(canonicalJson(manifest))
   ) {
-    fail("BUILD_RUNTIME_INPUT_INVALID");
+    fail("BUILD_RUNTIME_READBACK_INVALID");
   }
+  return manifest;
+}
+
+export function createBuildManifestReadbackV5({
+  fetchImpl = globalThis.fetch,
+  oidcTokenProvider,
+  waitImpl = (delayMs) => new Promise((resolveWait) => setTimeout(resolveWait, delayMs)),
+} = {}) {
+  if (typeof fetchImpl !== "function") fail("BUILD_RUNTIME_FETCH_REQUIRED");
+  if (typeof waitImpl !== "function") fail("BUILD_RUNTIME_WAIT_REQUIRED");
+  const getToken = oidcTokenProvider ?? ((audience) => requestGithubOidcToken(audience, { fetchImpl }));
+  return async (request) => {
+    let token;
+    try {
+      token = await getToken(buildRuntimeBindingV5Contract.audience);
+    } catch {
+      fail("BUILD_RUNTIME_OIDC_REQUEST_FAILED");
+    }
+    if (!JWT.test(token ?? "")) fail("BUILD_RUNTIME_OIDC_TOKEN_INVALID");
+    const url = new URL(
+      buildRuntimeBindingV5Contract.endpoint.replace(
+        "{repositoryId}",
+        encodeURIComponent(request.repositoryId),
+      ),
+      buildRuntimeBindingV5Contract.origin,
+    );
+    url.searchParams.set("ref", request.applicationSourceSha);
+    url.searchParams.set("event_ref", request.eventSourceSha);
+    url.searchParams.set("workflow_sha", request.workflowExecutionSha);
+    url.searchParams.set("build_profile", request.buildProfile);
+    url.searchParams.set("schema", request.schema);
+    for (let attempt = 0; attempt <= STATIC_MANIFEST_RETRY_DELAYS_MS.length; attempt += 1) {
+      let response;
+      try {
+        response = await fetchImpl(url, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+            "x-seori-principal": `github-actions:${request.repositoryId}:${request.runId}`,
+          },
+          redirect: "error",
+          signal: AbortSignal.timeout(10_000),
+        });
+      } catch {
+        fail("BUILD_RUNTIME_MANIFEST_REQUEST_FAILED");
+      }
+      if (response?.status === 409 && attempt < STATIC_MANIFEST_RETRY_DELAYS_MS.length) {
+        await response.body?.cancel?.().catch(() => undefined);
+        await waitImpl(STATIC_MANIFEST_RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+      if (!response?.ok) fail(`BUILD_RUNTIME_MANIFEST_HTTP_${response?.status ?? "UNKNOWN"}`);
+      if (!(response.headers?.get?.("content-type") ?? "").toLowerCase().startsWith("application/json")) {
+        fail("BUILD_RUNTIME_MANIFEST_CONTENT_TYPE_INVALID");
+      }
+      try {
+        return JSON.parse(await readLimitedText(response, MAX_RESPONSE_BYTES));
+      } catch (error) {
+        if (error?.message === "STATIC_RUNTIME_RESPONSE_TOO_LARGE") throw error;
+        fail("BUILD_RUNTIME_MANIFEST_RESPONSE_INVALID");
+      }
+    }
+    fail("BUILD_RUNTIME_MANIFEST_RETRY_EXHAUSTED");
+  };
 }
 
 export async function resolveBuildRuntimeBindingV5(
   context,
-  inputs,
+  { trustedManifestReadback } = {},
 ) {
-  const contract = validateBuildContext(context, inputs?.target);
-  validateExpectedBuildInputs(inputs, contract, context.applicationSourceSha);
-  // Backoffice #205 intentionally exposes only the static caller/called-workflow
-  // claim contract. Until a separately reviewed build claim contract exists,
-  // even an exact-looking hand-written build caller must stop before app checkout.
-  fail("BUILD_RUNTIME_BINDING_UNAVAILABLE");
+  const identity = validateBuildContext(context);
+  if (typeof trustedManifestReadback !== "function") {
+    fail("BUILD_RUNTIME_TRUSTED_READBACK_REQUIRED");
+  }
+  const request = Object.freeze({
+    repositoryId: context.repositoryId,
+    fullName: context.fullName,
+    applicationSourceSha: identity.applicationSourceSha,
+    eventSourceSha: identity.eventSourceSha,
+    workflowExecutionSha: context.jobWorkflowSha,
+    buildProfile: identity.contract.profile,
+    callerWorkflowRef: context.callerWorkflowRef,
+    calledWorkflowRef: context.jobWorkflowRef,
+    runId: String(context.runId),
+    runAttempt: String(context.runAttempt),
+    mode: identity.mode,
+    schema: identity.schema,
+  });
+  const response = await trustedManifestReadback(structuredClone(request));
+  const manifest = validateBuildManifestResponse(response, request, identity.contract);
+  if (manifest.lifecycleState !== "ACTIVE") {
+    fail(`${manifest.lifecycleState}_BUILD_RUNTIME_FORBIDDEN`);
+  }
+  return Object.freeze({
+    applicationSourceSha: manifest.sourceSha,
+    eventSourceSha: request.eventSourceSha,
+    calledWorkflowPath: identity.contract.calledWorkflowPath,
+    buildProfile: manifest.buildBinding.buildProfile,
+    packageManager: manifest.buildBinding.packageManager,
+    executionRoot: manifest.buildBinding.executionRoot,
+    dependencyRoot: manifest.buildBinding.dependencyRoot,
+    scriptPath: manifest.buildBinding.scriptPath,
+    artifactKind: manifest.buildBinding.artifactKind,
+    configRevisionId: manifest.configRevisionId,
+    configRevision: manifest.configRevision,
+    configRevisionDigest: manifest.configRevisionDigest,
+    signedSnapshotDigest: manifest.signedSnapshotDigest,
+    snapshotSignatureKeyId: manifest.snapshotSignature.keyId,
+    snapshotSignaturePolicyRevision: manifest.snapshotSignature.policyRevision,
+    snapshotSignatureDigest: manifest.snapshotSignature.digest,
+    workflowBundleSourceSha: manifest.workflowBundle.sourceSha,
+    workflowBundlePayloadDigest: manifest.workflowBundle.payloadDigest,
+    workflowBundleApprovalState: manifest.workflowBundle.approvalState,
+    manifestDigest: response.manifestDigest,
+  });
 }
 
 function environmentContext(env) {
@@ -493,8 +700,10 @@ function environmentContext(env) {
     eventName: env.EVENT_NAME,
     eventRef: env.EVENT_REF,
     applicationSourceSha: env.APPLICATION_SOURCE_SHA,
+    eventSourceSha: env.EVENT_SOURCE_SHA,
     pullRequestBaseSha: env.PR_BASE_SHA ?? "",
     pullRequestHeadRepository: env.PR_HEAD_REPOSITORY ?? "",
+    pullRequestHeadRef: env.PR_HEAD_REF ?? "",
     repositoryId: env.REPOSITORY_ID,
     fullName: env.FULL_NAME,
     repositoryPrivate: env.REPOSITORY_PRIVATE,
@@ -504,26 +713,6 @@ function environmentContext(env) {
     jobWorkflowRef: env.JOB_WORKFLOW_REF,
     runId: env.RUN_ID,
     runAttempt: env.RUN_ATTEMPT,
-  };
-}
-
-function environmentBuildInputs(env) {
-  return {
-    target: env.BINDING_TARGET,
-    sourceSha: env.INPUT_SOURCE_SHA,
-    buildProfile: env.INPUT_BUILD_PROFILE,
-    packageManager: env.INPUT_PACKAGE_MANAGER,
-    executionRoot: env.INPUT_EXECUTION_ROOT,
-    dependencyRoot: env.INPUT_DEPENDENCY_ROOT,
-    scriptPath: env.INPUT_SCRIPT_PATH,
-    artifactKind: env.INPUT_ARTIFACT_KIND,
-    configRevisionId: env.INPUT_CONFIG_REVISION_ID,
-    configRevision: env.INPUT_CONFIG_REVISION,
-    configRevisionDigest: env.INPUT_CONFIG_REVISION_DIGEST,
-    signedSnapshotDigest: env.INPUT_SIGNED_SNAPSHOT_DIGEST,
-    snapshotSignatureKeyId: env.INPUT_SNAPSHOT_SIGNATURE_KEY_ID,
-    snapshotSignaturePolicyRevision: env.INPUT_SNAPSHOT_SIGNATURE_POLICY_REVISION,
-    snapshotSignatureDigest: env.INPUT_SNAPSHOT_SIGNATURE_DIGEST,
   };
 }
 
@@ -553,13 +742,45 @@ function appendOutputs(path, binding) {
   );
 }
 
+function appendBuildOutputs(path, binding) {
+  if (typeof path !== "string" || path.length === 0) fail("BUILD_RUNTIME_OUTPUT_REQUIRED");
+  const outputs = {
+    application_source_sha: binding.applicationSourceSha,
+    event_source_sha: binding.eventSourceSha,
+    called_workflow_path: binding.calledWorkflowPath,
+    build_profile: binding.buildProfile,
+    package_manager: binding.packageManager ?? "none",
+    execution_root: binding.executionRoot,
+    dependency_root: binding.dependencyRoot,
+    script_path: binding.scriptPath,
+    artifact_kind: binding.artifactKind,
+    config_revision_id: binding.configRevisionId,
+    config_revision: binding.configRevision,
+    config_revision_digest: binding.configRevisionDigest,
+    signed_snapshot_digest: binding.signedSnapshotDigest,
+    snapshot_signature_key_id: binding.snapshotSignatureKeyId,
+    snapshot_signature_policy_revision: binding.snapshotSignaturePolicyRevision,
+    snapshot_signature_digest: binding.snapshotSignatureDigest,
+    workflow_bundle_source_sha: binding.workflowBundleSourceSha,
+    workflow_bundle_payload_digest: binding.workflowBundlePayloadDigest,
+    workflow_bundle_approval_state: binding.workflowBundleApprovalState,
+    manifest_digest: binding.manifestDigest,
+  };
+  appendFileSync(
+    path,
+    Object.entries(outputs).map(([key, value]) => `${key}=${value}\n`).join(""),
+  );
+}
+
 if (import.meta.main) {
   try {
     if (process.env.BINDING_TARGET) {
-      await resolveBuildRuntimeBindingV5(
-        environmentContext(process.env),
-        environmentBuildInputs(process.env),
-      );
+      if (process.env.BINDING_TARGET !== "android") fail("BUILD_RUNTIME_TARGET_INVALID");
+      const trustedManifestReadback = createBuildManifestReadbackV5();
+      const binding = await resolveBuildRuntimeBindingV5(environmentContext(process.env), {
+        trustedManifestReadback,
+      });
+      appendBuildOutputs(process.env.GITHUB_OUTPUT, binding);
     } else {
       const trustedManifestReadback = createStaticManifestReadbackV5();
       const binding = await resolveStaticRuntimeBindingV5(environmentContext(process.env), {

@@ -1,0 +1,11 @@
+schemaVersion: 2
+id: react-native-android
+contract: org-v5
+target: android
+runtime: react-native
+packageManager: pnpm
+executor: cloud-build-x64
+runner: seorilabs-rpi-arm64
+artifactKind: android-aab
+scriptPath: scripts/build-android.sh
+marketUpload: false
