@@ -1,0 +1,187 @@
+schemaVersion: 2
+bundleVersion: 5.0.0
+repository: seorilabs/.github
+
+quality:
+  jsCanonicalScripts:
+    - test:core
+    - check:architecture
+    - check:release
+  godotCanonicalChecks:
+    - public-lock-audit-or-no-managed-dependencies
+    - headless-import
+    - diagnostic-gate
+    - test:core
+    - check:architecture
+    - check:release
+  secretScan: central-high-confidence-v1
+  provenance: isolated-application-source-runtime-config-snapshot-and-called-workflow-sha-v4
+
+promotionScope:
+  staticProfiles:
+    - react-native
+    - godot
+    - capacitor
+    - ait-web
+  buildProfiles: []
+
+staticRuntimeBinding:
+  origin: https://backoffice.vzyx.xyz
+  endpoint: /api/control-plane/apps/{repositoryId}/resolved-manifest
+  authentication: github-oidc
+  audience: seorilabs-control-plane
+  sourceStrategy: event-sha-with-pr-base-binding
+  prPolicy: trusted-github-pr-readback-required
+  identity:
+    callerWorkflowRef: github.workflow_ref
+    calledWorkflowRef: job.workflow_ref
+    calledWorkflowSha: job.workflow_sha
+    calledWorkflowRepository: job.workflow_repository
+  calledWorkflows:
+    jsStatic:
+      path: .github/workflows/js-static-checks-v1.yml
+      profiles:
+        - react-native
+        - capacitor
+        - ait-web
+      packageManagers:
+        - npm
+        - pnpm
+    godot:
+      path: .github/workflows/godot-checks-v3.yml
+      profiles:
+        - godot
+      packageManagers:
+        - null
+
+staticProfiles:
+  react-native:
+    path: .github/workflows/js-static-checks-v1.yml
+    runtime: react-native
+  godot:
+    path: .github/workflows/godot-checks-v3.yml
+    runtime: godot
+  capacitor:
+    path: .github/workflows/js-static-checks-v1.yml
+    runtime: capacitor
+  ait-web:
+    path: .github/workflows/js-static-checks-v1.yml
+    runtime: ait-web
+
+buildProfiles:
+  react-native-android:
+    target: android
+    executor: cloud-build-x64
+    workflow: .github/workflows/rn-build-android-cloud-v1.yml
+    artifactKind: android-aab
+    scriptPath: scripts/build-android.sh
+    builderImage: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:ed73c852159547ce3b7e36ef7759a8db25e1b4ac08f1fee4f5eebf7ce2cd2100
+  godot-android:
+    target: android
+    executor: cloud-build-x64
+    workflow: .github/workflows/godot-build-android-cloud-v1.yml
+    artifactKind: android-aab
+    scriptPath: scripts/build-android.sh
+    builderImage: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/godot-android-builder@sha256:b2a9d7a849f1193f42a40864d8487401abb6dc54472fe010b31b2e84e7be2940
+  capacitor-android:
+    target: android
+    executor: cloud-build-x64
+    workflow: .github/workflows/capacitor-build-android-cloud-v1.yml
+    artifactKind: android-aab
+    scriptPath: scripts/build-android.sh
+    builderImage: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:ed73c852159547ce3b7e36ef7759a8db25e1b4ac08f1fee4f5eebf7ce2cd2100
+  capacitor-ios-xcode-cloud:
+    target: ios
+    executor: xcode-cloud
+    workflow: null
+    artifactKind: xcode-archive
+    scriptPath: ci_scripts/ci_post_clone.sh
+  ait-granite:
+    target: ait
+    executor: github-actions
+    workflow: .github/workflows/ait-build-only-v1.yml
+    artifactKind: ait
+    scriptPath: scripts/build-ait.sh
+  ait-web:
+    target: ait
+    executor: github-actions
+    workflow: .github/workflows/ait-build-only-v1.yml
+    artifactKind: ait
+    scriptPath: scripts/build-ait.sh
+
+actions:
+  checkout:
+    ref: v7.0.1
+    sha: 3d3c42e5aac5ba805825da76410c181273ba90b1
+  setup-node:
+    ref: v7.0.0
+    sha: 820762786026740c76f36085b0efc47a31fe5020
+  upload-artifact:
+    ref: v7.0.1
+    sha: 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+  download-artifact:
+    ref: v8.0.1
+    sha: 3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+  google-auth:
+    ref: v3.0.0
+    sha: 7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+  setup-gcloud:
+    ref: v3.0.1
+    sha: aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+
+runners:
+  privateGeneral: seorilabs-rpi-arm64
+  privateGeneralImage: registry.vzyx.xyz/seorilabs/arc-runner-node24@sha256:4663a0066aa61f05006af285f2d5bcf95855fd9e8256c44c08c9e32ff92ac45e
+  public: ubuntu-latest
+  androidSubmit: seorilabs-rpi-arm64
+
+toolchains:
+  node: 24.16.0
+  npm: 11.13.0
+  pnpm: 11.3.0
+  godot: 4.7.2
+  gcloud: 582.0.0
+
+callerPolicies:
+  static:
+    managedCallerPath: .github/workflows/org-contract.yml
+    events:
+      - pull_request
+      - push-main
+      - workflow_dispatch
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    namedSecrets: []
+  android:
+    managedCallerPath: .github/workflows/android-build-only.yml
+    events:
+      - workflow_dispatch
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    namedSecrets: []
+  ait:
+    managedCallerPath: .github/workflows/ait-build-only.yml
+    events:
+      - workflow_dispatch
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    namedSecrets: []
+  ios:
+    githubWorkflow: forbidden
+    transport: app-store-connect-api
+    namedSecrets: []
+
+lifecyclePolicy:
+  ACTIVE: ENFORCE
+  PAUSED: SHADOW
+  DEPRECATED: NO_CALLER
+
+approval:
+  state: CANDIDATE
+  evidence: []

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v5/xcode-cloud-run.schema.json",
+  "title": "Seorilabs Xcode Cloud v5 build-only envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "repositoryId",
+    "fullName",
+    "sourceSha",
+    "sourceRef",
+    "bundleSourceSha",
+    "bundleDigest",
+    "configRevisionId",
+    "configRevision",
+    "configRevisionDigest",
+    "signedSnapshotDigest",
+    "snapshotSignature",
+    "buildBinding",
+    "productId",
+    "workflowId",
+    "sourceReferenceId",
+    "distribution",
+    "idempotencyKey"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "repositoryId": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
+    "fullName": { "type": "string", "pattern": "^seorilabs/[A-Za-z0-9._-]+$" },
+    "sourceSha": { "$ref": "#/$defs/sha" },
+    "sourceRef": { "const": "refs/heads/main" },
+    "bundleSourceSha": { "$ref": "#/$defs/sha" },
+    "bundleDigest": { "$ref": "#/$defs/sha256" },
+    "configRevisionId": { "$ref": "#/$defs/publicId" },
+    "configRevision": { "type": "integer", "minimum": 1 },
+    "configRevisionDigest": { "$ref": "#/$defs/sha256" },
+    "signedSnapshotDigest": { "$ref": "#/$defs/sha256" },
+    "snapshotSignature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keyId", "policyRevision", "digest"],
+      "properties": {
+        "keyId": { "$ref": "#/$defs/publicId" },
+        "policyRevision": { "$ref": "#/$defs/publicId" },
+        "digest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "buildBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "buildProfile", "executionRoot", "dependencyRoot", "scriptPath", "artifactKind"],
+      "properties": {
+        "target": { "const": "ios" },
+        "buildProfile": { "const": "capacitor-ios-xcode-cloud" },
+        "executionRoot": { "$ref": "#/$defs/safeDirectory" },
+        "dependencyRoot": { "$ref": "#/$defs/safeDirectory" },
+        "scriptPath": {
+          "allOf": [
+            { "$ref": "#/$defs/safeFile" },
+            { "type": "string", "pattern": "(?:^|/)ci_scripts/ci_post_clone\\.sh$" }
+          ]
+        },
+        "artifactKind": { "const": "xcode-archive" }
+      }
+    },
+    "productId": { "$ref": "#/$defs/publicId" },
+    "workflowId": { "$ref": "#/$defs/publicId" },
+    "sourceReferenceId": { "$ref": "#/$defs/publicId" },
+    "distribution": { "const": "BUILD_ONLY" },
+    "idempotencyKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$"
+    }
+  },
+  "$defs": {
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "publicId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$" },
+    "safeDirectory": {
+      "type": "string",
+      "pattern": "^(?:\\.|[A-Za-z0-9_@-]+(?:\\.[A-Za-z0-9_@-]+)*(?:/[A-Za-z0-9_@-]+(?:\\.[A-Za-z0-9_@-]+)*)*)$"
+    },
+    "safeFile": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_@-]+(?:\\.[A-Za-z0-9_@-]+)*(?:/[A-Za-z0-9_@-]+(?:\\.[A-Za-z0-9_@-]+)*)+$"
+    }
+  }
+}

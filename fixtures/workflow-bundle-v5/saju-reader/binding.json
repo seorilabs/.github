@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "state": "ACTIVE",
+  "repositoryId": "7001",
+  "fullName": "seorilabs/saju-reader",
+  "sourceSha": "e65708625cc910f6d2730ab77e78a4fa21f132b6",
+  "sourceRef": "refs/heads/main",
+  "observationId": "observation-saju-v5",
+  "observationDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "configRevisionId": "config-saju-v5-r1",
+  "configRevision": 1,
+  "configRevisionDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "signedSnapshotDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "snapshotSignature": {
+    "keyId": "control-plane-snapshot-v1",
+    "policyRevision": "snapshot-policy-v1",
+    "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "staticBinding": {
+    "profile": "capacitor",
+    "packageManager": "pnpm",
+    "workspaceRoot": ".",
+    "commandDirectory": "."
+  },
+  "buildBindings": [
+    {
+      "target": "android",
+      "buildProfile": "capacitor-android",
+      "executionRoot": ".",
+      "dependencyRoot": ".",
+      "scriptPath": "scripts/build-android.sh",
+      "artifactKind": "android-aab"
+    },
+    {
+      "target": "ios",
+      "buildProfile": "capacitor-ios-xcode-cloud",
+      "executionRoot": ".",
+      "dependencyRoot": ".",
+      "scriptPath": "ci_scripts/ci_post_clone.sh",
+      "artifactKind": "xcode-archive"
+    },
+    {
+      "target": "ait",
+      "buildProfile": "ait-web",
+      "executionRoot": ".",
+      "dependencyRoot": ".",
+      "scriptPath": "scripts/build-ait.sh",
+      "artifactKind": "ait"
+    }
+  ]
+}

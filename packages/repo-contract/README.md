@@ -26,6 +26,22 @@ repo-contract [저장소 경로]
 
 `@seorilabs/repo-contract/fleet-migration`은 P7 legacy 운영 JSON, `secrets: inherit`, floating 중앙 workflow ref를 서명된 전체 GitHub App pagination inventory와 exact commit/tree/BLOB readback에 묶어 분류합니다. source repository와 P5 classification revision으로 확정한 PRODUCT_APP subject를 분리하되, cross-repo는 `PLATFORM_REGISTRY_APP`과 ACTIVE App/PlatformFleetBinding revision·digest readback이 모두 일치할 때만 허용합니다. fork, 중복 registry-to-app mapping, 모호한 subject는 fail-closed합니다. ACTIVE config/signed snapshot/replacement에 묶인 build-only, 검증 시각 기준 authoritative parity head/total/TTL, replacement가 정한 CredentialBinding provider/capability/environment/public identity/policy revision과 scope/generation, consumer 0/parser disabled/dispatch readback, exact-tree Git restore가 모두 일치해야 합니다. 최초 38/73/108/87 수치는 `BOOTSTRAP`에만 쓰며 후속 `WAVE`는 `--prior-inventory`의 신뢰 digest를 잇고 cleanup count를 단조 감소시킵니다. 각 WAVE inventory는 BOOTSTRAP부터 직전 WAVE까지의 서명된 compact checkpoint와 누적 `chainDigest`를 포함합니다. WAVE chain head는 별도 state authority가 durable CAS로 exact current generation/head에서 candidate inventory ID/digest/signedAt으로 확보한 단일 reservation이어야 합니다. loader는 signed artifact만 믿지 않고 주입된 `trustedStateAuthorityReadback`에서 현재 reservation 전체를 다시 읽어 대조하므로, state가 진행된 뒤의 old head와 동일 parent sibling은 binding을 얻지 못합니다. 이 adapter가 없으면 standalone CLI도 `FLEET_MIGRATION_STATE_AUTHORITY_READBACK_REQUIRED`로 fail-closed합니다. inventory signer와 chain-head authority의 key ID와 SPKI는 WAVE 검증 시 합쳐진 inventory trust set에서도 다시 분리합니다. 출력은 항상 `PLAN_ONLY`·stdout 전용이며 repository write, PR 생성, 파일 삭제·rewrite API를 제공하지 않습니다. CLI의 모든 outcome 의미 검증에는 `--inventory`, `--trusted-key-id`, `--trusted-public-key`가 필요하고 wave에는 `--prior-inventory`, `--chain-head`, `--trusted-chain-head-key-id`, `--trusted-chain-head-public-key`와 trusted live readback adapter도 필요합니다. `validateFleetMigrationPlanStructure`는 구조만 확인하며 권위 검증이 아닙니다. 실제 collector, durable CAS state authority, attestation issuer, executor는 이 패키지 범위 밖이고 private key 입력은 거부합니다. 이 패키지는 외부 CAS를 구현했다고 주장하지 않으며 executor는 mutation 직전에 같은 reservation을 CAS로 소비하고 exact head를 다시 읽어야 합니다. `planDigest`는 권한이 아닙니다.
 
+`@seorilabs/repo-contract/workflow-bundle-v5`는 앱 소스가 아닌 Backoffice의 서명된
+resolved binding을 받아 `staticBinding`과 target별 `buildBindings`를 분리합니다.
+현재 v5 승격 범위는 static 네 profile뿐이며 `buildProfiles`는 빈 목록입니다. JS와 Godot v3
+static caller는 source/config를 파일에 고정하지 않는 무입력 caller입니다. 실행 시 GitHub OIDC로 exact event
+SHA의 Backoffice manifest를 다시 읽습니다. push와 workflow_dispatch는 exact main SHA에
+결합합니다. PR query는 merge SHA를 application source로, base SHA를 signed config binding
+source로 분리하고, Backoffice가 open PR의 base/head repository·ref·base SHA·merge SHA를 trusted
+GitHub App readback으로 exact 검증해야만 manifest를 반환합니다. 불일치는 fail-closed합니다.
+PAUSED는 runtime static SHADOW,
+DEPRECATED는 no-caller입니다. Capacitor, Granite AIT, AIT web과 Xcode Cloud build 정의는
+cold-cache·격리 후보 검증만 수행하며, 별도로 검토된 signed build OIDC 계약이 생기기 전에는
+caller/runtime 생성기가 `BUILD_RUNTIME_BINDING_UNAVAILABLE`로 app checkout 전에 멈춥니다.
+Godot v3는 `job.workflow_ref`의 exact 경로와 `godot`/`packageManager: null` 조합을 함께
+검증하며 앱 코드 job과 provenance job을 분리합니다. 기존 Godot v2와 WorkflowBundle v4.1은
+변경하지 않습니다.
+
 `@seorilabs/repo-contract/fleet`의 WorkflowBundle v4 API는 static caller 외에 다음 shadow
 계약을 제공합니다.
 

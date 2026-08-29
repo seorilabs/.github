@@ -1,0 +1,380 @@
+# WorkflowBundle v5 candidate. Produces one local .ait build artifact only.
+name: AIT Build-only v1
+
+on:
+  workflow_call:
+    inputs:
+      source_sha: { required: true, type: string }
+      build_profile: { required: true, type: string }
+      package_manager: { required: true, type: string }
+      execution_root: { required: true, type: string }
+      dependency_root: { required: true, type: string }
+      script_path: { required: true, type: string }
+      artifact_kind: { required: true, type: string }
+      config_revision_id: { required: true, type: string }
+      config_revision: { required: true, type: number }
+      config_revision_digest: { required: true, type: string }
+      signed_snapshot_digest: { required: true, type: string }
+      snapshot_signature_key_id: { required: true, type: string }
+      snapshot_signature_policy_revision: { required: true, type: string }
+      snapshot_signature_digest: { required: true, type: string }
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+jobs:
+  resolve-binding:
+    name: Resolve signed AIT binding
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 5
+    outputs:
+      bundle_repository: ${{ steps.bundle-identity.outputs.repository }}
+      bundle_sha: ${{ steps.bundle-identity.outputs.sha }}
+      bundle_ref: ${{ steps.bundle-identity.outputs.ref }}
+
+    steps:
+      - name: Validate called reusable workflow identity
+        id: bundle-identity
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = "seorilabs/.github/.github/workflows/ait-build-only-v1.yml@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
+          '
+
+      - name: Checkout exact WorkflowBundle source only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.bundle-identity.outputs.repository }}
+          ref: ${{ steps.bundle-identity.outputs.sha }}
+          path: .seorilabs-workflow-bundle
+          persist-credentials: false
+
+      - name: Verify current signed AIT runtime binding before app checkout
+        shell: bash
+        env:
+          BINDING_TARGET: ait
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          APPLICATION_SOURCE_SHA: ${{ github.sha }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          FULL_NAME: ${{ github.repository }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          JOB_WORKFLOW_REPOSITORY: ${{ steps.bundle-identity.outputs.repository }}
+          JOB_WORKFLOW_SHA: ${{ steps.bundle-identity.outputs.sha }}
+          JOB_WORKFLOW_REF: ${{ steps.bundle-identity.outputs.ref }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+          INPUT_BUILD_PROFILE: ${{ inputs.build_profile }}
+          INPUT_PACKAGE_MANAGER: ${{ inputs.package_manager }}
+          INPUT_EXECUTION_ROOT: ${{ inputs.execution_root }}
+          INPUT_DEPENDENCY_ROOT: ${{ inputs.dependency_root }}
+          INPUT_SCRIPT_PATH: ${{ inputs.script_path }}
+          INPUT_ARTIFACT_KIND: ${{ inputs.artifact_kind }}
+          INPUT_CONFIG_REVISION_ID: ${{ inputs.config_revision_id }}
+          INPUT_CONFIG_REVISION: ${{ inputs.config_revision }}
+          INPUT_CONFIG_REVISION_DIGEST: ${{ inputs.config_revision_digest }}
+          INPUT_SIGNED_SNAPSHOT_DIGEST: ${{ inputs.signed_snapshot_digest }}
+          INPUT_SNAPSHOT_SIGNATURE_KEY_ID: ${{ inputs.snapshot_signature_key_id }}
+          INPUT_SNAPSHOT_SIGNATURE_POLICY_REVISION: ${{ inputs.snapshot_signature_policy_revision }}
+          INPUT_SNAPSHOT_SIGNATURE_DIGEST: ${{ inputs.snapshot_signature_digest }}
+        run: node .seorilabs-workflow-bundle/scripts/fleet/static-runtime-binding-v5.mjs
+
+  build-only:
+    name: AIT Build-only
+    needs: resolve-binding
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: read
+    timeout-minutes: 30
+
+    steps:
+      - name: Validate exact non-release request
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          BUILD_PROFILE: ${{ inputs.build_profile }}
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+          ARTIFACT_KIND: ${{ inputs.artifact_kind }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          EVENT_REF: ${{ github.ref }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CONFIG_REVISION_ID: ${{ inputs.config_revision_id }}
+          CONFIG_REVISION: ${{ inputs.config_revision }}
+          CONFIG_REVISION_DIGEST: ${{ inputs.config_revision_digest }}
+          SIGNED_SNAPSHOT_DIGEST: ${{ inputs.signed_snapshot_digest }}
+          SNAPSHOT_SIGNATURE_KEY_ID: ${{ inputs.snapshot_signature_key_id }}
+          SNAPSHOT_SIGNATURE_POLICY_REVISION: ${{ inputs.snapshot_signature_policy_revision }}
+          SNAPSHOT_SIGNATURE_DIGEST: ${{ inputs.snapshot_signature_digest }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BUILD_PROFILE" =~ ^(ait-granite|ait-web)$ ]]
+          [[ "$PACKAGE_MANAGER" =~ ^(npm|pnpm)$ ]]
+          test "$ARTIFACT_KIND" = ait
+          test "$REPOSITORY_PRIVATE" = true
+          test "$EVENT_REF" = refs/heads/main
+          test "$CALLER_WORKFLOW_REF" = "$GITHUB_REPOSITORY/.github/workflows/ait-build-only.yml@refs/heads/main"
+          [[ "$CONFIG_REVISION_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$ ]]
+          [[ "$CONFIG_REVISION" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CONFIG_REVISION_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$SIGNED_SNAPSHOT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$SNAPSHOT_SIGNATURE_KEY_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$ ]]
+          [[ "$SNAPSHOT_SIGNATURE_POLICY_REVISION" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$ ]]
+          [[ "$SNAPSHOT_SIGNATURE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+      - name: Checkout exact WorkflowBundle source before application checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.resolve-binding.outputs.bundle_repository }}
+          ref: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          path: .seorilabs-workflow-bundle
+          persist-credentials: false
+
+      - name: Setup pinned Node before application checkout
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+
+      - name: Prepare pinned package managers without package credentials
+        shell: bash
+        env:
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/workflow-bundle-v5-user.npmrc
+          NPM_CONFIG_GLOBALCONFIG: ${{ runner.temp }}/workflow-bundle-v5-global.npmrc
+          NPM_CONFIG_LOCATION: global
+        run: |
+          set -euo pipefail
+          test -z "${NODE_AUTH_TOKEN:-}"
+          test "$NPM_CONFIG_USERCONFIG" != "$NPM_CONFIG_GLOBALCONFIG"
+          test ! -e "$NPM_CONFIG_USERCONFIG"
+          test ! -e "$NPM_CONFIG_GLOBALCONFIG"
+          install -m 600 /dev/null "$NPM_CONFIG_USERCONFIG"
+          install -m 600 /dev/null "$NPM_CONFIG_GLOBALCONFIG"
+          test "$(npm --version)" = 11.13.0
+          if [[ "$PACKAGE_MANAGER" = pnpm ]]; then
+            corepack enable
+            COREPACK_NPM_REGISTRY=https://registry.npmjs.org corepack prepare pnpm@11.3.0 --activate
+            test "$(pnpm --version)" = 11.3.0
+          else
+            test "$PACKAGE_MANAGER" = npm
+          fi
+
+      - name: Install exact WorkflowBundle runtime dependencies without package credentials
+        shell: bash
+        env:
+          BUNDLE_SHA: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/workflow-bundle-v5-user.npmrc
+          NPM_CONFIG_GLOBALCONFIG: ${{ runner.temp }}/workflow-bundle-v5-global.npmrc
+        run: |
+          set -euo pipefail
+          test -z "${NODE_AUTH_TOKEN:-}"
+          test "$NPM_CONFIG_USERCONFIG" != "$NPM_CONFIG_GLOBALCONFIG"
+          test -f "$NPM_CONFIG_USERCONFIG"
+          test -f "$NPM_CONFIG_GLOBALCONFIG"
+          bundle_root="$GITHUB_WORKSPACE/.seorilabs-workflow-bundle"
+          test "$(git -C "$bundle_root" rev-parse HEAD)" = "$BUNDLE_SHA"
+          node --input-type=module - "$bundle_root/package-lock.json" <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const lock = JSON.parse(await readFile(process.argv[2], "utf8"));
+          const visit = (value, field = "") => {
+            if (Array.isArray(value)) return value.forEach((child) => visit(child, field));
+            if (value && typeof value === "object") return Object.entries(value).forEach(([key, child]) => visit(child, key));
+            if (field !== "resolved" || typeof value !== "string") return;
+            if (!/^https?:/u.test(value)) {
+              if (!value.split("/").every((segment) => segment && segment !== "." && segment !== ".." && /^[A-Za-z0-9_@.-]+$/u.test(segment))) process.exit(1);
+              return;
+            }
+            const url = new URL(value);
+            if (url.protocol !== "https:" || url.origin !== "https://registry.npmjs.org" || url.username || url.password || url.port || url.search || url.hash) process.exit(1);
+          };
+          visit(lock);
+          NODE
+          npm ci --prefix "$bundle_root" --ignore-scripts --registry=https://registry.npmjs.org --userconfig="$NPM_CONFIG_USERCONFIG" --no-audit --no-fund
+
+      - name: Checkout exact application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: .seorilabs-application
+          persist-credentials: false
+
+      - name: Verify exact source and safe binding paths
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EXECUTION_ROOT: ${{ inputs.execution_root }}
+          DEPENDENCY_ROOT: ${{ inputs.dependency_root }}
+          SCRIPT_PATH: ${{ inputs.script_path }}
+        run: |
+          set -euo pipefail
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application"
+          test "$(git -C "$application_root" rev-parse HEAD)" = "$SOURCE_SHA"
+          node --input-type=module - "$application_root" "$EXECUTION_ROOT" "$DEPENDENCY_ROOT" "$SCRIPT_PATH" <<'NODE'
+          import { resolveSafeDirectory, resolveSafeFile } from "./.seorilabs-workflow-bundle/scripts/fleet/v5-paths.mjs";
+          const [root, executionRoot, dependencyRoot, scriptPath] = process.argv.slice(2);
+          await resolveSafeDirectory(root, executionRoot);
+          await resolveSafeDirectory(root, dependencyRoot);
+          await resolveSafeFile(root, scriptPath);
+          NODE
+          node .seorilabs-workflow-bundle/scripts/fleet/secret-scan.mjs "$application_root"
+
+      - name: Stage exactly locked dependency cache in an isolated process
+        shell: bash
+        working-directory: .seorilabs-workflow-bundle
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+          DEPENDENCY_ROOT: ${{ inputs.dependency_root }}
+        run: |
+          set -euo pipefail
+          ulimit -c 0
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application"
+          if [[ "$PACKAGE_MANAGER" = pnpm ]]; then
+            cache_root="$application_root/.seorilabs-pnpm-store"
+          else
+            cache_root="$application_root/.seorilabs-npm-cache"
+          fi
+          node scripts/fleet/stage-private-package-v5.mjs \
+            "$application_root" "$DEPENDENCY_ROOT" "$PACKAGE_MANAGER" "$cache_root"
+
+      - name: Install exactly locked dependencies offline
+        shell: bash
+        env:
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+          DEPENDENCY_ROOT: ${{ inputs.dependency_root }}
+        run: |
+          set -euo pipefail
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application"
+          cd "$application_root/$DEPENDENCY_ROOT"
+          if [[ "$PACKAGE_MANAGER" = pnpm ]]; then
+            NPM_CONFIG_OFFLINE=true NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
+              pnpm install --frozen-lockfile --trust-lockfile --offline --ignore-scripts --store-dir "$application_root/.seorilabs-pnpm-store"
+            pnpm rebuild
+          else
+            NPM_CONFIG_OFFLINE=true NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
+              npm ci --offline --ignore-scripts --cache "$application_root/.seorilabs-npm-cache" --no-audit --no-fund
+            npm rebuild
+          fi
+
+      - name: Produce exactly one AIT artifact
+        shell: bash
+        env:
+          EXECUTION_ROOT: ${{ inputs.execution_root }}
+          SCRIPT_PATH: ${{ inputs.script_path }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application"
+          output_root="$RUNNER_TEMP/ait-build-only"
+          mkdir -p "$output_root"
+          export SEORI_AIT_OUTPUT="$output_root/application.ait"
+          export SEORI_BUILD_MODE=build-only
+          export SEORI_SOURCE_SHA="$SOURCE_SHA"
+          cd "$application_root/$EXECUTION_ROOT"
+          bash "$application_root/$SCRIPT_PATH"
+          test -s "$SEORI_AIT_OUTPUT"
+          test "$(find "$output_root" -type f -name '*.ait' | wc -l | tr -d ' ')" = 1
+
+      - name: Transfer app-produced AIT to isolated evidence job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ait-build-output-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ait-build-only/application.ait
+          if-no-files-found: error
+          retention-days: 3
+
+  evidence:
+    name: AIT isolated provenance
+    needs:
+      - resolve-binding
+      - build-only
+    runs-on: seorilabs-rpi-arm64
+    permissions:
+      actions: read
+      contents: read
+    timeout-minutes: 10
+
+    steps:
+      - name: Download app-produced AIT in a fresh job
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ait-build-output-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ait-build-only
+
+      - name: Verify exactly one transferred AIT
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/ait-build-only/application.ait"
+          test "$(find "$RUNNER_TEMP/ait-build-only" -type f -name '*.ait' | wc -l | tr -d ' ')" = 1
+
+      - name: Write checksum-bound target evidence
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          BUILD_PROFILE: ${{ inputs.build_profile }}
+          BUNDLE_SHA: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          CONFIG_REVISION_ID: ${{ inputs.config_revision_id }}
+          CONFIG_REVISION: ${{ inputs.config_revision }}
+          CONFIG_REVISION_DIGEST: ${{ inputs.config_revision_digest }}
+          SIGNED_SNAPSHOT_DIGEST: ${{ inputs.signed_snapshot_digest }}
+          SNAPSHOT_SIGNATURE_KEY_ID: ${{ inputs.snapshot_signature_key_id }}
+          SNAPSHOT_SIGNATURE_POLICY_REVISION: ${{ inputs.snapshot_signature_policy_revision }}
+          SNAPSHOT_SIGNATURE_DIGEST: ${{ inputs.snapshot_signature_digest }}
+        run: |
+          set -euo pipefail
+          artifact="$RUNNER_TEMP/ait-build-only/application.ait"
+          artifact_sha256="$(sha256sum "$artifact" | cut -d ' ' -f 1)"
+          export ARTIFACT_SHA256="sha256:$artifact_sha256"
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            const evidence = {
+              schemaVersion: 2,
+              target: "ait",
+              buildProfile: process.env.BUILD_PROFILE,
+              repositoryId: Number(process.env.GITHUB_REPOSITORY_ID),
+              fullName: process.env.GITHUB_REPOSITORY,
+              sourceSha: process.env.SOURCE_SHA,
+              workflowExecutionSha: process.env.BUNDLE_SHA,
+              workflowRef: "seorilabs/.github/.github/workflows/ait-build-only-v1.yml@" + process.env.BUNDLE_SHA,
+              runId: Number(process.env.GITHUB_RUN_ID),
+              runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+              configRevisionId: process.env.CONFIG_REVISION_ID,
+              configRevision: Number(process.env.CONFIG_REVISION),
+              configRevisionDigest: process.env.CONFIG_REVISION_DIGEST,
+              signedSnapshotDigest: process.env.SIGNED_SNAPSHOT_DIGEST,
+              snapshotSignatureKeyId: process.env.SNAPSHOT_SIGNATURE_KEY_ID,
+              snapshotSignaturePolicyRevision: process.env.SNAPSHOT_SIGNATURE_POLICY_REVISION,
+              snapshotSignatureDigest: process.env.SNAPSHOT_SIGNATURE_DIGEST,
+              runnerRoute: "private-arc",
+              runnerImage: "registry.vzyx.xyz/seorilabs/arc-runner-node24@sha256:4663a0066aa61f05006af285f2d5bcf95855fd9e8256c44c08c9e32ff92ac45e",
+              artifactSha256: process.env.ARTIFACT_SHA256,
+              marketUpload: false,
+            };
+            writeFileSync(process.env.RUNNER_TEMP + "/ait-build-only/provenance.json", JSON.stringify(evidence, null, 2) + "\n", { mode: 0o644 });
+          '
+
+      - name: Upload build-only evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ait-build-only-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/ait-build-only
+          if-no-files-found: error
+          retention-days: 3

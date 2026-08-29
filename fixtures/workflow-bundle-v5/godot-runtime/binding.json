@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "state": "ACTIVE",
+  "repositoryId": "7003",
+  "fullName": "seorilabs/godot-runtime-canary",
+  "sourceSha": "9999999999999999999999999999999999999999",
+  "sourceRef": "refs/heads/main",
+  "observationId": "observation-godot-v5",
+  "observationDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+  "configRevisionId": "config-godot-v5-r1",
+  "configRevision": 1,
+  "configRevisionDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "signedSnapshotDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "snapshotSignature": {
+    "keyId": "control-plane-snapshot-v1",
+    "policyRevision": "snapshot-policy-v1",
+    "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "staticBinding": {
+    "profile": "godot",
+    "packageManager": null,
+    "workspaceRoot": ".",
+    "commandDirectory": "."
+  },
+  "buildBindings": []
+}

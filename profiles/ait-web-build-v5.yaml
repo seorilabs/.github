@@ -1,0 +1,10 @@
+schemaVersion: 2
+id: ait-web
+contract: org-v5
+target: ait
+runtime: ait-web
+executor: github-actions
+privateRunner: seorilabs-rpi-arm64
+artifactKind: ait
+scriptPath: scripts/build-ait.sh
+marketUpload: false

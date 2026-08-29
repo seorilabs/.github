@@ -1,0 +1,454 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v5/workflow-bundle.schema.json",
+  "title": "Seorilabs immutable WorkflowBundle v5",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "bundleVersion",
+    "source",
+    "quality",
+    "promotionScope",
+    "staticRuntimeBinding",
+    "staticProfiles",
+    "buildProfiles",
+    "actions",
+    "runners",
+    "toolchains",
+    "callerPolicies",
+    "lifecyclePolicy",
+    "approval",
+    "integrity"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "bundleVersion": { "const": "5.0.0" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "sha", "workflowExecutionSha"],
+      "properties": {
+        "repository": { "const": "seorilabs/.github" },
+        "sha": { "$ref": "#/$defs/sha" },
+        "workflowExecutionSha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsCanonicalScripts", "godotCanonicalChecks", "secretScan", "provenance", "contractDigests", "runtimeAssetDigests"],
+      "properties": {
+        "jsCanonicalScripts": { "const": ["test:core", "check:architecture", "check:release"] },
+        "godotCanonicalChecks": { "const": ["public-lock-audit-or-no-managed-dependencies", "headless-import", "diagnostic-gate", "test:core", "check:architecture", "check:release"] },
+        "secretScan": { "const": "central-high-confidence-v1" },
+        "provenance": { "const": "isolated-application-source-runtime-config-snapshot-and-called-workflow-sha-v4" },
+        "contractDigests": { "$ref": "#/$defs/digestMap" },
+        "runtimeAssetDigests": { "$ref": "#/$defs/digestMap" }
+      }
+    },
+    "promotionScope": {
+      "const": {
+        "staticProfiles": ["react-native", "godot", "capacitor", "ait-web"],
+        "buildProfiles": []
+      }
+    },
+    "staticRuntimeBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "endpoint", "authentication", "audience", "sourceStrategy", "prPolicy", "identity", "calledWorkflows"],
+      "properties": {
+        "origin": { "const": "https://backoffice.vzyx.xyz" },
+        "endpoint": { "const": "/api/control-plane/apps/{repositoryId}/resolved-manifest" },
+        "authentication": { "const": "github-oidc" },
+        "audience": { "const": "seorilabs-control-plane" },
+        "sourceStrategy": { "const": "event-sha-with-pr-base-binding" },
+        "prPolicy": { "const": "trusted-github-pr-readback-required" },
+        "identity": {
+          "const": {
+            "callerWorkflowRef": "github.workflow_ref",
+            "calledWorkflowRef": "job.workflow_ref",
+            "calledWorkflowSha": "job.workflow_sha",
+            "calledWorkflowRepository": "job.workflow_repository"
+          }
+        },
+        "calledWorkflows": {
+          "const": {
+            "jsStatic": {
+              "path": ".github/workflows/js-static-checks-v1.yml",
+              "profiles": ["react-native", "capacitor", "ait-web"],
+              "packageManagers": ["npm", "pnpm"]
+            },
+            "godot": {
+              "path": ".github/workflows/godot-checks-v3.yml",
+              "profiles": ["godot"],
+              "packageManagers": [null]
+            }
+          }
+        }
+      }
+    },
+    "staticProfiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["react-native", "godot", "capacitor", "ait-web"],
+      "properties": {
+        "react-native": {
+          "allOf": [
+            { "$ref": "#/$defs/staticProfile" },
+            {
+              "type": "object",
+              "properties": {
+                "path": { "const": ".github/workflows/js-static-checks-v1.yml" },
+                "runtime": { "const": "react-native" }
+              }
+            }
+          ]
+        },
+        "godot": {
+          "allOf": [
+            { "$ref": "#/$defs/staticProfile" },
+            {
+              "type": "object",
+              "properties": {
+                "path": { "const": ".github/workflows/godot-checks-v3.yml" },
+                "runtime": { "const": "godot" }
+              }
+            }
+          ]
+        },
+        "capacitor": {
+          "allOf": [
+            { "$ref": "#/$defs/staticProfile" },
+            {
+              "type": "object",
+              "properties": {
+                "path": { "const": ".github/workflows/js-static-checks-v1.yml" },
+                "runtime": { "const": "capacitor" }
+              }
+            }
+          ]
+        },
+        "ait-web": {
+          "allOf": [
+            { "$ref": "#/$defs/staticProfile" },
+            {
+              "type": "object",
+              "properties": {
+                "path": { "const": ".github/workflows/js-static-checks-v1.yml" },
+                "runtime": { "const": "ait-web" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "buildProfiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["react-native-android", "godot-android", "capacitor-android", "capacitor-ios-xcode-cloud", "ait-granite", "ait-web"],
+      "properties": {
+        "react-native-android": { "$ref": "#/$defs/androidProfile" },
+        "godot-android": { "$ref": "#/$defs/androidProfile" },
+        "capacitor-android": { "$ref": "#/$defs/androidProfile" },
+        "capacitor-ios-xcode-cloud": { "$ref": "#/$defs/xcodeProfile" },
+        "ait-granite": { "$ref": "#/$defs/aitProfile" },
+        "ait-web": { "$ref": "#/$defs/aitProfile" }
+      }
+    },
+    "actions": {
+      "const": {
+        "checkout": {
+          "ref": "v7.0.1",
+          "sha": "3d3c42e5aac5ba805825da76410c181273ba90b1"
+        },
+        "setup-node": {
+          "ref": "v7.0.0",
+          "sha": "820762786026740c76f36085b0efc47a31fe5020"
+        },
+        "upload-artifact": {
+          "ref": "v7.0.1",
+          "sha": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        },
+        "download-artifact": {
+          "ref": "v8.0.1",
+          "sha": "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+        },
+        "google-auth": {
+          "ref": "v3.0.0",
+          "sha": "7c6bc770dae815cd3e89ee6cdf493a5fab2cc093"
+        },
+        "setup-gcloud": {
+          "ref": "v3.0.1",
+          "sha": "aa5489c8933f4cc7a4f7d45035b3b1440c9c10db"
+        }
+      }
+    },
+    "runners": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["privateGeneral", "privateGeneralImage", "public", "androidSubmit"],
+      "properties": {
+        "privateGeneral": { "const": "seorilabs-rpi-arm64" },
+        "privateGeneralImage": { "$ref": "#/$defs/runnerImage" },
+        "public": { "const": "ubuntu-latest" },
+        "androidSubmit": { "const": "seorilabs-rpi-arm64" }
+      }
+    },
+    "toolchains": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "npm", "pnpm", "godot", "gcloud"],
+      "properties": {
+        "node": { "const": "24.16.0" },
+        "npm": { "const": "11.13.0" },
+        "pnpm": { "const": "11.3.0" },
+        "godot": { "const": "4.7.2" },
+        "gcloud": { "const": "582.0.0" }
+      }
+    },
+    "callerPolicies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["static", "android", "ait", "ios"],
+      "properties": {
+        "static": {
+          "const": {
+            "managedCallerPath": ".github/workflows/org-contract.yml",
+            "events": ["pull_request", "push-main", "workflow_dispatch"],
+            "permissions": {
+              "contents": "read",
+              "id-token": "write",
+              "packages": "read"
+            },
+            "namedSecrets": []
+          }
+        },
+        "android": {
+          "const": {
+            "managedCallerPath": ".github/workflows/android-build-only.yml",
+            "events": ["workflow_dispatch"],
+            "permissions": {
+              "contents": "read",
+              "id-token": "write",
+              "packages": "read"
+            },
+            "namedSecrets": []
+          }
+        },
+        "ait": {
+          "const": {
+            "managedCallerPath": ".github/workflows/ait-build-only.yml",
+            "events": ["workflow_dispatch"],
+            "permissions": {
+              "contents": "read",
+              "id-token": "write",
+              "packages": "read"
+            },
+            "namedSecrets": []
+          }
+        },
+        "ios": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["githubWorkflow", "transport", "namedSecrets"],
+          "properties": {
+            "githubWorkflow": { "const": "forbidden" },
+            "transport": { "const": "app-store-connect-api" },
+            "namedSecrets": { "const": [] }
+          }
+        }
+      }
+    },
+    "lifecyclePolicy": {
+      "const": {
+        "ACTIVE": "ENFORCE",
+        "PAUSED": "SHADOW",
+        "DEPRECATED": "NO_CALLER"
+      }
+    },
+    "approval": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "evidence"],
+          "properties": {
+            "state": { "const": "CANDIDATE" },
+            "evidence": { "const": [] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "evidence", "signature"],
+          "properties": {
+            "state": { "const": "APPROVED" },
+            "evidence": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": { "$ref": "#/$defs/staticEvidence" }
+            },
+            "signature": { "$ref": "#/$defs/signature" }
+          }
+        }
+      ]
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "payloadDigest"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "payloadDigest": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  },
+  "$defs": {
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "publicId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "digestMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/sha256" }
+    },
+    "workflowPath": {
+      "type": "string",
+      "pattern": "^\\.github/workflows/[a-z0-9-]+\\.yml$"
+    },
+    "staticProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "runtime", "sha"],
+      "properties": {
+        "path": { "$ref": "#/$defs/workflowPath" },
+        "runtime": { "enum": ["react-native", "godot", "capacitor", "ait-web"] },
+        "sha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "androidProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "executor", "workflow", "artifactKind", "scriptPath", "builderImage", "sha"],
+      "properties": {
+        "target": { "const": "android" },
+        "executor": { "const": "cloud-build-x64" },
+        "workflow": { "$ref": "#/$defs/workflowPath" },
+        "artifactKind": { "const": "android-aab" },
+        "scriptPath": { "const": "scripts/build-android.sh" },
+        "builderImage": { "$ref": "#/$defs/builderImage" },
+        "sha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "xcodeProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "executor", "workflow", "artifactKind", "scriptPath"],
+      "properties": {
+        "target": { "const": "ios" },
+        "executor": { "const": "xcode-cloud" },
+        "workflow": { "const": null },
+        "artifactKind": { "const": "xcode-archive" },
+        "scriptPath": { "const": "ci_scripts/ci_post_clone.sh" }
+      }
+    },
+    "aitProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "executor", "workflow", "artifactKind", "scriptPath", "sha"],
+      "properties": {
+        "target": { "const": "ait" },
+        "executor": { "const": "github-actions" },
+        "workflow": { "const": ".github/workflows/ait-build-only-v1.yml" },
+        "artifactKind": { "const": "ait" },
+        "scriptPath": { "const": "scripts/build-ait.sh" },
+        "sha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "builderImage": {
+      "type": "string",
+      "pattern": "^asia-northeast3-docker\\.pkg\\.dev/seorilabs-ci/builders/[a-z0-9-]+@sha256:[0-9a-f]{64}$"
+    },
+    "runnerImage": {
+      "type": "string",
+      "pattern": "^(?:registry\\.vzyx\\.xyz/seorilabs/arc-runner-node24@sha256:[0-9a-f]{64}|github-hosted:[A-Za-z0-9._-]+@[A-Za-z0-9._-]+)$"
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "policyRevision", "value"],
+      "properties": {
+        "algorithm": { "const": "Ed25519" },
+        "keyId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$" },
+        "policyRevision": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$" },
+        "value": { "type": "string", "pattern": "^[A-Za-z0-9_-]{86}$" }
+      }
+    },
+    "evidenceBase": {
+      "type": "object",
+      "required": ["schemaVersion", "repositoryId", "fullName", "sourceSha", "workflowExecutionSha", "workflowRef", "runId", "runAttempt", "configRevisionId", "configRevision", "configRevisionDigest", "signedSnapshotDigest", "snapshotSignatureKeyId", "snapshotSignaturePolicyRevision", "snapshotSignatureDigest", "artifactSha256"],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "repositoryId": { "type": "integer", "minimum": 1 },
+        "fullName": { "type": "string", "pattern": "^seorilabs/[A-Za-z0-9._-]+$" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "workflowExecutionSha": { "$ref": "#/$defs/sha" },
+        "workflowRef": {
+          "type": "string",
+          "pattern": "^seorilabs/\\.github/\\.github/workflows/[a-z0-9-]+\\.yml@[0-9a-f]{40}$"
+        },
+        "runId": { "type": "integer", "minimum": 1 },
+        "runAttempt": { "type": "integer", "minimum": 1 },
+        "configRevisionId": { "$ref": "#/$defs/publicId" },
+        "configRevision": { "type": "integer", "minimum": 1 },
+        "configRevisionDigest": { "$ref": "#/$defs/sha256" },
+        "signedSnapshotDigest": { "$ref": "#/$defs/sha256" },
+        "snapshotSignatureKeyId": { "$ref": "#/$defs/publicId" },
+        "snapshotSignaturePolicyRevision": { "$ref": "#/$defs/publicId" },
+        "snapshotSignatureDigest": { "$ref": "#/$defs/sha256" },
+        "artifactSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "staticEvidence": {
+      "allOf": [
+        { "$ref": "#/$defs/evidenceBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "target", "profile", "repositoryId", "sourceSha", "bindingSourceSha", "callerWorkflowRef", "manifestDigest", "workflowExecutionSha", "runId", "artifactSha256"],
+          "properties": {
+            "schemaVersion": true,
+            "target": { "const": "static" },
+            "profile": { "enum": ["react-native", "godot", "capacitor", "ait-web"] },
+            "repositoryId": true,
+            "fullName": true,
+            "sourceSha": true,
+            "bindingSourceSha": { "$ref": "#/$defs/sha" },
+            "callerWorkflowRef": {
+              "type": "string",
+              "pattern": "^seorilabs/[A-Za-z0-9._-]+/\\.github/workflows/org-contract\\.yml@(?:refs/heads/main|refs/pull/[1-9][0-9]*/merge)$"
+            },
+            "manifestDigest": { "$ref": "#/$defs/sha256" },
+            "workflowExecutionSha": true,
+            "workflowRef": true,
+            "runId": true,
+            "runAttempt": true,
+            "configRevisionId": true,
+            "configRevision": true,
+            "configRevisionDigest": true,
+            "signedSnapshotDigest": true,
+            "snapshotSignatureKeyId": true,
+            "snapshotSignaturePolicyRevision": true,
+            "snapshotSignatureDigest": true,
+            "artifactSha256": true
+          }
+        }
+      ]
+    }
+  }
+}

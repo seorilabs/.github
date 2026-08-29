@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v5/workflow-bundle-static-runtime-readback.schema.json",
+  "title": "Seorilabs WorkflowBundle v5 static runtime readback",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "state",
+    "repositoryId",
+    "fullName",
+    "bindingSourceSha",
+    "applicationSourceSha",
+    "manifestDigest",
+    "manifest"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "state": { "const": "VERIFIED" },
+    "repositoryId": { "$ref": "#/$defs/repositoryId" },
+    "fullName": { "$ref": "#/$defs/fullName" },
+    "bindingSourceSha": { "$ref": "#/$defs/sha" },
+    "applicationSourceSha": { "$ref": "#/$defs/sha" },
+    "manifestDigest": { "$ref": "#/$defs/sha256" },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "lifecycleState",
+        "repositoryId",
+        "fullName",
+        "sourceSha",
+        "sourceRef",
+        "observationId",
+        "observationDigest",
+        "configRevisionId",
+        "configRevision",
+        "configRevisionDigest",
+        "signedSnapshotDigest",
+        "snapshotSignature",
+        "staticBinding"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "lifecycleState": { "enum": ["ACTIVE", "PAUSED", "DEPRECATED"] },
+        "repositoryId": { "$ref": "#/$defs/repositoryId" },
+        "fullName": { "$ref": "#/$defs/fullName" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "sourceRef": { "const": "refs/heads/main" },
+        "observationId": { "$ref": "#/$defs/publicId" },
+        "observationDigest": { "$ref": "#/$defs/sha256" },
+        "configRevisionId": { "$ref": "#/$defs/publicId" },
+        "configRevision": { "type": "integer", "minimum": 1 },
+        "configRevisionDigest": { "$ref": "#/$defs/sha256" },
+        "signedSnapshotDigest": { "$ref": "#/$defs/sha256" },
+        "snapshotSignature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["keyId", "policyRevision", "digest"],
+          "properties": {
+            "keyId": { "$ref": "#/$defs/publicId" },
+            "policyRevision": { "$ref": "#/$defs/publicId" },
+            "digest": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "staticBinding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["profile", "packageManager", "workspaceRoot", "commandDirectory"],
+          "properties": {
+            "profile": { "enum": ["react-native", "godot", "capacitor", "ait-web"] },
+            "packageManager": { "enum": ["npm", "pnpm", null] },
+            "workspaceRoot": { "$ref": "#/$defs/safeDirectory" },
+            "commandDirectory": { "$ref": "#/$defs/safeDirectory" }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "profile": { "const": "godot" } },
+                "required": ["profile"]
+              },
+              "then": {
+                "properties": { "packageManager": { "const": null } }
+              },
+              "else": {
+                "properties": { "packageManager": { "enum": ["npm", "pnpm"] } }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "repositoryId": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
+    "fullName": { "type": "string", "pattern": "^seorilabs/[A-Za-z0-9._-]+$" },
+    "publicId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"
+    },
+    "safeDirectory": {
+      "type": "string",
+      "pattern": "^(?:\\.|[A-Za-z0-9_@-]+(?:\\.[A-Za-z0-9_@-]+)*(?:/[A-Za-z0-9_@-]+(?:\\.[A-Za-z0-9_@-]+)*)*)$"
+    }
+  }
+}
