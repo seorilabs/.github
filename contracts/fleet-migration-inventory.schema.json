@@ -111,6 +111,7 @@
       }
     },
     "lineage": { "$ref": "#/$defs/inventoryLineage" },
+    "collectionEvidence": { "$ref": "#/$defs/collectorEvidence" },
     "repositories": {
       "type": "array",
       "minItems": 1,
@@ -373,6 +374,7 @@
         "requestCursor": { "$ref": "#/$defs/nullableCursor" },
         "responseNextCursor": { "$ref": "#/$defs/nullableCursor" },
         "hasNextPage": { "type": "boolean" },
+        "observedAt": { "$ref": "#/$defs/dateTime" },
         "providerTotalCount": {
           "type": "integer",
           "minimum": 1,
@@ -536,6 +538,7 @@
         "type": { "const": "LEGACY_OPERATION_JSON" },
         "contract": {
           "enum": [
+            "ORG_CONTRACT_APP",
             "GOOGLE_PLAY",
             "APP_STORE",
             "APPS_IN_TOSS",
@@ -1425,6 +1428,523 @@
           "maxItems": 10000,
           "items": { "$ref": "#/$defs/candidate" }
         }
+      }
+    },
+    "collectorCapabilityPermission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "access"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{1,63}$"
+        },
+        "access": { "enum": ["read", "write", "admin"] }
+      }
+    },
+    "collectorGitHubAppCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "revision",
+        "observedAt",
+        "organization",
+        "app",
+        "installation",
+        "eventAcceptance",
+        "evidenceDigest"
+      ],
+      "properties": {
+        "contract": {
+          "const": "seorilabs-fleet-github-app-capability-v1"
+        },
+        "revision": { "$ref": "#/$defs/evidenceId" },
+        "observedAt": { "$ref": "#/$defs/dateTime" },
+        "organization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "login"],
+          "properties": {
+            "id": { "$ref": "#/$defs/numericId" },
+            "login": { "const": "seorilabs" }
+          }
+        },
+        "app": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "readbackId",
+            "id",
+            "slug",
+            "ownerId",
+            "ownerLogin",
+            "active",
+            "webhookActive",
+            "webhookUrl",
+            "permissions",
+            "events"
+          ],
+          "properties": {
+            "readbackId": { "$ref": "#/$defs/evidenceId" },
+            "id": { "$ref": "#/$defs/numericId" },
+            "slug": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,99}$"
+            },
+            "ownerId": { "$ref": "#/$defs/numericId" },
+            "ownerLogin": { "const": "seorilabs" },
+            "active": { "type": "boolean" },
+            "webhookActive": { "type": "boolean" },
+            "webhookUrl": {
+              "type": "string",
+              "pattern": "^https://\\S{1,500}$"
+            },
+            "permissions": {
+              "type": "array",
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/collectorCapabilityPermission" }
+            },
+            "events": {
+              "type": "array",
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{1,63}$"
+              }
+            }
+          }
+        },
+        "installation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "readbackId",
+            "id",
+            "appId",
+            "accountId",
+            "accountLogin",
+            "targetType",
+            "repositorySelection",
+            "suspendedAt",
+            "updatedAt",
+            "permissions"
+          ],
+          "properties": {
+            "readbackId": { "$ref": "#/$defs/evidenceId" },
+            "id": { "$ref": "#/$defs/numericId" },
+            "appId": { "$ref": "#/$defs/numericId" },
+            "accountId": { "$ref": "#/$defs/numericId" },
+            "accountLogin": { "const": "seorilabs" },
+            "targetType": { "const": "Organization" },
+            "repositorySelection": { "enum": ["all", "selected"] },
+            "suspendedAt": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "#/$defs/dateTime" }
+              ]
+            },
+            "updatedAt": { "$ref": "#/$defs/dateTime" },
+            "permissions": {
+              "type": "array",
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/collectorCapabilityPermission" }
+            }
+          }
+        },
+        "eventAcceptance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "event",
+            "deliveryId",
+            "acceptedAt",
+            "handlerRevision",
+            "appReadbackId",
+            "installationReadbackId",
+            "evidenceDigest"
+          ],
+          "properties": {
+            "state": { "enum": ["ACCEPTED", "UNVERIFIED"] },
+            "event": { "const": "repository" },
+            "deliveryId": { "$ref": "#/$defs/nullableEvidenceId" },
+            "acceptedAt": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "#/$defs/dateTime" }
+              ]
+            },
+            "handlerRevision": { "$ref": "#/$defs/nullableEvidenceId" },
+            "appReadbackId": { "$ref": "#/$defs/evidenceId" },
+            "installationReadbackId": { "$ref": "#/$defs/evidenceId" },
+            "evidenceDigest": { "$ref": "#/$defs/digest" }
+          }
+        },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "collectorAppReadback": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "appId",
+            "revision",
+            "digest",
+            "repositoryId",
+            "sourceSha",
+            "state"
+          ],
+          "properties": {
+            "appId": { "$ref": "#/$defs/appId" },
+            "revision": { "$ref": "#/$defs/numericId" },
+            "digest": { "$ref": "#/$defs/digest" },
+            "repositoryId": { "$ref": "#/$defs/numericId" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "state": { "const": "ACTIVE" }
+          }
+        }
+      ]
+    },
+    "collectorActiveConfigReadback": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "configRevisionId",
+            "revision",
+            "digest",
+            "signedSnapshotDigest",
+            "state"
+          ],
+          "properties": {
+            "configRevisionId": { "$ref": "#/$defs/evidenceId" },
+            "revision": { "$ref": "#/$defs/numericId" },
+            "digest": { "$ref": "#/$defs/digest" },
+            "signedSnapshotDigest": { "$ref": "#/$defs/digest" },
+            "state": { "const": "ACTIVE" }
+          }
+        }
+      ]
+    },
+    "collectorSignedSnapshotReadback": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "snapshotId",
+            "snapshotDigest",
+            "signatureKeyId",
+            "policyRevision",
+            "state"
+          ],
+          "properties": {
+            "snapshotId": { "$ref": "#/$defs/evidenceId" },
+            "snapshotDigest": { "$ref": "#/$defs/digest" },
+            "signatureKeyId": { "$ref": "#/$defs/keyId" },
+            "policyRevision": { "$ref": "#/$defs/evidenceId" },
+            "state": { "const": "VERIFIED" }
+          }
+        }
+      ]
+    },
+    "collectorPlatformFleetBindingReadback": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observationId",
+            "revision",
+            "digest",
+            "appId",
+            "platformAppId",
+            "platformRepositoryId",
+            "platformSourceSha",
+            "state"
+          ],
+          "properties": {
+            "observationId": { "$ref": "#/$defs/evidenceId" },
+            "revision": { "$ref": "#/$defs/numericId" },
+            "digest": { "$ref": "#/$defs/digest" },
+            "appId": { "$ref": "#/$defs/appId" },
+            "platformAppId": { "$ref": "#/$defs/appId" },
+            "platformRepositoryId": { "$ref": "#/$defs/numericId" },
+            "platformSourceSha": { "$ref": "#/$defs/sha" },
+            "state": { "const": "ACTIVE" }
+          }
+        }
+      ]
+    },
+    "collectorProviderObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observationId",
+        "revision",
+        "digest",
+        "provider",
+        "publicIdentity",
+        "state"
+      ],
+      "properties": {
+        "observationId": { "$ref": "#/$defs/evidenceId" },
+        "revision": { "$ref": "#/$defs/numericId" },
+        "digest": { "$ref": "#/$defs/digest" },
+        "provider": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$"
+        },
+        "publicIdentity": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 512 }
+          ]
+        },
+        "state": { "const": "MATCH" }
+      }
+    },
+    "collectorCredentialBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observationId",
+        "revision",
+        "digest",
+        "logicalCredentialId",
+        "provider",
+        "capability",
+        "environment",
+        "publicIdentity",
+        "fingerprint",
+        "status"
+      ],
+      "properties": {
+        "observationId": { "$ref": "#/$defs/evidenceId" },
+        "revision": { "$ref": "#/$defs/numericId" },
+        "digest": { "$ref": "#/$defs/digest" },
+        "logicalCredentialId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+){2,7}$"
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$"
+        },
+        "capability": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$"
+        },
+        "environment": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$"
+        },
+        "publicIdentity": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 512 }
+          ]
+        },
+        "fingerprint": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 8, "maxLength": 256 }
+          ]
+        },
+        "status": { "const": "ACTIVE" }
+      }
+    },
+    "collectorBackofficeEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "readbackId",
+        "observedAt",
+        "organizationId",
+        "repositoryId",
+        "fullName",
+        "sourceSha",
+        "classification",
+        "classificationDecisionRevision",
+        "classificationDecisionId",
+        "app",
+        "activeConfig",
+        "signedSnapshot",
+        "platformFleetBinding",
+        "providerObservations",
+        "credentialBindings",
+        "evidenceDigest"
+      ],
+      "properties": {
+        "contract": {
+          "const": "seorilabs-fleet-migration-backoffice-public-evidence-v1"
+        },
+        "readbackId": { "$ref": "#/$defs/evidenceId" },
+        "observedAt": { "$ref": "#/$defs/dateTime" },
+        "organizationId": { "$ref": "#/$defs/numericId" },
+        "repositoryId": { "$ref": "#/$defs/numericId" },
+        "fullName": {
+          "type": "string",
+          "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+        },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "classification": { "$ref": "#/$defs/repositoryClassification" },
+        "classificationDecisionRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "classificationDecisionId": { "$ref": "#/$defs/evidenceId" },
+        "app": { "$ref": "#/$defs/collectorAppReadback" },
+        "activeConfig": { "$ref": "#/$defs/collectorActiveConfigReadback" },
+        "signedSnapshot": {
+          "$ref": "#/$defs/collectorSignedSnapshotReadback"
+        },
+        "platformFleetBinding": {
+          "$ref": "#/$defs/collectorPlatformFleetBindingReadback"
+        },
+        "providerObservations": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/collectorProviderObservation" }
+        },
+        "credentialBindings": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/collectorCredentialBinding" }
+        },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "collectorRepositoryEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repositoryId",
+        "fullName",
+        "sourceRef",
+        "sourceSha",
+        "treeSha",
+        "sourceReadback",
+        "treeReadbackId",
+        "blobReadbacks",
+        "blobInventoryDigest",
+        "backoffice",
+        "evidenceDigest"
+      ],
+      "properties": {
+        "repositoryId": { "$ref": "#/$defs/numericId" },
+        "fullName": {
+          "type": "string",
+          "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+        },
+        "sourceRef": { "$ref": "#/$defs/sourceRef" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "treeSha": { "$ref": "#/$defs/sha" },
+        "sourceReadback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "firstReadbackId",
+            "firstObservedAt",
+            "finalReadbackId",
+            "finalObservedAt",
+            "sourceRef",
+            "sourceSha",
+            "treeSha",
+            "evidenceDigest"
+          ],
+          "properties": {
+            "firstReadbackId": { "$ref": "#/$defs/evidenceId" },
+            "firstObservedAt": { "$ref": "#/$defs/dateTime" },
+            "finalReadbackId": { "$ref": "#/$defs/evidenceId" },
+            "finalObservedAt": { "$ref": "#/$defs/dateTime" },
+            "sourceRef": { "$ref": "#/$defs/sourceRef" },
+            "sourceSha": { "$ref": "#/$defs/sha" },
+            "treeSha": { "$ref": "#/$defs/sha" },
+            "evidenceDigest": { "$ref": "#/$defs/digest" }
+          }
+        },
+        "treeReadbackId": { "$ref": "#/$defs/evidenceId" },
+        "blobReadbacks": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "readbackId",
+              "observedAt",
+              "path",
+              "mode",
+              "objectSha",
+              "size",
+              "contentDigest"
+            ],
+            "properties": {
+              "readbackId": { "$ref": "#/$defs/evidenceId" },
+              "observedAt": { "$ref": "#/$defs/dateTime" },
+              "path": { "$ref": "#/$defs/relativePath" },
+              "mode": { "enum": ["100644", "100755"] },
+              "objectSha": { "$ref": "#/$defs/sha" },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10485760
+              },
+              "contentDigest": { "$ref": "#/$defs/digest" }
+            }
+          }
+        },
+        "blobInventoryDigest": { "$ref": "#/$defs/digest" },
+        "backoffice": { "$ref": "#/$defs/collectorBackofficeEvidence" },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "collectorEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "mode",
+        "githubAppCapability",
+        "issuanceGitHubAppCapability",
+        "providerVectorDigest",
+        "repositoryEvidence",
+        "evidenceDigest"
+      ],
+      "properties": {
+        "contract": { "const": "seorilabs-fleet-migration-collector-evidence-v1" },
+        "mode": { "enum": ["FIXTURE", "READ_ONLY_SHADOW"] },
+        "githubAppCapability": {
+          "$ref": "#/$defs/collectorGitHubAppCapability"
+        },
+        "issuanceGitHubAppCapability": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/collectorGitHubAppCapability" }
+          ]
+        },
+        "providerVectorDigest": { "$ref": "#/$defs/digest" },
+        "repositoryEvidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/collectorRepositoryEvidence" }
+        },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
       }
     },
     "inventoryAttestation": {

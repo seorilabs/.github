@@ -48,8 +48,10 @@ const requiredPackageFiles = [
   "README.md",
   "src/cli.mjs",
   "src/bootstrap.mjs",
+  "src/fleet-migration-collector.mjs",
   "src/fleet-migration.mjs",
   "src/workflow-bundle-v5.mjs",
+  "src/trusted-inventory-issuer.mjs",
 ];
 
 const cacheRoot = await mkdtemp(join(tmpdir(), "repo-contract-pack-cache-"));
@@ -326,6 +328,60 @@ try {
   if (!installedMigrationCheck.stdout.includes("public export 검증 통과")) {
     throw new Error(
       "배포된 repo-contract에 Fleet migration planner API가 없습니다.",
+    );
+  }
+  const installedCollectorCheck = await execFileAsync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'const installed = await import("@seorilabs/repo-contract/fleet-migration-collector");',
+        'if (typeof installed.createFleetMigrationReadOnlyCollector !== "function") process.exit(1);',
+        'if (typeof installed.validateFleetMigrationCollection !== "function") process.exit(1);',
+        'if (typeof installed.validateFleetGitHubAppCapability !== "function") process.exit(1);',
+        'if (typeof installed.isFleetGitHubAppCapabilityVerified !== "function") process.exit(1);',
+        'if (installed.fleetMigrationCollectorContract?.githubApp?.installationId !== "142120077") process.exit(1);',
+        'if (Object.hasOwn(installed.fleetMigrationCollectorContract ?? {}, "githubAppGateIssue")) process.exit(1);',
+        'process.stdout.write("Fleet migration collector public export 검증 통과\\n");',
+      ].join("\n"),
+    ],
+    {
+      cwd: consumerRoot,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    },
+  );
+  if (!installedCollectorCheck.stdout.includes("public export 검증 통과")) {
+    throw new Error(
+      "배포된 repo-contract에 Fleet migration collector API가 없습니다.",
+    );
+  }
+  const installedIssuerCheck = await execFileAsync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'const installed = await import("@seorilabs/repo-contract/trusted-inventory-issuer");',
+        'if (typeof installed.createFleetMigrationInventoryIssuer !== "function") process.exit(1);',
+        'if (typeof installed.validateFleetMigrationAuthoritativeInventory !== "function") process.exit(1);',
+        'if (installed.fleetMigrationInventoryIssuerContract?.signingCredentialId !== "shared/platform/fleet-release-approval-signing") process.exit(1);',
+        'if (installed.fleetMigrationInventoryIssuerContract?.keyId !== "platform-fleet-release-20260829-5458c56b") process.exit(1);',
+        'if (installed.fleetMigrationInventoryIssuerContract?.authoritativeIssuanceEnabled !== true) process.exit(1);',
+        'if (installed.fleetMigrationInventoryIssuerContract?.privateKeyInputAllowed !== false) process.exit(1);',
+        'process.stdout.write("Fleet migration inventory issuer public export 검증 통과\\n");',
+      ].join("\n"),
+    ],
+    {
+      cwd: consumerRoot,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    },
+  );
+  if (!installedIssuerCheck.stdout.includes("public export 검증 통과")) {
+    throw new Error(
+      "배포된 repo-contract에 Fleet migration inventory issuer API가 없습니다.",
     );
   }
   const installedCandidateCanaryCheck = await execFileAsync(
