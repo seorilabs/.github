@@ -202,8 +202,6 @@ async function readDurableCollection(configuration, collection) {
           runId: collection.occurrence.runId,
           providerVectorDigest:
             collection.occurrence.providerVectorDigest,
-          collectionDigest: collection.collectionDigest,
-          inventoryDigest: collection.inventoryDigest,
         }),
       ),
     );

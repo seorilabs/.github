@@ -129,6 +129,12 @@ test("collector evidence schema는 classification decision 계약과 일치한�
   assert.deepEqual(properties.classificationDecisionId, {
     $ref: "#/$defs/evidenceId",
   });
+
+  const capability =
+    inventorySchema.$defs.collectorGitHubAppCapability.properties;
+  assert.equal(capability.app.properties.permissions.uniqueItems, true);
+  assert.equal(capability.app.properties.events.uniqueItems, true);
+  assert.equal(capability.installation.properties.permissions.uniqueItems, true);
 });
 
 function makeIssuer(
@@ -878,6 +884,36 @@ test("issuer는 raw key 입력/extra config와 durable occurrence substitution�
     issuer.issueAuthoritative(collection),
     /FLEET_MIGRATION_COLLECTION_OCCURRENCE_UNVERIFIED/u,
   );
+});
+
+test("issuer durable read는 collector와 동일한 최소 lookup shape만 사용한다", async () => {
+  const fixture = makeCollectorFixture({
+    count: 38,
+    nowMs: Date.now(),
+    verifiedCapability: true,
+  });
+  const collection = await collect(fixture);
+  const keys = generateKeyPairSync("ed25519");
+  let observedRequest;
+  const issuer = makeIssuer(fixture, keys, {
+    readOccurrence: async (request) => {
+      observedRequest = structuredClone(request);
+      assert.deepEqual(Object.keys(request).sort(), [
+        "occurrenceId",
+        "providerVectorDigest",
+        "runId",
+      ]);
+      return fixture.durable.read(request);
+    },
+  });
+
+  const result = await issuer.issueAuthoritative(collection);
+  assert.equal(result.authoritative, true);
+  assert.deepEqual(observedRequest, {
+    occurrenceId: collection.occurrence.occurrenceId,
+    runId: collection.occurrence.runId,
+    providerVectorDigest: collection.occurrence.providerVectorDigest,
+  });
 });
 
 test("issuer는 payload mutation, wrong key ID와 signer key mismatch를 거부한다", async () => {
