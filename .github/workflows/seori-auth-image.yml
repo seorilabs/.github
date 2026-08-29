@@ -61,6 +61,8 @@ jobs:
         run: >-
           docker run --rm --network none --read-only --cap-drop ALL
           --security-opt no-new-privileges
+          --tmpfs /run/seori-auth:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532
+          --tmpfs /var/lib/seori-auth:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532
           "${IMAGE}:${GITHUB_SHA}-canary"
 
       - name: Publish immutable ARM64 image with provenance
@@ -91,6 +93,8 @@ jobs:
           fi
           docker run --rm --network none --read-only --cap-drop ALL \
             --security-opt no-new-privileges \
+            --tmpfs /run/seori-auth:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532 \
+            --tmpfs /var/lib/seori-auth:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532 \
             "${IMAGE}@${IMAGE_DIGEST}"
           printf 'image=%s@%s\nsource_sha=%s\n' \
             "$IMAGE" "$IMAGE_DIGEST" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

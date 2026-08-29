@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 
 import { createHash, randomBytes } from 'node:crypto';
-import { chmod, lstat, mkdir, readFile, realpath, unlink, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute } from 'node:path';
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
   DurableAuthState,
   EncryptedBrowserVault,
+  BrowserLoginBoundary,
+  CanonicalAccountRegistry,
   FactorHttpApplication,
+  HUMAN_REAUTH_REQUIRED,
   LocalAuthDaemon,
   MtlsAuthDaemon,
   MtlsRunAttestor,
@@ -19,6 +23,7 @@ import {
   requireExactMtlsPeer,
   SecretManagerPasswordLoader,
   SecretManagerTotpSigner,
+  SeoriAuthError,
   SeoriAuthBroker,
   TrustedAdapterRegistry,
   isLogicalCredentialRef,
@@ -33,6 +38,7 @@ const WIF_AUDIENCE = /^\/\/iam\.googleapis\.com\/projects\/[1-9][0-9]*\/location
 const SECRET_ACCESS_CONFIG = '/etc/seori-auth/secret-access.json';
 const CANARY_COMMIT = '1'.repeat(40);
 const CANARY_ARTIFACT = 'a'.repeat(64);
+const CANARY_SOURCE_SHA = '2'.repeat(40);
 
 function fail(message) {
   throw new Error(message);
@@ -554,7 +560,307 @@ async function canary(nativeHelperPath) {
   } finally {
     canarySecret.fill(0);
   }
+  await canaryBrowserBoundaries(nativeBoundary);
   process.stdout.write(`${JSON.stringify({ state: 'CANARY_OK', secretExposed: false })}\n`);
+}
+
+function base32NoPadding(bytes) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0;
+  let accumulator = 0;
+  let encoded = '';
+  for (const byte of bytes) {
+    accumulator = (accumulator << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      encoded += alphabet[(accumulator >>> bits) & 31];
+      accumulator &= (1 << bits) - 1;
+    }
+  }
+  if (bits > 0) encoded += alphabet[(accumulator << (5 - bits)) & 31];
+  return encoded;
+}
+
+async function allFiles(directory) {
+  const contents = [];
+  async function visit(path) {
+    for (const entry of await readdir(path, { withFileTypes: true })) {
+      const child = join(path, entry.name);
+      if (entry.isDirectory()) await visit(child);
+      else contents.push(await readFile(child));
+    }
+  }
+  await visit(directory);
+  return Buffer.concat(contents);
+}
+
+function canaryIdentity() {
+  return Object.freeze({
+    provider: 'canary-provider',
+    accountId: 'fake-browser-account',
+    teamId: 'fake-team',
+    workspaceId: 'fake-workspace',
+    appId: 'fake-app',
+  });
+}
+
+function canaryInspection(identity, overrides = {}) {
+  return {
+    origin: 'https://canary.invalid',
+    redirectOrigins: ['https://login.canary.invalid'],
+    publicIdentity: identity,
+    authenticated: false,
+    challenge: null,
+    ...overrides,
+  };
+}
+
+function canarySecurityControls() {
+  return {
+    allowedNetworkOrigins: ['https://canary.invalid', 'https://login.canary.invalid'],
+    clipboard: false,
+    downloads: false,
+    extensions: false,
+    har: false,
+    profilePathExposed: false,
+    screenshots: false,
+    storageStateExport: false,
+    traces: false,
+    video: false,
+  };
+}
+
+async function canaryBrowserVault(nativeBoundary, paths) {
+  const sourceDirectory = join(paths.runtimeRoot, 'source');
+  const runtimeDirectory = join(paths.runtimeRoot, 'browser-runtime');
+  const vaultDirectory = join(paths.vaultRoot, 'browser-vault');
+  const fakeProfile = randomBytes(24);
+  const encryptionKey = randomBytes(32);
+  const identity = canaryIdentity();
+  const executionBinding = {
+    subject: 'k8s:auth-broker:canary',
+    runId: 'canary:browser-vault',
+    repository: 'seorilabs/.github',
+    workerId: 'canary',
+  };
+  let vault;
+  let persisted;
+  try {
+    await mkdir(join(sourceDirectory, 'Default'), { recursive: true, mode: 0o700 });
+    await writeFile(join(sourceDirectory, 'Default', 'Cookies'), fakeProfile, { mode: 0o600 });
+    await mkdir(join(runtimeDirectory, `checkout-${'a'.repeat(64)}-crash`), { recursive: true, mode: 0o700 });
+    vault = await EncryptedBrowserVault.open({
+      vaultDirectory,
+      runtimeDirectory,
+      encryptionKey,
+      lockProvider: nativeBoundary.lockProvider(),
+    });
+    if ((await readdir(runtimeDirectory)).some((entry) => entry.startsWith('checkout-'))) {
+      fail('browser vault crash reconciliation failed');
+    }
+    await vault.registerProfile({ sourceDirectory, role: 'canary', publicIdentity: identity });
+    const checkout = await vault.checkout({
+      role: 'canary',
+      expectedIdentity: identity,
+      expectedGeneration: 1,
+      executionBinding,
+      sourceSha: CANARY_SOURCE_SHA,
+    });
+    if (JSON.stringify(checkout).includes(fakeProfile.toString('base64'))) fail('browser vault exposed profile bytes');
+    await vault.withClone({
+      capabilityId: checkout.capabilityId,
+      executionBinding,
+      sourceSha: CANARY_SOURCE_SHA,
+    }, async (cloneDirectory) => {
+      const observed = await readFile(join(cloneDirectory, 'Default', 'Cookies'));
+      try {
+        if (!observed.equals(fakeProfile)) fail('browser vault clone round-trip failed');
+      } finally {
+        observed.fill(0);
+      }
+    });
+    const completed = await vault.complete({
+      capabilityId: checkout.capabilityId,
+      executionBinding,
+      sourceSha: CANARY_SOURCE_SHA,
+      observedIdentity: identity,
+    });
+    if (completed.state !== 'COMPLETED' || completed.generation !== 2) {
+      fail('browser vault completion readback failed');
+    }
+    persisted = await allFiles(vaultDirectory);
+    if (persisted.includes(fakeProfile) || persisted.includes(Buffer.from(fakeProfile.toString('base64')))) {
+      fail('browser vault persisted plaintext profile bytes');
+    }
+  } finally {
+    persisted?.fill(0);
+    await vault?.close().catch(() => {});
+    encryptionKey.fill(0);
+    fakeProfile.fill(0);
+  }
+}
+
+async function canaryBrowserLogin() {
+  const identity = canaryIdentity();
+  const passwordRef = 'shared/canary/browser-password';
+  const totpRef = 'shared/canary/browser-totp';
+  const now = 1_700_000_000_000;
+  const rawSeed = randomBytes(20);
+  const encodedSeed = Buffer.from(base32NoPadding(rawSeed), 'ascii');
+  rawSeed.fill(0);
+  let totpExecutionCopy;
+  let passwordExecutionCopy;
+  let passwordInjected = false;
+  let totpInjected = false;
+  try {
+    const signer = new SecretManagerTotpSigner({
+      bindings: [{
+        credentialRef: totpRef,
+        credentialGeneration: 1,
+        provider: identity.provider,
+        accountId: identity.accountId,
+        factor: 'totp',
+        algorithm: 'sha1',
+        digits: 6,
+        periodSeconds: 30,
+        origins: ['https://canary.invalid'],
+      }],
+      loadSecret: async () => {
+        totpExecutionCopy = Buffer.from(encodedSeed);
+        return totpExecutionCopy;
+      },
+      clock: () => now,
+    });
+    const registry = new CanonicalAccountRegistry([{
+      provider: identity.provider,
+      accountId: identity.accountId,
+      kind: 'dedicated_bot',
+      credentialRefs: [passwordRef, totpRef],
+    }]);
+    const login = new BrowserLoginBoundary({
+      accountRegistry: registry,
+      passwordLoader: {
+        async loadPassword() {
+          passwordExecutionCopy = Buffer.from('fake-browser-password', 'utf8');
+          return passwordExecutionCopy;
+        },
+      },
+      totpSigner: signer,
+      clock: () => now,
+    });
+    const stages = {
+      before_password: canaryInspection(identity),
+      after_password: canaryInspection(identity, { challenge: 'totp_required' }),
+      after_totp: canaryInspection(identity, { authenticated: true }),
+    };
+    const result = await login.authenticate({
+      browser: {
+        async securityControls() { return canarySecurityControls(); },
+        async inspect({ stage }) { return stages[stage]; },
+        async injectPassword(value) { passwordInjected = Buffer.isBuffer(value) && value.length > 0; },
+        async injectTotp(value) {
+          totpInjected = Buffer.isBuffer(value) && value.length === 6 && value.every((byte) => byte >= 0x30 && byte <= 0x39);
+        },
+      },
+      passwordRef,
+      passwordGeneration: 1,
+      totpRef,
+      totpGeneration: 1,
+      expectedOrigin: 'https://canary.invalid',
+      expectedRedirectOrigins: ['https://login.canary.invalid'],
+      expectedIdentity: identity,
+      authFactors: ['password', 'totp'],
+    });
+    if (
+      result.status !== 'AUTHENTICATED' || !passwordInjected || !totpInjected ||
+      !passwordExecutionCopy.every((byte) => byte === 0) ||
+      !totpExecutionCopy.every((byte) => byte === 0) ||
+      JSON.stringify(result).includes('fake-browser-password')
+    ) fail('browser factor non-return canary failed');
+
+    let humanFactorLoads = 0;
+    let humanInjections = 0;
+    const humanLogin = new BrowserLoginBoundary({
+      accountRegistry: new CanonicalAccountRegistry([{
+        provider: identity.provider,
+        accountId: identity.accountId,
+        kind: 'human',
+        credentialRefs: [passwordRef, totpRef],
+      }]),
+      passwordLoader: { async loadPassword() { humanFactorLoads += 1; return Buffer.from('unused'); } },
+      totpSigner: { async signCode() { humanFactorLoads += 1; return { code: Buffer.from('000000'), expiresAt: now + 1_000 }; } },
+      clock: () => now,
+    });
+    let stopped = false;
+    try {
+      await humanLogin.authenticate({
+        browser: {
+          async securityControls() { throw new Error('human controls must not be inspected'); },
+          async inspect() { throw new Error('human browser must not be inspected'); },
+          async injectPassword() { humanInjections += 1; },
+          async injectTotp() { humanInjections += 1; },
+        },
+        passwordRef,
+        passwordGeneration: 1,
+        totpRef,
+        totpGeneration: 1,
+        expectedOrigin: 'https://canary.invalid',
+        expectedRedirectOrigins: ['https://login.canary.invalid'],
+        expectedIdentity: identity,
+        authFactors: ['password', 'totp'],
+      });
+    } catch (error) {
+      stopped = error instanceof SeoriAuthError && error.code === HUMAN_REAUTH_REQUIRED;
+    }
+    if (!stopped || humanFactorLoads !== 0 || humanInjections !== 0) {
+      fail('human reauthentication stop gate canary failed');
+    }
+  } finally {
+    encodedSeed.fill(0);
+    passwordExecutionCopy?.fill(0);
+    totpExecutionCopy?.fill(0);
+  }
+}
+
+async function canaryBrowserBoundaries(nativeBoundary) {
+  const suffix = randomBytes(8).toString('hex');
+  let useProductionRoots = false;
+  if (process.platform === 'linux') {
+    try {
+      const [runtime, vault] = await Promise.all([
+        lstat('/run/seori-auth'),
+        lstat('/var/lib/seori-auth'),
+      ]);
+      useProductionRoots = [runtime, vault].every((entry) =>
+        entry.isDirectory() && !entry.isSymbolicLink() && entry.uid === process.getuid?.() && (entry.mode & 0o077) === 0,
+      );
+    } catch {
+      useProductionRoots = false;
+    }
+  }
+  const localRoot = useProductionRoots
+    ? undefined
+    : await mkdtemp(join(tmpdir(), 'seori-auth-runtime-canary-'));
+  const paths = useProductionRoots
+    ? {
+        runtimeRoot: join('/run/seori-auth', `canary-${suffix}`),
+        vaultRoot: join('/var/lib/seori-auth', `canary-${suffix}`),
+      }
+    : {
+        runtimeRoot: join(localRoot, 'runtime'),
+        vaultRoot: join(localRoot, 'vault'),
+      };
+  try {
+    await mkdir(paths.runtimeRoot, { recursive: true, mode: 0o700 });
+    await mkdir(paths.vaultRoot, { recursive: true, mode: 0o700 });
+    await canaryBrowserVault(nativeBoundary, paths);
+    await canaryBrowserLogin();
+  } finally {
+    await rm(paths.runtimeRoot, { recursive: true, force: true }).catch(() => {});
+    await rm(paths.vaultRoot, { recursive: true, force: true }).catch(() => {});
+    if (localRoot) await rm(localRoot, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 try {

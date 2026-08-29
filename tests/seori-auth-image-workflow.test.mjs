@@ -26,6 +26,8 @@ test("native ARM64 canary는 network와 쓰기 및 Linux capability 없이 실�
   const canary = step("Run non-secret container canary").run;
   assert.match(canary, /docker run --rm --network none --read-only --cap-drop ALL/u);
   assert.match(canary, /--security-opt no-new-privileges/u);
+  assert.match(canary, /--tmpfs \/run\/seori-auth:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532/u);
+  assert.match(canary, /--tmpfs \/var\/lib\/seori-auth:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532/u);
   assert.match(canary, /\$\{IMAGE\}:\$\{GITHUB_SHA\}-canary/u);
 });
 
@@ -37,6 +39,8 @@ test("pushed sha256 digest를 검증하고 같은 digest의 canary를 실행한�
   assert.equal(publishStep.with.sbom, true);
   assert.equal(verify.env.IMAGE_DIGEST, "${{ steps.publish.outputs.digest }}");
   assert.match(verify.run, /\^sha256:\[0-9a-f\]\{64\}\$/u);
+  assert.match(verify.run, /--tmpfs \/run\/seori-auth:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532/u);
+  assert.match(verify.run, /--tmpfs \/var\/lib\/seori-auth:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532/u);
   assert.match(verify.run, /"\$\{IMAGE\}@\$\{IMAGE_DIGEST\}"/u);
 });
 
