@@ -1,6 +1,6 @@
 # Fleet P2 GHCR와 non-secret canary gate
 
-기준 source는 `seorilabs/.github@6e18b189d112f23270426cd88b3f906969103b75`다. 이 문서는
+기준 source는 `seorilabs/.github@3412423c7bd649e0714e5af1cc09ff4d2511f758`다. 이 문서는
 2026-08-29 KST의 secret-free readback과 다음 배포 계약을 기록한다. credential 값, Kubernetes
 Secret data, Secret Manager payload는 조회하지 않았다.
 
@@ -16,9 +16,9 @@ Secret data, Secret Manager payload는 조회하지 않았다.
   identity를 증명하지 못한 실행 복제본이므로 재사용하지 않는다.
 - `shared/github/operator`는 개인 operator identity라 production pull credential로 승격하지
   않는다. `shared/github/packages-reader`는 catalog에 없다.
-- 최신 성공 image run `33190683201`은 ARM64 built-in canary를 통과했고
-  `ghcr.io/seorilabs/seori-auth@sha256:b5c5ee63ecc3f16e90013e8f6f8727d6c7dc9f4812ba1a1805165bb7413cd515`를
-  source `6e18b189d112f23270426cd88b3f906969103b75`에서 발행했다.
+- 최신 성공 image run `33246255480`은 ARM64 built-in canary와 exact digest 재실행을 통과했고
+  `ghcr.io/seorilabs/seori-auth@sha256:538f43823a2dd15e2e25f77cd0eb0b31cfee753e9c820e2bce61ff030444eecc`를
+  source `3412423c7bd649e0714e5af1cc09ff4d2511f758`에서 발행했다.
 - 이 source SHA, workflow, run ID, platform, digest의 조합은 schema와 runtime code가 함께 소유하는
   immutable approved binding이다. public config가 형식만 맞는 다른 SHA/run ID를 자기선언할 수 없으며,
   다음 image 승격은 contract와 code revision을 함께 요구한다.
