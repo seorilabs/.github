@@ -1,0 +1,11 @@
+schemaVersion: 2
+id: godot-android
+contract: org-v5
+target: android
+runtime: godot
+packageManager: null
+executor: cloud-build-x64
+runner: seorilabs-rpi-arm64
+artifactKind: android-aab
+scriptPath: scripts/build-android.sh
+marketUpload: false

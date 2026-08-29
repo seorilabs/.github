@@ -23,7 +23,9 @@ promotionScope:
     - godot
     - capacitor
     - ait-web
-  buildProfiles: []
+  buildProfiles:
+    - react-native-android
+    - godot-android
 
 staticRuntimeBinding:
   origin: https://backoffice.vzyx.xyz
@@ -54,6 +56,29 @@ staticRuntimeBinding:
       packageManagers:
         - null
 
+buildRuntimeBinding:
+  origin: https://backoffice.vzyx.xyz
+  endpoint: /api/control-plane/apps/{repositoryId}/resolved-manifest
+  authentication: github-oidc
+  audience: seorilabs-control-plane
+  sourceStrategy: exact-main-or-fixed-canary-pr-base
+  candidatePolicy: fixed-repository-and-workflow-sha
+  candidateBranchTemplate: seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}
+  identity:
+    callerWorkflowRef: github.workflow_ref
+    calledWorkflowRef: job.workflow_ref
+    calledWorkflowSha: job.workflow_sha
+    calledWorkflowRepository: job.workflow_repository
+  calledWorkflows:
+    reactNativeAndroid:
+      path: .github/workflows/rn-build-android-cloud-v2.yml
+      profile: react-native-android
+      packageManager: pnpm
+    godotAndroid:
+      path: .github/workflows/godot-build-android-cloud-v2.yml
+      profile: godot-android
+      packageManager: null
+
 staticProfiles:
   react-native:
     path: .github/workflows/js-static-checks-v1.yml
@@ -72,14 +97,14 @@ buildProfiles:
   react-native-android:
     target: android
     executor: cloud-build-x64
-    workflow: .github/workflows/rn-build-android-cloud-v1.yml
+    workflow: .github/workflows/rn-build-android-cloud-v2.yml
     artifactKind: android-aab
     scriptPath: scripts/build-android.sh
     builderImage: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:ed73c852159547ce3b7e36ef7759a8db25e1b4ac08f1fee4f5eebf7ce2cd2100
   godot-android:
     target: android
     executor: cloud-build-x64
-    workflow: .github/workflows/godot-build-android-cloud-v1.yml
+    workflow: .github/workflows/godot-build-android-cloud-v2.yml
     artifactKind: android-aab
     scriptPath: scripts/build-android.sh
     builderImage: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/godot-android-builder@sha256:b2a9d7a849f1193f42a40864d8487401abb6dc54472fe010b31b2e84e7be2940

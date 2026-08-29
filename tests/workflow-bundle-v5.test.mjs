@@ -20,13 +20,16 @@ import { parse } from "yaml";
 
 import {
   createWorkflowBundleV5,
+  generateCandidateBuildCallerV5,
   generateBuildCallerV5,
   generateStaticCallerV5,
   generateXcodeCloudRunV5,
   loadApprovedWorkflowBundleV5,
+  loadCandidateWorkflowBundleV5,
   loadResolvedWorkflowBindingV5,
   promoteWorkflowBundleV5,
   validateBuildCallerV5,
+  validateCandidateBuildCallerV5,
   validateStaticCallerV5,
   validateWorkflowBundleV5,
   workflowBundleV5Contract,
@@ -37,6 +40,8 @@ import {
 } from "../scripts/fleet/stage-private-package-v5.mjs";
 import { runStaticPreflightV5 } from "../scripts/fleet/static-preflight-v5.mjs";
 import {
+  buildRuntimeBindingV5Contract,
+  createBuildManifestReadbackV5,
   createStaticManifestReadbackV5,
   requestGithubOidcToken,
   resolveBuildRuntimeBindingV5,
@@ -151,22 +156,32 @@ function staticRuntimeResponse(
   };
 }
 
-function buildRuntimeContext(target) {
-  const fullName = "seorilabs/runtime-canary";
-  const called = target === "ait"
-    ? ".github/workflows/ait-build-only-v1.yml"
-    : ".github/workflows/capacitor-build-android-cloud-v1.yml";
-  const caller = target === "ait"
-    ? ".github/workflows/ait-build-only.yml"
-    : ".github/workflows/android-build-only.yml";
+function buildRuntimeContext({
+  profile = "react-native-android",
+  eventName = "workflow_dispatch",
+  eventRef = "refs/heads/main",
+  eventSourceSha = "d".repeat(40),
+  repositoryId = "7001",
+  fullName = "seorilabs/runtime-canary",
+  pullRequestBaseSha = "",
+  pullRequestHeadRef = "",
+  pullRequestHeadRepository = "",
+} = {}) {
+  const called = profile === "react-native-android"
+    ? ".github/workflows/rn-build-android-cloud-v2.yml"
+    : ".github/workflows/godot-build-android-cloud-v2.yml";
   return {
-    eventName: "workflow_dispatch",
-    eventRef: "refs/heads/main",
-    applicationSourceSha: "d".repeat(40),
+    eventName,
+    eventRef,
+    eventSourceSha,
+    pullRequestBaseSha,
+    pullRequestHeadRef,
+    pullRequestHeadRepository,
     repositoryPrivate: "true",
-    repositoryId: "7001",
+    repositoryId,
     fullName,
-    callerWorkflowRef: `${fullName}/${caller}@refs/heads/main`,
+    callerWorkflowRef:
+      `${fullName}/.github/workflows/android-build-only.yml@${eventRef}`,
     jobWorkflowRepository: "seorilabs/.github",
     jobWorkflowSha: WORKFLOW_EXECUTION_SHA,
     jobWorkflowRef: `seorilabs/.github/${called}@${WORKFLOW_EXECUTION_SHA}`,
@@ -175,23 +190,52 @@ function buildRuntimeContext(target) {
   };
 }
 
-function buildRuntimeInputs(target) {
-  return {
-    target,
-    sourceSha: "d".repeat(40),
-    buildProfile: target === "ait" ? "ait-web" : "capacitor-android",
-    packageManager: "pnpm",
-    executionRoot: ".",
-    dependencyRoot: ".",
-    scriptPath: target === "ait" ? "scripts/build-ait.sh" : "scripts/build-android.sh",
-    artifactKind: target === "ait" ? "ait" : "android-aab",
-    configRevisionId: "config-runtime-1",
-    configRevision: "7",
+function buildRuntimeResponse(request, { lifecycleState = "ACTIVE" } = {}) {
+  const reactNative = request.buildProfile === "react-native-android";
+  const manifest = {
+    schemaVersion: 1,
+    lifecycleState,
+    repositoryId: request.repositoryId,
+    fullName: request.fullName,
+    sourceSha: request.applicationSourceSha,
+    sourceRef: "refs/heads/main",
+    observationId: "observation-build-runtime-1",
+    observationDigest: `sha256:${"4".repeat(64)}`,
+    configRevisionId: "config-build-runtime-1",
+    configRevision: 7,
     configRevisionDigest: `sha256:${"5".repeat(64)}`,
     signedSnapshotDigest: `sha256:${"6".repeat(64)}`,
-    snapshotSignatureKeyId: "snapshot-runtime-key",
-    snapshotSignaturePolicyRevision: "snapshot-runtime-policy-v1",
-    snapshotSignatureDigest: `sha256:${"7".repeat(64)}`,
+    snapshotSignature: {
+      keyId: "snapshot-runtime-key",
+      policyRevision: "snapshot-runtime-policy-v1",
+      digest: `sha256:${"7".repeat(64)}`,
+    },
+    workflowBundle: {
+      sourceSha: request.workflowExecutionSha,
+      payloadDigest: DIGEST,
+      approvalState: request.mode,
+      buildProfiles: ["react-native-android", "godot-android"],
+    },
+    buildBinding: {
+      target: "android",
+      buildProfile: request.buildProfile,
+      packageManager: reactNative ? "pnpm" : null,
+      executionRoot: ".",
+      dependencyRoot: ".",
+      scriptPath: "scripts/build-android.sh",
+      artifactKind: "android-aab",
+    },
+  };
+  return {
+    schemaVersion: 1,
+    state: "VERIFIED",
+    mode: request.mode,
+    repositoryId: request.repositoryId,
+    fullName: request.fullName,
+    applicationSourceSha: request.applicationSourceSha,
+    eventSourceSha: request.eventSourceSha,
+    manifestDigest: sha256(JSON.stringify(canonicalize(manifest))),
+    manifest,
   };
 }
 
@@ -232,7 +276,7 @@ function evidenceSet(candidate) {
     artifactSha256: DIGEST,
   });
   const workflowRef = (path) => `seorilabs/.github/${path}@${WORKFLOW_EXECUTION_SHA}`;
-  return ["react-native", "godot", "capacitor", "ait-web"].map((profile, index) => ({
+  const staticEvidence = ["react-native", "godot", "capacitor", "ait-web"].map((profile, index) => ({
       target: "static",
       profile,
       bindingSourceSha: "d".repeat(40),
@@ -246,6 +290,41 @@ function evidenceSet(candidate) {
           : ".github/workflows/js-static-checks-v1.yml",
       ),
     }));
+  const buildEvidence = [
+    {
+      repositoryId: 1250442131,
+      fullName: "seorilabs/happy-farm",
+      buildProfile: "react-native-android",
+      workflow: ".github/workflows/rn-build-android-cloud-v2.yml",
+    },
+    {
+      repositoryId: 1265192029,
+      fullName: "seorilabs/lizard-tycoon",
+      buildProfile: "godot-android",
+      workflow: ".github/workflows/godot-build-android-cloud-v2.yml",
+    },
+  ].map((record, index) => ({
+    ...base(index + 5),
+    target: "build",
+    buildProfile: record.buildProfile,
+    repositoryId: record.repositoryId,
+    fullName: record.fullName,
+    bindingSourceSha: "d".repeat(40),
+    callerWorkflowRef:
+      `${record.fullName}/.github/workflows/android-build-only.yml@refs/pull/${index + 41}/merge`,
+    manifestDigest: `sha256:${"8".repeat(64)}`,
+    bundlePayloadDigest: candidate.integrity.payloadDigest,
+    workflowRef: workflowRef(record.workflow),
+    cloudBuildId: `${index + 1}1111111-1111-4111-8111-111111111111`,
+    builderImage: candidate.buildProfiles[record.buildProfile].builderImage,
+    cloudBuildConfigSha256: candidate.quality.runtimeAssetDigests[
+      record.buildProfile === "react-native-android"
+        ? ".github/cloud-build/rn-android-build-only.yaml"
+        : ".github/cloud-build/godot-android-build-only.yaml"
+    ],
+    marketUpload: false,
+  }));
+  return [...staticEvidence, ...buildEvidence];
 }
 
 async function approvedBundleBinding() {
@@ -269,7 +348,7 @@ async function approvedBundleBinding() {
     }),
   });
   const binding = await loadApprovedWorkflowBundleV5(approved, {
-    trustedApprovalVerifier: async ({ payloadDigest, candidateDigest }) => ({
+    trustedApprovalVerifier: async ({ payloadDigest, candidateDigest, approvalPayloadDigest }) => ({
       state: "VERIFIED",
       payloadDigest,
       candidateDigest,
@@ -284,6 +363,7 @@ async function approvedBundleBinding() {
         JSON.stringify(canonicalize(approved.quality.runtimeAssetDigests)),
       ),
       evidenceDigest: sha256(JSON.stringify(canonicalize(approved.approval.evidence))),
+      approvalPayloadDigest,
     }),
   });
   return { candidate, approved, binding };
@@ -337,9 +417,12 @@ test("v5 candidate binds every contract, runtime asset, profile, and immutable w
   });
   assert.deepEqual(candidate.promotionScope, {
     staticProfiles: ["react-native", "godot", "capacitor", "ait-web"],
-    buildProfiles: [],
+    buildProfiles: ["react-native-android", "godot-android"],
   });
-  assert.deepEqual(workflowBundleV5Contract.promotionScope.buildProfiles, []);
+  assert.deepEqual(workflowBundleV5Contract.promotionScope.buildProfiles, [
+    "react-native-android",
+    "godot-android",
+  ]);
   assert.equal(candidate.callerPolicies.static.namedSecrets.length, 0);
   assert.deepEqual(candidate.callerPolicies.static.permissions, {
     contents: "read",
@@ -399,6 +482,10 @@ test("v5 candidate binds every contract, runtime asset, profile, and immutable w
     candidate.staticRuntimeBinding.calledWorkflows,
     workflowBundleV5Contract.staticRuntimeBinding.calledWorkflows,
   );
+  assert.deepEqual(
+    candidate.buildRuntimeBinding.calledWorkflows,
+    workflowBundleV5Contract.buildRuntimeBinding.calledWorkflows,
+  );
   assert.equal(candidate.toolchains.godot, "4.7.2");
   assert.equal(
     candidate.staticProfiles.godot.path,
@@ -448,8 +535,8 @@ test("v5 candidate CI runs the cold npm and pnpm fixtures instead of silently sk
     for (const sharedRuntimeAsset of [
       ".github/cloud-build/godot-android-build-only.yaml",
       ".github/cloud-build/rn-android-build-only.yaml",
-      ".github/workflows/godot-build-android-cloud-v1.yml",
-      ".github/workflows/rn-build-android-cloud-v1.yml",
+      ".github/workflows/godot-build-android-cloud-v2.yml",
+      ".github/workflows/rn-build-android-cloud-v2.yml",
       "scripts/fleet/secret-scan.mjs",
     ]) {
       assert.ok(
@@ -470,10 +557,10 @@ test("v5 candidate CI runs the cold npm and pnpm fixtures instead of silently sk
   assert.match(coldCacheStep.run, /node --test tests\/workflow-bundle-v5-cold-cache\.test\.mjs/u);
 });
 
-test("approval requires the exact four-profile static evidence set and trusted readback", async () => {
+test("approval requires four static and two exact build-only evidence records", async () => {
   const { candidate, approved } = await approvedBundleBinding();
   assert.equal(approved.approval.state, "APPROVED");
-  assert.equal(approved.approval.evidence.length, 4);
+  assert.equal(approved.approval.evidence.length, 6);
   await assert.rejects(
     promoteWorkflowBundleV5(candidate, evidenceSet(candidate).slice(0, 3), {
       trustedEvidenceVerifier: async () => ({ state: "VERIFIED" }),
@@ -488,6 +575,23 @@ test("approval requires the exact four-profile static evidence set and trusted r
     promoteWorkflowBundleV5(candidate, wrongWorkflow, {
       trustedEvidenceVerifier: async () => assert.fail("runtime mismatch must precede readback"),
       trustedApprovalSigner: async () => assert.fail("runtime mismatch must precede signing"),
+    }),
+    /WORKFLOW_BUNDLE_EVIDENCE_RUNTIME_MISMATCH/u,
+  );
+  const wrongBuildDigest = evidenceSet(candidate);
+  wrongBuildDigest[4].bundlePayloadDigest = `sha256:${"9".repeat(64)}`;
+  await assert.rejects(
+    promoteWorkflowBundleV5(candidate, wrongBuildDigest, {
+      trustedEvidenceVerifier: async (record) => {
+        if (record.target === "build") assert.fail("bundle drift must precede build readback");
+        return {
+          ...structuredClone(record),
+          state: "VERIFIED",
+          identity: `${record.target}:${record.profile}`,
+          evidenceDigest: sha256(JSON.stringify(canonicalize(record))),
+        };
+      },
+      trustedApprovalSigner: async () => assert.fail("bundle drift must precede signing"),
     }),
     /WORKFLOW_BUNDLE_EVIDENCE_RUNTIME_MISMATCH/u,
   );
@@ -506,7 +610,7 @@ test("approval requires the exact four-profile static evidence set and trusted r
   );
   await assert.rejects(
     loadApprovedWorkflowBundleV5(approved, {
-      trustedApprovalVerifier: async ({ payloadDigest, candidateDigest }) => ({
+      trustedApprovalVerifier: async ({ payloadDigest, candidateDigest, approvalPayloadDigest }) => ({
         state: "VERIFIED",
         payloadDigest,
         candidateDigest,
@@ -521,13 +625,66 @@ test("approval requires the exact four-profile static evidence set and trusted r
           JSON.stringify(canonicalize(approved.quality.runtimeAssetDigests)),
         ),
         evidenceDigest: sha256(JSON.stringify(canonicalize(approved.approval.evidence))),
+        approvalPayloadDigest,
       }),
     }),
     /WORKFLOW_BUNDLE_APPROVAL_UNTRUSTED/u,
   );
 });
 
-test("saju fixture promotes only the exact static caller and blocks every build generator", async () => {
+test("v5 approval signs one canonical public envelope through the shared logical credential", async () => {
+  const candidate = await createWorkflowBundleV5({
+    sourceSha: WORKFLOW_EXECUTION_SHA,
+    workflowExecutionSha: WORKFLOW_EXECUTION_SHA,
+  });
+  const evidence = evidenceSet(candidate);
+  let signingRequest;
+  await promoteWorkflowBundleV5(candidate, evidence, {
+    trustedEvidenceVerifier: async (record) => ({
+      ...structuredClone(record),
+      state: "VERIFIED",
+      identity: `${record.target}:${record.profile ?? record.buildProfile}`,
+      evidenceDigest: sha256(JSON.stringify(canonicalize(record))),
+    }),
+    trustedApprovalSigner: async (request) => {
+      signingRequest = {
+        ...structuredClone(request),
+        payload: Buffer.from(request.payload),
+      };
+      return {
+        algorithm: "Ed25519",
+        keyId: "workflow-bundle-v5-test",
+        policyRevision: "workflow-bundle-policy-v5",
+        value: Buffer.alloc(64).toString("base64url"),
+      };
+    },
+  });
+  assert.equal(signingRequest.algorithm, "Ed25519");
+  assert.equal(signingRequest.credentialId, "shared/workflow-bundle/approval-signing");
+  assert.equal(signingRequest.keyPurpose, "WORKFLOW_BUNDLE_V5_APPROVAL");
+  assert.equal(signingRequest.registryId, "seorilabs-workflow-bundles-v5");
+  assert.equal(signingRequest.subject, `workflow-bundle-v5:${WORKFLOW_EXECUTION_SHA}`);
+  assert.equal(signingRequest.kind, "WORKFLOW_BUNDLE_V5_APPROVAL");
+  const envelope = {
+    schemaVersion: signingRequest.schemaVersion,
+    kind: signingRequest.kind,
+    registryId: signingRequest.registryId,
+    subject: signingRequest.subject,
+    bundleVersion: signingRequest.bundleVersion,
+    source: signingRequest.source,
+    candidateDigest: signingRequest.candidateDigest,
+    evidenceDigest: signingRequest.evidenceDigest,
+    contractDigestsDigest: signingRequest.contractDigestsDigest,
+    runtimeAssetDigestsDigest: signingRequest.runtimeAssetDigestsDigest,
+  };
+  assert.equal(
+    signingRequest.payload.toString("utf8"),
+    JSON.stringify(canonicalize(envelope)),
+  );
+  assert.equal(signingRequest.payloadDigest, sha256(signingRequest.payload));
+});
+
+test("unpromoted Capacitor and AIT build profiles remain fail-closed", async () => {
   const [{ root, manifest }, { binding: bundle }] = await Promise.all([
     fixtureRepository("saju-reader"),
     approvedBundleBinding(),
@@ -552,18 +709,20 @@ test("saju fixture promotes only the exact static caller and blocks every build 
     resolvedBinding: resolved,
   }).ok, true);
 
-  for (const target of ["android", "ait"]) {
-    const options = {
-      approvedBundleBinding: bundle,
-      resolvedBinding: resolved,
-      target,
-    };
-    assert.throws(() => generateBuildCallerV5(options), /BUILD_RUNTIME_BINDING_UNAVAILABLE/u);
-    assert.deepEqual(validateBuildCallerV5("", options), {
-      ok: false,
-      diagnostics: ["BUILD_RUNTIME_BINDING_UNAVAILABLE"],
-    });
-  }
+  const androidOptions = {
+    approvedBundleBinding: bundle,
+    resolvedBinding: resolved,
+    target: "android",
+  };
+  assert.throws(() => generateBuildCallerV5(androidOptions), /BUILD_PROFILE_NOT_PROMOTED/u);
+  assert.deepEqual(validateBuildCallerV5("", androidOptions), {
+    ok: false,
+    diagnostics: ["BUILD_PROFILE_NOT_PROMOTED"],
+  });
+  assert.throws(() => generateBuildCallerV5({
+    ...androidOptions,
+    target: "ait",
+  }), /BUILD_TARGET_INVALID/u);
 
   await assert.rejects(
     generateXcodeCloudRunV5({
@@ -573,7 +732,7 @@ test("saju fixture promotes only the exact static caller and blocks every build 
       workflowId: "workflow-saju",
       sourceReferenceId: "main-reference-saju",
     }),
-    /BUILD_RUNTIME_BINDING_UNAVAILABLE/u,
+    /BUILD_PROFILE_NOT_PROMOTED/u,
   );
 });
 
@@ -589,7 +748,7 @@ test("trait fixture keeps root static commands and nested Granite AIT execution"
     approvedBundleBinding: bundle,
     resolvedBinding: resolved,
     target: "ait",
-  }), /BUILD_RUNTIME_BINDING_UNAVAILABLE/u);
+  }), /BUILD_TARGET_INVALID/u);
 
   const splitOutsideDependency = structuredClone(manifest);
   splitOutsideDependency.buildBindings[0].dependencyRoot = "apps/ait";
@@ -697,6 +856,146 @@ test("Godot v3 fixture generates a stable dynamic caller without package authori
   git(root, ["commit", "-qm", "next Godot source"]);
   const nextSha = git(root, ["rev-parse", "HEAD"]);
   await verifySource(nextSha);
+});
+
+test("candidate canary generator permits only Happy Farm RN and Lizard Tycoon Godot", async () => {
+  const candidate = await createWorkflowBundleV5({
+    sourceSha: WORKFLOW_EXECUTION_SHA,
+    workflowExecutionSha: WORKFLOW_EXECUTION_SHA,
+  });
+  const candidateBundleBinding = await loadCandidateWorkflowBundleV5(candidate, {
+    trustedCandidateVerifier: async () => ({
+      state: "VERIFIED",
+      payloadDigest: candidate.integrity.payloadDigest,
+      sourceSha: WORKFLOW_EXECUTION_SHA,
+      workflowExecutionSha: WORKFLOW_EXECUTION_SHA,
+      contractDigestsDigest: sha256(JSON.stringify(canonicalize(candidate.quality.contractDigests))),
+      runtimeAssetDigestsDigest:
+        sha256(JSON.stringify(canonicalize(candidate.quality.runtimeAssetDigests))),
+    }),
+  });
+  const approved = await approvedBundleBinding();
+  const fixtures = [
+    {
+      fixture: "saju-reader",
+      repositoryId: "1250442131",
+      fullName: "seorilabs/happy-farm",
+      staticBinding: {
+        profile: "react-native",
+        packageManager: "pnpm",
+        workspaceRoot: ".",
+        commandDirectory: ".",
+      },
+      buildProfile: "react-native-android",
+      workflow: "rn-build-android-cloud-v2.yml",
+      permissions: ["contents: read", "id-token: write", "packages: read"],
+    },
+    {
+      fixture: "godot-runtime",
+      repositoryId: "1265192029",
+      fullName: "seorilabs/lizard-tycoon",
+      staticBinding: {
+        profile: "godot",
+        packageManager: null,
+        workspaceRoot: ".",
+        commandDirectory: ".",
+      },
+      buildProfile: "godot-android",
+      workflow: "godot-build-android-cloud-v2.yml",
+      permissions: ["contents: read", "id-token: write"],
+    },
+  ];
+  for (const fixture of fixtures) {
+    const { root, manifest: original } = await fixtureRepository(fixture.fixture);
+    if (fixture.fixture === "godot-runtime") {
+      await writeFile(join(root, "build.env"), "BUILD_MODE=test\n");
+      await writeFile(join(root, "scripts/build-android.sh"), "#!/usr/bin/env bash\nexit 0\n");
+      git(root, ["add", "build.env", "scripts/build-android.sh"]);
+      git(root, ["commit", "-qm", "add build-only fixture"]);
+    }
+    const manifest = {
+      ...original,
+      repositoryId: fixture.repositoryId,
+      fullName: fixture.fullName,
+      sourceSha: git(root, ["rev-parse", "HEAD"]),
+      staticBinding: fixture.staticBinding,
+      workflowBundleBinding: {
+        sourceSha: candidate.source.sha,
+        payloadDigest: candidate.integrity.payloadDigest,
+      },
+      buildBindings: [{
+        target: "android",
+        buildProfile: fixture.buildProfile,
+        executionRoot: ".",
+        dependencyRoot: ".",
+        scriptPath: "scripts/build-android.sh",
+        artifactKind: "android-aab",
+      }],
+    };
+    const resolved = await resolvedBinding(root, manifest);
+    const candidateCaller = generateCandidateBuildCallerV5({
+      candidateBundleBinding,
+      resolvedBinding: resolved,
+      target: "android",
+    });
+    assert.match(candidateCaller, new RegExp(`${fixture.workflow}@${WORKFLOW_EXECUTION_SHA}`, "u"));
+    assert.match(candidateCaller, /pull_request:/u);
+    assert.doesNotMatch(candidateCaller, /workflow_dispatch:|\bwith:|secrets:|runs-on:|@main\b/u);
+    for (const permission of fixture.permissions) assert.match(candidateCaller, new RegExp(permission, "u"));
+    assert.equal(validateCandidateBuildCallerV5(candidateCaller, {
+      candidateBundleBinding,
+      resolvedBinding: resolved,
+      target: "android",
+    }).ok, true);
+
+    const approvedManifest = {
+      ...manifest,
+      workflowBundleBinding: {
+        sourceSha: approved.approved.source.sha,
+        payloadDigest: approved.approved.integrity.payloadDigest,
+      },
+    };
+    const approvedResolved = await resolvedBinding(root, approvedManifest);
+    const approvedCaller = generateBuildCallerV5({
+      approvedBundleBinding: approved.binding,
+      resolvedBinding: approvedResolved,
+      target: "android",
+    });
+    assert.match(approvedCaller, /workflow_dispatch:/u);
+    assert.doesNotMatch(approvedCaller, /pull_request:|\bwith:|secrets:|runs-on:|@main\b/u);
+  }
+
+  const { root, manifest: original } = await fixtureRepository("saju-reader");
+  const crossed = {
+    ...original,
+    repositoryId: "1250442131",
+    fullName: "seorilabs/happy-farm",
+    sourceSha: git(root, ["rev-parse", "HEAD"]),
+    staticBinding: {
+      profile: "godot",
+      packageManager: null,
+      workspaceRoot: ".",
+      commandDirectory: ".",
+    },
+    workflowBundleBinding: {
+      sourceSha: candidate.source.sha,
+      payloadDigest: candidate.integrity.payloadDigest,
+    },
+    buildBindings: [{
+      target: "android",
+      buildProfile: "godot-android",
+      executionRoot: ".",
+      dependencyRoot: ".",
+      scriptPath: "scripts/build-android.sh",
+      artifactKind: "android-aab",
+    }],
+  };
+  const crossedBinding = await resolvedBinding(root, crossed);
+  assert.throws(() => generateCandidateBuildCallerV5({
+    candidateBundleBinding,
+    resolvedBinding: crossedBinding,
+    target: "android",
+  }), /CANDIDATE_BUILD_REPOSITORY_NOT_ALLOWED/u);
 });
 
 test("Godot preflight runs from the central checkout without npm runtime bootstrap", async () => {
@@ -1196,43 +1495,174 @@ test("runner-injected OIDC HTTPS endpoint is opaque while userinfo and fragments
   }
 });
 
-test("AIT and Android build runtime stays unavailable, exact, stale, retry, and lookalike fail closed", async () => {
-  for (const target of ["ait", "android"]) {
-    const context = buildRuntimeContext(target);
-    const inputs = buildRuntimeInputs(target);
-    let readbackCalls = 0;
-    for (let retry = 0; retry < 3; retry += 1) {
-      await assert.rejects(
-        resolveBuildRuntimeBindingV5(context, inputs, {
-          trustedManifestReadback: async () => {
-            readbackCalls += 1;
-            return {};
-          },
-        }),
-        /BUILD_RUNTIME_BINDING_UNAVAILABLE/u,
-      );
-    }
-    assert.equal(readbackCalls, 0);
+test("approved main and two fixed candidate PR build bindings resolve before app checkout", async () => {
+  const schema = JSON.parse(
+    await readFile("contracts/workflow-bundle-v5-build-runtime-readback.schema.json", "utf8"),
+  );
+  const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
 
-    await assert.rejects(
-      resolveBuildRuntimeBindingV5(context, { ...inputs, sourceSha: "e".repeat(40) }, {
-        trustedManifestReadback: async () => assert.fail("stale caller must fail before readback"),
-      }),
-      /BUILD_RUNTIME_INPUT_INVALID/u,
-    );
-    await assert.rejects(
-      resolveBuildRuntimeBindingV5({
-        ...context,
-        callerWorkflowRef: context.callerWorkflowRef.replace(
-          "seorilabs/runtime-canary",
-          "seorilabs/runtime-lookalike",
-        ),
-      }, inputs, {
-        trustedManifestReadback: async () => assert.fail("lookalike caller must fail locally"),
-      }),
-      /BUILD_RUNTIME_CALLER_WORKFLOW_IDENTITY_INVALID/u,
-    );
+  for (const profile of ["react-native-android", "godot-android"]) {
+    const context = buildRuntimeContext({ profile });
+    let readbackCalls = 0;
+    const binding = await resolveBuildRuntimeBindingV5(context, {
+      trustedManifestReadback: async (request) => {
+        readbackCalls += 1;
+        assert.equal(request.mode, "APPROVED");
+        assert.equal(request.schema, "workflow-bundle-v5-build");
+        const response = buildRuntimeResponse(request);
+        assert.equal(validate(response), true, JSON.stringify(validate.errors));
+        return response;
+      },
+    });
+    assert.equal(readbackCalls, 1);
+    assert.equal(binding.applicationSourceSha, context.eventSourceSha);
+    assert.equal(binding.buildProfile, profile);
+    assert.equal(binding.packageManager, profile === "react-native-android" ? "pnpm" : null);
+    assert.equal(binding.workflowBundleApprovalState, "APPROVED");
   }
+
+  const baseSha = "8".repeat(40);
+  const mergeSha = "9".repeat(40);
+  for (const canary of [
+    ["1250442131", "seorilabs/happy-farm", "react-native-android"],
+    ["1265192029", "seorilabs/lizard-tycoon", "godot-android"],
+  ]) {
+    const [repositoryId, fullName, profile] = canary;
+    const context = buildRuntimeContext({
+      profile,
+      eventName: "pull_request",
+      eventRef: "refs/pull/41/merge",
+      eventSourceSha: mergeSha,
+      repositoryId,
+      fullName,
+      pullRequestBaseSha: baseSha,
+      pullRequestHeadRepository: fullName,
+      pullRequestHeadRef:
+        `seori/workflow-bundle-v5-canary/${repositoryId}/${WORKFLOW_EXECUTION_SHA.slice(0, 12)}`,
+    });
+    const binding = await resolveBuildRuntimeBindingV5(context, {
+      trustedManifestReadback: async (request) => {
+        assert.equal(request.mode, "CANDIDATE");
+        assert.equal(request.schema, "workflow-bundle-v5-build-canary");
+        assert.equal(request.applicationSourceSha, baseSha);
+        assert.equal(request.eventSourceSha, mergeSha);
+        return buildRuntimeResponse(request);
+      },
+    });
+    assert.equal(binding.applicationSourceSha, baseSha);
+    assert.equal(binding.eventSourceSha, mergeSha);
+    assert.equal(binding.workflowBundleApprovalState, "CANDIDATE");
+  }
+});
+
+test("build runtime blocks lookalike caller, candidate branch drift, stale bundle state, and PAUSED", async () => {
+  const main = buildRuntimeContext();
+  for (const attack of [
+    { callerWorkflowRef: main.callerWorkflowRef.replace("runtime-canary", "runtime-lookalike") },
+    { jobWorkflowRef: `${main.jobWorkflowRef}.evil` },
+    { repositoryPrivate: "false" },
+  ]) {
+    let calls = 0;
+    await assert.rejects(
+      resolveBuildRuntimeBindingV5({ ...main, ...attack }, {
+        trustedManifestReadback: async () => {
+          calls += 1;
+          return {};
+        },
+      }),
+      /BUILD_RUNTIME_(?:CONTEXT_INVALID|CALLER_WORKFLOW_IDENTITY_INVALID|CALLED_WORKFLOW_IDENTITY_INVALID)/u,
+    );
+    assert.equal(calls, 0);
+  }
+
+  const candidate = buildRuntimeContext({
+    eventName: "pull_request",
+    eventRef: "refs/pull/41/merge",
+    eventSourceSha: "9".repeat(40),
+    repositoryId: "1250442131",
+    fullName: "seorilabs/happy-farm",
+    pullRequestBaseSha: "8".repeat(40),
+    pullRequestHeadRepository: "seorilabs/happy-farm",
+    pullRequestHeadRef: "seori/workflow-bundle-v5-canary/1250442131/wrong-sha",
+  });
+  await assert.rejects(
+    resolveBuildRuntimeBindingV5(candidate, {
+      trustedManifestReadback: async () => assert.fail("branch drift must fail locally"),
+    }),
+    /BUILD_RUNTIME_CANDIDATE_IDENTITY_INVALID/u,
+  );
+
+  await assert.rejects(
+    resolveBuildRuntimeBindingV5(main, {
+      trustedManifestReadback: async (request) => {
+        const response = buildRuntimeResponse(request);
+        response.manifest.workflowBundle.approvalState = "CANDIDATE";
+        return response;
+      },
+    }),
+    /BUILD_RUNTIME_READBACK_INVALID/u,
+  );
+  await assert.rejects(
+    resolveBuildRuntimeBindingV5(main, {
+      trustedManifestReadback: async (request) =>
+        buildRuntimeResponse(request, { lifecycleState: "PAUSED" }),
+    }),
+    /PAUSED_BUILD_RUNTIME_FORBIDDEN/u,
+  );
+});
+
+test("build manifest adapter fixes origin and exposes only public exact claims", async () => {
+  const context = buildRuntimeContext();
+  const token = "header.payload.signature";
+  const calls = [];
+  const readback = createBuildManifestReadbackV5({
+    oidcTokenProvider: async (audience) => {
+      assert.equal(audience, buildRuntimeBindingV5Contract.audience);
+      return token;
+    },
+    fetchImpl: async (input, options) => {
+      calls.push({ input: String(input), options });
+      const url = new URL(input);
+      const request = {
+        repositoryId: context.repositoryId,
+        fullName: context.fullName,
+        applicationSourceSha: url.searchParams.get("ref"),
+        eventSourceSha: url.searchParams.get("event_ref"),
+        workflowExecutionSha: url.searchParams.get("workflow_sha"),
+        buildProfile: url.searchParams.get("build_profile"),
+        mode: "APPROVED",
+      };
+      return new Response(JSON.stringify(buildRuntimeResponse(request)), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+  await resolveBuildRuntimeBindingV5(context, { trustedManifestReadback: readback });
+  assert.equal(calls.length, 1);
+  const requested = new URL(calls[0].input);
+  assert.equal(requested.origin, buildRuntimeBindingV5Contract.origin);
+  assert.deepEqual([...requested.searchParams.keys()].sort(), [
+    "build_profile", "event_ref", "ref", "schema", "workflow_sha",
+  ]);
+  assert.equal(requested.searchParams.get("schema"), "workflow-bundle-v5-build");
+  assert.equal(calls[0].options.headers.Authorization, `Bearer ${token}`);
+  assert.doesNotMatch(calls[0].input, /header|payload|signature/u);
+
+  const oversizedReadback = createBuildManifestReadbackV5({
+    oidcTokenProvider: async () => token,
+    fetchImpl: async () => new Response("{}", {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(2 * 1024 * 1024),
+      },
+    }),
+  });
+  await assert.rejects(
+    resolveBuildRuntimeBindingV5(context, { trustedManifestReadback: oversizedReadback }),
+    /BUILD_RUNTIME_RESPONSE_TOO_LARGE/u,
+  );
 });
 
 test("static manifest adapter fixes origin, uses OIDC only in headers, and fails closed on errors", async () => {
@@ -1854,6 +2284,74 @@ test("new workflows are build-only, private ARC routed, checksum-bound, and reta
     /\bait deploy\b|\bfirebase deploy\b|\bgcloud\s+.*\bdeploy\b/u,
   );
   assert.match(cloudBuild, /SEORI_BUILD_MODE=build-only/u);
+});
+
+test("RN and Godot v2 workflows resolve signed config before app checkout and never upload markets", async () => {
+  for (const [profile, path] of [
+    ["react-native-android", ".github/workflows/rn-build-android-cloud-v2.yml"],
+    ["godot-android", ".github/workflows/godot-build-android-cloud-v2.yml"],
+  ]) {
+    const source = await readFile(path, "utf8");
+    const workflow = parse(source);
+    assert.equal(Object.hasOwn(workflow.on.workflow_call ?? {}, "inputs"), false);
+    assert.deepEqual(Object.keys(workflow.jobs), ["resolve-binding", "submit-build-only"]);
+    assert.equal(
+      workflow.jobs["resolve-binding"]["runs-on"],
+      "${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}",
+    );
+    assert.equal(workflow.jobs["submit-build-only"]["runs-on"], "seorilabs-rpi-arm64");
+    assert.equal(workflow.jobs["submit-build-only"].environment, "internal");
+    assert.deepEqual(workflow.jobs["resolve-binding"].permissions, {
+      contents: "read",
+      "id-token": "write",
+    });
+    for (const job of [workflow.jobs["resolve-binding"], workflow.jobs["submit-build-only"]]) {
+      const nodeSetupIndex = job.steps.findIndex(({ uses }) =>
+        uses === "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020");
+      const firstNodeRunIndex = job.steps.findIndex(({ run }) =>
+        typeof run === "string" && /(?:^|\n)\s*node\b/u.test(run));
+      assert.ok(nodeSetupIndex >= 0 && nodeSetupIndex < firstNodeRunIndex);
+      assert.equal(job.steps[nodeSetupIndex].with["node-version"], "24.16.0");
+      assert.equal(job.steps[nodeSetupIndex].with["check-latest"], false);
+    }
+    assert.equal(
+      workflow.jobs["resolve-binding"].steps.some(({ name }) =>
+        name === "Checkout exact application source"),
+      false,
+    );
+    const resolve = workflow.jobs["resolve-binding"].steps.find(({ name }) =>
+      name === "Resolve current signed build-only binding before app checkout");
+    assert.equal(resolve.env.BINDING_TARGET, "android");
+    assert.equal(resolve.env.EVENT_SOURCE_SHA, "${{ github.sha }}");
+    assert.equal(resolve.env.PR_BASE_SHA, "${{ github.event.pull_request.base.sha }}");
+    assert.match(resolve.run, /static-runtime-binding-v5\.mjs/u);
+    const submitNames = workflow.jobs["submit-build-only"].steps.map(({ name }) => name);
+    assert.ok(
+      submitNames.indexOf("Validate resolved non-release request") <
+        submitNames.indexOf("Checkout exact application source"),
+    );
+    assert.ok(
+      submitNames.indexOf("Validate internal WIF public bindings") <
+        submitNames.indexOf("Authenticate keylessly for Cloud Build"),
+    );
+    assert.match(source, new RegExp(`buildProfile: "${profile}"`, "u"));
+    assert.match(source, /schemaVersion: 2, target: "build"/u);
+    assert.match(source, /marketUpload: false/u);
+    assert.match(source, /retention-days: 3/u);
+    assert.match(source, /projects\/321365398093\/locations\/global\/workloadIdentityPools\/fleet-p3\/providers\/github-cloud-build/u);
+    assert.match(source, /seori-cloud-build-submitter@seorilabs-ci\.iam\.gserviceaccount\.com/u);
+    assert.match(source, /seori-cloud-build-executor@seorilabs-ci\.iam\.gserviceaccount\.com/u);
+    assert.doesNotMatch(source, /secrets:\s*inherit|uses:.*@main\b|\bdeploy\b|production|public release/iu);
+    const tokenSteps = Object.values(workflow.jobs)
+      .flatMap((job) => job.steps ?? [])
+      .filter((step) => step.env?.NODE_AUTH_TOKEN !== undefined);
+    assert.deepEqual(
+      tokenSteps.map(({ name }) => name),
+      profile === "react-native-android"
+        ? ["Stage exact private Platform SDK without exporting the token"]
+        : [],
+    );
+  }
 });
 
 test("public fork PR keeps ARC skipped and makes the required Org Contract fail", async () => {

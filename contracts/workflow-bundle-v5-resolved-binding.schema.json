@@ -45,6 +45,15 @@
       }
     },
     "staticBinding": { "$ref": "#/$defs/staticBinding" },
+    "workflowBundleBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceSha", "payloadDigest"],
+      "properties": {
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "payloadDigest": { "$ref": "#/$defs/sha256" }
+      }
+    },
     "buildBindings": {
       "type": "array",
       "maxItems": 3,

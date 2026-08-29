@@ -1,0 +1,302 @@
+# WorkflowBundle v5 RN build-only path. Backoffice binding resolves before app checkout.
+name: RN Android Cloud Build v2
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+jobs:
+  resolve-binding:
+    name: Resolve signed Android binding
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 5
+    outputs:
+      application_source_sha: ${{ steps.binding.outputs.application_source_sha }}
+      build_profile: ${{ steps.binding.outputs.build_profile }}
+      package_manager: ${{ steps.binding.outputs.package_manager }}
+      execution_root: ${{ steps.binding.outputs.execution_root }}
+      dependency_root: ${{ steps.binding.outputs.dependency_root }}
+      script_path: ${{ steps.binding.outputs.script_path }}
+      artifact_kind: ${{ steps.binding.outputs.artifact_kind }}
+      config_revision_id: ${{ steps.binding.outputs.config_revision_id }}
+      config_revision: ${{ steps.binding.outputs.config_revision }}
+      config_revision_digest: ${{ steps.binding.outputs.config_revision_digest }}
+      signed_snapshot_digest: ${{ steps.binding.outputs.signed_snapshot_digest }}
+      snapshot_signature_key_id: ${{ steps.binding.outputs.snapshot_signature_key_id }}
+      snapshot_signature_policy_revision: ${{ steps.binding.outputs.snapshot_signature_policy_revision }}
+      snapshot_signature_digest: ${{ steps.binding.outputs.snapshot_signature_digest }}
+      workflow_bundle_source_sha: ${{ steps.binding.outputs.workflow_bundle_source_sha }}
+      workflow_bundle_payload_digest: ${{ steps.binding.outputs.workflow_bundle_payload_digest }}
+      manifest_digest: ${{ steps.binding.outputs.manifest_digest }}
+      bundle_repository: ${{ steps.bundle-identity.outputs.repository }}
+      bundle_sha: ${{ steps.bundle-identity.outputs.sha }}
+      bundle_ref: ${{ steps.bundle-identity.outputs.ref }}
+
+    steps:
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+
+      - name: Validate called reusable workflow identity
+        id: bundle-identity
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = "seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
+          '
+
+      - name: Checkout exact WorkflowBundle source only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.bundle-identity.outputs.repository }}
+          ref: ${{ steps.bundle-identity.outputs.sha }}
+          path: .seorilabs-workflow-bundle
+          persist-credentials: false
+
+      - name: Resolve current signed build-only binding before app checkout
+        id: binding
+        shell: bash
+        env:
+          BINDING_TARGET: android
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SOURCE_SHA: ${{ github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          FULL_NAME: ${{ github.repository }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          JOB_WORKFLOW_REPOSITORY: ${{ steps.bundle-identity.outputs.repository }}
+          JOB_WORKFLOW_SHA: ${{ steps.bundle-identity.outputs.sha }}
+          JOB_WORKFLOW_REF: ${{ steps.bundle-identity.outputs.ref }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: node .seorilabs-workflow-bundle/scripts/fleet/static-runtime-binding-v5.mjs
+
+  submit-build-only:
+    name: Android Build-only
+    needs: resolve-binding
+    if: ${{ github.event.repository.private }}
+    runs-on: seorilabs-rpi-arm64
+    environment: internal
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    timeout-minutes: 55
+
+    steps:
+      - name: Validate resolved non-release request
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          BUILD_PROFILE: ${{ needs.resolve-binding.outputs.build_profile }}
+          PACKAGE_MANAGER: ${{ needs.resolve-binding.outputs.package_manager }}
+          SCRIPT_PATH: ${{ needs.resolve-binding.outputs.script_path }}
+          ARTIFACT_KIND: ${{ needs.resolve-binding.outputs.artifact_kind }}
+          BUNDLE_SHA: ${{ needs.resolve-binding.outputs.bundle_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$BUILD_PROFILE" = react-native-android
+          test "$PACKAGE_MANAGER" = pnpm
+          test "$SCRIPT_PATH" = scripts/build-android.sh
+          test "$ARTIFACT_KIND" = android-aab
+          [[ "$BUNDLE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Checkout exact WorkflowBundle source before application checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.resolve-binding.outputs.bundle_repository }}
+          ref: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          path: .seorilabs-workflow-bundle
+          persist-credentials: false
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+          registry-url: https://npm.pkg.github.com
+          scope: "@seorilabs"
+
+      - name: Install exact WorkflowBundle runtime dependencies
+        shell: bash
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/workflow-bundle-v5-user.npmrc
+        run: |
+          set -euo pipefail
+          install -m 600 /dev/null "$NPM_CONFIG_USERCONFIG"
+          npm ci --prefix .seorilabs-workflow-bundle --ignore-scripts --registry=https://registry.npmjs.org --userconfig="$NPM_CONFIG_USERCONFIG" --no-audit --no-fund
+
+      - name: Checkout exact application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          path: .seorilabs-application
+          persist-credentials: false
+
+      - name: Verify exact source and safe build paths
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          EXECUTION_ROOT: ${{ needs.resolve-binding.outputs.execution_root }}
+          DEPENDENCY_ROOT: ${{ needs.resolve-binding.outputs.dependency_root }}
+          SCRIPT_PATH: ${{ needs.resolve-binding.outputs.script_path }}
+        run: |
+          set -euo pipefail
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application"
+          test "$(git -C "$application_root" rev-parse HEAD)" = "$SOURCE_SHA"
+          node --input-type=module - "$application_root" "$EXECUTION_ROOT" "$DEPENDENCY_ROOT" "$SCRIPT_PATH" <<'NODE'
+          import { resolveSafeDirectory, resolveSafeFile } from "./.seorilabs-workflow-bundle/scripts/fleet/v5-paths.mjs";
+          const [root, executionRoot, dependencyRoot, scriptPath] = process.argv.slice(2);
+          await resolveSafeDirectory(root, executionRoot);
+          await resolveSafeDirectory(root, dependencyRoot);
+          await resolveSafeFile(root, scriptPath);
+          NODE
+          test -f "$application_root/$EXECUTION_ROOT/build.env"
+          node .seorilabs-workflow-bundle/scripts/fleet/secret-scan.mjs "$application_root"
+
+      - name: Stage exact private Platform SDK without exporting the token
+        shell: bash
+        working-directory: .seorilabs-workflow-bundle
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          DEPENDENCY_ROOT: ${{ needs.resolve-binding.outputs.dependency_root }}
+        run: |
+          set -euo pipefail
+          ulimit -c 0
+          corepack enable
+          COREPACK_NPM_REGISTRY=https://registry.npmjs.org corepack prepare pnpm@11.3.0 --activate
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application"
+          node scripts/fleet/stage-private-package-v5.mjs "$application_root" "$DEPENDENCY_ROOT" pnpm "$application_root/.seorilabs-pnpm-store"
+
+      - name: Validate internal WIF public bindings
+        shell: bash
+        env:
+          PROVIDER: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          SUBMITTER: ${{ vars.SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT }}
+          EXECUTOR: ${{ vars.SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test "$PROVIDER" = projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
+          test "$SUBMITTER" = seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com
+          test "$EXECUTOR" = seori-cloud-build-executor@seorilabs-ci.iam.gserviceaccount.com
+
+      - name: Authenticate keylessly for Cloud Build
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT }}
+          token_format: access_token
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Setup pinned gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          version: 582.0.0
+          project_id: seorilabs-ci
+
+      - name: Submit exact source to x64 Cloud Build
+        id: build
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          WORKING_DIRECTORY: ${{ needs.resolve-binding.outputs.execution_root }}
+          CLOUD_BUILD_SERVICE_ACCOUNT: ${{ vars.SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT }}
+          CONFIG_PATH: ${{ github.workspace }}/.seorilabs-workflow-bundle/.github/cloud-build/rn-android-build-only.yaml
+        run: |
+          set -euo pipefail
+          repository_name="${GITHUB_REPOSITORY#*/}"
+          artifact_uri="gs://seorilabs-ci-build-artifacts/${GITHUB_REPOSITORY_OWNER}/${repository_name}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application"
+          ignore_file="$RUNNER_TEMP/seorilabs-cloud-build.ignore"
+          printf '%s\n' '.git' '.git/**' 'gha-creds-*.json' 'node_modules' '**/node_modules/**' > "$ignore_file"
+          build_id="$(gcloud builds submit "$application_root" --project=seorilabs-ci --region=asia-northeast3 --config="$CONFIG_PATH" --ignore-file="$ignore_file" --service-account="projects/seorilabs-ci/serviceAccounts/${CLOUD_BUILD_SERVICE_ACCOUNT}" --gcs-source-staging-dir="gs://seorilabs-ci_cloudbuild/workflow-bundle/${GITHUB_REPOSITORY_ID}/${SOURCE_SHA}" --substitutions="_SEORI_SOURCE_SHA=${SOURCE_SHA},_SEORI_WORKING_DIRECTORY=${WORKING_DIRECTORY},_SEORI_ARTIFACT_URI=${artifact_uri}" --format='value(id)')"
+          [[ "$build_id" =~ ^[0-9a-f-]{36}$ ]]
+          echo "build_id=$build_id" >> "$GITHUB_OUTPUT"
+          echo "artifact_uri=$artifact_uri" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the single build-only AAB
+        shell: bash
+        env:
+          ARTIFACT_URI: ${{ steps.build.outputs.artifact_uri }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/android-aab"
+          gcloud storage cp "$ARTIFACT_URI/app-release.aab" "$RUNNER_TEMP/android-aab/app-release.aab"
+          test -s "$RUNNER_TEMP/android-aab/app-release.aab"
+          test "$(find "$RUNNER_TEMP/android-aab" -type f -name '*.aab' | wc -l | tr -d ' ')" = 1
+
+      - name: Write checksum-bound build evidence
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          BUILD_ID: ${{ steps.build.outputs.build_id }}
+          BUNDLE_SHA: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          BUNDLE_REF: ${{ needs.resolve-binding.outputs.bundle_ref }}
+          BUNDLE_DIGEST: ${{ needs.resolve-binding.outputs.workflow_bundle_payload_digest }}
+          MANIFEST_DIGEST: ${{ needs.resolve-binding.outputs.manifest_digest }}
+          CONFIG_REVISION_ID: ${{ needs.resolve-binding.outputs.config_revision_id }}
+          CONFIG_REVISION: ${{ needs.resolve-binding.outputs.config_revision }}
+          CONFIG_REVISION_DIGEST: ${{ needs.resolve-binding.outputs.config_revision_digest }}
+          SIGNED_SNAPSHOT_DIGEST: ${{ needs.resolve-binding.outputs.signed_snapshot_digest }}
+          SNAPSHOT_SIGNATURE_KEY_ID: ${{ needs.resolve-binding.outputs.snapshot_signature_key_id }}
+          SNAPSHOT_SIGNATURE_POLICY_REVISION: ${{ needs.resolve-binding.outputs.snapshot_signature_policy_revision }}
+          SNAPSHOT_SIGNATURE_DIGEST: ${{ needs.resolve-binding.outputs.snapshot_signature_digest }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CONFIG_PATH: ${{ github.workspace }}/.seorilabs-workflow-bundle/.github/cloud-build/rn-android-build-only.yaml
+          BUILDER_IMAGE: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/rn-android-builder@sha256:ed73c852159547ce3b7e36ef7759a8db25e1b4ac08f1fee4f5eebf7ce2cd2100
+        run: |
+          set -euo pipefail
+          artifact_sha256="$(sha256sum "$RUNNER_TEMP/android-aab/app-release.aab" | cut -d ' ' -f 1)"
+          config_sha256="$(sha256sum "$CONFIG_PATH" | cut -d ' ' -f 1)"
+          export ARTIFACT_SHA256="sha256:$artifact_sha256"
+          export CONFIG_SHA256="sha256:$config_sha256"
+          node --input-type=module - <<'NODE'
+          import { writeFileSync } from "node:fs";
+          const evidence = {
+            schemaVersion: 2, target: "build", buildProfile: "react-native-android",
+            repositoryId: Number(process.env.GITHUB_REPOSITORY_ID), fullName: process.env.GITHUB_REPOSITORY,
+            sourceSha: process.env.SOURCE_SHA, bindingSourceSha: process.env.SOURCE_SHA,
+            callerWorkflowRef: process.env.CALLER_WORKFLOW_REF, manifestDigest: process.env.MANIFEST_DIGEST,
+            bundlePayloadDigest: process.env.BUNDLE_DIGEST, workflowExecutionSha: process.env.BUNDLE_SHA,
+            workflowRef: process.env.BUNDLE_REF, runId: Number(process.env.GITHUB_RUN_ID),
+            runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT), configRevisionId: process.env.CONFIG_REVISION_ID,
+            configRevision: Number(process.env.CONFIG_REVISION), configRevisionDigest: process.env.CONFIG_REVISION_DIGEST,
+            signedSnapshotDigest: process.env.SIGNED_SNAPSHOT_DIGEST,
+            snapshotSignatureKeyId: process.env.SNAPSHOT_SIGNATURE_KEY_ID,
+            snapshotSignaturePolicyRevision: process.env.SNAPSHOT_SIGNATURE_POLICY_REVISION,
+            snapshotSignatureDigest: process.env.SNAPSHOT_SIGNATURE_DIGEST, cloudBuildId: process.env.BUILD_ID,
+            builderImage: process.env.BUILDER_IMAGE, cloudBuildConfigSha256: process.env.CONFIG_SHA256,
+            artifactSha256: process.env.ARTIFACT_SHA256, marketUpload: false,
+          };
+          writeFileSync(process.env.RUNNER_TEMP + "/android-aab/provenance.json", JSON.stringify(evidence, null, 2) + "\n", { mode: 0o644 });
+          NODE
+
+      - name: Upload build-only evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rn-android-build-only-${{ needs.resolve-binding.outputs.application_source_sha }}
+          path: ${{ runner.temp }}/android-aab
+          if-no-files-found: error
+          retention-days: 3

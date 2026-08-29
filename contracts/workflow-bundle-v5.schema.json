@@ -11,6 +11,7 @@
     "quality",
     "promotionScope",
     "staticRuntimeBinding",
+    "buildRuntimeBinding",
     "staticProfiles",
     "buildProfiles",
     "actions",
@@ -50,7 +51,7 @@
     "promotionScope": {
       "const": {
         "staticProfiles": ["react-native", "godot", "capacitor", "ait-web"],
-        "buildProfiles": []
+        "buildProfiles": ["react-native-android", "godot-android"]
       }
     },
     "staticRuntimeBinding": {
@@ -84,6 +85,35 @@
               "profiles": ["godot"],
               "packageManagers": [null]
             }
+          }
+        }
+      }
+    },
+    "buildRuntimeBinding": {
+      "const": {
+        "origin": "https://backoffice.vzyx.xyz",
+        "endpoint": "/api/control-plane/apps/{repositoryId}/resolved-manifest",
+        "authentication": "github-oidc",
+        "audience": "seorilabs-control-plane",
+        "sourceStrategy": "exact-main-or-fixed-canary-pr-base",
+        "candidatePolicy": "fixed-repository-and-workflow-sha",
+        "candidateBranchTemplate": "seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}",
+        "identity": {
+          "callerWorkflowRef": "github.workflow_ref",
+          "calledWorkflowRef": "job.workflow_ref",
+          "calledWorkflowSha": "job.workflow_sha",
+          "calledWorkflowRepository": "job.workflow_repository"
+        },
+        "calledWorkflows": {
+          "reactNativeAndroid": {
+            "path": ".github/workflows/rn-build-android-cloud-v2.yml",
+            "profile": "react-native-android",
+            "packageManager": "pnpm"
+          },
+          "godotAndroid": {
+            "path": ".github/workflows/godot-build-android-cloud-v2.yml",
+            "profile": "godot-android",
+            "packageManager": null
           }
         }
       }
@@ -286,9 +316,14 @@
             "state": { "const": "APPROVED" },
             "evidence": {
               "type": "array",
-              "minItems": 4,
-              "maxItems": 4,
-              "items": { "$ref": "#/$defs/staticEvidence" }
+              "minItems": 6,
+              "maxItems": 6,
+              "items": {
+                "oneOf": [
+                  { "$ref": "#/$defs/staticEvidence" },
+                  { "$ref": "#/$defs/buildEvidence" }
+                ]
+              }
             },
             "signature": { "$ref": "#/$defs/signature" }
           }
@@ -446,6 +481,96 @@
             "snapshotSignaturePolicyRevision": true,
             "snapshotSignatureDigest": true,
             "artifactSha256": true
+          }
+        }
+      ]
+    },
+    "buildEvidence": {
+      "oneOf": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/buildEvidenceBase" },
+            {
+              "type": "object",
+              "properties": {
+                "repositoryId": { "const": 1250442131 },
+                "fullName": { "const": "seorilabs/happy-farm" },
+                "buildProfile": { "const": "react-native-android" },
+                "workflowRef": {
+                  "type": "string",
+                  "pattern": "^seorilabs/\\.github/\\.github/workflows/rn-build-android-cloud-v2\\.yml@[0-9a-f]{40}$"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/buildEvidenceBase" },
+            {
+              "type": "object",
+              "properties": {
+                "repositoryId": { "const": 1265192029 },
+                "fullName": { "const": "seorilabs/lizard-tycoon" },
+                "buildProfile": { "const": "godot-android" },
+                "workflowRef": {
+                  "type": "string",
+                  "pattern": "^seorilabs/\\.github/\\.github/workflows/godot-build-android-cloud-v2\\.yml@[0-9a-f]{40}$"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "buildEvidenceBase": {
+      "allOf": [
+        { "$ref": "#/$defs/evidenceBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion", "target", "buildProfile", "repositoryId", "fullName",
+            "sourceSha", "bindingSourceSha", "callerWorkflowRef", "manifestDigest",
+            "bundlePayloadDigest", "workflowExecutionSha", "workflowRef", "runId",
+            "runAttempt", "configRevisionId", "configRevision", "configRevisionDigest",
+            "signedSnapshotDigest", "snapshotSignatureKeyId",
+            "snapshotSignaturePolicyRevision", "snapshotSignatureDigest", "cloudBuildId",
+            "builderImage", "cloudBuildConfigSha256", "artifactSha256", "marketUpload"
+          ],
+          "properties": {
+            "schemaVersion": true,
+            "target": { "const": "build" },
+            "buildProfile": { "enum": ["react-native-android", "godot-android"] },
+            "repositoryId": true,
+            "fullName": true,
+            "sourceSha": true,
+            "bindingSourceSha": { "$ref": "#/$defs/sha" },
+            "callerWorkflowRef": {
+              "type": "string",
+              "pattern": "^seorilabs/(?:happy-farm|lizard-tycoon)/\\.github/workflows/android-build-only\\.yml@refs/pull/[1-9][0-9]*/merge$"
+            },
+            "manifestDigest": { "$ref": "#/$defs/sha256" },
+            "bundlePayloadDigest": { "$ref": "#/$defs/sha256" },
+            "workflowExecutionSha": true,
+            "workflowRef": true,
+            "runId": true,
+            "runAttempt": true,
+            "configRevisionId": true,
+            "configRevision": true,
+            "configRevisionDigest": true,
+            "signedSnapshotDigest": true,
+            "snapshotSignatureKeyId": true,
+            "snapshotSignaturePolicyRevision": true,
+            "snapshotSignatureDigest": true,
+            "cloudBuildId": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "builderImage": { "$ref": "#/$defs/builderImage" },
+            "cloudBuildConfigSha256": { "$ref": "#/$defs/sha256" },
+            "artifactSha256": true,
+            "marketUpload": { "const": false }
           }
         }
       ]
