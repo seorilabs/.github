@@ -314,18 +314,18 @@
       "required": ["namespace", "image", "imageProvenance", "registry", "canary", "secretManager", "wifAudience", "state", "trustedWorkers", "providerControlPlane", "egressProxy", "roles"],
       "properties": {
         "namespace": { "const": "auth-broker" },
-        "image": { "const": "ghcr.io/seorilabs/seori-auth@sha256:b5c5ee63ecc3f16e90013e8f6f8727d6c7dc9f4812ba1a1805165bb7413cd515" },
+        "image": { "const": "ghcr.io/seorilabs/seori-auth@sha256:538f43823a2dd15e2e25f77cd0eb0b31cfee753e9c820e2bce61ff030444eecc" },
         "imageProvenance": {
           "type": "object",
           "additionalProperties": false,
           "required": ["repository", "sourceSha", "workflow", "runId", "platform", "imageDigest"],
           "properties": {
             "repository": { "const": "seorilabs/.github" },
-            "sourceSha": { "const": "6e18b189d112f23270426cd88b3f906969103b75" },
+            "sourceSha": { "const": "3412423c7bd649e0714e5af1cc09ff4d2511f758" },
             "workflow": { "const": ".github/workflows/seori-auth-image.yml" },
-            "runId": { "const": 33190683201 },
+            "runId": { "const": 33246255480 },
             "platform": { "const": "linux/arm64" },
-            "imageDigest": { "const": "sha256:b5c5ee63ecc3f16e90013e8f6f8727d6c7dc9f4812ba1a1805165bb7413cd515" }
+            "imageDigest": { "const": "sha256:538f43823a2dd15e2e25f77cd0eb0b31cfee753e9c820e2bce61ff030444eecc" }
           }
         },
         "registry": {
