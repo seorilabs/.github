@@ -644,7 +644,6 @@ export async function promoteWorkflowBundleV5(
     }
     verified.push(structuredClone(record));
   }
-  const evidenceDigest = sha256(canonicalJson(verified));
   const approvalPayload = createWorkflowBundleV5ApprovalPayload(
     candidateSnapshot,
     verified,
