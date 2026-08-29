@@ -1648,6 +1648,21 @@ test("build manifest adapter fixes origin and exposes only public exact claims",
   assert.equal(requested.searchParams.get("schema"), "workflow-bundle-v5-build");
   assert.equal(calls[0].options.headers.Authorization, `Bearer ${token}`);
   assert.doesNotMatch(calls[0].input, /header|payload|signature/u);
+
+  const oversizedReadback = createBuildManifestReadbackV5({
+    oidcTokenProvider: async () => token,
+    fetchImpl: async () => new Response("{}", {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(2 * 1024 * 1024),
+      },
+    }),
+  });
+  await assert.rejects(
+    resolveBuildRuntimeBindingV5(context, { trustedManifestReadback: oversizedReadback }),
+    /BUILD_RUNTIME_RESPONSE_TOO_LARGE/u,
+  );
 });
 
 test("static manifest adapter fixes origin, uses OIDC only in headers, and fails closed on errors", async () => {
@@ -2290,6 +2305,15 @@ test("RN and Godot v2 workflows resolve signed config before app checkout and ne
       contents: "read",
       "id-token": "write",
     });
+    for (const job of [workflow.jobs["resolve-binding"], workflow.jobs["submit-build-only"]]) {
+      const nodeSetupIndex = job.steps.findIndex(({ uses }) =>
+        uses === "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020");
+      const firstNodeRunIndex = job.steps.findIndex(({ run }) =>
+        typeof run === "string" && /(?:^|\n)\s*node\b/u.test(run));
+      assert.ok(nodeSetupIndex >= 0 && nodeSetupIndex < firstNodeRunIndex);
+      assert.equal(job.steps[nodeSetupIndex].with["node-version"], "24.16.0");
+      assert.equal(job.steps[nodeSetupIndex].with["check-latest"], false);
+    }
     assert.equal(
       workflow.jobs["resolve-binding"].steps.some(({ name }) =>
         name === "Checkout exact application source"),

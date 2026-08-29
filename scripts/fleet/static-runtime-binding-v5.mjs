@@ -636,7 +636,9 @@ export function createBuildManifestReadbackV5({
       try {
         return JSON.parse(await readLimitedText(response, MAX_RESPONSE_BYTES));
       } catch (error) {
-        if (error?.message === "STATIC_RUNTIME_RESPONSE_TOO_LARGE") throw error;
+        if (error?.message === "STATIC_RUNTIME_RESPONSE_TOO_LARGE") {
+          fail("BUILD_RUNTIME_RESPONSE_TOO_LARGE");
+        }
         fail("BUILD_RUNTIME_MANIFEST_RESPONSE_INVALID");
       }
     }
