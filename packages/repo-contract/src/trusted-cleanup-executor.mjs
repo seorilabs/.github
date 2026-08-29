@@ -1688,6 +1688,7 @@ export function createTrustedFleetCleanupExecutor({
       });
       return;
     }
+    const body = pullRequestBody(context);
     await githubAdapter.createPullRequest({
       contract: EXECUTION_CONTRACT,
       repositoryId: context.binding.repositoryId,
@@ -1698,8 +1699,8 @@ export function createTrustedFleetCleanupExecutor({
       headRef: context.branchName,
       headSha: commitSha,
       title: pullRequestTitle(),
-      body: pullRequestBody(context),
-      bodyDigest: sha256(pullRequestBody(context)),
+      body,
+      bodyDigest: sha256(body),
       issueNumber: context.binding.issueNumber,
       draft: false,
       expectedOpenAutonomousReadyPullRequestCount: 0,
