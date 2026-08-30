@@ -21,6 +21,10 @@ export async function prepare() {
     cp(resolve(packageRoot, "../../profiles"), resolve(generatedRoot, "profiles"), {
       recursive: true,
     }),
+    // release version authority는 org 정본 구현 하나뿐이다. 배포 패키지도 같은 파일을 쓴다.
+    cp(resolve(packageRoot, "../../scripts/release"), resolve(generatedRoot, "release"), {
+      recursive: true,
+    }),
   ]);
 }
 

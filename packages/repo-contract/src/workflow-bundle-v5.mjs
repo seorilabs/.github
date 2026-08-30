@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import Ajv2020 from "ajv/dist/2020.js";
 import { parseDocument, stringify } from "yaml";
@@ -23,7 +23,9 @@ const BUILD_RUNTIME_SCHEMA_PATH =
 const STATIC_RUNTIME_SCHEMA_PATH =
   "contracts/workflow-bundle-v5-static-runtime-readback.schema.json";
 const XCODE_SCHEMA_PATH = "contracts/xcode-cloud-run-v5.schema.json";
+const RELEASE_AUTHORITY_CONTRACT_PATH = "contracts/release-version-authority.yaml";
 const CONTRACT_FILES = Object.freeze([
+  RELEASE_AUTHORITY_CONTRACT_PATH,
   BINDING_SCHEMA_PATH,
   BUILD_RUNTIME_SCHEMA_PATH,
   STATIC_RUNTIME_SCHEMA_PATH,
@@ -43,8 +45,8 @@ const RUNTIME_ASSET_FILES = Object.freeze([
   "package.json",
   "package-lock.json",
   ".github/cloud-build/capacitor-android-build-only-v1.yaml",
-  ".github/cloud-build/godot-android-build-only.yaml",
-  ".github/cloud-build/rn-android-build-only.yaml",
+  ".github/cloud-build/godot-android-build-only-v2.yaml",
+  ".github/cloud-build/rn-android-build-only-v2.yaml",
   ".github/workflows/ait-build-only-v1.yml",
   ".github/workflows/capacitor-build-android-cloud-v1.yml",
   ".github/workflows/godot-build-android-cloud-v2.yml",
@@ -83,6 +85,9 @@ const RUNTIME_ASSET_FILES = Object.freeze([
   "fixtures/workflow-bundle-v5/trait-test-hub/repository/scripts/architecture.mjs",
   "fixtures/workflow-bundle-v5/trait-test-hub/repository/scripts/build-ait.sh",
   "fixtures/workflow-bundle-v5/trait-test-hub/repository/scripts/release.mjs",
+  "scripts/release/tag-version-authority.mjs",
+  "scripts/release/resolve-release-version.mjs",
+  "scripts/release/verify-release-artifact.mjs",
   "scripts/fleet/stage-private-package-v5.mjs",
   "scripts/fleet/godot-diagnostic-gate.mjs",
   "scripts/fleet/secret-scan.mjs",
@@ -90,6 +95,22 @@ const RUNTIME_ASSET_FILES = Object.freeze([
   "scripts/fleet/static-preflight-v5.mjs",
   "scripts/fleet/v5-paths.mjs",
 ]);
+// release version authority는 org 정본 구현 하나뿐이다. 소스 workspace에서는 scripts/release를,
+// 배포 패키지에서는 pack이 복사한 같은 파일을 읽는다. 구현을 복제하지 않는다.
+const {
+  bindingDigest,
+  computeAuthorityRevision,
+  computeConfigRevision,
+  createReleaseBinding,
+  parseReleaseTagRef,
+} = await import(
+  pathToFileURL(
+    SOURCE_WORKSPACE
+      ? resolve(WORKSPACE_ROOT, "scripts/release/tag-version-authority.mjs")
+      : resolve(GENERATED_ROOT, "release/tag-version-authority.mjs"),
+  ).href
+);
+
 const SHA = /^[0-9a-f]{40}$/u;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const TRUSTED_BUNDLES = new WeakMap();
@@ -550,8 +571,8 @@ function evidenceRuntimeMatches(bundle, record) {
     "godot-android": [1265192029, "seorilabs/lizard-tycoon"],
   }[profile];
   const cloudBuildConfig = {
-    "react-native-android": ".github/cloud-build/rn-android-build-only.yaml",
-    "godot-android": ".github/cloud-build/godot-android-build-only.yaml",
+    "react-native-android": ".github/cloud-build/rn-android-build-only-v2.yaml",
+    "godot-android": ".github/cloud-build/godot-android-build-only-v2.yaml",
   }[profile];
   return Boolean(
     runtime &&
@@ -1038,12 +1059,30 @@ export function validateCandidateBuildCallerV5(caller, options = {}) {
   }
 }
 
+function selectedIosBuild(manifest) {
+  const candidates = manifest.buildBindings.filter(
+    (binding) => binding.target === "ios" && binding.buildProfile === "capacitor-ios-xcode-cloud",
+  );
+  if (candidates.length !== 1) fail("BUILD_BINDING_NOT_EXACT");
+  return candidates[0];
+}
+
+/**
+ * Xcode Cloud build run envelope. Apple archive의 version 정본은 exact stable release tag
+ * 하나이고, 그 태그가 가리키는 exact commit과 org 정본 workflow SHA 기반 config revision을
+ * 함께 고정한다. build run readback에서 commit·reference·version이 하나라도 다르면
+ * 호출 측이 fail-closed할 수 있도록 requiredReadback에 기대값을 함께 담는다.
+ */
 export async function generateXcodeCloudRunV5({
   approvedBundleBinding,
   resolvedBinding,
   productId,
   workflowId,
-  sourceReferenceId,
+  sourceReference,
+  releaseTag,
+  calledWorkflowRef,
+  calledWorkflowSha,
+  repoRoot = WORKSPACE_ROOT,
 } = {}) {
   const bundle = bundleFrom(approvedBundleBinding);
   const manifest = manifestFrom(resolvedBinding);
@@ -1051,10 +1090,141 @@ export async function generateXcodeCloudRunV5({
   if (!bundle.promotionScope.buildProfiles.includes("capacitor-ios-xcode-cloud")) {
     fail("BUILD_PROFILE_NOT_PROMOTED");
   }
-  void productId;
-  void workflowId;
-  void sourceReferenceId;
-  fail("BUILD_RUNTIME_BINDING_UNAVAILABLE");
+  const binding = selectedIosBuild(manifest);
+  if (
+    manifest.workflowBundleBinding?.sourceSha !== bundle.source.sha ||
+    manifest.workflowBundleBinding?.payloadDigest !== bundle.integrity.payloadDigest
+  ) {
+    fail("BUILD_BUNDLE_BINDING_MISMATCH");
+  }
+
+  // 태그 하나가 유일한 version authority다. tag ref, 태그가 가리키는 commit, manifest source가
+  // 모두 같은 commit이어야 하고 그렇지 않으면 run을 만들지 않는다.
+  let releaseBinding;
+  try {
+    const { tag } = parseReleaseTagRef(manifest.sourceRef);
+    if (tag !== releaseTag) fail("XCODE_RUN_RELEASE_TAG_MISMATCH");
+    const authorityRevision = computeAuthorityRevision(
+      await readContract(RELEASE_AUTHORITY_CONTRACT_PATH, repoRoot),
+    );
+    releaseBinding = createReleaseBinding({
+      tag,
+      sourceSha: manifest.sourceSha,
+      authorityRevision,
+      configRevision: computeConfigRevision({
+        calledWorkflowRepository: "seorilabs/.github",
+        calledWorkflowRef,
+        calledWorkflowSha,
+        authorityRevision,
+      }),
+    });
+  } catch (error) {
+    fail(`XCODE_RUN_RELEASE_AUTHORITY_INVALID:${error?.code ?? error?.message ?? "unknown"}`);
+  }
+
+  if (
+    sourceReference?.kind !== "TAG" ||
+    sourceReference?.name !== releaseBinding.tag ||
+    sourceReference?.commitSha !== releaseBinding.sourceSha ||
+    sourceReference?.immutable !== true
+  ) {
+    fail("XCODE_RUN_SOURCE_REFERENCE_INVALID");
+  }
+
+  const envelope = {
+    schemaVersion: 3,
+    repositoryId: manifest.repositoryId,
+    fullName: manifest.fullName,
+    sourceSha: manifest.sourceSha,
+    sourceRef: manifest.sourceRef,
+    bundleSourceSha: bundle.source.sha,
+    bundleDigest: bundle.integrity.payloadDigest,
+    configRevisionId: manifest.configRevisionId,
+    configRevision: manifest.configRevision,
+    configRevisionDigest: manifest.configRevisionDigest,
+    signedSnapshotDigest: manifest.signedSnapshotDigest,
+    snapshotSignature: {
+      keyId: manifest.snapshotSignature.keyId,
+      policyRevision: manifest.snapshotSignature.policyRevision,
+      digest: manifest.snapshotSignature.digest,
+    },
+    buildBinding: {
+      target: binding.target,
+      buildProfile: binding.buildProfile,
+      executionRoot: binding.executionRoot,
+      dependencyRoot: binding.dependencyRoot,
+      scriptPath: binding.scriptPath,
+      artifactKind: binding.artifactKind,
+    },
+    release: {
+      authority: releaseBinding.authority,
+      authorityRevision: releaseBinding.authorityRevision,
+      tag: releaseBinding.tag,
+      sourceSha: releaseBinding.sourceSha,
+      configRevision: releaseBinding.configRevision,
+      versionName: releaseBinding.versionName,
+      appleMarketingVersion: releaseBinding.appleMarketingVersion,
+      appleBuildNumber: releaseBinding.appleBuildNumber,
+      bindingDigest: bindingDigest(releaseBinding),
+    },
+    productId,
+    workflowId,
+    sourceReference: {
+      id: sourceReference.id,
+      name: sourceReference.name,
+      kind: sourceReference.kind,
+      commitSha: sourceReference.commitSha,
+      immutable: true,
+    },
+    distribution: "BUILD_ONLY",
+    requiredReadback: {
+      action: "ciBuildRuns.get",
+      fields: ["id", "sourceCommit.commitSha", "workflow.id", "sourceBranchOrTag.id"],
+      expectedSourceCommitSha: releaseBinding.sourceSha,
+      expectedSourceReferenceId: sourceReference.id,
+      expectedWorkflowId: workflowId,
+      artifactKind: binding.artifactKind,
+      expectedMarketingVersion: releaseBinding.appleMarketingVersion,
+      expectedBuildNumber: releaseBinding.appleBuildNumber,
+    },
+    // 같은 태그·같은 source·같은 계약 revision이면 언제 다시 만들어도 같은 key다.
+    idempotencyKey: `xcode-cloud-v5.${manifest.repositoryId}.${releaseBinding.tag}.${bindingDigest(releaseBinding).slice(0, 32)}`,
+  };
+
+  const validate = await compileSchema(XCODE_SCHEMA_PATH, repoRoot);
+  if (!validate(envelope)) fail(`XCODE_RUN_INVALID:${diagnostics(validate)[0] ?? "schema"}`);
+  return deepFreeze(envelope);
+}
+
+/**
+ * Xcode Cloud build run readback을 envelope의 기대값과 exact match한다. 하나라도 다르면
+ * 그 archive는 태그 정본을 벗어난 것이므로 마켓 경로로 넘기지 않는다.
+ */
+export function verifyXcodeCloudRunReadbackV5(envelope, readback) {
+  const expected = envelope?.requiredReadback;
+  const diagnosticsFound = [];
+  if (!expected) diagnosticsFound.push("XCODE_RUN_ENVELOPE_INVALID");
+  else {
+    if (readback?.sourceCommitSha !== expected.expectedSourceCommitSha) {
+      diagnosticsFound.push("XCODE_RUN_SOURCE_COMMIT_MISMATCH");
+    }
+    if (readback?.sourceReferenceId !== expected.expectedSourceReferenceId) {
+      diagnosticsFound.push("XCODE_RUN_SOURCE_REFERENCE_MISMATCH");
+    }
+    if (readback?.workflowId !== expected.expectedWorkflowId) {
+      diagnosticsFound.push("XCODE_RUN_WORKFLOW_MISMATCH");
+    }
+    if (readback?.marketingVersion !== expected.expectedMarketingVersion) {
+      diagnosticsFound.push("XCODE_RUN_MARKETING_VERSION_MISMATCH");
+    }
+    if (Number(readback?.buildNumber) !== expected.expectedBuildNumber) {
+      diagnosticsFound.push("XCODE_RUN_BUILD_NUMBER_MISMATCH");
+    }
+  }
+  return Object.freeze({
+    ok: diagnosticsFound.length === 0,
+    diagnostics: Object.freeze(diagnosticsFound),
+  });
 }
 
 export const workflowBundleV5Contract = Object.freeze({
@@ -1102,7 +1272,7 @@ export const workflowBundleV5Contract = Object.freeze({
   }),
   buildRuntimeBinding: Object.freeze({
     authentication: "github-oidc",
-    sourceStrategy: "exact-main-or-fixed-canary-pr-base",
+    sourceStrategy: "exact-main-or-fixed-canary-pr-base-or-exact-release-tag",
     candidatePolicy: "fixed-repository-workflow-sha-and-plan-identity",
     candidateBranchTemplate:
       "seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}/{planIdentity}",

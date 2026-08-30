@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://seorilabs.github.io/contracts/v5/xcode-cloud-run.schema.json",
-  "title": "Seorilabs Xcode Cloud v5 build-only envelope",
+  "title": "Seorilabs Xcode Cloud v5 release run envelope",
+  "description": "Xcode Cloud는 Apple archive의 표준 실행 환경이다. 이 envelope의 version 정본은 exact stable release tag 하나이며, source SHA와 config revision을 고정하고 실제 build run readback에서 fail-closed한다.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -18,18 +19,20 @@
     "signedSnapshotDigest",
     "snapshotSignature",
     "buildBinding",
+    "release",
     "productId",
     "workflowId",
-    "sourceReferenceId",
+    "sourceReference",
     "distribution",
+    "requiredReadback",
     "idempotencyKey"
   ],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "repositoryId": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
     "fullName": { "type": "string", "pattern": "^seorilabs/[A-Za-z0-9._-]+$" },
     "sourceSha": { "$ref": "#/$defs/sha" },
-    "sourceRef": { "const": "refs/heads/main" },
+    "sourceRef": { "$ref": "#/$defs/releaseTagRef" },
     "bundleSourceSha": { "$ref": "#/$defs/sha" },
     "bundleDigest": { "$ref": "#/$defs/sha256" },
     "configRevisionId": { "$ref": "#/$defs/publicId" },
@@ -64,10 +67,76 @@
         "artifactKind": { "const": "xcode-archive" }
       }
     },
+    "release": {
+      "description": "release-version-authority-v1이 exact stable tag 하나에서 파생한 불변 binding. Xcode Cloud가 만드는 archive의 유일한 version 정본이다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority",
+        "authorityRevision",
+        "tag",
+        "sourceSha",
+        "configRevision",
+        "versionName",
+        "appleMarketingVersion",
+        "appleBuildNumber",
+        "bindingDigest"
+      ],
+      "properties": {
+        "authority": { "const": "release-version-authority-v1" },
+        "authorityRevision": { "$ref": "#/$defs/hex64" },
+        "tag": { "$ref": "#/$defs/releaseTag" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "configRevision": { "$ref": "#/$defs/hex64" },
+        "versionName": { "$ref": "#/$defs/stableSemVer" },
+        "appleMarketingVersion": { "$ref": "#/$defs/stableSemVer" },
+        "appleBuildNumber": { "type": "integer", "minimum": 1, "maximum": 2100000000 },
+        "bindingDigest": { "$ref": "#/$defs/hex64" }
+      }
+    },
     "productId": { "$ref": "#/$defs/publicId" },
     "workflowId": { "$ref": "#/$defs/publicId" },
-    "sourceReferenceId": { "$ref": "#/$defs/publicId" },
+    "sourceReference": {
+      "description": "Xcode Cloud는 exact stable tag가 가리키는 commit만 build한다. 브랜치 참조와 이동 가능한 ref는 허용하지 않는다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "kind", "commitSha", "immutable"],
+      "properties": {
+        "id": { "$ref": "#/$defs/publicId" },
+        "name": { "$ref": "#/$defs/releaseTag" },
+        "kind": { "const": "TAG" },
+        "commitSha": { "$ref": "#/$defs/sha" },
+        "immutable": { "const": true }
+      }
+    },
     "distribution": { "const": "BUILD_ONLY" },
+    "requiredReadback": {
+      "description": "build run이 끝난 뒤 반드시 대조해야 하는 값. 하나라도 다르면 artifact를 마켓으로 보내지 않는다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "fields",
+        "expectedSourceCommitSha",
+        "expectedSourceReferenceId",
+        "expectedWorkflowId",
+        "artifactKind",
+        "expectedMarketingVersion",
+        "expectedBuildNumber"
+      ],
+      "properties": {
+        "action": { "const": "ciBuildRuns.get" },
+        "fields": {
+          "const": ["id", "sourceCommit.commitSha", "workflow.id", "sourceBranchOrTag.id"]
+        },
+        "expectedSourceCommitSha": { "$ref": "#/$defs/sha" },
+        "expectedSourceReferenceId": { "$ref": "#/$defs/publicId" },
+        "expectedWorkflowId": { "$ref": "#/$defs/publicId" },
+        "artifactKind": { "const": "xcode-archive" },
+        "expectedMarketingVersion": { "$ref": "#/$defs/stableSemVer" },
+        "expectedBuildNumber": { "type": "integer", "minimum": 1, "maximum": 2100000000 }
+      }
+    },
     "idempotencyKey": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$"
@@ -76,7 +145,20 @@
   "$defs": {
     "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "hex64": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "publicId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$" },
+    "releaseTag": {
+      "type": "string",
+      "pattern": "^v(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
+    "releaseTagRef": {
+      "type": "string",
+      "pattern": "^refs/tags/v(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
+    "stableSemVer": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
     "safeDirectory": {
       "type": "string",
       "pattern": "^(?:\\.|[A-Za-z0-9_@-]+(?:\\.[A-Za-z0-9_@-]+)*(?:/[A-Za-z0-9_@-]+(?:\\.[A-Za-z0-9_@-]+)*)*)$"

@@ -1,18 +1,21 @@
 # Seorilabs org 재사용 워크플로우: RN 앱 AIT(.ait) 빌드 + AppsInToss 배포
 # 호출: uses: seorilabs/.github/.github/workflows/rn-deploy-ait.yml@<FULL_COMMIT_SHA>
 # 러너: seorilabs-rpi-arm64 (ARC). 인증: org secret APPS_IN_TOSS_API_KEY.
+# 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
+# package.json/granite 설정은 authority가 아니다. .ait 컨테이너는 version 필드를 갖지 않으므로
+# AppsInToss 배포 식별자는 태그에서 파생한 canonical memo와 artifact digest로 고정한다.
 name: RN Deploy AIT (reusable)
 
 on:
   workflow_call:
     inputs:
       release_tag:
-        description: "배포할 릴리즈 태그. 비우면 호출 ref."
+        description: "배포할 릴리즈 태그 vX.Y.Z. 비우면 저장소의 최신 stable 태그."
         required: false
         default: ""
         type: string
       memo:
-        description: "AppsInToss 배포 메모(최대 1000자)"
+        description: "canonical memo 뒤에 붙일 운영 메모(선택)"
         required: false
         default: ""
         type: string
@@ -55,7 +58,7 @@ on:
         default: ""
         type: string
       artifact_path:
-        description: "업로드할 .ait 경로(비우면 업로드 생략)"
+        description: ".ait 산출물 glob(비우면 <ait_dir>/*.ait). 정확히 한 개만 허용."
         required: false
         default: "apps/ait/*.ait"
         type: string
@@ -63,6 +66,11 @@ on:
         required: false
         default: 25
         type: number
+    secrets:
+      APPS_IN_TOSS_API_KEY:
+        required: false
+      VITE_FIREBASE_API_KEY:
+        required: false
 
 permissions:
   contents: read
@@ -79,8 +87,6 @@ jobs:
       APPS_IN_TOSS_API_KEY: ${{ secrets.APPS_IN_TOSS_API_KEY }}
       AIT_DIR: ${{ inputs.ait_dir }}
       PM: ${{ inputs.package_manager }}
-      INPUT_MEMO: ${{ inputs.memo }}
-      RELEASE_REF: ${{ inputs.release_tag }}
       # 빌드 시 임베드되는 표준 Firebase env (미설정이면 빈 값)
       VITE_FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY || secrets.VITE_FIREBASE_API_KEY || '' }}
       VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN || '' }}
@@ -92,7 +98,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
@@ -104,25 +110,16 @@ jobs:
           set -euo pipefail
           [ -n "$APPS_IN_TOSS_API_KEY" ] || { echo "APPS_IN_TOSS_API_KEY secret is required." >&2; exit 1; }
 
-      - name: Resolve release ref
-        id: ref
-        shell: bash
-        run: |
-          set -euo pipefail
-          ref="$RELEASE_REF"
-          [ -n "$ref" ] || ref="${GITHUB_REF_NAME:-$(git rev-parse --abbrev-ref HEAD)}"
-          { echo "ref=$ref"; echo "short_sha=$(git rev-parse --short HEAD)"; } >> "$GITHUB_OUTPUT"
-
       - name: Setup Node
         if: inputs.npm_registry_url == ''
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           check-latest: false
 
       - name: Setup Node with npm registry
         if: inputs.npm_registry_url != ''
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           check-latest: false
@@ -136,6 +133,70 @@ jobs:
           set -euo pipefail
           corepack enable
           corepack prepare pnpm@${{ inputs.pnpm_version }} --activate
+
+      # 버전 authority 구현은 org 정본에만 둔다. caller 저장소 스크립트를 신뢰하지 않기 위해
+      # called workflow identity를 확인하고 그 exact commit SHA로 정본을 받아 실행한다.
+      - name: Validate called reusable workflow identity
+        id: authority
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/rn-deploy-ait.yml
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
+          '
+
+      - name: Checkout exact release version authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.authority.outputs.repository }}
+          ref: ${{ steps.authority.outputs.sha }}
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
+      - name: Resolve exact release tag
+        id: tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          git tag --list > "$RUNNER_TEMP/git-tags.txt"
+          tag="$(node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --tag-list-file "$RUNNER_TEMP/git-tags.txt" --print-tag)"
+          git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null
+          git -c advice.detachedHead=false checkout "refs/tags/$tag"
+          tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          head_commit="$(git rev-parse 'HEAD^{commit}')"
+          [ "$tag_commit" = "$head_commit" ] || {
+            echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
+            exit 1
+          }
+          { echo "tag=$tag"; echo "sha=$tag_commit"; } >> "$GITHUB_OUTPUT"
+
+      - name: Bind release version to the tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
+          JOB_WORKFLOW_REPOSITORY: ${{ steps.authority.outputs.repository }}
+          JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
+          JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+        run: |
+          set -euo pipefail
+          if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then
+            git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release-tag-message.txt"
+            export RELEASE_TAG_MESSAGE_FILE="$RUNNER_TEMP/release-tag-message.txt"
+          fi
+          RELEASE_HEAD_SHA="$(git rev-parse 'HEAD^{commit}')" \
+          RELEASE_LOCAL_TAG_SHA="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" \
+            node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --github-output
 
       # install/build: eval 제거(시크릿 보유 스텝의 명령 인젝션 표면 차단).
       # custom 입력은 run 본문에 직접 보간, 미지정 시 package_manager 기반 고정 명령.
@@ -160,6 +221,11 @@ jobs:
       - name: Build .ait bundle (custom)
         if: inputs.build_command != ''
         shell: bash
+        env:
+          SEORI_RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          SEORI_RELEASE_VERSION: ${{ steps.release.outputs.version_name }}
+          SEORI_RELEASE_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
+          SEORI_RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
         run: |
           set -euo pipefail
           ${{ inputs.build_command }}
@@ -167,32 +233,85 @@ jobs:
       - name: Build .ait bundle (default)
         if: inputs.build_command == ''
         shell: bash
+        env:
+          SEORI_RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          SEORI_RELEASE_VERSION: ${{ steps.release.outputs.version_name }}
+          SEORI_RELEASE_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
+          SEORI_RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
         run: |
           set -euo pipefail
           if [ "$PM" = "npm" ]; then npm --prefix "$AIT_DIR" run build; else pnpm --dir "$AIT_DIR" build; fi
 
+      - name: Resolve built .ait artifact
+        id: artifact
+        shell: bash
+        env:
+          ARTIFACT_GLOB: ${{ inputs.artifact_path }}
+        run: |
+          set -euo pipefail
+          pattern="${ARTIFACT_GLOB:-$AIT_DIR/*.ait}"
+          # shellcheck disable=SC2206
+          matches=( $pattern )
+          [ "${#matches[@]}" -eq 1 ] && [ -f "${matches[0]}" ] || {
+            echo ".ait 아티팩트가 정확히 하나여야 함: $pattern -> ${matches[*]:-none}" >&2
+            exit 1
+          }
+          echo "path=${matches[0]}" >> "$GITHUB_OUTPUT"
+
+      # .ait은 version 필드를 갖지 않는다. 컨테이너 형식과 digest를 읽고 배포 memo를 태그에서
+      # 파생한 canonical 값으로 고정해, 배포 기록이 정확히 이 태그·커밋·아티팩트를 가리키게 한다.
+      - name: Verify .ait artifact against the release tag
+        id: provenance
+        shell: bash
+        env:
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+          RELEASE_MEMO_NOTE: ${{ inputs.memo }}
+        run: |
+          set -euo pipefail
+          node .seorilabs-release-authority/scripts/release/verify-release-artifact.mjs \
+            --kind ait \
+            --artifact "${{ steps.artifact.outputs.path }}" \
+            --receipt "$RUNNER_TEMP/release-artifact-receipt.txt" \
+            --github-output
+
+      # 배포 스텝은 검증한 그 .ait만 올려야 한다. AppsInToss CLI가 디렉터리에서 다른 번들을
+      # 고르지 못하도록, workspace에 검증된 .ait 하나만 있는지와 digest가 그대로인지 확인한다.
+      - name: Bind the verified .ait as the only upload candidate
+        shell: bash
+        env:
+          VERIFIED_AIT_PATH: ${{ steps.provenance.outputs.artifact_path }}
+          VERIFIED_AIT_DIGEST: ${{ steps.provenance.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          [ -f "$VERIFIED_AIT_PATH" ] || { echo "검증된 .ait 경로가 없다: $VERIFIED_AIT_PATH" >&2; exit 1; }
+          observed="$(sha256sum "$VERIFIED_AIT_PATH" | cut -d ' ' -f 1)"
+          [ "$observed" = "$VERIFIED_AIT_DIGEST" ] || {
+            echo "배포 직전 .ait digest가 검증값과 다르다: $observed != $VERIFIED_AIT_DIGEST" >&2
+            exit 1
+          }
+          # 검증된 파일 옆에 다른 .ait가 있으면 AppsInToss CLI가 그쪽을 고를 수 있다.
+          bundles="$(find "$(dirname "$VERIFIED_AIT_PATH")" -maxdepth 1 -type f -name '*.ait' | wc -l | tr -d ' ')"
+          [ "$bundles" = 1 ] || {
+            echo "검증된 .ait 디렉터리에 .ait가 정확히 하나여야 한다: $bundles" >&2
+            exit 1
+          }
+
       - name: Upload .ait artifact
-        if: inputs.artifact_path != ''
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ait-${{ github.event.repository.name }}-${{ steps.ref.outputs.ref }}-${{ steps.ref.outputs.short_sha }}
-          path: ${{ inputs.artifact_path }}
+          name: ait-${{ github.event.repository.name }}-${{ steps.tag.outputs.tag }}-${{ steps.release.outputs.android_version_code }}
+          path: ${{ steps.artifact.outputs.path }}
           if-no-files-found: error
           retention-days: 3
 
       - name: Deploy to AppsInToss
         shell: bash
         env:
-          DEPLOY_REF: ${{ steps.ref.outputs.ref }}
-          DEPLOY_SHORT_SHA: ${{ steps.ref.outputs.short_sha }}
+          DEPLOY_MEMO: ${{ steps.provenance.outputs.release_memo }}
         run: |
           set -euo pipefail
-          memo="$INPUT_MEMO"
-          if [ -z "$memo" ]; then
-            memo="GitHub Actions ${DEPLOY_REF}@${DEPLOY_SHORT_SHA}"
-          else
-            memo="${DEPLOY_REF} · ${memo}"
-          fi
+          memo="$DEPLOY_MEMO"
+          [ -n "$memo" ] || { echo "canonical release memo가 비었다." >&2; exit 1; }
 
           if [ "$PM" = "npm" ]; then
             npm --prefix "$AIT_DIR" run deploy -- --api-key "$APPS_IN_TOSS_API_KEY" --memo "$memo"
@@ -202,7 +321,12 @@ jobs:
 
       - name: Summary
         shell: bash
-        env:
-          DEPLOY_REF: ${{ steps.ref.outputs.ref }}
         run: |
-          { echo "### Deploy AIT"; echo ""; echo "- ref: $DEPLOY_REF"; echo "- runner: seorilabs-rpi-arm64"; } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Deploy AIT"; echo ""
+            echo "- tag: ${{ steps.tag.outputs.tag }} @ ${{ steps.tag.outputs.sha }}"
+            echo "- version: ${{ steps.release.outputs.version_name }} (${{ steps.release.outputs.android_version_code }})"
+            echo "- artifact: ${{ steps.provenance.outputs.ait_format }} ${{ steps.provenance.outputs.artifact_path }} sha256:${{ steps.provenance.outputs.artifact_digest }}"
+            echo "- memo: ${{ steps.provenance.outputs.release_memo }}"
+            echo "- runner: seorilabs-rpi-arm64"
+          } >> "$GITHUB_STEP_SUMMARY"

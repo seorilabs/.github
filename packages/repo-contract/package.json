@@ -25,7 +25,8 @@
   "files": [
     "src",
     ".generated/contracts",
-    ".generated/profiles"
+    ".generated/profiles",
+    ".generated/release"
   ],
   "scripts": {
     "prepack": "node src/pack-contracts.mjs prepare",

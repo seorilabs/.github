@@ -1,0 +1,199 @@
+# GitHub release tag를 모든 지원 마켓 artifact의 유일한 version source of truth로 고정한다.
+# 이 계약은 기계 판독 정본이며 문서와 충돌하면 이 파일이 우선한다.
+schemaVersion: 1
+id: release-version-authority-v1
+
+authority:
+  source: github-release-tag
+  tagPattern: '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+  # 태그는 exact stable SemVer만 허용한다. prerelease/build metadata는 마켓 artifact를 만들지 않는다.
+  prereleaseAllowed: false
+  # 태그가 가리키는 commit만 build한다. branch 동명 ref, 이동된 tag, stale local tag는 거부한다.
+  buildsExactTagCommit: true
+
+# 아래 값들은 authority가 아니다. 읽어서 버전을 결정하지 않으며, artifact readback에서
+# tag 파생값과 다르면 fail-closed한다.
+forbiddenAuthorities:
+  - id: package-json-version
+    locations: ["package.json#version", "apps/*/package.json#version"]
+  - id: gradle-version
+    locations: ["android/app/build.gradle#versionName", "android/app/build.gradle#versionCode"]
+  - id: xcode-version
+    locations: ["*.xcodeproj#MARKETING_VERSION", "*.xcodeproj#CURRENT_PROJECT_VERSION", "Info.plist#CFBundleShortVersionString"]
+  - id: godot-project-version
+    locations: ["project.godot#config/version", "export_presets.cfg#version/name", "export_presets.cfg#version/code"]
+  - id: granite-config-version
+    locations: ["granite.config.ts#version", "apps/ait/package.json#version"]
+  - id: market-config-json-version
+    locations: ["play-store/google-play.config.json#release.versionName", "play-store/google-play.config.json#release.versionCode", "app-store/app-store.config.json#release.version"]
+  - id: repository-local-release-version-resolver
+    locations: ["scripts/resolve-release-version.mjs"]
+  - id: workflow-caller-version-input
+    locations: ["workflow_call.inputs.version_name", "workflow_call.inputs.version_code", "workflow_call.inputs.version_script"]
+  - id: non-deterministic-build-counter
+    locations: ["github.run_number", "github.run_id", "wall-clock"]
+
+derivation:
+  # v prefix를 제거한 값이 display/marketing version이다.
+  displayVersion: tag-without-v-prefix
+  marketingVersion: tag-without-v-prefix
+  # 기존 org resolver 규칙(세그먼트 base 1000)을 그대로 유지한다.
+  segmentBase: 1000
+  buildNumberFormula: 'major * 1000000 + minor * 1000 + patch'
+  androidVersionCode: build-number
+  appleBuildNumber: build-number
+  releaseName: display-version
+  bounds:
+    minorMax: 999
+    patchMax: 999
+    versionCodeMax: 2100000000
+    # Google Play versionCode와 Apple build number는 1 이상이어야 한다. v0.0.0은 파생값이 0이라
+    # 어떤 마켓 artifact도 만들 수 없으므로 태그 생성과 배포 양쪽에서 거부한다.
+    versionCodeMin: 1
+
+binding:
+  # 하나의 release binding은 아래 필드로만 식별된다. 재현 불가능한 값은 포함하지 않는다.
+  fields:
+    - tag
+    - sourceSha
+    - authorityRevision
+    - configRevision
+    - versionName
+    - androidVersionCode
+    - appleBuildNumber
+  authorityRevision:
+    # 이 계약 본문의 revision. 워크플로우와 무관하게 같은 값이라 tag receipt에 넣어 검증한다.
+    inputs:
+      - authorityContractBody
+    algorithm: sha256
+  configRevision:
+    # 같은 tag를 다른 계약/워크플로우 revision으로 다시 build하면 값이 달라진다.
+    inputs:
+      - calledWorkflowRepository
+      - calledWorkflowRef
+      - calledWorkflowSha
+      - authorityRevision
+    algorithm: sha256-canonical-lines
+  # release-tag.yml이 annotated tag message에 남기는 불변 receipt.
+  # 배포 경로는 receipt의 authorityRevision과 sourceSha를 현재 실행값과 exact match한다.
+  tagReceiptMarker: 'seori-release-binding: 1'
+  tagReceiptFields:
+    - authority
+    - authority-revision
+    - tag
+    - source-sha
+    - version-name
+    - android-version-code
+    - apple-build-number
+
+tagCreation:
+  # 태그는 운영자가 고른 exact source commit에만 단다.
+  target: exact-operator-selected-commit
+  markerCommit: forbidden
+  branchPush: forbidden
+  tagMove: forbidden
+  annotated: true
+
+artifactReadback:
+  android-app-bundle:
+    # AAB manifest는 aapt.pb.XmlNode protobuf다. aapt2 dump는 AAB를 인식하지 못하므로
+    # zip에서 직접 꺼내 org 정본 parser로 읽는다.
+    tool: aab-proto-manifest
+    manifestPath: base/manifest/AndroidManifest.xml
+    fields:
+      versionName: android:versionName
+      versionCode: android:versionCode
+  xcode-archive:
+    tool: info-plist
+    fields:
+      versionName: CFBundleShortVersionString
+      versionCode: CFBundleVersion
+  ait:
+    # 지원 형식(AIT v1 컨테이너, legacy zip 번들) 어느 쪽도 내부 version 필드를 갖지 않는다.
+    # 그래서 AppsInToss 배포의 tag 식별자는 canonical memo이고, artifact 동일성은 sha256 digest로
+    # 고정한다. memo에는 digest가 들어가므로 같은 태그로 다른 파일을 올리면 대조에서 어긋난다.
+    tool: ait-container
+    supportedFormats: [ait, zip]
+    internalVersionField: none
+    fields:
+      digest: sha256
+      memo: canonical-release-memo-with-artifact-digest
+    memoFields:
+      - tag
+      - version-name
+      - android-version-code
+      - source-sha-12
+      - artifact-sha256
+    # 컨테이너가 내부 version 기록을 갖게 되면 tag 단일 authority 전제가 깨진다.
+    # 관측되면 계약 갱신 전까지 배포하지 않는다.
+    onInternalVersionFieldObserved: fail-closed
+
+# 빌드된 artifact 하나를 binding에 묶는 receipt. provider upload memo와 같은 digest를 담는다.
+artifactReceipt:
+  marker: 'seori-release-artifact: 1'
+  digestSource:
+    android-app-bundle: artifact-file
+    ait: artifact-file
+    # xcarchive는 디렉터리 번들이라 파일 하나로 digest를 잡을 수 없다. readback한 Info.plist를 쓴다.
+    xcode-archive: archive-info-plist
+  fields:
+    - authority
+    - authority-revision
+    - tag
+    - source-sha
+    - config-revision
+    - artifact-kind
+    - artifact-digest-source
+    - artifact-sha256
+    - version-name
+    - android-version-code
+    - apple-build-number
+    - upload-memo
+
+# 업로드 스텝은 검증한 그 파일만 올린다. caller 스크립트가 자체 탐색으로 다른 파일을 고를 수 없다.
+uploadBinding:
+  passVerifiedArtifactPath: true
+  reverifyDigestBeforeUpload: true
+  # 검증된 파일이 있는 디렉터리에 같은 확장자 후보가 하나만 있어야 한다.
+  singleCandidateInArtifactDirectory: true
+
+# export_presets.cfg는 authority가 아니라 주입 대상이다. 어떤 preset을 바꿀지는 반드시 명시한다.
+godotExportPreset:
+  selector: explicit-preset-name-or-index
+  ambiguousSelector: fail-closed
+  mustMatchExportedPreset: true
+
+# WorkflowBundle v5 정본 경로도 같은 authority를 쓴다. release 실행은 exact tag ref에서만 시작한다.
+workflowBundleV5:
+  releaseRefPattern: '^refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+  bindingMode: RELEASE
+  requiresApprovedBundle: true
+  calledWorkflows:
+    - .github/workflows/rn-build-android-cloud-v2.yml
+    - .github/workflows/godot-build-android-cloud-v2.yml
+    - .github/workflows/ait-build-only-v1.yml
+  xcodeCloud:
+    envelope: contracts/xcode-cloud-run-v5.schema.json
+    sourceReferenceKind: TAG
+    requiredReadback:
+      - expectedSourceCommitSha
+      - expectedSourceReferenceId
+      - expectedWorkflowId
+      - expectedMarketingVersion
+      - expectedBuildNumber
+
+failClosed:
+  - id: tag-pattern-mismatch
+  - id: derived-version-code-out-of-range
+  - id: artifact-digest-mismatch
+  - id: ait-internal-version-field-present
+  - id: godot-preset-selector-required
+  - id: godot-preset-selector-mismatch
+  - id: godot-preset-selector-ambiguous
+  - id: tag-ref-mismatch
+  - id: source-sha-mismatch
+  - id: config-revision-mismatch
+  - id: artifact-provenance-mismatch
+  - id: tag-reuse-with-different-source
+  - id: tag-reuse-with-different-config
+  - id: forbidden-authority-override

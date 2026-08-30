@@ -1,9 +1,10 @@
 # Seorilabs org 재사용 워크플로우: RN 앱 Google Play (서명 AAB + 업로드)
 # 호출: uses: seorilabs/.github/.github/workflows/rn-deploy-google-play.yml@<FULL_COMMIT_SHA>
 # 러너: ubuntu-latest (Android aapt2가 x86-64 → ARC 금지). 업로드: WIF(keyless).
+# 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
+# package.json, Gradle, 저장소 로컬 resolver, 마켓 config JSON은 authority가 아니며 AAB readback에서
+# tag 파생값과 다르면 업로드 전에 fail-closed한다.
 # 표준 contract(템플릿이 구현):
-#   - scripts/resolve-release-version.mjs --tag <tag> --github-output
-#       → version_name, android_version_code, release_name
 #   - apps/mobile/android(또는 android)/gradlew :app:bundleRelease
 #       -PversionNameOverride -PversionCodeOverride
 #   - scripts/upload-google-play-internal.py --aab-path --release-name --release-status [--track] [--changes-not-sent-for-review]
@@ -71,10 +72,6 @@ on:
         required: false
         default: ""
         type: string
-      version_script:
-        required: false
-        default: "scripts/resolve-release-version.mjs"
-        type: string
       upload_script:
         required: false
         default: "scripts/upload-google-play-internal.py"
@@ -92,6 +89,15 @@ on:
         required: false
         default: 35
         type: number
+    secrets:
+      FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64:
+        required: false
+      GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64:
+        required: false
+      GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD:
+        required: false
+      GOOGLE_PLAY_UPLOAD_KEY_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -111,37 +117,22 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Resolve release tag
-        id: tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="${{ inputs.release_tag }}"
-          if [ -z "$tag" ]; then
-            tag="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | head -n 1 || true)"
-            [ -n "$tag" ] || { echo "release_tag 비어있고 vX.Y.Z 태그 없음." >&2; exit 1; }
-          fi
-          [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
-            || { echo "release_tag는 stable SemVer vX.Y.Z여야 함: $tag" >&2; exit 1; }
-          git -c advice.detachedHead=false checkout "$tag"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
       - name: Setup Node
         if: inputs.npm_registry_url == ''
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           check-latest: false
 
       - name: Setup Node with npm registry
         if: inputs.npm_registry_url != ''
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           check-latest: false
@@ -156,8 +147,72 @@ jobs:
           corepack enable
           corepack prepare pnpm@${{ inputs.pnpm_version }} --activate
 
+      # 버전 authority 구현은 org 정본에만 둔다. caller 저장소 스크립트를 신뢰하지 않기 위해
+      # called workflow identity를 확인하고 그 exact commit SHA로 정본을 받아 실행한다.
+      - name: Validate called reusable workflow identity
+        id: authority
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/rn-deploy-google-play.yml
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
+          '
+
+      - name: Checkout exact release version authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.authority.outputs.repository }}
+          ref: ${{ steps.authority.outputs.sha }}
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
+      - name: Resolve exact release tag
+        id: tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          git tag --list > "$RUNNER_TEMP/git-tags.txt"
+          tag="$(node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --tag-list-file "$RUNNER_TEMP/git-tags.txt" --print-tag)"
+          git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null
+          git -c advice.detachedHead=false checkout "refs/tags/$tag"
+          tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          head_commit="$(git rev-parse 'HEAD^{commit}')"
+          [ "$tag_commit" = "$head_commit" ] || {
+            echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
+            exit 1
+          }
+          { echo "tag=$tag"; echo "sha=$tag_commit"; } >> "$GITHUB_OUTPUT"
+
+      - name: Bind release version to the tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
+          JOB_WORKFLOW_REPOSITORY: ${{ steps.authority.outputs.repository }}
+          JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
+          JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+        run: |
+          set -euo pipefail
+          if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then
+            git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release-tag-message.txt"
+            export RELEASE_TAG_MESSAGE_FILE="$RUNNER_TEMP/release-tag-message.txt"
+          fi
+          RELEASE_HEAD_SHA="$(git rev-parse 'HEAD^{commit}')" \
+          RELEASE_LOCAL_TAG_SHA="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" \
+            node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --github-output
+
       - name: Setup Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
@@ -174,11 +229,6 @@ jobs:
             npm ci
             [ -f apps/mobile/package-lock.json ] && npm ci --prefix apps/mobile || true
           fi
-
-      - name: Resolve release version
-        id: release
-        shell: bash
-        run: node ${{ inputs.version_script }} --tag "${{ steps.tag.outputs.tag }}" --github-output
 
       - name: Prepare native project
         if: inputs.prepare_script != ''
@@ -273,11 +323,54 @@ jobs:
           APP_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
         run: ./gradlew :app:bundleRelease --no-daemon -PversionNameOverride="$APP_VERSION_NAME" -PversionCodeOverride="$APP_VERSION_CODE"
 
+      # Gradle이 override를 무시하거나 프로젝트 값이 남아 있으면 여기서 fail-closed한다.
+      - name: Verify AAB version against the release tag
+        id: provenance
+        shell: bash
+        env:
+          AAB_PATH: ${{ steps.android.outputs.aab_path }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+        run: |
+          set -euo pipefail
+          # AAB의 base/manifest/AndroidManifest.xml은 aapt.pb.XmlNode 바이너리다.
+          # aapt2 dump는 AAB를 인식하지 못하므로 zip에서 직접 꺼내 org 정본 parser로 읽는다.
+          unzip -p "$AAB_PATH" base/manifest/AndroidManifest.xml > "$RUNNER_TEMP/aab-manifest.pb"
+          [ -s "$RUNNER_TEMP/aab-manifest.pb" ] || { echo "AAB에서 AndroidManifest.xml을 꺼내지 못함." >&2; exit 1; }
+          node .seorilabs-release-authority/scripts/release/verify-release-artifact.mjs \
+            --kind android-app-bundle \
+            --artifact "$AAB_PATH" \
+            --metadata "$RUNNER_TEMP/aab-manifest.pb" \
+            --receipt "$RUNNER_TEMP/release-artifact-receipt.txt" \
+            --github-output
+
+      # 업로드 스텝은 검증한 그 파일만 올려야 한다. caller 스크립트가 glob으로 다른 .aab를
+      # 고르지 못하도록, workspace에 검증된 AAB 하나만 있는지와 digest가 그대로인지 확인한다.
+      - name: Bind the verified AAB as the only upload candidate
+        if: ${{ inputs.upload }}
+        shell: bash
+        env:
+          VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
+          VERIFIED_AAB_DIGEST: ${{ steps.provenance.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          [ -f "$VERIFIED_AAB_PATH" ] || { echo "검증된 AAB 경로가 없다: $VERIFIED_AAB_PATH" >&2; exit 1; }
+          observed="$(sha256sum "$VERIFIED_AAB_PATH" | cut -d ' ' -f 1)"
+          [ "$observed" = "$VERIFIED_AAB_DIGEST" ] || {
+            echo "업로드 직전 AAB digest가 검증값과 다르다: $observed != $VERIFIED_AAB_DIGEST" >&2
+            exit 1
+          }
+          # 검증된 파일 옆에 다른 .aab가 있으면 업로드 도구가 그쪽을 고를 수 있다.
+          bundles="$(find "$(dirname "$VERIFIED_AAB_PATH")" -maxdepth 1 -type f -name '*.aab' | wc -l | tr -d ' ')"
+          [ "$bundles" = 1 ] || {
+            echo "검증된 AAB 디렉터리에 .aab가 정확히 하나여야 한다: $bundles" >&2
+            exit 1
+          }
+
       - name: Upload AAB artifact
         if: ${{ !inputs.upload }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: google-play-aab-${{ steps.release.outputs.release_name || steps.tag.outputs.tag }}
+          name: google-play-aab-${{ steps.tag.outputs.tag }}-${{ steps.release.outputs.android_version_code }}
           path: ${{ steps.android.outputs.aab_path }}
           if-no-files-found: error
           retention-days: 3
@@ -295,7 +388,7 @@ jobs:
 
       - name: Authenticate to Google Cloud
         if: ${{ inputs.upload }}
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
@@ -339,11 +432,14 @@ jobs:
           # 언어별 노트(전체 언어)는 env 파일 경로로 전달. 스크립트가 등록 언어와 교집합만 반영.
           # env 로 넘겨야 --release-notes-json 미지원(구버전) 스크립트도 깨지지 않고 무시한다.
           RELEASE_NOTES_JSON: ${{ steps.notes.outputs.found == 'true' && steps.notes.outputs.path || '' }}
+          # 업로드 대상은 검증된 exact 경로 하나다. 스크립트가 자체 탐색으로 다른 파일을 고르지 않는다.
+          VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
+          SEORI_EXPECTED_AAB_SHA256: ${{ steps.provenance.outputs.artifact_digest }}
         run: |
           set -euo pipefail
           args=(
-            --aab-path "${{ steps.android.outputs.aab_path }}"
-            --release-name "${{ steps.release.outputs.release_name || steps.release.outputs.version_name || steps.tag.outputs.tag }}"
+            --aab-path "$VERIFIED_AAB_PATH"
+            --release-name "${{ steps.release.outputs.release_name }}"
             --release-status "${{ inputs.release_status }}"
             --track "${{ inputs.track }}"
           )
@@ -355,7 +451,10 @@ jobs:
         run: |
           {
             echo "### Deploy Google Play"; echo ""
-            echo "- tag: ${{ steps.tag.outputs.tag }}"
+            echo "- tag: ${{ steps.tag.outputs.tag }} @ ${{ steps.tag.outputs.sha }}"
+            echo "- version: ${{ steps.release.outputs.version_name }} (${{ steps.release.outputs.android_version_code }})"
+            echo "- config revision: ${{ steps.release.outputs.config_revision }}"
+            echo "- artifact digest: ${{ steps.provenance.outputs.artifact_digest }}"
             echo "- track: ${{ inputs.track }} / status: ${{ inputs.release_status }}"
             echo "- uploaded: ${{ inputs.upload }}"
           } >> "$GITHUB_STEP_SUMMARY"

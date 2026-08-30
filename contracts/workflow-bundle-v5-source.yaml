@@ -61,7 +61,7 @@ buildRuntimeBinding:
   endpoint: /api/control-plane/apps/{repositoryId}/resolved-manifest
   authentication: github-oidc
   audience: seorilabs-control-plane
-  sourceStrategy: exact-main-or-fixed-canary-pr-base
+  sourceStrategy: exact-main-or-fixed-canary-pr-base-or-exact-release-tag
   candidatePolicy: fixed-repository-workflow-sha-and-plan-identity
   candidateBranchTemplate: seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}/{planIdentity}
   identity:

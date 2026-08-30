@@ -20,6 +20,7 @@ on:
         default: "build/pages"
         type: string
       runs_on:
+        description: "실행 러너. seorilabs-rpi-arm64 또는 ubuntu-latest만 허용한다."
         required: false
         default: "seorilabs-rpi-arm64"
         type: string
@@ -36,15 +37,28 @@ permissions:
 jobs:
   build:
     name: Build Godot Web
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     env:
       GODOT_VERSION: ${{ inputs.godot_version }}
       GODOT_STATUS: ${{ inputs.godot_status }}
 
     steps:
+      # 권한 있는 job의 러너는 caller 입력을 그대로 믿지 않는다. 승인된 라벨만 허용하고,
+      # 그 밖의 값은 요청 자체를 실패시킨다(runs-on은 이미 승인 목록으로 축약돼 있다).
+      - name: Reject unapproved runner routing
+        shell: bash
+        env:
+          REQUESTED_RUNNER: ${{ inputs.runs_on }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_RUNNER" in
+            "seorilabs-rpi-arm64" | "ubuntu-latest") ;;
+            *) echo "승인되지 않은 러너 라벨: $REQUESTED_RUNNER" >&2; exit 1 ;;
+          esac
+
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Ensure fontconfig runtime
         shell: bash
@@ -104,17 +118,17 @@ jobs:
           find "$PAGES_DIR" -maxdepth 1 -type f -print | sort
 
       - name: Configure Pages
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: ${{ inputs.pages_dir }}
 
   deploy:
     name: Deploy GitHub Pages
     needs: build
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}
     timeout-minutes: 10
     environment:
       name: github-pages
@@ -122,4 +136,4 @@ jobs:
     steps:
       - name: Deploy Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

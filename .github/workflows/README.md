@@ -36,7 +36,7 @@
 | `rn-build-android.yml` | RN signed AAB 후보 산출물 빌드(배포 없음) | ubuntu |
 | `godot-checks.yml` | Godot import→compile→smoke | ARC(또는 ubuntu) |
 | `godot-pages.yml` | Godot Web export + Pages 배포 | ARC(또는 ubuntu) |
-| `release-tag.yml` | 명시적 SemVer 태그 생성/push | ARC |
+| `release-tag.yml` | 지정 commit에 명시적 SemVer 태그 생성/push(마커 커밋·브랜치 push 없음) | ARC |
 | `rn-deploy-ait.yml` | RN .ait build + AppsInToss deploy | ARC |
 | `godot-deploy-ait.yml` | Godot web→wrapper→AppsInToss deploy | ARC |
 | `rn-deploy-google-play.yml` | RN 서명 AAB + Google Play 업로드 | ubuntu |
@@ -95,9 +95,21 @@ publisher 권한을 가져서는 안 된다. GitHub OIDC 조건은 숫자 reposi
 
 ## caller 표준 contract (repo가 제공)
 
-- 버전 리졸버: `scripts/resolve-release-version.mjs --tag <tag> --github-output` → `version_name`, `android_version_code`, `apple_marketing_version`, `apple_build_number`, `release_name`.
+- 버전 리졸버는 caller가 제공하지 않는다. 재사용 워크플로우가 called-workflow exact SHA로
+  `seorilabs/.github`를 받아 `scripts/release/resolve-release-version.mjs`를 실행하고,
+  릴리즈 태그에서 `version_name`, `android_version_code`, `apple_marketing_version`,
+  `apple_build_number`, `release_name`을 파생한다. 저장소 로컬
+  `scripts/resolve-release-version.mjs`와 caller `version_name`/`version_code`/`version_script`
+  입력은 제거됐다. 계약은 [`contracts/release-version-authority.yaml`](../../contracts/release-version-authority.yaml).
 - Android: `apps/mobile/android`(또는 `android`)/`gradlew :app:bundleRelease -PversionNameOverride -PversionCodeOverride`.
 - Google Play 업로드: `scripts/upload-google-play-internal.py`(RN) / `tools/upload_google_play_internal.py`(Godot).
+  두 도구 모두 `--aab-path`로 받은 **검증된 파일 하나만** 업로드한다. 스스로 AAB를 탐색하지 않는다.
+  워크플로우는 업로드 직전에 그 경로의 sha256을 다시 계산해 대조하고, workspace에 `.aab`가 하나뿐인지
+  확인한다. 참고 값으로 `SEORI_EXPECTED_AAB_SHA256`도 함께 넘어간다.
+- AppsInToss 배포: 저장소 `deploy` 스크립트는 워크플로우가 준 `--memo`를 **그대로** 전달한다.
+  memo에는 태그 파생값과 artifact sha256이 들어 있어 다시 만들거나 자르면 대조가 깨진다.
+- Godot export preset: 버전 주입 대상과 `godot --export-release` 대상이 같은 preset이어야 한다.
+  Google Play는 `android_export_preset`(기본 `Android`), App Store는 `ios_export_preset`으로 명시한다.
 - Godot Android에서 import 전 공개 runtime config 복원이나 최종 AAB 정책 검사가 필요하면 각각 `prepare_project_script`, `post_export_validation_script`를 넘긴다. 후자에는 `AAB_PATH`, `ANDROID_VERSION_NAME`, `ANDROID_VERSION_CODE`가 전달된다.
 - Firebase 복원: `scripts/restore-mobile-firebase-config.mjs --android|--ios --require`.
 - Godot web export: `scripts/export_godot_web.sh`.
