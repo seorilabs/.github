@@ -11,13 +11,13 @@ Broker workload를 활성화하지 않는다.
 
 - RPI5: `rpi5` / `192.168.0.99`
 - Tang 1: `rpi4001` / `192.168.0.100:7500`
-- Tang 2: `m6-seori-01` / `192.168.0.118:7500`
+- Tang 2: `seori-m6-01` / `192.168.0.118:7500`
 - encrypted image: `/data/seori-auth/seori-auth-state.luks`, 16 GiB non-sparse
 - mapper: `/dev/mapper/seori-auth-state`
 - filesystem/mount: `ext4`, `/var/lib/seori-auth`
 
-`m6-seori-01`은 현재 제공된 host 이름을 exact identity로 사용한다. 실제 `hostname --short`
-결과가 다르면 alias로 우회하지 않고 계약을 근거와 함께 수정한다.
+`seori-m6-01`은 `192.168.0.118`에서 `hostname --short`로 readback한 exact identity다.
+연결용 별칭과 실제 hostname을 혼용하지 않는다.
 
 ## 보안 경계
 
@@ -69,7 +69,7 @@ non-root volume의 `_netdev` boot unlock은
 
 ```bash
 node scripts/fleet/provision-p2-tang-server.mjs plan --server=rpi4001
-node scripts/fleet/provision-p2-tang-server.mjs plan --server=m6-seori-01
+node scripts/fleet/provision-p2-tang-server.mjs plan --server=seori-m6-01
 ```
 
 apply는 plan이 반환한 exact confirmation을 사용한다. Ubuntu/Debian exact identity, port collision,
@@ -134,7 +134,7 @@ sudo node scripts/fleet/provision-p2-host-encryption.mjs apply \
   --kubeconfig=/canonical/path/to/kubeconfig \
   --recovery-key-file=/canonical/root-owned/path \
   --tang-attestation=/canonical/path/to/rpi4001.json \
-  --tang-attestation=/canonical/path/to/m6-seori-01.json
+  --tang-attestation=/canonical/path/to/seori-m6-01.json
 ```
 
 apply 성공은 reboot persistence 완료가 아니다. 먼저 readback한 뒤 RPI5를 승인된 별도 작업으로
@@ -144,12 +144,12 @@ apply 성공은 reboot persistence 완료가 아니다. 먼저 readback한 뒤 R
 node scripts/fleet/provision-p2-host-encryption.mjs readback \
   --kubeconfig=/canonical/path/to/kubeconfig \
   --tang-attestation=/canonical/path/to/rpi4001.json \
-  --tang-attestation=/canonical/path/to/m6-seori-01.json
+  --tang-attestation=/canonical/path/to/seori-m6-01.json
 
 sudo node scripts/fleet/provision-p2-host-encryption.mjs reboot-readback \
   --kubeconfig=/canonical/path/to/kubeconfig \
   --tang-attestation=/canonical/path/to/rpi4001.json \
-  --tang-attestation=/canonical/path/to/m6-seori-01.json
+  --tang-attestation=/canonical/path/to/seori-m6-01.json
 ```
 
 최종 상태 `HOST_ENCRYPTED_MOUNT_REBOOT_VERIFIED` 전에는 workload replicas를 올리지 않는다. 반대로
@@ -170,7 +170,7 @@ sudo node scripts/fleet/provision-p2-host-encryption.mjs rollback \
   --kubeconfig=/canonical/path/to/kubeconfig \
   --recovery-key-file=/canonical/root-owned/path \
   --tang-attestation=/canonical/path/to/rpi4001.json \
-  --tang-attestation=/canonical/path/to/m6-seori-01.json
+  --tang-attestation=/canonical/path/to/seori-m6-01.json
 ```
 
 restore도 rollback receipt, header/recovery-key rehearsal, empty plain target, original configuration
@@ -186,7 +186,7 @@ sudo node scripts/fleet/provision-p2-host-encryption.mjs restore \
   --kubeconfig=/canonical/path/to/kubeconfig \
   --recovery-key-file=/canonical/root-owned/path \
   --tang-attestation=/canonical/path/to/rpi4001.json \
-  --tang-attestation=/canonical/path/to/m6-seori-01.json
+  --tang-attestation=/canonical/path/to/seori-m6-01.json
 ```
 
 `cryptsetup luksFormat`, header backup과 restore의 파괴성은

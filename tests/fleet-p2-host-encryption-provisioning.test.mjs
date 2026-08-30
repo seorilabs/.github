@@ -58,11 +58,11 @@ const confirmationSet = confirmations(contract);
 const fakeRecoverySecret = 'FAKE_LUKS_RECOVERY_SECRET_MUST_NEVER_APPEAR_0123456789';
 const thumbprints = {
   rpi4001: 'A'.repeat(43),
-  'm6-seori-01': 'B'.repeat(43),
+  'seori-m6-01': 'B'.repeat(43),
 };
 const advertisements = {
   rpi4001: '{"server":"rpi4001","adv":1}\n',
-  'm6-seori-01': '{"server":"m6-seori-01","adv":1}\n',
+  'seori-m6-01': '{"server":"seori-m6-01","adv":1}\n',
 };
 const tangKeyFixture = {
   'exc.jwk': '{"kty":"EC","kid":"fixture-exchange"}\n',
@@ -294,7 +294,7 @@ test('Tang attestations exact-bind both host identities, port, advertisements an
     attestations,
     fixture.authorityPublicKey,
   );
-  assert.deepEqual(validated.map(({ nodeName }) => nodeName), ['rpi4001', 'm6-seori-01']);
+  assert.deepEqual(validated.map(({ nodeName }) => nodeName), ['rpi4001', 'seori-m6-01']);
   assert.equal(validated[0].backup.privateEvidence, undefined);
   assert.equal(validated[0].keyInventory.ownerId, undefined);
   assert.equal(validated[0].keyInventory.mode, undefined);
@@ -303,7 +303,7 @@ test('Tang attestations exact-bind both host identities, port, advertisements an
     pins: {
       tang: [
         { url: 'http://192.168.0.100:7500', thp: thumbprints.rpi4001 },
-        { url: 'http://192.168.0.118:7500', thp: thumbprints['m6-seori-01'] },
+        { url: 'http://192.168.0.118:7500', thp: thumbprints['seori-m6-01'] },
       ],
     },
   });

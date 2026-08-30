@@ -26,12 +26,12 @@ const nodeName = process.env.SEORILABS_HOST_FIXTURE_NODE ?? 'rpi5';
 const LUKS_UUID = '12345678-1234-1234-1234-123456789abc';
 const THUMBPRINTS = {
   rpi4001: 'A'.repeat(43),
-  'm6-seori-01': 'B'.repeat(43),
+  'seori-m6-01': 'B'.repeat(43),
 };
 const IPS = {
   rpi5: '192.168.0.99',
   rpi4001: '192.168.0.100',
-  'm6-seori-01': '192.168.0.118',
+  'seori-m6-01': '192.168.0.118',
 };
 
 let recoveryFdIdentity;
@@ -319,7 +319,7 @@ if (executable === '/usr/bin/clevis') {
       pins: {
         tang: [
           { url: 'http://192.168.0.100:7500', thp: THUMBPRINTS.rpi4001 },
-          { url: 'http://192.168.0.118:7500', thp: THUMBPRINTS['m6-seori-01'] },
+          { url: 'http://192.168.0.118:7500', thp: THUMBPRINTS['seori-m6-01'] },
         ],
       },
     };
@@ -447,8 +447,8 @@ if (executable === '/usr/bin/curl') {
   if (url.includes('192.168.0.100') || (url.includes('127.0.0.1') && nodeName === 'rpi4001')) {
     outputRaw('{"server":"rpi4001","adv":1}\n');
   }
-  if (url.includes('192.168.0.118') || (url.includes('127.0.0.1') && nodeName === 'm6-seori-01')) {
-    outputRaw('{"server":"m6-seori-01","adv":1}\n');
+  if (url.includes('192.168.0.118') || (url.includes('127.0.0.1') && nodeName === 'seori-m6-01')) {
+    outputRaw('{"server":"seori-m6-01","adv":1}\n');
   }
   process.exit(22);
 }

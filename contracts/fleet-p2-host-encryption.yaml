@@ -66,14 +66,14 @@ tang:
       socketUnit: tangd.socket
       keyDirectory: /var/lib/tang
       backupLogicalId: shared/seori-auth/tang/rpi4001-server-keys
-    - nodeName: m6-seori-01
-      expectedHostname: m6-seori-01
+    - nodeName: seori-m6-01
+      expectedHostname: seori-m6-01
       ipv4: 192.168.0.118
       port: 7500
       url: http://192.168.0.118:7500
       socketUnit: tangd.socket
       keyDirectory: /var/lib/tang
-      backupLogicalId: shared/seori-auth/tang/m6-seori-01-server-keys
+      backupLogicalId: shared/seori-auth/tang/seori-m6-01-server-keys
 kubernetes:
   context: vzyx-cluster
   namespace: auth-broker

@@ -221,11 +221,11 @@
         {
           "type": "object",
           "properties": {
-            "nodeName": { "const": "m6-seori-01" },
-            "expectedHostname": { "const": "m6-seori-01" },
+            "nodeName": { "const": "seori-m6-01" },
+            "expectedHostname": { "const": "seori-m6-01" },
             "ipv4": { "const": "192.168.0.118" },
             "url": { "const": "http://192.168.0.118:7500" },
-            "backupLogicalId": { "const": "shared/seori-auth/tang/m6-seori-01-server-keys" }
+            "backupLogicalId": { "const": "shared/seori-auth/tang/seori-m6-01-server-keys" }
           }
         }
       ]
