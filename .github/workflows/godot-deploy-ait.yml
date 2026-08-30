@@ -54,13 +54,19 @@ on:
         default: 30
         type: number
 
+      runs_on:
+        description: "러너. arch 의존이 없어 기본은 x64 다. public repo 는 ubuntu-latest 를 넘긴다."
+        required: false
+        default: "seorilabs-x64"
+        type: string
+
 permissions:
   contents: read
 
 jobs:
   deploy:
     name: Godot web export and AIT deploy
-    runs-on: seorilabs-rpi-arm64
+    runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: apps-in-toss
 

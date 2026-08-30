@@ -64,6 +64,12 @@ on:
         default: 25
         type: number
 
+      runs_on:
+        description: "러너. arch 의존이 없어 기본은 x64 다. public repo 는 ubuntu-latest 를 넘긴다."
+        required: false
+        default: "seorilabs-x64"
+        type: string
+
 permissions:
   contents: read
   packages: read
@@ -71,7 +77,7 @@ permissions:
 jobs:
   deploy:
     name: Build and deploy .ait
-    runs-on: seorilabs-rpi-arm64
+    runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: apps-in-toss
 
