@@ -16,6 +16,16 @@ attestor:
     artifactSha256: fe37a8fc8f9c975c2583aec56635c0655e34f1b5df51c0686231566c9470826c
     fileCount: 8880
     isolatedRestoreVerified: true
+  postBootstrapBackup:
+    backupScriptRelativePath: scripts/backup-credentials.sh
+    backupScriptSha256: e1661a04b15be418a4a5ebb714a11d99172efe307b2afec8e0678f19eb5b87ff
+    restoreScriptRelativePath: scripts/restore-check.sh
+    restoreScriptSha256: 240d45f269e702d9360047d4d0ec9319123bd8ca9d3715bd1fa281d902b31d51
+    receiptRelativePath: seori-auth/stage1-post-bootstrap-backup-receipt.json
+    receiptMode: "0600"
+    backupPolicy: CANONICAL_FULL_LOCAL_AND_BEESTATION
+    restorePolicy: CANONICAL_ISOLATED_RESTORE_CHECK
+    bindingPolicy: TWO_LOGICAL_IDS_PUBLIC_FINGERPRINTS_AND_ARTIFACTS_ED25519_SIGNED
   consumers:
     - tang-backup-attestor
     - rpi4001:tang-backup-readback
@@ -170,6 +180,8 @@ hosts:
     backupCatalogShardRelativePath: catalog/seori-auth-tang-seori-m6-01.yaml
 tangBackup:
   keyDirectory: /var/lib/tang
+  keyOwner: _tang
+  keyGroup: _tang
   keyFileMode: "0440"
   remoteRoot: /var/backups/seori-auth/tang-v1
   localRelativeRoot: seori-auth/tang

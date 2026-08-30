@@ -58,8 +58,9 @@ Broker workload를 활성화하지 않는다.
   사전 existence 확인은 mutation 안전성을 대신하지 않는다.
 - pre-backup, managed config, marker, provision/reboot/rollback receipt도 path를 argv로 받지 않는다.
   caller는 allowlist record ID와 bytes를 stdin으로만 넘기고 native boundary가 host-root부터 component별
-  `openat O_NOFOLLOW`로 연 parent dirfd 안에서 `openat O_EXCL`, `linkat` no-clobber, file·directory
-  `fsync`와 inode readback을 수행한다. marker의 `root:65532 0440` metadata도 같은 FD 경계에서 고정한다.
+  `openat O_NOFOLLOW`로 연 parent dirfd 안에서 고정 pending entry의 identity-bound crash recovery,
+  `openat O_EXCL`, `renameat2 RENAME_NOREPLACE`, file·directory `fsync`와 inode readback을 수행한다.
+  marker의 `root:65532 0440` metadata도 같은 FD 경계에서 고정한다.
 - apply 전에는 source와 mapper가 없어야 하고 mount target은 비어 있어야 한다. source만 생긴 상태,
   mapper만 열린 상태, systemd line 일부만 있는 상태는 자동 복구하지 않고 `READBACK_FIRST`로
   중단한다.

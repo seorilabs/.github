@@ -3,6 +3,7 @@ import { execFile, spawn } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import {
   chmod,
+  link,
   lstat,
   mkdir,
   mkdtemp,
@@ -22,12 +23,14 @@ import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { parse } from 'yaml';
 
-import { sha256 } from '../tools/seori-auth/src/host-encryption-provisioning.mjs';
+import { canonicalDigest, sha256 } from '../tools/seori-auth/src/host-encryption-provisioning.mjs';
 import {
   buildVerifiedPrivateEvidence,
   decryptTangBackup,
   encryptTangBackup,
   isolatedRestoreInventory,
+  parseCanonicalCredentialBackupOutput,
+  parseCanonicalCredentialRestoreOutput,
   readScopedTangInventory,
 } from '../tools/seori-auth/src/p2-stage1.mjs';
 
@@ -111,6 +114,7 @@ async function createFixture() {
         chmod(join(tang, 'exc.jwk'), 0o440),
       ]);
     }
+    await mkdir(join(root, 'var/tmp'), { recursive: true, mode: 0o700 });
   }
   return {
     temporary,
@@ -248,6 +252,13 @@ test('P2 Stage1 contract fixes separate signing/encryption identities and truste
   assert.equal(contract.tangBackupEncryption.algorithm, 'X25519-HKDF-SHA256-AES-256-GCM');
   assert.notEqual(contract.attestor.logicalCredentialId, contract.tangBackupEncryption.logicalCredentialId);
   assert.equal(contract.tangBackup.keyFileMode, '0440');
+  assert.equal(contract.tangBackup.keyOwner, '_tang');
+  assert.equal(contract.tangBackup.keyGroup, '_tang');
+  assert.equal(
+    contract.attestor.postBootstrapBackup.backupPolicy,
+    'CANONICAL_FULL_LOCAL_AND_BEESTATION',
+  );
+  assert.ok(contract.sourceBootstrap.requiredExecutables.includes('/usr/bin/id'));
   assert.equal(
     contract.hostProcessBoundary.launcherExecutable,
     '/usr/local/libexec/seori-auth-native',
@@ -272,6 +283,33 @@ test('P2 Stage1 contract fixes separate signing/encryption identities and truste
   assert.equal(contract.ssh.copyExecutable, undefined);
   assert.match(contract.ssh.authenticationPolicy, /TRUSTED_NATIVE_RELAY/u);
   assert.equal(contract.attestor.preBootstrapBackup.isolatedRestoreVerified, true);
+});
+
+test('canonical credential backup and restore outputs are exact and cross-checkable', () => {
+  const digest = 'd'.repeat(64);
+  const backup = parseCanonicalCredentialBackupOutput([
+    'BACKUP_ARCHIVE=/canonical/local/archive.tar.zst.gpg',
+    `BACKUP_SHA256=${digest}`,
+    'BACKUP_FILE_COUNT=9000',
+    'BEESTATION_ARCHIVE=/canonical/bee/archive.tar.zst.gpg',
+  ].join('\n'));
+  const restore = parseCanonicalCredentialRestoreOutput([
+    'RESTORE_CHECK=true',
+    `ARCHIVE_SHA256=${digest}`,
+    'RESTORED_FILE_COUNT=9000',
+    'PASSPHRASE_SOURCE=macos-keychain',
+  ].join('\n'));
+  assert.equal(backup.archiveSha256, restore.archiveSha256);
+  assert.equal(backup.fileCount, restore.fileCount);
+  assert.throws(
+    () => parseCanonicalCredentialRestoreOutput([
+      'RESTORE_CHECK=true',
+      `ARCHIVE_SHA256=${digest}`,
+      'RESTORED_FILE_COUNT=9000',
+      'PASSPHRASE_SOURCE=stdout-secret',
+    ].join('\n')),
+    /P2_STAGE1_POST_BACKUP_RESTORE_FAILED/u,
+  );
 });
 
 test('scoped Tang inventory encrypts and restores content plus exact 0440 metadata', async () => {
@@ -303,17 +341,36 @@ test('scoped Tang inventory encrypts and restores content plus exact 0440 metada
     });
     const restoreParent = await mkdtemp(join(tmpdir(), 'p2-stage1-restore-'));
     try {
+      const declaredOwnerId = payload.files[0].ownerId;
+      const declaredGroupId = payload.files[0].groupId;
+      for (const file of payload.files) {
+        file.ownerId = declaredOwnerId + 1;
+        file.groupId = declaredGroupId + 1;
+      }
+      payload.directory.ownerId += 1;
+      payload.directory.groupId += 1;
       const restored = isolatedRestoreInventory({
         payload,
         temporaryParent: restoreParent,
         applyOwnership: false,
       });
-      assert.deepEqual(restored, inventory.privateInventory);
+      assert.equal(restored.contentSha256, inventory.privateInventory.contentSha256);
+      assert.notEqual(restored.metadataSha256, canonicalDigest({
+        directory: payload.directory,
+        files: payload.files.map(({ name, ownerId, groupId, mode, content }) => ({
+          name,
+          ownerId,
+          groupId,
+          mode,
+          sizeBytes: Buffer.from(content, 'base64').length,
+        })).toSorted((left, right) => left.name.localeCompare(right.name)),
+      }));
       assert.doesNotThrow(() => buildVerifiedPrivateEvidence({
         server,
         artifactSha256: sha256(artifact),
         live: inventory.privateInventory,
         restored,
+        rootRestored: inventory.privateInventory,
       }));
     } finally {
       await rm(restoreParent, { recursive: true, force: true });
@@ -344,6 +401,19 @@ test('Tang inventory rejects non-JWK scope, symlinks, and non-0440 live keys', a
       await fixture.cleanup();
     }
   }
+  const fixture = await createFixture();
+  const tang = join(fixture.remoteRoot, 'rpi4001/var/lib/tang');
+  try {
+    const entry = await lstat(tang);
+    assert.throws(
+      () => readScopedTangInventory(tang, {
+        expectedOwner: { ownerId: entry.uid + 1, groupId: entry.gid + 1 },
+      }),
+      /P2_STAGE1_TANG_DIRECTORY_INVALID/u,
+    );
+  } finally {
+    await fixture.cleanup();
+  }
 });
 
 test('credential bootstrap is create-only, exact on rerun, and never emits private bytes', async () => {
@@ -352,6 +422,8 @@ test('credential bootstrap is create-only, exact on rerun, and never emits priva
     const first = await bootstrapCredentials(fixture);
     assert.equal(first.result.state, 'STAGE1_CREDENTIALS_BOOTSTRAPPED_OR_RECOVERED');
     assert.equal(first.result.secretExposed, false);
+    assert.equal(first.result.postBootstrapBackup.isolatedRestoreVerified, true);
+    assert.match(first.result.postBootstrapBackup.archiveSha256, /^[a-f0-9]{64}$/u);
     const privatePath = join(fixture.credentialRoot, contract.attestor.privateKeyRelativePath);
     const encryptionPath = join(
       fixture.credentialRoot,
@@ -388,6 +460,26 @@ test('private-only crash state derives public/catalog and completes the second c
     await mkdir(dirname(privatePath), { recursive: true, mode: 0o700 });
     await writeFile(privatePath, privateBytes, { mode: 0o600 });
     await chmod(privatePath, 0o600);
+    const privatePending = join(dirname(privatePath), `.${privatePath.split('/').at(-1)}.seorilabs-stage1.pending`);
+    await link(privatePath, privatePending);
+    const publicPath = join(fixture.credentialRoot, contract.attestor.publicKeyRelativePath);
+    const publicPending = join(
+      dirname(publicPath),
+      `.${publicPath.split('/').at(-1)}.seorilabs-stage1.pending`,
+    );
+    await writeFile(publicPending, 'power-loss-partial-public', { mode: 0o600 });
+    await chmod(publicPending, 0o600);
+    const encryptionPath = join(
+      fixture.credentialRoot,
+      contract.tangBackupEncryption.privateKeyRelativePath,
+    );
+    await mkdir(dirname(encryptionPath), { recursive: true, mode: 0o700 });
+    const encryptionPending = join(
+      dirname(encryptionPath),
+      `.${encryptionPath.split('/').at(-1)}.seorilabs-stage1.pending`,
+    );
+    await writeFile(encryptionPending, 'power-loss-partial', { mode: 0o600 });
+    await chmod(encryptionPending, 0o600);
     privateBytes.fill(0);
     const { result } = await bootstrapCredentials(fixture);
     assert.equal(result.state, 'STAGE1_CREDENTIALS_BOOTSTRAPPED_OR_RECOVERED');
@@ -398,6 +490,60 @@ test('private-only crash state derives public/catalog and completes the second c
       lstat(join(fixture.credentialRoot, contract.tangBackupEncryption.publicKeyRelativePath)),
       lstat(join(fixture.credentialRoot, contract.tangBackupEncryption.catalogShardRelativePath)),
     ]);
+    assert.equal((await lstat(privatePath)).nlink, 1);
+    await assert.rejects(lstat(privatePending), { code: 'ENOENT' });
+    await assert.rejects(lstat(publicPending), { code: 'ENOENT' });
+    await assert.rejects(lstat(encryptionPending), { code: 'ENOENT' });
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('post-bootstrap backup receipt binds both credentials and blocks artifact drift', async () => {
+  const fixture = await createFixture();
+  try {
+    const { plan, result } = await bootstrapCredentials(fixture);
+    const receiptPath = join(
+      fixture.credentialRoot,
+      contract.attestor.postBootstrapBackup.receiptRelativePath,
+    );
+    const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
+    assert.equal(receipt.attestorLogicalCredentialId, contract.attestor.logicalCredentialId);
+    assert.equal(
+      receipt.encryptionLogicalCredentialId,
+      contract.tangBackupEncryption.logicalCredentialId,
+    );
+    assert.equal(receipt.archiveSha256, result.postBootstrapBackup.archiveSha256);
+    assert.equal((await lstat(receiptPath)).mode & 0o777, 0o600);
+    const originalReceipt = await readFile(receiptPath);
+    const tampered = { ...receipt, signature: `${receipt.signature.slice(0, -2)}AA` };
+    await writeFile(receiptPath, `${JSON.stringify(tampered)}\n`, { mode: 0o600 });
+    await chmod(receiptPath, 0o600);
+    await expectControllerFailure(
+      fixture,
+      'provision-tang',
+      [
+        '--server=rpi4001',
+        `--source-sha=${'c'.repeat(40)}`,
+        `--confirmation=${plan.confirmations.tangProvision.rpi4001}`,
+      ],
+      'P2_STAGE1_POST_BACKUP_RECEIPT_INVALID',
+    );
+    await writeFile(receiptPath, originalReceipt, { mode: 0o600 });
+    await chmod(receiptPath, 0o600);
+    originalReceipt.fill(0);
+    await writeFile(receipt.archivePath, 'drifted backup artifact', { mode: 0o600 });
+    await chmod(receipt.archivePath, 0o600);
+    await expectControllerFailure(
+      fixture,
+      'provision-tang',
+      [
+        '--server=rpi4001',
+        `--source-sha=${'c'.repeat(40)}`,
+        `--confirmation=${plan.confirmations.tangProvision.rpi4001}`,
+      ],
+      'P2_STAGE1_POST_BACKUP_ARTIFACT_DRIFT',
+    );
   } finally {
     await fixture.cleanup();
   }
@@ -705,6 +851,7 @@ printf '{"stdinBytes":%s}\n' "$count"
 test('source bootstrap remote fixture is exact-SHA and readback-first', async () => {
   const fixture = await createFixture();
   try {
+    await bootstrapCredentials(fixture);
     const sourcePlan = JSON.parse((await runController(
       fixture,
       'source-plan',

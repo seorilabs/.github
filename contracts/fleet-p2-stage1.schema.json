@@ -11,7 +11,7 @@
     "credentialRootPolicy": { "const": "CANONICAL_HOME_CONFIG_SEORILABS_ONLY" },
     "attestor": {
       "type": "object", "additionalProperties": false,
-      "required": ["logicalCredentialId", "identity", "algorithm", "privateKeyRelativePath", "publicKeyRelativePath", "privateKeyMode", "publicKeyMode", "catalogShardRelativePath", "createPolicy", "preBootstrapBackup", "consumers"],
+      "required": ["logicalCredentialId", "identity", "algorithm", "privateKeyRelativePath", "publicKeyRelativePath", "privateKeyMode", "publicKeyMode", "catalogShardRelativePath", "createPolicy", "preBootstrapBackup", "postBootstrapBackup", "consumers"],
       "properties": {
         "logicalCredentialId": { "const": "shared/seori-auth/credential-backup-attestor" },
         "identity": { "const": "seorilabs-credential-backup-attestor-v1" },
@@ -29,6 +29,21 @@
             "artifactSha256": { "const": "fe37a8fc8f9c975c2583aec56635c0655e34f1b5df51c0686231566c9470826c" },
             "fileCount": { "const": 8880 },
             "isolatedRestoreVerified": { "const": true }
+          }
+        },
+        "postBootstrapBackup": {
+          "type": "object", "additionalProperties": false,
+          "required": ["backupScriptRelativePath", "backupScriptSha256", "restoreScriptRelativePath", "restoreScriptSha256", "receiptRelativePath", "receiptMode", "backupPolicy", "restorePolicy", "bindingPolicy"],
+          "properties": {
+            "backupScriptRelativePath": { "const": "scripts/backup-credentials.sh" },
+            "backupScriptSha256": { "const": "e1661a04b15be418a4a5ebb714a11d99172efe307b2afec8e0678f19eb5b87ff" },
+            "restoreScriptRelativePath": { "const": "scripts/restore-check.sh" },
+            "restoreScriptSha256": { "const": "240d45f269e702d9360047d4d0ec9319123bd8ca9d3715bd1fa281d902b31d51" },
+            "receiptRelativePath": { "const": "seori-auth/stage1-post-bootstrap-backup-receipt.json" },
+            "receiptMode": { "const": "0600" },
+            "backupPolicy": { "const": "CANONICAL_FULL_LOCAL_AND_BEESTATION" },
+            "restorePolicy": { "const": "CANONICAL_ISOLATED_RESTORE_CHECK" },
+            "bindingPolicy": { "const": "TWO_LOGICAL_IDS_PUBLIC_FINGERPRINTS_AND_ARTIFACTS_ED25519_SIGNED" }
           }
         },
         "consumers": {
@@ -222,9 +237,11 @@
     },
     "tangBackup": {
       "type": "object", "additionalProperties": false,
-      "required": ["keyDirectory", "keyFileMode", "remoteRoot", "localRelativeRoot", "archiveSuffix", "evidenceSuffix", "serverAttestationSuffix", "catalogShardSuffix", "hostAttestationRoot", "trustAnchorPath", "format", "cipher", "kdf", "encryptionBoundary", "createPolicy", "restorePolicy", "secretOutputPolicy"],
+      "required": ["keyDirectory", "keyOwner", "keyGroup", "keyFileMode", "remoteRoot", "localRelativeRoot", "archiveSuffix", "evidenceSuffix", "serverAttestationSuffix", "catalogShardSuffix", "hostAttestationRoot", "trustAnchorPath", "format", "cipher", "kdf", "encryptionBoundary", "createPolicy", "restorePolicy", "secretOutputPolicy"],
       "properties": {
         "keyDirectory": { "const": "/var/lib/tang" },
+        "keyOwner": { "const": "_tang" },
+        "keyGroup": { "const": "_tang" },
         "keyFileMode": { "const": "0440" },
         "remoteRoot": { "const": "/var/backups/seori-auth/tang-v1" },
         "localRelativeRoot": { "const": "seori-auth/tang" },

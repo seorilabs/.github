@@ -195,7 +195,7 @@
         "recoveryKeyInput": { "const": "CANONICAL_ROOT_OWNED_REGULAR_FILE_ONLY" },
         "secretTransport": { "const": "FILE_DESCRIPTOR_BY_CHILD_ONLY" },
         "hostMountNamespacePolicy": { "const": "PID1_INITIAL_MOUNT_NAMESPACE_EXACT" },
-        "recordWritePolicy": { "const": "FIXED_RECORD_ID_STDIN_OPENAT_LINKAT_NO_CLOBBER_FSYNC" },
+        "recordWritePolicy": { "const": "FIXED_RECORD_ID_STDIN_OPENAT_RENAME_NOREPLACE_ORPHAN_RECOVERY_FSYNC" },
         "processHardeningPolicy": { "const": "NATIVE_LAUNCH_AND_NAPI_CHILD_READBACK_REQUIRED" },
         "mutationUnknownPolicy": { "const": "READBACK_FIRST" },
         "markerWritePolicy": { "const": "AFTER_EXACT_MOUNT_AND_PV_PVC_READBACK" },

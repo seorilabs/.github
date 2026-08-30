@@ -37,6 +37,7 @@ import {
   attestorPublicDetails,
   encryptionPublicDetails,
   encryptTangBackup,
+  isolatedRestoreInventory,
   readScopedTangInventory,
   tangBackupEnvelopePublic,
 } from '../../tools/seori-auth/src/p2-stage1.mjs';
@@ -265,6 +266,26 @@ function readFd(fd, maximum, code) {
     if (error instanceof Stage1HostError) throw error;
     stop(code);
   }
+}
+
+function expectedTangOwner(selected) {
+  if (fixtureRoot !== undefined) {
+    const entry = lstatSync(mapped(selected.keyDirectory));
+    return Object.freeze({ ownerId: entry.uid, groupId: entry.gid });
+  }
+  const ownerId = Number.parseInt(
+    run('/usr/bin/id', ['-u', stage1.tangBackup.keyOwner], 'P2_STAGE1_TANG_OWNER_INVALID'),
+    10,
+  );
+  const groupId = Number.parseInt(
+    run('/usr/bin/id', ['-g', stage1.tangBackup.keyGroup], 'P2_STAGE1_TANG_OWNER_INVALID'),
+    10,
+  );
+  if (!Number.isSafeInteger(ownerId) || ownerId < 0 ||
+      !Number.isSafeInteger(groupId) || groupId < 0) {
+    stop('P2_STAGE1_TANG_OWNER_INVALID');
+  }
+  return Object.freeze({ ownerId, groupId });
 }
 
 function readRegular(path, { modes, maxBytes = 4 * 1024 * 1024, rootOwned = false } = {}) {
@@ -581,7 +602,18 @@ function backupVerify({ existingOnly = false } = {}) {
   sourceBoundary();
   assertInitialMountNamespace();
   const paths = backupPaths(selected);
-  const liveBefore = readScopedTangInventory(mapped(stage1.tangBackup.keyDirectory));
+  const owner = expectedTangOwner(selected);
+  const liveBefore = readScopedTangInventory(mapped(stage1.tangBackup.keyDirectory), {
+    expectedOwner: owner,
+  });
+  const rootRestored = isolatedRestoreInventory({
+    payload: liveBefore.archivePayload,
+    temporaryParent: mapped('/var/tmp'),
+    applyOwnership: true,
+  });
+  if (canonicalJson(rootRestored) !== canonicalJson(liveBefore.privateInventory)) {
+    stop('P2_STAGE1_ISOLATED_RESTORE_MISMATCH');
+  }
   const recipientPublicKey = readFd(3, MAX_PUBLIC_KEY, 'P2_STAGE1_ENCRYPTION_KEY_INVALID');
   const recipient = encryptionPublicDetails(recipientPublicKey);
   let artifactBytes;
@@ -616,11 +648,16 @@ function backupVerify({ existingOnly = false } = {}) {
       liveContentSha256: liveBefore.privateInventory.contentSha256,
       liveMetadataSha256: liveBefore.privateInventory.metadataSha256,
       inventoryEvidenceSha256: liveBefore.privateInventory.inventoryEvidenceSha256,
+      rootRestoreContentSha256: rootRestored.contentSha256,
+      rootRestoreMetadataSha256: rootRestored.metadataSha256,
+      rootRestoreInventoryEvidenceSha256: rootRestored.inventoryEvidenceSha256,
       backupArtifactSha256: envelope.backupArtifactSha256,
       recipientPublicKeySha256: recipient.fingerprintSha256,
       backupGeneration: `tang-${selected.nodeName}-${envelope.backupArtifactSha256.slice(0, 16)}`,
     });
-    const liveAfter = readScopedTangInventory(mapped(stage1.tangBackup.keyDirectory));
+    const liveAfter = readScopedTangInventory(mapped(stage1.tangBackup.keyDirectory), {
+      expectedOwner: owner,
+    });
     if (
       canonicalJson(liveAfter.privateInventory) !== canonicalJson(liveBefore.privateInventory)
     ) stop('P2_STAGE1_TANG_INVENTORY_CHANGED');
@@ -672,7 +709,9 @@ function installEvidence() {
     typeof payload.publicKeyPem !== 'string' || Buffer.byteLength(payload.publicKeyPem) > 16 * 1024
   ) stop('P2_STAGE1_INSTALL_PAYLOAD_INVALID');
   const publicKey = Buffer.from(payload.publicKeyPem, 'utf8');
-  const live = readScopedTangInventory(mapped(stage1.tangBackup.keyDirectory));
+  const live = readScopedTangInventory(mapped(stage1.tangBackup.keyDirectory), {
+    expectedOwner: expectedTangOwner(selected),
+  });
   const verified = validateTangBackupAttestation({
     contract: hostContract,
     server: selected,

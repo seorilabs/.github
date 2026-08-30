@@ -19,6 +19,10 @@ evidence 전달 순서를 고정한다. 코드와 fixture만 반영해도 호스
 credential 생성 전 백업 gate는 SHA-256
 `fe37a8fc8f9c975c2583aec56635c0655e34f1b5df51c0686231566c9470826c`, 파일 8,880개,
 격리 복원 성공으로 계약에 고정되어 있다. 이 값과 실제 backup evidence가 다르면 새 key를 만들지 않는다.
+두 key pair를 create-only로 완성한 직후에는 pin된 canonical `backup-credentials.sh`가 local과
+BeeStation 전체 백업을 새로 만들고 `restore-check.sh`가 격리 복원한다. archive/checksum/BeeStation
+digest, file count, 두 logical ID와 public fingerprint를 Ed25519 서명한 post-bootstrap receipt가 없으면
+source bootstrap, Tang provision과 backup은 모두 중단한다.
 
 ## 보안 경계
 
@@ -26,7 +30,9 @@ credential 생성 전 백업 gate는 SHA-256
   후자는 Tang archive 암복호화만 수행한다. 기존 전역 credential backup passphrase를 호스트로 보내지
   않는다.
 - 실제 JWK는 `_tang:_tang 0440`만 허용한다. `/var/lib/tang`을 held directory FD로 고정하고 child를
-  `O_NOFOLLOW`로 열며 content와 owner, group, mode fingerprint를 모두 복원 검증한다.
+  `O_NOFOLLOW`로 연다. 호스트 root가 archive payload를 격리 경로에 실제 `fchown`/`fchmod`한 뒤
+  `fstat` content와 owner, group, mode fingerprint를 live inventory와 비교한다. Mac의 local decrypt는
+  ciphertext content를 별도로 검증하며 payload의 UID/GID를 실제 복원 metadata라고 주장하지 않는다.
 - 로컬 secret-processing Node는 current-user canonical `seori-auth-native
   launch-local-controller`에서만 시작한다. launcher는 module, exact-SHA controller, source receipt를
   FD 5/6/7에 고정하고 digest와 inode를 검증한다. Node가 시작된 뒤 N-API boundary가 core limit과 native
@@ -36,7 +42,9 @@ credential 생성 전 백업 gate는 SHA-256
   dependency, receipt는 `~/.local/share/seorilabs/fleet-p2/<source-sha>`에 두고,
   `~/.config/seorilabs/bin`에는 작은 launcher, module, install receipt만 둔다.
 - host record는 `/usr/local/libexec/seorilabs-p2-host-fs-boundary publish-record <fixed-id>`만 쓴다.
-  plaintext fallback, caller 지정 path, overwrite, rotate, delete interface는 없다.
+  fixed pending entry를 identity-bound로 복구하고 file과 parent directory를 `fsync`한 뒤
+  `renameat2 RENAME_NOREPLACE`로 게시한다. plaintext fallback, caller 지정 path, overwrite, rotate,
+  delete interface는 없다.
 - SSH password는 값이 아니라 owner-only password file path만 controller에 전달한다. native relay가
   exact `/usr/bin/ssh`, host/IP, option, remote command와 parent process를 검증하고 SSH 및 sudo prompt에
   직접 공급한다. privileged payload는 먼저 SHA-256 이름의 owner-only remote file로 전송·readback하고
@@ -114,6 +122,9 @@ key가 아니다. current UID를 완전히 장악한 공격자는 user-owned hel
 private-only power-loss state는 private key에서 public key를 다시 derive하고 missing public/catalog만
 create-only로 완성한다. public-only, private/public mismatch, catalog drift는 자동 삭제하지 않고
 `P2_STAGE1_CREDENTIAL_HUMAN_RECOVERY_REQUIRED`로 중단한다.
+성공 응답의 `postBootstrapBackup`은 새 local/BeeStation archive의 동일 SHA-256, file count와
+`isolatedRestoreVerified=true`만 공개한다. receipt signature나 artifact readback이 이후 drift하면 호스트
+변경 전에 fail-closed한다.
 
 ### 3. exact source를 세 호스트에 bootstrap
 

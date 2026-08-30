@@ -184,6 +184,17 @@ try {
   assert.equal(recordEntry.mode & 0o777, 0o600);
   assert.equal(recordEntry.nlink, 1);
 
+  const orphanParent = `${harnessRoot}/var/backups/seori-auth/fleet-p2-host-v1`;
+  const orphanPath = `${orphanParent}/.seorilabs-p2-record.fstab-before.pending`;
+  const recoveredPath = `${orphanParent}/fstab.before`;
+  writeFileSync(orphanPath, 'power-loss-partial', { mode: 0o600 });
+  chmodSync(orphanPath, 0o600);
+  const recoveredBytes = Buffer.from('RECOVERED_RECORD_AFTER_PARTIAL_WRITE\n', 'utf8');
+  run(testBinary, ['publish-record', 'fstab-before'], { input: recoveredBytes });
+  assert.deepEqual(readFileSync(recoveredPath), recoveredBytes);
+  assert.equal(existsSync(orphanPath), false);
+  assert.equal(lstatSync(recoveredPath).nlink, 1);
+
   const markerBytes = Buffer.from('{"publicMarker":true}\n', 'utf8');
   run(testBinary, ['publish-record', 'marker'], { input: markerBytes });
   const markerEntry = lstatSync(

@@ -77,6 +77,59 @@ function safeBase64(value, bytes, code) {
   return decoded;
 }
 
+function parseExactPublicReceiptOutput(output, expectedKeys, code) {
+  if (typeof output !== 'string' || output.length < 1 || output.length > 1024 * 1024) stop(code);
+  const entries = new Map();
+  for (const line of output.trim().split('\n')) {
+    const separator = line.indexOf('=');
+    if (separator < 1) stop(code);
+    const key = line.slice(0, separator);
+    const value = line.slice(separator + 1);
+    if (value.length < 1 || entries.has(key)) stop(code);
+    entries.set(key, value);
+  }
+  if (entries.size !== expectedKeys.length || expectedKeys.some((key) => !entries.has(key))) {
+    stop(code);
+  }
+  return entries;
+}
+
+export function parseCanonicalCredentialBackupOutput(output) {
+  const entries = parseExactPublicReceiptOutput(output, [
+    'BACKUP_ARCHIVE', 'BACKUP_FILE_COUNT', 'BACKUP_SHA256', 'BEESTATION_ARCHIVE',
+  ], 'P2_STAGE1_POST_BACKUP_OUTPUT_INVALID');
+  const fileCount = Number.parseInt(entries.get('BACKUP_FILE_COUNT'), 10);
+  if (!SHA256.test(entries.get('BACKUP_SHA256') ?? '') ||
+      !Number.isSafeInteger(fileCount) || fileCount < 1) {
+    stop('P2_STAGE1_POST_BACKUP_OUTPUT_INVALID');
+  }
+  return Object.freeze({
+    archivePath: entries.get('BACKUP_ARCHIVE'),
+    archiveSha256: entries.get('BACKUP_SHA256'),
+    fileCount,
+    beeArchivePath: entries.get('BEESTATION_ARCHIVE'),
+  });
+}
+
+export function parseCanonicalCredentialRestoreOutput(output) {
+  const entries = parseExactPublicReceiptOutput(output, [
+    'ARCHIVE_SHA256', 'PASSPHRASE_SOURCE', 'RESTORED_FILE_COUNT', 'RESTORE_CHECK',
+  ], 'P2_STAGE1_POST_BACKUP_RESTORE_FAILED');
+  const fileCount = Number.parseInt(entries.get('RESTORED_FILE_COUNT'), 10);
+  const passphraseSource = entries.get('PASSPHRASE_SOURCE');
+  if (
+    entries.get('RESTORE_CHECK') !== 'true' ||
+    !SHA256.test(entries.get('ARCHIVE_SHA256') ?? '') ||
+    !Number.isSafeInteger(fileCount) || fileCount < 1 ||
+    !['macos-keychain', 'beestation-recovery-file', 'recovery-file'].includes(passphraseSource)
+  ) stop('P2_STAGE1_POST_BACKUP_RESTORE_FAILED');
+  return Object.freeze({
+    archiveSha256: entries.get('ARCHIVE_SHA256'),
+    fileCount,
+    passphraseSource,
+  });
+}
+
 function readHeldRegular(path, { allowedModes, maximumBytes, expectedOwner } = {}) {
   let descriptor;
   try {
@@ -239,7 +292,7 @@ export function expectedTangCatalogEntry(contract, server, evidence, serverAttes
 
 export function readScopedTangInventory(
   directory,
-  { logicalDirectory = '/var/lib/tang', enforcePrivate = true } = {},
+  { logicalDirectory = '/var/lib/tang', enforcePrivate = true, expectedOwner } = {},
 ) {
   let directoryEntry;
   let directoryDescriptor;
@@ -248,7 +301,10 @@ export function readScopedTangInventory(
     if (
       !directoryEntry.isDirectory() || directoryEntry.isSymbolicLink() ||
       realpathSync(directory) !== directory ||
-      (enforcePrivate && (directoryEntry.mode & 0o022) !== 0)
+      (enforcePrivate && (directoryEntry.mode & 0o022) !== 0) ||
+      (expectedOwner !== undefined &&
+        (directoryEntry.uid !== expectedOwner.ownerId ||
+          directoryEntry.gid !== expectedOwner.groupId))
     ) stop('P2_STAGE1_TANG_DIRECTORY_INVALID');
     if (process.platform === 'linux') {
       directoryDescriptor = openSync(
@@ -591,7 +647,16 @@ export function isolatedRestoreInventory({
     } finally {
       closeSync(directoryDescriptor);
     }
-    if (applyOwnership) return readScopedTangInventory(tang, { enforcePrivate }).privateInventory;
+    if (applyOwnership) {
+      return readScopedTangInventory(tang, {
+        enforcePrivate,
+        expectedOwner: {
+          ownerId: payload.directory.ownerId,
+          groupId: payload.directory.groupId,
+        },
+      }).privateInventory;
+    }
+    const restoredDirectory = lstatSync(tang);
     const contentRecords = [];
     const metadataRecords = [];
     for (const expected of payload.files.toSorted((left, right) => left.name.localeCompare(right.name))) {
@@ -603,8 +668,8 @@ export function isolatedRestoreInventory({
         contentRecords.push({ name: expected.name, sha256: sha256(bytes) });
         metadataRecords.push({
           name: expected.name,
-          ownerId: expected.ownerId,
-          groupId: expected.groupId,
+          ownerId: entry.uid,
+          groupId: entry.gid,
           mode: modeString(entry),
           sizeBytes: entry.size,
         });
@@ -615,9 +680,9 @@ export function isolatedRestoreInventory({
     const contentSha256 = canonicalDigest(contentRecords);
     const metadataSha256 = canonicalDigest({
       directory: {
-        ownerId: payload.directory.ownerId,
-        groupId: payload.directory.groupId,
-        mode: payload.directory.mode,
+        ownerId: restoredDirectory.uid,
+        groupId: restoredDirectory.gid,
+        mode: modeString(restoredDirectory),
       },
       files: metadataRecords,
     });
@@ -634,12 +699,19 @@ export function isolatedRestoreInventory({
   }
 }
 
-export function buildVerifiedPrivateEvidence({ server, artifactSha256, live, restored }) {
+export function buildVerifiedPrivateEvidence({
+  server,
+  artifactSha256,
+  live,
+  restored,
+  rootRestored = restored,
+}) {
   if (
     !SHA256.test(artifactSha256 ?? '') ||
     live.contentSha256 !== restored.contentSha256 ||
-    live.metadataSha256 !== restored.metadataSha256 ||
-    live.inventoryEvidenceSha256 !== restored.inventoryEvidenceSha256
+    live.contentSha256 !== rootRestored.contentSha256 ||
+    live.metadataSha256 !== rootRestored.metadataSha256 ||
+    live.inventoryEvidenceSha256 !== rootRestored.inventoryEvidenceSha256
   ) stop('P2_STAGE1_ISOLATED_RESTORE_MISMATCH');
   return Object.freeze({
     schemaVersion: 1,
@@ -650,8 +722,8 @@ export function buildVerifiedPrivateEvidence({ server, artifactSha256, live, res
     inventoryEvidenceSha256: live.inventoryEvidenceSha256,
     backupArtifactSha256: artifactSha256,
     backupGeneration: `tang-${server.nodeName}-${artifactSha256.slice(0, 16)}`,
-    isolatedRestoreContentSha256: restored.contentSha256,
-    isolatedRestoreMetadataSha256: restored.metadataSha256,
+    isolatedRestoreContentSha256: rootRestored.contentSha256,
+    isolatedRestoreMetadataSha256: rootRestored.metadataSha256,
     isolatedRestoreRunId: `restore-${server.nodeName}-${artifactSha256.slice(0, 16)}`,
   });
 }

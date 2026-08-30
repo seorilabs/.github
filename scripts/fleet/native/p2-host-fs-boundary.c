@@ -408,6 +408,24 @@ static const struct record_specification *record_specification(const char *ident
   return NULL;
 }
 
+static int descriptor_equals_buffer(
+    int descriptor, const unsigned char *buffer, size_t size) {
+  struct stat entry;
+  unsigned char chunk[8192];
+  size_t offset = 0;
+  if (fstat(descriptor, &entry) != 0 || !S_ISREG(entry.st_mode) ||
+      entry.st_size != (off_t)size) return 0;
+  while (offset < size) {
+    size_t wanted = sizeof(chunk);
+    if (size - offset < wanted) wanted = size - offset;
+    ssize_t count = pread(descriptor, chunk, wanted, (off_t)offset);
+    if (count != (ssize_t)wanted || memcmp(chunk, buffer + offset, wanted) != 0) return 0;
+    offset += wanted;
+  }
+  (void)memset(chunk, 0, sizeof(chunk));
+  return 1;
+}
+
 static int publish_record(const char *identifier) {
   const struct record_specification *record = record_specification(identifier);
   int directory = open_record_directory(record->parent_policy, record->parent);
@@ -415,36 +433,69 @@ static int publish_record(const char *identifier) {
   if (fstatat(directory, record->leaf, &existing, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT) {
     fail_closed("record destination refused");
   }
-  char temporary[96];
+  unsigned char *input = malloc(record->max_size);
+  if (input == NULL) fail_closed("record input allocation failed");
+  size_t total = 0;
+  while (total < record->max_size) {
+    ssize_t count = read(STDIN_FILENO, input + total, record->max_size - total);
+    if (count < 0 && errno == EINTR) continue;
+    if (count < 0) fail_closed("record input read failed");
+    if (count == 0) break;
+    total += (size_t)count;
+  }
+  unsigned char overflow;
+  ssize_t extra;
+  do {
+    extra = read(STDIN_FILENO, &overflow, 1);
+  } while (extra < 0 && errno == EINTR);
+  if (total == 0 || extra != 0) fail_closed("record input is invalid");
+  char temporary[160];
   int temporary_length = snprintf(
-      temporary, sizeof(temporary), ".seorilabs-p2-record.%ld.tmp", (long)getpid());
+      temporary, sizeof(temporary), ".seorilabs-p2-record.%s.pending", identifier);
   if (temporary_length <= 0 || (size_t)temporary_length >= sizeof(temporary)) {
     fail_closed("record staging name failed");
   }
   int target = openat(
       directory, temporary,
       O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
-  if (target < 0) fail_closed("record staging create failed");
-  unsigned char buffer[8192];
-  size_t total = 0;
-  for (;;) {
-    ssize_t count = read(STDIN_FILENO, buffer, sizeof(buffer));
-    if (count < 0 && errno == EINTR) continue;
-    if (count < 0) fail_closed("record input read failed");
-    if (count == 0) break;
-    if ((size_t)count > record->max_size - total) fail_closed("record input is too large");
-    ssize_t written = 0;
-    while (written < count) {
-      ssize_t result = write(target, buffer + written, (size_t)(count - written));
-      if (result < 0 && errno == EINTR) continue;
-      if (result <= 0) fail_closed("record staging write failed");
-      written += result;
+  int recovered = 0;
+  if (target < 0 && errno == EEXIST) {
+    target = openat(directory, temporary, O_RDWR | O_NOFOLLOW | O_CLOEXEC);
+    struct stat orphan;
+    if (target < 0 || fstat(target, &orphan) != 0 || !S_ISREG(orphan.st_mode) ||
+        orphan.st_uid != 0 || orphan.st_nlink != 1 ||
+        orphan.st_size < 0 || orphan.st_size > (off_t)record->max_size) {
+      fail_closed("record orphan identity is invalid");
     }
-    total += (size_t)count;
+    require_same_entry(directory, temporary, &orphan);
+    if (orphan.st_gid == record->group && (orphan.st_mode & 07777) == record->mode &&
+        descriptor_equals_buffer(target, input, total)) {
+      recovered = 1;
+    } else {
+      if (close(target) != 0 || unlinkat(directory, temporary, 0) != 0) {
+        fail_closed("record orphan recovery failed");
+      }
+      sync_directory(directory);
+      target = openat(
+          directory, temporary,
+          O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+      if (target < 0) fail_closed("record staging recreate failed");
+    }
+  } else if (target < 0) {
+    fail_closed("record staging create failed");
+  }
+  if (!recovered) {
+    size_t written = 0;
+    while (written < total) {
+      ssize_t count = write(target, input + written, total - written);
+      if (count < 0 && errno == EINTR) continue;
+      if (count <= 0) fail_closed("record staging write failed");
+      written += (size_t)count;
+    }
   }
   struct stat target_entry;
-  if (fchown(target, record->owner, record->group) != 0 ||
-      fchmod(target, record->mode) != 0 || fsync(target) != 0 ||
+  if ((!recovered && (fchown(target, record->owner, record->group) != 0 ||
+      fchmod(target, record->mode) != 0)) || fsync(target) != 0 ||
       fstat(target, &target_entry) != 0 || !S_ISREG(target_entry.st_mode) ||
       target_entry.st_uid != record->owner || target_entry.st_gid != record->group ||
       (target_entry.st_mode & 07777) != record->mode || target_entry.st_size != (off_t)total ||
@@ -452,17 +503,20 @@ static int publish_record(const char *identifier) {
     fail_closed("record staging metadata failed");
   }
   require_same_entry(directory, temporary, &target_entry);
-  if (linkat(directory, temporary, directory, record->leaf, 0) != 0) {
+  sync_directory(directory);
+  if (renameat2_exact(
+      directory, temporary, directory, record->leaf, RENAME_NOREPLACE) != 0) {
     fail_closed("record no-clobber publish failed");
   }
   require_same_entry(directory, record->leaf, &target_entry);
-  if (unlinkat(directory, temporary, 0) != 0) fail_closed("record staging unlink failed");
   if (fstatat(directory, temporary, &existing, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT ||
       fstat(target, &target_entry) != 0 || target_entry.st_nlink != 1) {
     fail_closed("record publish readback failed");
   }
   require_same_entry(directory, record->leaf, &target_entry);
   sync_directory(directory);
+  (void)memset(input, 0, record->max_size);
+  free(input);
   if (close(target) != 0 || close(directory) != 0) fail_closed("record close failed");
   (void)printf(
       "{\"operation\":\"publish-record\",\"record\":\"%s\",\"sizeBytes\":%zu}\n",

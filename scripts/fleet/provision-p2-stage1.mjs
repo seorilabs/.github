@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { createPrivateKey, createPublicKey, generateKeyPairSync } from 'node:crypto';
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  sign,
+  verify,
+} from 'node:crypto';
 import {
   closeSync,
   constants as fsConstants,
@@ -13,6 +20,7 @@ import {
   mkdtempSync,
   openSync,
   readFileSync,
+  readSync,
   readdirSync,
   realpathSync,
   rmSync,
@@ -46,6 +54,8 @@ import {
   expectedEncryptionCatalogEntry,
   expectedTangCatalogEntry,
   isolatedRestoreInventory,
+  parseCanonicalCredentialBackupOutput,
+  parseCanonicalCredentialRestoreOutput,
   signTangPrivateEvidence,
   verifyAttestorPair,
   verifyEncryptionPair,
@@ -215,9 +225,12 @@ function ensureParent(root, target, modeValue = 0o700) {
   const relation = relative(root, dirname(target));
   let current = root;
   for (const part of relation.split(sep).filter(Boolean)) {
+    const parent = current;
     current = join(current, part);
+    let created = false;
     try {
       mkdirSync(current, { mode: modeValue });
+      created = true;
     } catch (error) {
       if (error?.code !== 'EEXIST') stop('P2_STAGE1_CREDENTIAL_DIRECTORY_INVALID');
     }
@@ -227,6 +240,37 @@ function ensureParent(root, target, modeValue = 0o700) {
       (entry.mode & 0o022) !== 0 ||
       (fixtureCredentialRoot === undefined && entry.uid !== process.geteuid?.())
     ) stop('P2_STAGE1_CREDENTIAL_DIRECTORY_INVALID');
+    if (created) {
+      syncDirectoryPath(current);
+      syncDirectoryPath(parent);
+    }
+  }
+}
+
+function syncDirectoryPath(path) {
+  let descriptor;
+  try {
+    const entry = lstatSync(path);
+    if (
+      !entry.isDirectory() || entry.isSymbolicLink() || realpathSync(path) !== path ||
+      (entry.mode & 0o022) !== 0 ||
+      (fixtureCredentialRoot === undefined && entry.uid !== process.geteuid?.())
+    ) stop('P2_STAGE1_CREDENTIAL_DIRECTORY_INVALID');
+    descriptor = openSync(
+      path,
+      fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW,
+    );
+    const held = fstatSync(descriptor);
+    if (
+      held.dev !== entry.dev || held.ino !== entry.ino || held.mode !== entry.mode ||
+      held.uid !== entry.uid || held.gid !== entry.gid
+    ) stop('P2_STAGE1_CREDENTIAL_DIRECTORY_INVALID');
+    fsyncSync(descriptor);
+  } catch (error) {
+    if (error instanceof Stage1ControllerError) throw error;
+    stop('P2_STAGE1_CREDENTIAL_DIRECTORY_INVALID');
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
   }
 }
 
@@ -287,10 +331,34 @@ function pathState(path) {
   }
 }
 
+function recoverPublishedCreateOnlyOrphan(target, modeValue) {
+  const temporary = join(dirname(target), `.${basename(target)}.seorilabs-stage1.pending`);
+  try {
+    const targetEntry = lstatSync(target);
+    const temporaryEntry = lstatSync(temporary);
+    if (
+      !targetEntry.isFile() || targetEntry.isSymbolicLink() ||
+      !temporaryEntry.isFile() || temporaryEntry.isSymbolicLink() ||
+      targetEntry.dev !== temporaryEntry.dev || targetEntry.ino !== temporaryEntry.ino ||
+      targetEntry.nlink !== 2 || temporaryEntry.nlink !== 2 ||
+      (targetEntry.mode & 0o777) !== modeValue ||
+      targetEntry.uid !== process.geteuid?.()
+    ) stop('P2_STAGE1_CREATE_ONLY_ORPHAN_INVALID');
+    unlinkSync(temporary);
+    syncDirectoryPath(dirname(target));
+  } catch (error) {
+    if (error instanceof Stage1ControllerError) throw error;
+    if (error?.code !== 'ENOENT') stop('P2_STAGE1_CREATE_ONLY_ORPHAN_INVALID');
+  }
+}
+
 function writeCreateOnlyOrExact(root, relativePath, bytes, modeValue) {
   const target = relativeCredentialPath(root, relativePath);
   ensureParent(root, target);
+  const parent = dirname(target);
+  const temporary = join(parent, `.${basename(target)}.seorilabs-stage1.pending`);
   if (pathState(target) === 'PRESENT') {
+    recoverPublishedCreateOnlyOrphan(target, modeValue);
     const existing = readHeld(target, { mode: modeValue, maximum: Math.max(bytes.length, 1) });
     try {
       if (!existing.equals(bytes)) stop('P2_STAGE1_CREATE_ONLY_DRIFT');
@@ -299,21 +367,52 @@ function writeCreateOnlyOrExact(root, relativePath, bytes, modeValue) {
     }
     return Object.freeze({ state: 'EXACT_READBACK', path: target });
   }
-  const temporary = join(dirname(target), `.${basename(target)}.${process.pid}.tmp`);
   let descriptor;
   let identity;
+  let published = false;
   try {
-    descriptor = openSync(
-      temporary,
-      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
-      modeValue,
-    );
-    writeFileSync(descriptor, bytes);
-    fchmodSync(descriptor, modeValue);
-    fsyncSync(descriptor);
-    identity = fstatSync(descriptor);
+    try {
+      const orphan = lstatSync(temporary);
+      if (
+        !orphan.isFile() || orphan.isSymbolicLink() || realpathSync(temporary) !== temporary ||
+        orphan.nlink !== 1 || orphan.uid !== process.geteuid?.() ||
+        ![0o600, modeValue].includes(orphan.mode & 0o777) ||
+        orphan.size > Math.max(bytes.length, 1)
+      ) stop('P2_STAGE1_CREATE_ONLY_ORPHAN_INVALID');
+      const orphanBytes = orphan.size > 0 && (orphan.mode & 0o777) === modeValue
+        ? readHeld(temporary, { mode: modeValue, maximum: Math.max(bytes.length, 1) })
+        : Buffer.alloc(0);
+      try {
+        if (orphanBytes.equals(bytes)) {
+          identity = orphan;
+        } else {
+          unlinkSync(temporary);
+          syncDirectoryPath(parent);
+        }
+      } finally {
+        orphanBytes.fill(0);
+      }
+    } catch (error) {
+      if (error instanceof Stage1ControllerError) throw error;
+      if (error?.code !== 'ENOENT') stop('P2_STAGE1_CREATE_ONLY_ORPHAN_INVALID');
+    }
+    if (identity === undefined) {
+      descriptor = openSync(
+        temporary,
+        fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
+        modeValue,
+      );
+      writeFileSync(descriptor, bytes);
+      fchmodSync(descriptor, modeValue);
+      fsyncSync(descriptor);
+      identity = fstatSync(descriptor);
+      syncDirectoryPath(parent);
+    }
     linkSync(temporary, target);
+    published = true;
+    syncDirectoryPath(parent);
     unlinkSync(temporary);
+    syncDirectoryPath(parent);
     const readback = readHeld(target, { mode: modeValue, maximum: Math.max(bytes.length, 1) });
     try {
       if (!readback.equals(bytes)) stop('P2_STAGE1_CREATE_ONLY_READBACK_FAILED');
@@ -326,10 +425,16 @@ function writeCreateOnlyOrExact(root, relativePath, bytes, modeValue) {
     stop('P2_STAGE1_CREATE_ONLY_FAILED');
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
-    try {
-      unlinkSync(temporary);
-    } catch (error) {
-      if (error?.code !== 'ENOENT') stop('P2_STAGE1_CREATE_ONLY_FAILED');
+    if (!published) {
+      try {
+        const current = lstatSync(temporary);
+        if (identity !== undefined && current.dev === identity.dev && current.ino === identity.ino) {
+          unlinkSync(temporary);
+          syncDirectoryPath(parent);
+        }
+      } catch (error) {
+        if (error?.code !== 'ENOENT') stop('P2_STAGE1_CREATE_ONLY_FAILED');
+      }
     }
   }
 }
@@ -341,7 +446,10 @@ function removeCreated(entry) {
     if (
       current.isFile() && !current.isSymbolicLink() &&
       current.dev === entry.device && current.ino === entry.inode
-    ) unlinkSync(entry.path);
+    ) {
+      unlinkSync(entry.path);
+      syncDirectoryPath(dirname(entry.path));
+    }
   } catch {
     // Compensation is best effort and never removes an identity it did not create.
   }
@@ -362,6 +470,360 @@ function catalogPreflight(root) {
     });
   } catch {
     stop('P2_STAGE1_CATALOG_PREFLIGHT_FAILED');
+  }
+}
+
+function hashHeldRegular(path, { mode: modeValue, maximum = 16 * 1024 * 1024 * 1024 } = {}) {
+  let descriptor;
+  try {
+    const entry = lstatSync(path);
+    if (
+      !entry.isFile() || entry.isSymbolicLink() || realpathSync(path) !== path ||
+      entry.nlink !== 1 || entry.uid !== process.geteuid?.() ||
+      (modeValue !== undefined && (entry.mode & 0o777) !== modeValue) ||
+      entry.size < 1 || entry.size > maximum
+    ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
+    descriptor = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    const held = fstatSync(descriptor);
+    if (
+      held.dev !== entry.dev || held.ino !== entry.ino || held.mode !== entry.mode ||
+      held.uid !== entry.uid || held.gid !== entry.gid || held.size !== entry.size ||
+      held.nlink !== entry.nlink
+    ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
+    const digest = createHash('sha256');
+    const chunk = Buffer.allocUnsafe(1024 * 1024);
+    let offset = 0;
+    while (offset < held.size) {
+      const count = readSync(descriptor, chunk, 0, Math.min(chunk.length, held.size - offset), offset);
+      if (count < 1) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
+      digest.update(chunk.subarray(0, count));
+      offset += count;
+    }
+    chunk.fill(0);
+    const after = fstatSync(descriptor);
+    const current = lstatSync(path);
+    if (
+      after.dev !== held.dev || after.ino !== held.ino || after.mode !== held.mode ||
+      after.uid !== held.uid || after.gid !== held.gid || after.size !== held.size ||
+      after.nlink !== held.nlink || after.mtimeMs !== held.mtimeMs ||
+      after.ctimeMs !== held.ctimeMs || current.dev !== held.dev ||
+      current.ino !== held.ino || current.mode !== held.mode || current.size !== held.size ||
+      current.mtimeMs !== held.mtimeMs || current.ctimeMs !== held.ctimeMs
+    ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_DRIFT');
+    return Object.freeze({ sha256: digest.digest('hex'), sizeBytes: held.size });
+  } catch (error) {
+    if (error instanceof Stage1ControllerError) throw error;
+    stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function exactBackupPath(path, expectedRoot) {
+  try {
+    const canonical = realpathSync(path);
+    const canonicalRoot = realpathSync(expectedRoot);
+    const relation = relative(canonicalRoot, canonical);
+    if (relation.length === 0 || relation.startsWith('..') || isAbsolute(relation)) {
+      stop('P2_STAGE1_POST_BACKUP_PATH_INVALID');
+    }
+    return canonical;
+  } catch (error) {
+    if (error instanceof Stage1ControllerError) throw error;
+    stop('P2_STAGE1_POST_BACKUP_PATH_INVALID');
+  }
+}
+
+function fixtureCanonicalBackup(root, attestor, encryption) {
+  const timestamp = `fixture-${process.pid}`;
+  const backupRoot = join(dirname(root), 'credential-backups');
+  const beeRoot = join(dirname(root), 'beestation-backups');
+  mkdirSync(backupRoot, { recursive: true, mode: 0o700 });
+  mkdirSync(beeRoot, { recursive: true, mode: 0o700 });
+  const name = `seorilabs-credentials-${timestamp}.tar.zst.gpg`;
+  const archive = join(backupRoot, name);
+  const beeArchive = join(beeRoot, name);
+  const bytes = Buffer.from(canonicalJson({
+    attestorLogicalCredentialId: stage1.attestor.logicalCredentialId,
+    attestorFingerprintSha256: attestor.details.fingerprintSha256,
+    encryptionLogicalCredentialId: stage1.tangBackupEncryption.logicalCredentialId,
+    encryptionFingerprintSha256: encryption.details.fingerprintSha256,
+  }));
+  const digest = sha256(bytes);
+  const checksum = Buffer.from(`${digest}  ${name}\n`, 'utf8');
+  try {
+    writeFileSync(archive, bytes, { mode: 0o600, flag: 'wx' });
+    writeFileSync(`${archive}.sha256`, checksum, { mode: 0o600, flag: 'wx' });
+    writeFileSync(beeArchive, bytes, { mode: 0o600, flag: 'wx' });
+    writeFileSync(`${beeArchive}.sha256`, checksum, { mode: 0o600, flag: 'wx' });
+  } finally {
+    bytes.fill(0);
+    checksum.fill(0);
+  }
+  return Object.freeze({
+    archive: realpathSync(archive),
+    archiveSha256: digest,
+    fileCount: 6,
+    beeArchive: realpathSync(beeArchive),
+    backupRoot,
+    beeRoot,
+    passphraseSource: 'fixture',
+  });
+}
+
+function runCanonicalPostBootstrapBackup(root, attestor, encryption) {
+  const specification = stage1.attestor.postBootstrapBackup;
+  if (fixtureCredentialRoot !== undefined) {
+    return fixtureCanonicalBackup(root, attestor, encryption);
+  }
+  const backupScript = relativeCredentialPath(root, specification.backupScriptRelativePath);
+  const restoreScript = relativeCredentialPath(root, specification.restoreScriptRelativePath);
+  const backupBytes = readHeld(backupScript, { mode: 0o755, maximum: 1024 * 1024 });
+  const restoreBytes = readHeld(restoreScript, { mode: 0o755, maximum: 1024 * 1024 });
+  try {
+    if (sha256(backupBytes) !== specification.backupScriptSha256 ||
+        sha256(restoreBytes) !== specification.restoreScriptSha256) {
+      stop('P2_STAGE1_POST_BACKUP_SCRIPT_DRIFT');
+    }
+  } finally {
+    backupBytes.fill(0);
+    restoreBytes.fill(0);
+  }
+  let output;
+  try {
+    output = execFileSync(backupScript, [], {
+      encoding: 'utf8',
+      env: { PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' },
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 1024 * 1024,
+      timeout: 30 * 60 * 1000,
+    });
+  } catch {
+    stop('P2_STAGE1_POST_BACKUP_FAILED');
+  }
+  const parsed = parseCanonicalCredentialBackupOutput(output);
+  const backupRoot = join(homedir(), '.seorilabs-credential-backups');
+  const beeRoot = join(
+    homedir(),
+    'Library/CloudStorage/BeeStation-ChaedaStation/vault/seorilabs-credentials/backups',
+  );
+  const archive = exactBackupPath(parsed.archivePath, backupRoot);
+  const beeArchive = exactBackupPath(parsed.beeArchivePath, beeRoot);
+  const archiveSha256 = parsed.archiveSha256;
+  const fileCount = parsed.fileCount;
+  if (!SHA256.test(archiveSha256 ?? '') || !Number.isSafeInteger(fileCount) || fileCount < 6) {
+    stop('P2_STAGE1_POST_BACKUP_OUTPUT_INVALID');
+  }
+  let restoreOutput;
+  try {
+    restoreOutput = execFileSync(restoreScript, [archive], {
+      encoding: 'utf8',
+      env: { PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' },
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 64 * 1024,
+      timeout: 30 * 60 * 1000,
+    });
+  } catch {
+    stop('P2_STAGE1_POST_BACKUP_RESTORE_FAILED');
+  }
+  const restore = parseCanonicalCredentialRestoreOutput(restoreOutput);
+  if (
+    restore.archiveSha256 !== archiveSha256 || restore.fileCount !== fileCount ||
+    !['macos-keychain', 'beestation-recovery-file'].includes(restore.passphraseSource)
+  ) stop('P2_STAGE1_POST_BACKUP_RESTORE_FAILED');
+  return Object.freeze({
+    archive,
+    archiveSha256,
+    fileCount,
+    beeArchive,
+    backupRoot,
+    beeRoot,
+    passphraseSource: restore.passphraseSource,
+  });
+}
+
+function verifyPostBootstrapScripts(root) {
+  if (fixtureCredentialRoot !== undefined) return;
+  const specification = stage1.attestor.postBootstrapBackup;
+  for (const [relativePath, expectedSha256] of [
+    [specification.backupScriptRelativePath, specification.backupScriptSha256],
+    [specification.restoreScriptRelativePath, specification.restoreScriptSha256],
+  ]) {
+    const bytes = readHeld(relativeCredentialPath(root, relativePath), {
+      mode: 0o755,
+      maximum: 1024 * 1024,
+    });
+    try {
+      if (sha256(bytes) !== expectedSha256) stop('P2_STAGE1_POST_BACKUP_SCRIPT_DRIFT');
+    } finally {
+      bytes.fill(0);
+    }
+  }
+}
+
+function postBackupUnsigned(receipt) {
+  const { signature: _signature, ...unsigned } = receipt;
+  return unsigned;
+}
+
+function verifyPostBootstrapBackup(root, attestor, encryption) {
+  const specification = stage1.attestor.postBootstrapBackup;
+  verifyPostBootstrapScripts(root);
+  const bytes = readHeld(
+    relativeCredentialPath(root, specification.receiptRelativePath),
+    { mode: Number.parseInt(specification.receiptMode, 8), maximum: 64 * 1024 },
+  );
+  try {
+    const receipt = parsePublicJson(bytes.toString('utf8'), 'P2_STAGE1_POST_BACKUP_RECEIPT_INVALID');
+    const expectedKeys = [
+      'archivePath', 'archiveSha256', 'attestorFingerprintSha256',
+      'attestorLogicalCredentialId', 'backupFileCount', 'backupScriptSha256',
+      'beeArchivePath', 'beeArchiveSha256', 'beeChecksumSha256',
+      'checksumSha256', 'encryptionFingerprintSha256', 'encryptionLogicalCredentialId',
+      'isolatedRestoreVerified', 'passphraseSource', 'restoreScriptSha256', 'schemaVersion', 'signature',
+      'state',
+    ];
+    if (
+      Object.keys(receipt).toSorted().join('\0') !== expectedKeys.toSorted().join('\0') ||
+      receipt.schemaVersion !== 1 || receipt.state !== 'P2_STAGE1_POST_BOOTSTRAP_BACKUP_VERIFIED' ||
+      receipt.attestorLogicalCredentialId !== stage1.attestor.logicalCredentialId ||
+      receipt.encryptionLogicalCredentialId !== stage1.tangBackupEncryption.logicalCredentialId ||
+      receipt.attestorFingerprintSha256 !== attestor.details.fingerprintSha256 ||
+      receipt.encryptionFingerprintSha256 !== encryption.details.fingerprintSha256 ||
+      receipt.backupScriptSha256 !== specification.backupScriptSha256 ||
+      receipt.restoreScriptSha256 !== specification.restoreScriptSha256 ||
+      receipt.isolatedRestoreVerified !== true || !SHA256.test(receipt.archiveSha256 ?? '') ||
+      !SHA256.test(receipt.beeArchiveSha256 ?? '') || !SHA256.test(receipt.checksumSha256 ?? '') ||
+      !SHA256.test(receipt.beeChecksumSha256 ?? '') ||
+      !Number.isSafeInteger(receipt.backupFileCount) || receipt.backupFileCount < 6 ||
+      !(fixtureCredentialRoot === undefined
+        ? ['macos-keychain', 'beestation-recovery-file'].includes(receipt.passphraseSource)
+        : receipt.passphraseSource === 'fixture')
+    ) stop('P2_STAGE1_POST_BACKUP_RECEIPT_INVALID');
+    const signature = Buffer.from(receipt.signature ?? '', 'base64');
+    if (signature.length !== 64 || signature.toString('base64') !== receipt.signature ||
+        !verify(
+          null,
+          Buffer.from(canonicalJson(postBackupUnsigned(receipt)), 'utf8'),
+          createPublicKey(attestor.publicKey),
+          signature,
+        )) stop('P2_STAGE1_POST_BACKUP_RECEIPT_INVALID');
+    const archive = exactBackupPath(
+      receipt.archivePath,
+      fixtureCredentialRoot === undefined
+        ? join(homedir(), '.seorilabs-credential-backups')
+        : join(dirname(root), 'credential-backups'),
+    );
+    const beeArchive = exactBackupPath(
+      receipt.beeArchivePath,
+      fixtureCredentialRoot === undefined
+        ? join(homedir(), 'Library/CloudStorage/BeeStation-ChaedaStation/vault/seorilabs-credentials/backups')
+        : join(dirname(root), 'beestation-backups'),
+    );
+    const archiveReadback = hashHeldRegular(archive, { mode: 0o600 });
+    const beeReadback = hashHeldRegular(beeArchive, { mode: 0o600 });
+    const checksum = readHeld(`${archive}.sha256`, { mode: 0o600, maximum: 4096 });
+    const beeChecksum = readHeld(`${beeArchive}.sha256`, { mode: 0o600, maximum: 4096 });
+    try {
+      const expectedChecksum = `${receipt.archiveSha256}  ${basename(archive)}\n`;
+      if (
+        archive !== receipt.archivePath || beeArchive !== receipt.beeArchivePath ||
+        archiveReadback.sha256 !== receipt.archiveSha256 ||
+        beeReadback.sha256 !== receipt.beeArchiveSha256 ||
+        receipt.archiveSha256 !== receipt.beeArchiveSha256 ||
+        checksum.toString('utf8') !== expectedChecksum ||
+        beeChecksum.toString('utf8') !== expectedChecksum ||
+        sha256(checksum) !== receipt.checksumSha256 ||
+        sha256(beeChecksum) !== receipt.beeChecksumSha256
+      ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_DRIFT');
+    } finally {
+      checksum.fill(0);
+      beeChecksum.fill(0);
+      signature.fill(0);
+    }
+    return receipt;
+  } finally {
+    bytes.fill(0);
+  }
+}
+
+function createPostBootstrapBackupReceipt(root, attestor, encryption) {
+  const specification = stage1.attestor.postBootstrapBackup;
+  const receiptPath = relativeCredentialPath(root, specification.receiptRelativePath);
+  recoverPublishedCreateOnlyOrphan(
+    receiptPath,
+    Number.parseInt(specification.receiptMode, 8),
+  );
+  if (pathState(receiptPath) === 'PRESENT') {
+    return Object.freeze({
+      receipt: verifyPostBootstrapBackup(root, attestor, encryption),
+      state: 'EXACT_READBACK',
+    });
+  }
+  const backup = runCanonicalPostBootstrapBackup(root, attestor, encryption);
+  const archive = hashHeldRegular(backup.archive, { mode: 0o600 });
+  const beeArchive = hashHeldRegular(backup.beeArchive, { mode: 0o600 });
+  const checksum = readHeld(`${backup.archive}.sha256`, { mode: 0o600, maximum: 4096 });
+  const beeChecksum = readHeld(`${backup.beeArchive}.sha256`, { mode: 0o600, maximum: 4096 });
+  let signature;
+  try {
+    if (archive.sha256 !== backup.archiveSha256 || beeArchive.sha256 !== backup.archiveSha256) {
+      stop('P2_STAGE1_POST_BACKUP_ARTIFACT_DRIFT');
+    }
+    const unsigned = Object.freeze({
+      schemaVersion: 1,
+      state: 'P2_STAGE1_POST_BOOTSTRAP_BACKUP_VERIFIED',
+      attestorLogicalCredentialId: stage1.attestor.logicalCredentialId,
+      attestorFingerprintSha256: attestor.details.fingerprintSha256,
+      encryptionLogicalCredentialId: stage1.tangBackupEncryption.logicalCredentialId,
+      encryptionFingerprintSha256: encryption.details.fingerprintSha256,
+      archivePath: backup.archive,
+      archiveSha256: archive.sha256,
+      checksumSha256: sha256(checksum),
+      beeArchivePath: backup.beeArchive,
+      beeArchiveSha256: beeArchive.sha256,
+      beeChecksumSha256: sha256(beeChecksum),
+      backupFileCount: backup.fileCount,
+      isolatedRestoreVerified: true,
+      passphraseSource: backup.passphraseSource,
+      backupScriptSha256: specification.backupScriptSha256,
+      restoreScriptSha256: specification.restoreScriptSha256,
+    });
+    signature = sign(
+      null,
+      Buffer.from(canonicalJson(unsigned), 'utf8'),
+      createPrivateKey(attestor.privateKey),
+    );
+    const receipt = Object.freeze({ ...unsigned, signature: signature.toString('base64') });
+    const receiptBytes = Buffer.from(`${canonicalJson(receipt)}\n`, 'utf8');
+    try {
+      const state = writeCreateOnlyOrExact(
+        root,
+        specification.receiptRelativePath,
+        receiptBytes,
+        Number.parseInt(specification.receiptMode, 8),
+      ).state;
+      return Object.freeze({ receipt: verifyPostBootstrapBackup(root, attestor, encryption), state });
+    } finally {
+      receiptBytes.fill(0);
+    }
+  } finally {
+    checksum.fill(0);
+    beeChecksum.fill(0);
+    signature?.fill(0);
+  }
+}
+
+function assertPostBootstrapBackup(root) {
+  const attestor = readAttestor(root);
+  const encryption = readEncryption(root);
+  try {
+    return verifyPostBootstrapBackup(root, attestor, encryption);
+  } finally {
+    attestor.privateKey.fill(0);
+    attestor.publicKey.fill(0);
+    encryption.privateKey.fill(0);
+    encryption.publicKey.fill(0);
   }
 }
 
@@ -529,7 +991,8 @@ function readAttestor(root) {
   const privateKey = readHeld(privatePath, { mode: Number.parseInt(stage1.attestor.privateKeyMode, 8), maximum: 16 * 1024 });
   const publicKey = readHeld(publicPath, { mode: Number.parseInt(stage1.attestor.publicKeyMode, 8), maximum: 16 * 1024 });
   try {
-    return { privateKey, publicKey, publicDetails: verifyAttestorPair(privateKey, publicKey) };
+    const publicDetails = verifyAttestorPair(privateKey, publicKey);
+    return { privateKey, publicKey, publicDetails, details: publicDetails };
   } catch (error) {
     privateKey.fill(0);
     publicKey.fill(0);
@@ -556,7 +1019,8 @@ function readEncryption(root) {
     mode: Number.parseInt(specification.publicKeyMode, 8), maximum: 16 * 1024,
   });
   try {
-    return { privateKey, publicKey, publicDetails: verifyEncryptionPair(privateKey, publicKey) };
+    const publicDetails = verifyEncryptionPair(privateKey, publicKey);
+    return { privateKey, publicKey, publicDetails, details: publicDetails };
   } catch (error) {
     privateKey.fill(0);
     publicKey.fill(0);
@@ -579,6 +1043,7 @@ function bootstrapAttestor() {
   const initialStates = [];
   let attestorPair;
   let encryptionPair;
+  let postBackupStarted = false;
 
   function completePair(specification, algorithm) {
     const paths = {
@@ -586,6 +1051,15 @@ function bootstrapAttestor() {
       public: relativeCredentialPath(root, specification.publicKeyRelativePath),
       catalog: relativeCredentialPath(root, specification.catalogShardRelativePath),
     };
+    recoverPublishedCreateOnlyOrphan(
+      paths.private,
+      Number.parseInt(specification.privateKeyMode, 8),
+    );
+    recoverPublishedCreateOnlyOrphan(
+      paths.public,
+      Number.parseInt(specification.publicKeyMode, 8),
+    );
+    recoverPublishedCreateOnlyOrphan(paths.catalog, 0o644);
     const state = Object.fromEntries(Object.entries(paths).map(([name, path]) => [name, pathState(path)]));
     initialStates.push(`${algorithm}:${state.private}:${state.public}:${state.catalog}`);
     if (state.private === 'ABSENT' && (state.public === 'PRESENT' || state.catalog === 'PRESENT')) {
@@ -652,6 +1126,12 @@ function bootstrapAttestor() {
     attestorPair = completePair(stage1.attestor, 'ed25519');
     encryptionPair = completePair(encryption, 'x25519');
     catalogPreflight(root);
+    postBackupStarted = true;
+    const postBackup = createPostBootstrapBackupReceipt(
+      root,
+      attestorPair,
+      encryptionPair,
+    );
     const recovered = initialStates.some((value) => !value.endsWith(':PRESENT:PRESENT:PRESENT'));
     return Object.freeze({
       schemaVersion: 1,
@@ -661,10 +1141,18 @@ function bootstrapAttestor() {
       encryptionLogicalCredentialId: encryption.logicalCredentialId,
       encryptionPublic: encryptionPair.details,
       preBootstrapBackup: stage1.attestor.preBootstrapBackup,
+      postBootstrapBackup: {
+        state: postBackup.state,
+        archiveSha256: postBackup.receipt.archiveSha256,
+        backupFileCount: postBackup.receipt.backupFileCount,
+        isolatedRestoreVerified: postBackup.receipt.isolatedRestoreVerified,
+      },
       secretExposed: false,
     });
   } catch (error) {
-    for (const entry of created.toReversed()) removeCreated(entry);
+    if (!postBackupStarted) {
+      for (const entry of created.toReversed()) removeCreated(entry);
+    }
     throw error;
   } finally {
     attestorPair?.privateKey.fill(0);
@@ -934,6 +1422,7 @@ async function backupTang() {
   }
   assertLocalProcessHardening();
   const root = credentialRoot();
+  assertPostBootstrapBackup(root);
   catalogPreflight(root);
   const attestor = readAttestor(root);
   const encryption = readEncryption(root);
@@ -994,7 +1483,11 @@ async function backupTang() {
     if (
       liveEvidence.backupArtifactSha256 !== result.backupArtifactSha256 ||
       liveEvidence.inventoryEvidenceSha256 !== result.inventoryEvidenceSha256 ||
-      liveEvidence.recipientPublicKeySha256 !== encryption.publicDetails.fingerprintSha256
+      liveEvidence.recipientPublicKeySha256 !== encryption.publicDetails.fingerprintSha256 ||
+      liveEvidence.rootRestoreContentSha256 !== liveEvidence.liveContentSha256 ||
+      liveEvidence.rootRestoreMetadataSha256 !== liveEvidence.liveMetadataSha256 ||
+      liveEvidence.rootRestoreInventoryEvidenceSha256 !==
+        liveEvidence.inventoryEvidenceSha256
     ) stop('P2_STAGE1_PRIVATE_EVIDENCE_INVALID');
     const artifact = readHeld(relativeCredentialPath(root, paths.artifact), { mode: 0o600 });
     const restoreParent = mkdtempSync(join(tmpdir(), 'seorilabs-p2-tang-restore-'));
@@ -1027,6 +1520,11 @@ async function backupTang() {
         inventoryEvidenceSha256: liveEvidence.inventoryEvidenceSha256,
       },
       restored,
+      rootRestored: {
+        contentSha256: liveEvidence.rootRestoreContentSha256,
+        metadataSha256: liveEvidence.rootRestoreMetadataSha256,
+        inventoryEvidenceSha256: liveEvidence.rootRestoreInventoryEvidenceSha256,
+      },
     });
     const signed = signTangPrivateEvidence({
       hostContract,
@@ -1108,6 +1606,7 @@ async function backupTang() {
 async function provisionTang() {
   allowedOptions(['server', 'source-sha', 'confirmation', 'ssh-password-file']);
   assertLocalProcessHardening();
+  assertPostBootstrapBackup(credentialRoot());
   const { machine, server } = tangServer();
   const sourceSha = option('source-sha');
   const expectedConfirmation = confirmations().tangProvision[server.nodeName];
@@ -1162,6 +1661,7 @@ async function deliverRpi5() {
     stop('P2_STAGE1_INSTALL_CONFIRMATION_REQUIRED');
   }
   const root = credentialRoot();
+  assertPostBootstrapBackup(root);
   catalogPreflight(root);
   const attestor = readAttestorPublic(root);
   try {
@@ -1294,6 +1794,7 @@ function sourcePlan() {
 async function bootstrapSource() {
   allowedOptions(['host', 'confirmation', 'ssh-password-file']);
   assertLocalProcessHardening();
+  assertPostBootstrapBackup(credentialRoot());
   const machine = stage1.hosts.find(({ nodeName }) => nodeName === option('host'));
   if (machine === undefined) stop('P2_STAGE1_HOST_INVALID');
   const source = sourceArchive();

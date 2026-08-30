@@ -271,7 +271,7 @@ test('P2 host provisioning contract fixes non-sparse LUKS2, exact mount and Tang
   assert.equal(contract.gates.hostMountNamespacePolicy, 'PID1_INITIAL_MOUNT_NAMESPACE_EXACT');
   assert.equal(
     contract.gates.recordWritePolicy,
-    'FIXED_RECORD_ID_STDIN_OPENAT_LINKAT_NO_CLOBBER_FSYNC',
+    'FIXED_RECORD_ID_STDIN_OPENAT_RENAME_NOREPLACE_ORPHAN_RECOVERY_FSYNC',
   );
   assert.equal(contract.tang.pin, 'sss');
   assert.deepEqual(contract.processBoundary, {
@@ -843,7 +843,7 @@ test('native filesystem boundary uses fixed dirfds and atomic no-clobber operati
   const source = await readFile('scripts/fleet/native/p2-host-fs-boundary.c', 'utf8');
   const caller = await readFile('scripts/fleet/provision-p2-host-encryption.mjs', 'utf8');
   assert.match(source, /openat\(/u);
-  assert.match(source, /linkat\(/u);
+  assert.match(source, /\.seorilabs-p2-record\.%s\.pending/u);
   assert.match(source, /SYS_renameat2/u);
   assert.match(source, /RENAME_NOREPLACE/u);
   assert.match(source, /RENAME_EXCHANGE/u);
