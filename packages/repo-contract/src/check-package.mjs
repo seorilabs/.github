@@ -32,6 +32,7 @@ const requiredPackageFiles = [
   ".generated/contracts/markets/apps-in-toss.schema.json",
   ".generated/contracts/markets/google-play.schema.json",
   ".generated/contracts/release-policy.yaml",
+  ".generated/contracts/release-version-authority.yaml",
   ".generated/contracts/review-policy.yaml",
   ".generated/contracts/test-policy.yaml",
   ".generated/contracts/workflow-bundle.schema.json",

@@ -1,5 +1,8 @@
 # Seorilabs org reusable workflow: RN AppsInToss candidate build only.
 # This workflow creates a .ait artifact without calling the AppsInToss deploy API.
+# 이 경로는 마켓 artifact를 만들지 않으므로 릴리즈 태그 version authority를 적용하지 않는다.
+# 태그 기반 버전과 artifact readback은 rn-deploy-ait.yml이 담당한다
+# (contracts/release-version-authority.yaml).
 name: RN Build Mini-app Candidate (reusable)
 
 on:

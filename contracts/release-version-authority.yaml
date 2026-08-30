@@ -1,0 +1,124 @@
+# GitHub release tag를 모든 지원 마켓 artifact의 유일한 version source of truth로 고정한다.
+# 이 계약은 기계 판독 정본이며 문서와 충돌하면 이 파일이 우선한다.
+schemaVersion: 1
+id: release-version-authority-v1
+
+authority:
+  source: github-release-tag
+  tagPattern: '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+  # 태그는 exact stable SemVer만 허용한다. prerelease/build metadata는 마켓 artifact를 만들지 않는다.
+  prereleaseAllowed: false
+  # 태그가 가리키는 commit만 build한다. branch 동명 ref, 이동된 tag, stale local tag는 거부한다.
+  buildsExactTagCommit: true
+
+# 아래 값들은 authority가 아니다. 읽어서 버전을 결정하지 않으며, artifact readback에서
+# tag 파생값과 다르면 fail-closed한다.
+forbiddenAuthorities:
+  - id: package-json-version
+    locations: ["package.json#version", "apps/*/package.json#version"]
+  - id: gradle-version
+    locations: ["android/app/build.gradle#versionName", "android/app/build.gradle#versionCode"]
+  - id: xcode-version
+    locations: ["*.xcodeproj#MARKETING_VERSION", "*.xcodeproj#CURRENT_PROJECT_VERSION", "Info.plist#CFBundleShortVersionString"]
+  - id: godot-project-version
+    locations: ["project.godot#config/version", "export_presets.cfg#version/name", "export_presets.cfg#version/code"]
+  - id: granite-config-version
+    locations: ["granite.config.ts#version", "apps/ait/package.json#version"]
+  - id: market-config-json-version
+    locations: ["play-store/google-play.config.json#release.versionName", "play-store/google-play.config.json#release.versionCode", "app-store/app-store.config.json#release.version"]
+  - id: repository-local-release-version-resolver
+    locations: ["scripts/resolve-release-version.mjs"]
+  - id: workflow-caller-version-input
+    locations: ["workflow_call.inputs.version_name", "workflow_call.inputs.version_code", "workflow_call.inputs.version_script"]
+  - id: non-deterministic-build-counter
+    locations: ["github.run_number", "github.run_id", "wall-clock"]
+
+derivation:
+  # v prefix를 제거한 값이 display/marketing version이다.
+  displayVersion: tag-without-v-prefix
+  marketingVersion: tag-without-v-prefix
+  # 기존 org resolver 규칙(세그먼트 base 1000)을 그대로 유지한다.
+  segmentBase: 1000
+  buildNumberFormula: 'major * 1000000 + minor * 1000 + patch'
+  androidVersionCode: build-number
+  appleBuildNumber: build-number
+  releaseName: display-version
+  bounds:
+    minorMax: 999
+    patchMax: 999
+    versionCodeMax: 2100000000
+
+binding:
+  # 하나의 release binding은 아래 필드로만 식별된다. 재현 불가능한 값은 포함하지 않는다.
+  fields:
+    - tag
+    - sourceSha
+    - authorityRevision
+    - configRevision
+    - versionName
+    - androidVersionCode
+    - appleBuildNumber
+  authorityRevision:
+    # 이 계약 본문의 revision. 워크플로우와 무관하게 같은 값이라 tag receipt에 넣어 검증한다.
+    inputs:
+      - authorityContractBody
+    algorithm: sha256
+  configRevision:
+    # 같은 tag를 다른 계약/워크플로우 revision으로 다시 build하면 값이 달라진다.
+    inputs:
+      - calledWorkflowRepository
+      - calledWorkflowRef
+      - calledWorkflowSha
+      - authorityRevision
+    algorithm: sha256-canonical-lines
+  # release-tag.yml이 annotated tag message에 남기는 불변 receipt.
+  # 배포 경로는 receipt의 authorityRevision과 sourceSha를 현재 실행값과 exact match한다.
+  tagReceiptMarker: 'seori-release-binding: 1'
+  tagReceiptFields:
+    - authority
+    - authority-revision
+    - tag
+    - source-sha
+    - version-name
+    - android-version-code
+    - apple-build-number
+
+tagCreation:
+  # 태그는 운영자가 고른 exact source commit에만 단다.
+  target: exact-operator-selected-commit
+  markerCommit: forbidden
+  branchPush: forbidden
+  tagMove: forbidden
+  annotated: true
+
+artifactReadback:
+  android-app-bundle:
+    # AAB manifest는 aapt.pb.XmlNode protobuf다. aapt2 dump는 AAB를 인식하지 못하므로
+    # zip에서 직접 꺼내 org 정본 parser로 읽는다.
+    tool: aab-proto-manifest
+    manifestPath: base/manifest/AndroidManifest.xml
+    fields:
+      versionName: android:versionName
+      versionCode: android:versionCode
+  xcode-archive:
+    tool: info-plist
+    fields:
+      versionName: CFBundleShortVersionString
+      versionCode: CFBundleVersion
+  ait:
+    # .ait 컨테이너는 version 필드를 갖지 않는다. AppsInToss 배포의 tag 식별자는
+    # canonical memo이며, artifact 동일성은 sha256 digest로 고정한다.
+    tool: ait-container
+    fields:
+      digest: sha256
+      memo: canonical-release-memo
+
+failClosed:
+  - id: tag-pattern-mismatch
+  - id: tag-ref-mismatch
+  - id: source-sha-mismatch
+  - id: config-revision-mismatch
+  - id: artifact-provenance-mismatch
+  - id: tag-reuse-with-different-source
+  - id: tag-reuse-with-different-config
+  - id: forbidden-authority-override

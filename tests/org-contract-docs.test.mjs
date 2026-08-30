@@ -37,6 +37,7 @@ const YAML_CONTRACTS = [
   "contracts/agent-policy.yaml",
   "contracts/provider-auth-matrix.yaml",
   "contracts/release-policy.yaml",
+  "contracts/release-version-authority.yaml",
   "contracts/review-policy.yaml",
   "contracts/test-policy.yaml",
   "profiles/godot.yaml",

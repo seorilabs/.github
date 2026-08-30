@@ -5,8 +5,10 @@
 #   composite action(import-codesign-certs)·altool 대신 rn-deploy-app-store.yml 와 동일한 self-contained
 #   security keychain + ASC API key exportArchive 방식으로 포팅(org 재사용 워크플로우 style 통일).
 # 서명: Apple Distribution 인증서 + App Store provisioning profile(manual).
-# 표준 contract(caller): scripts/ensure_godot.sh --with-export-templates, scripts/export_godot_ios.sh,
-#   (선택) scripts/resolve-release-version.mjs → apple_marketing_version, apple_build_number
+# 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
+# export_presets.cfg와 Godot 생성 Xcode 프로젝트는 authority가 아니라 주입 대상이며, archive
+# Info.plist readback이 태그 파생값과 다르면 업로드 전에 fail-closed한다.
+# 표준 contract(caller): scripts/ensure_godot.sh --with-export-templates, scripts/export_godot_ios.sh
 name: Godot Deploy App Store (reusable)
 
 on:
@@ -68,11 +70,6 @@ on:
         required: false
         default: "scripts/export_godot_ios.sh"
         type: string
-      version_script:
-        description: "버전 리졸버(있으면 사용, 없으면 태그+run_number 폴백)"
-        required: false
-        default: "scripts/resolve-release-version.mjs"
-        type: string
       prepare_project_script:
         description: "Godot import 전에 실행할 repo-local 준비 스크립트"
         required: false
@@ -133,7 +130,6 @@ jobs:
       IOS_APP_NAME: ${{ inputs.ios_app_name || inputs.ios_scheme }}
       ENSURE_GODOT_SCRIPT: ${{ inputs.ensure_godot_script }}
       EXPORT_IOS_SCRIPT: ${{ inputs.export_ios_script }}
-      VERSION_SCRIPT: ${{ inputs.version_script }}
       PREPARE_PROJECT_SCRIPT: ${{ inputs.prepare_project_script }}
       POST_ARCHIVE_VALIDATION_SCRIPT: ${{ inputs.post_archive_validation_script }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID || vars.APPLE_TEAM_ID }}
@@ -150,64 +146,46 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version }}
+          check-latest: false
+
+      # 버전 authority 구현은 org 정본에만 둔다. caller 저장소 스크립트를 신뢰하지 않기 위해
+      # called workflow identity를 확인하고 그 exact commit SHA로 정본을 받아 실행한다.
+      - name: Validate called reusable workflow identity
+        id: authority
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/godot-deploy-app-store.yml
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
+          '
+
+      - name: Checkout exact release version authority
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.authority.outputs.repository }}
+          ref: ${{ steps.authority.outputs.sha }}
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
       - name: Resolve exact release tag
         id: tag
         shell: bash
         env:
-          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          component_is_greater() {
-            local left="$1"
-            local right="$2"
-            local LC_ALL=C
-            if (( ${#left} != ${#right} )); then
-              (( ${#left} > ${#right} ))
-            else
-              [[ "$left" > "$right" ]]
-            fi
-          }
-          version_is_greater() {
-            local major="$1"
-            local minor="$2"
-            local patch="$3"
-            local best_major="$4"
-            local best_minor="$5"
-            local best_patch="$6"
-            if [ "$major" != "$best_major" ]; then
-              component_is_greater "$major" "$best_major"
-            elif [ "$minor" != "$best_minor" ]; then
-              component_is_greater "$minor" "$best_minor"
-            else
-              component_is_greater "$patch" "$best_patch"
-            fi
-          }
-          tag="$RELEASE_TAG_INPUT"
-          if [ -z "$tag" ]; then
-            best_major=""
-            best_minor=""
-            best_patch=""
-            while IFS= read -r candidate; do
-              if [[ "$candidate" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-                major="${BASH_REMATCH[1]}"
-                minor="${BASH_REMATCH[2]}"
-                patch="${BASH_REMATCH[3]}"
-                if [ -z "$best_major" ] || version_is_greater \
-                  "$major" "$minor" "$patch" \
-                  "$best_major" "$best_minor" "$best_patch"; then
-                  tag="$candidate"
-                  best_major="$major"
-                  best_minor="$minor"
-                  best_patch="$patch"
-                fi
-              fi
-            done < <(git tag --list)
-            [ -n "$tag" ] || { echo "release_tag 비어있고 vX.Y.Z 태그 없음." >&2; exit 1; }
-          fi
-          [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
-            echo "release_tag는 exact stable SemVer vMAJOR.MINOR.PATCH여야 함: $tag" >&2
-            exit 1
-          }
+          git tag --list > "$RUNNER_TEMP/git-tags.txt"
+          tag="$(node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --tag-list-file "$RUNNER_TEMP/git-tags.txt" --print-tag)"
           git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null
           git -c advice.detachedHead=false checkout "refs/tags/$tag"
           tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
@@ -216,7 +194,27 @@ jobs:
             echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
             exit 1
           }
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          { echo "tag=$tag"; echo "sha=$tag_commit"; } >> "$GITHUB_OUTPUT"
+
+      - name: Bind release version to the tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
+          JOB_WORKFLOW_REPOSITORY: ${{ steps.authority.outputs.repository }}
+          JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
+          JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+        run: |
+          set -euo pipefail
+          if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then
+            git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release-tag-message.txt"
+            export RELEASE_TAG_MESSAGE_FILE="$RUNNER_TEMP/release-tag-message.txt"
+          fi
+          RELEASE_HEAD_SHA="$(git rev-parse 'HEAD^{commit}')" \
+          RELEASE_LOCAL_TAG_SHA="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" \
+            node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --github-output
 
       - name: Verify Xcode SDK
         shell: bash
@@ -330,31 +328,6 @@ jobs:
             done
           fi
 
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ inputs.node_version }}
-          check-latest: false
-
-      - name: Resolve release version
-        id: release
-        shell: bash
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          if [ -f "$VERSION_SCRIPT" ] && command -v node >/dev/null 2>&1; then
-            echo "Resolving version via $VERSION_SCRIPT"
-            node "$VERSION_SCRIPT" --tag "$TAG" --github-output
-          else
-            marketing="${TAG#v}"; [ -n "$marketing" ] || marketing="1.0.0"
-            echo "No $VERSION_SCRIPT; fallback marketing=$marketing build=$GITHUB_RUN_NUMBER"
-            {
-              echo "apple_marketing_version=$marketing"
-              echo "apple_build_number=$GITHUB_RUN_NUMBER"
-            } >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Restore Apple signing assets
         id: signing
         shell: bash
@@ -403,6 +376,18 @@ jobs:
           { echo "keychain_path=$keychain_path"; echo "profile_name=$profile_name"; echo "profile_uuid=$profile_uuid"; } >> "$GITHUB_OUTPUT"
           echo "Signing identities:"; security find-identity -v -p codesigning "$keychain_path"
 
+      # export_presets.cfg는 version authority가 아니라 주입 대상이다. 태그 파생값을 덮어쓰고
+      # 실제 반영 여부는 archive Info.plist readback으로 확인한다.
+      - name: Apply release version to the Godot iOS export preset
+        shell: bash
+        env:
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+        run: |
+          set -euo pipefail
+          node .seorilabs-release-authority/scripts/release/apply-godot-export-version.mjs \
+            --platform iOS \
+            --presets "$PROJECT_DIR/export_presets.cfg"
+
       - name: Generate Xcode project (Godot iOS export)
         id: export
         shell: bash
@@ -448,22 +433,38 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH"
 
-          # Godot 생성 프로젝트는 버전을 하드코딩할 수 있어 read-back은 비강제(요약용).
-          app_path="$(find "$archive_path/Products/Applications" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null || true)"
-          amv="$APPLE_MARKETING_VERSION"; abn="$APPLE_BUILD_NUMBER"
-          if [ -n "$app_path" ] && [ -f "$app_path/Info.plist" ]; then
-            amv="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app_path/Info.plist" 2>/dev/null || echo "$APPLE_MARKETING_VERSION")"
-            abn="$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$app_path/Info.plist" 2>/dev/null || echo "$APPLE_BUILD_NUMBER")"
-          fi
-          { echo "archive_path=$archive_path"; echo "marketing_version=$amv"; echo "build_number=$abn"; } >> "$GITHUB_OUTPUT"
+          app_path="$(find "$archive_path/Products/Applications" -maxdepth 1 -name '*.app' -print -quit)"
+          [ -n "$app_path" ] && [ -f "$app_path/Info.plist" ] || {
+            echo "archive에서 .app Info.plist를 찾지 못함: $archive_path" >&2
+            exit 1
+          }
+          plutil -convert json -o "$RUNNER_TEMP/archive-info.json" "$app_path/Info.plist"
+          {
+            echo "archive_path=$archive_path"
+            echo "info_plist_json=$RUNNER_TEMP/archive-info.json"
+          } >> "$GITHUB_OUTPUT"
+
+      # Godot 생성 프로젝트가 버전을 하드코딩하거나 xcodebuild override가 무시되면 fail-closed한다.
+      - name: Verify archive version against the release tag
+        id: provenance
+        shell: bash
+        env:
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+          INFO_PLIST_JSON: ${{ steps.archive.outputs.info_plist_json }}
+        run: |
+          set -euo pipefail
+          node .seorilabs-release-authority/scripts/release/verify-release-artifact.mjs \
+            --kind xcode-archive \
+            --metadata "$INFO_PLIST_JSON" \
+            --github-output
 
       - name: Run caller post-archive validation
         if: ${{ inputs.post_archive_validation_script != '' }}
         shell: bash
         env:
           ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
-          APPLE_MARKETING_VERSION: ${{ steps.archive.outputs.marketing_version }}
-          APPLE_BUILD_NUMBER: ${{ steps.archive.outputs.build_number }}
+          APPLE_MARKETING_VERSION: ${{ steps.release.outputs.apple_marketing_version }}
+          APPLE_BUILD_NUMBER: ${{ steps.release.outputs.apple_build_number }}
         run: |
           set -euo pipefail
           [ -f "$POST_ARCHIVE_VALIDATION_SCRIPT" ] || {
@@ -476,7 +477,7 @@ jobs:
         if: ${{ !inputs.upload }}
         uses: actions/upload-artifact@v7
         with:
-          name: godot-app-store-archive-${{ steps.tag.outputs.tag }}-build${{ steps.archive.outputs.build_number }}
+          name: godot-app-store-archive-${{ steps.tag.outputs.tag }}-build${{ steps.release.outputs.apple_build_number }}
           path: ${{ steps.archive.outputs.archive_path }}
           if-no-files-found: error
           retention-days: 3
@@ -547,6 +548,8 @@ jobs:
             echo "### Godot Deploy App Store"; echo ""
             echo "- tag: ${{ steps.tag.outputs.tag }}"
             echo "- scheme: ${{ inputs.ios_scheme }} / bundle: ${{ inputs.ios_bundle_id }}"
-            echo "- marketing: ${{ steps.archive.outputs.marketing_version }} / build: ${{ steps.archive.outputs.build_number }}"
+            echo "- source: ${{ steps.tag.outputs.sha }}"
+            echo "- marketing: ${{ steps.release.outputs.apple_marketing_version }} / build: ${{ steps.release.outputs.apple_build_number }}"
+            echo "- config revision: ${{ steps.release.outputs.config_revision }}"
             echo "- uploaded: ${{ inputs.upload }} / runner: macos-26"
           } >> "$GITHUB_STEP_SUMMARY"

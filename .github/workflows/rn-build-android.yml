@@ -43,10 +43,6 @@ on:
         required: false
         default: "key.properties"
         type: string
-      version_script:
-        required: false
-        default: "scripts/resolve-release-version.mjs"
-        type: string
       firebase_restore_script:
         required: false
         default: "scripts/restore-mobile-firebase-config.mjs"
@@ -91,21 +87,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Resolve build tag
-        id: tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="${{ inputs.release_tag }}"
-          if [ -z "$tag" ]; then
-            tag="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | head -n 1 || true)"
-            [ -n "$tag" ] || { echo "release_tag 비어있고 vX.Y.Z 태그 없음." >&2; exit 1; }
-          fi
-          [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
-            || { echo "release_tag는 stable SemVer vX.Y.Z여야 함: $tag" >&2; exit 1; }
-          git -c advice.detachedHead=false checkout "$tag"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
@@ -119,6 +100,70 @@ jobs:
           set -euo pipefail
           corepack enable
           corepack prepare pnpm@${{ inputs.pnpm_version }} --activate
+
+      # 버전 authority 구현은 org 정본에만 둔다. caller 저장소 스크립트를 신뢰하지 않기 위해
+      # called workflow identity를 확인하고 그 exact commit SHA로 정본을 받아 실행한다.
+      - name: Validate called reusable workflow identity
+        id: authority
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/rn-build-android.yml
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
+          '
+
+      - name: Checkout exact release version authority
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.authority.outputs.repository }}
+          ref: ${{ steps.authority.outputs.sha }}
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
+      - name: Resolve exact release tag
+        id: tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          git tag --list > "$RUNNER_TEMP/git-tags.txt"
+          tag="$(node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --tag-list-file "$RUNNER_TEMP/git-tags.txt" --print-tag)"
+          git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null
+          git -c advice.detachedHead=false checkout "refs/tags/$tag"
+          tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          head_commit="$(git rev-parse 'HEAD^{commit}')"
+          [ "$tag_commit" = "$head_commit" ] || {
+            echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
+            exit 1
+          }
+          { echo "tag=$tag"; echo "sha=$tag_commit"; } >> "$GITHUB_OUTPUT"
+
+      - name: Bind release version to the tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
+          JOB_WORKFLOW_REPOSITORY: ${{ steps.authority.outputs.repository }}
+          JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
+          JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+        run: |
+          set -euo pipefail
+          if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then
+            git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release-tag-message.txt"
+            export RELEASE_TAG_MESSAGE_FILE="$RUNNER_TEMP/release-tag-message.txt"
+          fi
+          RELEASE_HEAD_SHA="$(git rev-parse 'HEAD^{commit}')" \
+          RELEASE_LOCAL_TAG_SHA="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" \
+            node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --github-output
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -137,11 +182,6 @@ jobs:
             npm ci
             [ -f apps/mobile/package-lock.json ] && npm ci --prefix apps/mobile || true
           fi
-
-      - name: Resolve release version
-        id: release
-        shell: bash
-        run: node ${{ inputs.version_script }} --tag "${{ steps.tag.outputs.tag }}" --github-output
 
       - name: Prepare native project
         if: inputs.prepare_script != ''
@@ -246,10 +286,29 @@ jobs:
           fi
           ./gradlew :app:bundleRelease "${gradle_args[@]}"
 
+      # Gradle이 override를 무시하거나 프로젝트 값이 남아 있으면 여기서 fail-closed한다.
+      - name: Verify AAB version against the release tag
+        id: provenance
+        shell: bash
+        env:
+          AAB_PATH: ${{ steps.android.outputs.aab_path }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+        run: |
+          set -euo pipefail
+          # AAB의 base/manifest/AndroidManifest.xml은 aapt.pb.XmlNode 바이너리다.
+          # aapt2 dump는 AAB를 인식하지 못하므로 zip에서 직접 꺼내 org 정본 parser로 읽는다.
+          unzip -p "$AAB_PATH" base/manifest/AndroidManifest.xml > "$RUNNER_TEMP/aab-manifest.pb"
+          [ -s "$RUNNER_TEMP/aab-manifest.pb" ] || { echo "AAB에서 AndroidManifest.xml을 꺼내지 못함." >&2; exit 1; }
+          node .seorilabs-release-authority/scripts/release/verify-release-artifact.mjs \
+            --kind android-app-bundle \
+            --artifact "$AAB_PATH" \
+            --metadata "$RUNNER_TEMP/aab-manifest.pb" \
+            --github-output
+
       - name: Upload signed AAB artifact
         uses: actions/upload-artifact@v7
         with:
-          name: android-aab-${{ steps.release.outputs.release_name || steps.tag.outputs.tag }}
+          name: android-aab-${{ steps.tag.outputs.tag }}-${{ steps.release.outputs.android_version_code }}
           path: ${{ steps.android.outputs.aab_path }}
           if-no-files-found: error
           retention-days: 3
@@ -259,8 +318,9 @@ jobs:
         run: |
           {
             echo "### Build Android candidate"; echo ""
-            echo "- tag: ${{ steps.tag.outputs.tag }}"
-            echo "- artifact: signed AAB"
+            echo "- tag: ${{ steps.tag.outputs.tag }} @ ${{ steps.tag.outputs.sha }}"
+            echo "- version: ${{ steps.release.outputs.version_name }} (${{ steps.release.outputs.android_version_code }})"
+            echo "- artifact: signed AAB ${{ steps.provenance.outputs.artifact_digest }}"
             echo "- React Native architectures: ${REACT_NATIVE_ARCHITECTURES:-project default}"
             echo "- market upload: false"
           } >> "$GITHUB_STEP_SUMMARY"

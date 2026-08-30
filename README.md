@@ -25,6 +25,7 @@ legacy input이다. 신규 설정 정본으로 사용하지 않으며 저장소�
 - [Test policy](contracts/test-policy.yaml)
 - [Review policy](contracts/review-policy.yaml)
 - [Release policy](contracts/release-policy.yaml)
+- [Release version authority](contracts/release-version-authority.yaml)
 - [Agent policy](contracts/agent-policy.yaml)
 - [React Native profile](profiles/react-native.yaml)
 - [Godot profile](profiles/godot.yaml)
@@ -50,3 +51,4 @@ reconciler만 library API로 수행한다.
 - [Spec and versioning policy](docs/agent-governance/spec-versioning-policy.md)
 - [Org CI/CD & release system — legacy migration reference](docs/ci-cd/org-cicd-release-system.md)
 - [Build toolchain contract](docs/ci-cd/build-toolchain-contract.md)
+- [Release version authority](docs/ci-cd/release-version-authority.md)

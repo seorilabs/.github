@@ -165,10 +165,10 @@ flowchart LR
 | `rn-deploy-ait.yml` | `release_tag`, `memo`, `ait_dir`(기본 apps/ait) | inherit(`APPS_IN_TOSS_API_KEY`) | ARC | `pnpm --dir <ait_dir> run deploy --api-key --memo` |
 | `godot-deploy-ait.yml` | `release_tag`, `memo`, `wrapper_dir` | inherit | ARC | godot web export → wrapper build → deploy |
 | `rn-deploy-google-play.yml` | `release_tag`, `track`, `release_status`, `upload`(bool) | inherit + WIF vars | ubuntu | gradlew bundleRelease + WIF + python 업로드 |
-| `godot-deploy-google-play.yml` | `release_tag`, `version_name`, `version_code`, `track`, `release_status` | inherit + WIF | ubuntu | godot --export-release Android |
+| `godot-deploy-google-play.yml` | `release_tag`, `track`, `release_status` | inherit + WIF | ubuntu | godot --export-release Android. 버전은 태그에서만 파생 |
 | `rn-deploy-app-store.yml` | `release_tag`, `ios_scheme`, `ios_workspace`, `ios_bundle_id`, `upload`(bool) | inherit(Apple/ASC) | macos-26 | archive + exportArchive(app-store-connect, upload) |
 | `godot-deploy-app-store.yml` | `release_tag`, scheme/bundle | inherit | macos-26 | (lizard-tycoon류) |
-| `release-tag.yml` | `target_ref`, `tag`, `bump`(major/minor/patch) | — | ARC | 명시적 SemVer 태그 생성/push(contents:write) |
+| `release-tag.yml` | `target_ref`, `tag`, `bump`(major/minor/patch) | — | ARC | 지정 commit에 SemVer 태그 생성/push(contents:write). 마커 커밋·브랜치 push 없음 |
 | `cleanup-actions-storage.yml` | `delete_artifacts`, `delete_caches`, `dry_run` | — | ARC | gh api 기반 정리(검증됨) |
 
 **setup 스텝(v1 = 인라인)**: 재사용 워크플로우가 다른 repo의 로컬 `./.github/actions/*`를 참조할 때 생기는 교차참조 취약성을 피하기 위해, v1은 setup(node/pnpm, Android SDK, Godot 설치, Apple 서명 복원, Firebase config 복원)을 **각 재사용 워크플로우에 인라인**한다. 중복이 커지면 `seorilabs/.github/.github/actions/`의 composite action(`setup-pnpm-workspace`, `install-godot`, `setup-android-build`, `restore-apple-signing` 등)으로 추출하는 것을 후속 과제로 둔다.
@@ -182,10 +182,23 @@ flowchart LR
 
 ## 5. 버전 source of truth
 
-- **태그가 기준.** `vMAJOR.MINOR.PATCH`(stable SemVer)만 허용.
-- RN: `scripts/resolve-release-version.mjs`가 태그에서 `version_name`, `android_version_code`(세그먼트 base 1000), `apple_marketing_version`, `apple_build_number`를 파생. (happy-farm/crossword 검증됨)
-- Godot: `play-store/google-play.config.json`의 `release.versionName/versionCode`를 읽고 태그(`v$versionName`)와 일치 검증.(lucid-chess)
-- → 표준 리졸버를 org 공통 스크립트로 승격(템플릿에 포함). 마켓별 versionCode/buildNumber 충돌은 업로드 직전 검증.
+**GitHub 릴리즈 태그 `vMAJOR.MINOR.PATCH`가 모든 지원 마켓 artifact의 유일한 정본이다.**
+기계 판독 계약은 [`contracts/release-version-authority.yaml`](../../contracts/release-version-authority.yaml),
+정본 구현은 [`scripts/release/`](../../scripts/release/), 운영 설명은
+[릴리즈 버전 authority](release-version-authority.md)를 본다.
+
+- 파생 규칙: display/marketing version은 `v` 제거 값, Android `versionCode`와 Apple build number는
+  `major * 1000000 + minor * 1000 + patch`(세그먼트 base 1000).
+- `package.json`, Gradle, Xcode, Godot `project.godot`/`export_presets.cfg`, Granite 설정, 마켓 config
+  JSON, 저장소 로컬 `scripts/resolve-release-version.mjs`는 **authority가 아니다.** 값이 필요한 곳에는
+  태그 파생값을 주입하고, build 후 artifact metadata를 다시 읽어 대조한다.
+- 재사용 워크플로우는 `refs/tags/<tag>`의 exact commit만 checkout하고 HEAD와 일치하는지 확인한다.
+  동명 branch, stale local ref, prerelease 태그는 build 전에 fail-closed한다.
+- `release-tag.yml`은 운영자가 고른 exact source commit에만 태그를 달고(빈 마커 커밋·브랜치 push 없음),
+  annotated tag message에 release binding receipt를 남긴다. 배포 경로는 receipt의 source SHA와
+  authority 계약 revision을 대조해 같은 태그의 다른 source/계약 재사용을 fail-closed한다.
+- readback: Android AAB는 zip에서 꺼낸 protobuf manifest, iOS는 archive `Info.plist`, `.ait`은 컨테이너 형식과
+  sha256 digest + 태그 파생 canonical memo로 확인한다.
 
 ---
 

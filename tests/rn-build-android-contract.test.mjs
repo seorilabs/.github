@@ -8,7 +8,7 @@ const workflow = await readFile(workflowPath, 'utf8');
 test('stable tag contract builds and uploads a signed AAB artifact', () => {
   assert.match(workflow, /release_tag:[\s\S]*?type: string/);
   assert.match(workflow, /ref: \$\{\{ inputs\.release_tag \|\| github\.ref \}\}/);
-  assert.match(workflow, /checkout "\$tag"/);
+  assert.match(workflow, /checkout "refs\/tags\/\$tag"/);
   assert.match(workflow, /gradlew :app:bundleRelease/);
   assert.match(workflow, /name: Upload signed AAB artifact/);
   assert.match(workflow, /path: \$\{\{ steps\.android\.outputs\.aab_path \}\}/);

@@ -1,7 +1,10 @@
 # Seorilabs org 재사용 워크플로우: Godot 게임 Google Play (서명 AAB + 업로드)
 # 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-google-play.yml@<FULL_COMMIT_SHA>
 # 러너: x64 필수(runs_on, 기본 ubuntu-latest). godot --export-release Android → 서명 AAB → WIF 업로드.
-# 표준 contract(tools/): set_google_play_version_code.py, upload_google_play_internal.py
+# 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
+# export_presets.cfg와 play-store config JSON은 authority가 아니라 주입 대상이고, AAB manifest
+# readback이 태그 파생값과 다르면 업로드 전에 fail-closed한다.
+# 표준 contract(tools/): upload_google_play_internal.py
 #   (선택) install_android_build_template.sh, build_admob_plugin.sh, check_google_play_readiness.py
 name: Godot Deploy Google Play (reusable)
 
@@ -9,15 +12,6 @@ on:
   workflow_call:
     inputs:
       release_tag:
-        required: false
-        default: ""
-        type: string
-      version_name:
-        description: "Google Play versionName SemVer (예: 1.0.1)"
-        required: true
-        type: string
-      version_code:
-        description: "비우면 versionName에서 파생"
         required: false
         default: ""
         type: string
@@ -114,6 +108,76 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          check-latest: false
+
+      # 버전 authority 구현은 org 정본에만 둔다. caller 저장소 스크립트를 신뢰하지 않기 위해
+      # called workflow identity를 확인하고 그 exact commit SHA로 정본을 받아 실행한다.
+      - name: Validate called reusable workflow identity
+        id: authority
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/godot-deploy-google-play.yml
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
+          '
+
+      - name: Checkout exact release version authority
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.authority.outputs.repository }}
+          ref: ${{ steps.authority.outputs.sha }}
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
+      - name: Resolve exact release tag
+        id: tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          git tag --list > "$RUNNER_TEMP/git-tags.txt"
+          tag="$(node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --tag-list-file "$RUNNER_TEMP/git-tags.txt" --print-tag)"
+          git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null
+          git -c advice.detachedHead=false checkout "refs/tags/$tag"
+          tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          head_commit="$(git rev-parse 'HEAD^{commit}')"
+          [ "$tag_commit" = "$head_commit" ] || {
+            echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
+            exit 1
+          }
+          { echo "tag=$tag"; echo "sha=$tag_commit"; } >> "$GITHUB_OUTPUT"
+
+      - name: Bind release version to the tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
+          JOB_WORKFLOW_REPOSITORY: ${{ steps.authority.outputs.repository }}
+          JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
+          JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+        run: |
+          set -euo pipefail
+          if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then
+            git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release-tag-message.txt"
+            export RELEASE_TAG_MESSAGE_FILE="$RUNNER_TEMP/release-tag-message.txt"
+          fi
+          RELEASE_HEAD_SHA="$(git rev-parse 'HEAD^{commit}')" \
+          RELEASE_LOCAL_TAG_SHA="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" \
+            node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --github-output
+
       - name: Resolve AAB name
         id: meta
         shell: bash
@@ -159,23 +223,17 @@ jobs:
           chmod 600 "$path"
           echo "path=$path" >> "$GITHUB_OUTPUT"
 
-      - name: Set Google Play version
-        id: play_version
+      # export_presets.cfg는 version authority가 아니라 주입 대상이다. 태그 파생값을 덮어쓰고
+      # 실제 반영 여부는 export 이후 AAB manifest readback으로 확인한다.
+      - name: Apply release version to the Godot Android export preset
         shell: bash
+        env:
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
         run: |
           set -euo pipefail
-          vn="${{ inputs.version_name }}"
-          [ -n "$vn" ] || { echo "version_name required (stable SemVer)." >&2; exit 1; }
-          args=(--version-name "$vn")
-          [ -n "${{ inputs.version_code }}" ] && args+=(--version-code "${{ inputs.version_code }}")
-          if [ -f "$SCRIPTS_DIR/set_google_play_version_code.py" ]; then
-            python3 "$SCRIPTS_DIR/set_google_play_version_code.py" "${args[@]}" > "$RUNNER_TEMP/gp-version.json"
-            cat "$RUNNER_TEMP/gp-version.json"
-            python3 -c 'import json,sys;v=json.load(open(sys.argv[1]));print("version_name=%s"%v["versionName"]);print("version_code=%s"%v["versionCode"])' "$RUNNER_TEMP/gp-version.json" >> "$GITHUB_OUTPUT"
-          else
-            echo "version_name=$vn" >> "$GITHUB_OUTPUT"
-            echo "version_code=${{ inputs.version_code }}" >> "$GITHUB_OUTPUT"
-          fi
+          node .seorilabs-release-authority/scripts/release/apply-godot-export-version.mjs \
+            --platform Android \
+            --presets "$PROJECT_DIR/export_presets.cfg"
 
       - name: Install Godot
         shell: bash
@@ -293,13 +351,32 @@ jobs:
           mkdir -p "$(dirname "$AAB_PATH")"
           godot --headless --path "$PROJECT_DIR" --export-release Android "$AAB_PATH"
 
+      # Godot이 preset 값을 무시하거나 오래된 build template이 남아 있으면 여기서 fail-closed한다.
+      - name: Verify AAB version against the release tag
+        id: provenance
+        shell: bash
+        env:
+          AAB_PATH: ${{ steps.meta.outputs.aab_path }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+        run: |
+          set -euo pipefail
+          # AAB의 base/manifest/AndroidManifest.xml은 aapt.pb.XmlNode 바이너리다.
+          # aapt2 dump는 AAB를 인식하지 못하므로 zip에서 직접 꺼내 org 정본 parser로 읽는다.
+          unzip -p "$AAB_PATH" base/manifest/AndroidManifest.xml > "$RUNNER_TEMP/aab-manifest.pb"
+          [ -s "$RUNNER_TEMP/aab-manifest.pb" ] || { echo "AAB에서 AndroidManifest.xml을 꺼내지 못함." >&2; exit 1; }
+          node .seorilabs-release-authority/scripts/release/verify-release-artifact.mjs \
+            --kind android-app-bundle \
+            --artifact "$AAB_PATH" \
+            --metadata "$RUNNER_TEMP/aab-manifest.pb" \
+            --github-output
+
       - name: Run caller post-export validation
         if: ${{ inputs.post_export_validation_script != '' }}
         shell: bash
         env:
           AAB_PATH: ${{ steps.meta.outputs.aab_path }}
-          ANDROID_VERSION_NAME: ${{ steps.play_version.outputs.version_name }}
-          ANDROID_VERSION_CODE: ${{ steps.play_version.outputs.version_code }}
+          ANDROID_VERSION_NAME: ${{ steps.release.outputs.version_name }}
+          ANDROID_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
         run: |
           set -euo pipefail
           [ -f "$POST_EXPORT_VALIDATION_SCRIPT" ] || {
@@ -316,7 +393,7 @@ jobs:
         if: ${{ !inputs.upload }}
         uses: actions/upload-artifact@v7
         with:
-          name: godot-google-play-aab-${{ steps.play_version.outputs.version_name }}-${{ steps.play_version.outputs.version_code }}
+          name: godot-google-play-aab-${{ steps.release.outputs.version_name }}-${{ steps.release.outputs.android_version_code }}
           path: ${{ steps.meta.outputs.aab_path }}
           if-no-files-found: error
           retention-days: 3
@@ -354,13 +431,13 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+          # 출시노트도 해석된 exact 릴리즈 태그에서만 가져온다(호출 ref 폴백 없음).
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          tag="$RELEASE_TAG_INPUT"
-          [ -n "$tag" ] || tag="${{ github.ref_name }}"
+          tag="$RELEASE_TAG"
           out="$RUNNER_TEMP/release-notes.json"
-          if [ -n "$tag" ] && gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern release-notes.json --output "$out" --clobber 2>/dev/null \
+          if gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern release-notes.json --output "$out" --clobber 2>/dev/null \
             && [ "$(jq -r '(.notes // {}) | length' "$out")" -gt 0 ]; then
             {
               echo "found=true"
@@ -384,7 +461,7 @@ jobs:
           args=(
             --track "${{ inputs.track }}"
             --release-status "${{ inputs.release_status }}"
-            --release-name "${{ github.event.repository.name }} ${{ steps.play_version.outputs.version_name }} (${{ steps.play_version.outputs.version_code }})"
+            --release-name "${{ github.event.repository.name }} ${{ steps.release.outputs.version_name }} (${{ steps.release.outputs.android_version_code }})"
           )
           python3 "$SCRIPTS_DIR/upload_google_play_internal.py" "${args[@]}"
 
@@ -393,6 +470,9 @@ jobs:
         run: |
           {
             echo "### Godot Deploy Google Play"; echo ""
-            echo "- version: ${{ steps.play_version.outputs.version_name }} (${{ steps.play_version.outputs.version_code }})"
+            echo "- tag: ${{ steps.tag.outputs.tag }} @ ${{ steps.tag.outputs.sha }}"
+            echo "- version: ${{ steps.release.outputs.version_name }} (${{ steps.release.outputs.android_version_code }})"
+            echo "- config revision: ${{ steps.release.outputs.config_revision }}"
+            echo "- artifact digest: ${{ steps.provenance.outputs.artifact_digest }}"
             echo "- track: ${{ inputs.track }} / status: ${{ inputs.release_status }} / uploaded: ${{ inputs.upload }}"
           } >> "$GITHUB_STEP_SUMMARY"
