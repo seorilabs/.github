@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/seorilabs/.github/contracts/fleet-rpi-capacity-policy.schema.json",
-  "title": "Seorilabs RPI fleet capacity policy",
+  "$id": "https://github.com/seorilabs/.github/contracts/v2/fleet-rpi-capacity-policy.schema.json",
+  "title": "Seorilabs RPI fleet capacity policy v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "cluster", "workloads", "observation", "rollback"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "cluster": {
       "type": "object",
       "additionalProperties": false,

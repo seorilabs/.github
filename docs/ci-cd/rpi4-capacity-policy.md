@@ -56,6 +56,11 @@ workload별 동시성 제한으로 해결해야 할 OOM을 분리한다.
 기존 세 workload와 동일하게 RPI5에 남는다(RPI4001 refresh 시 리스너가 죽는 문제 회피,
 2026-08-22). `rpi4001` 격리와 RPI5 capacity 조건은 그대로다.
 
+이 추가로 `cluster.nodes.x64`, x64 두 스케일셋, 스케일셋별 `listenerNodeSelector`·
+`tolerations`가 필수 필드로 들어가 기존 계약 문서를 깨는 변경이므로
+[AGENTS.md](../../AGENTS.md)의 major 분리 원칙에 따라 `schemaVersion`을 `1`에서
+`2`로 올렸다. 스키마의 `schemaVersion` const, `title`, `$id`도 v2로 함께 갱신했다.
+
 단, 위 시각은 cordon 뒤 약 20시간 25분이므로 24시간 관찰 완료 증거가 아니다. 최초로
 24시간을 채우는 시각은 **2026-08-29 09:01:39 KST**다. verifier는 Node의
 `node.kubernetes.io/unschedulable` taint `timeAdded`에서 직접 시간을 계산하며 24시간 전에

@@ -141,6 +141,7 @@ test("RPI capacity contract는 exact node와 ARC 상한을 strict schema로 고�
     schema,
   );
   assert.equal(validate(contract), true, JSON.stringify(validate.errors));
+  assert.equal(contract.schemaVersion, 2);
   assert.equal(contract.cluster.nodes.quarantined.hostname, "rpi4001");
   assert.equal(contract.cluster.nodes.workload.hostname, "rpi5");
   assert.equal(contract.cluster.nodes.x64.hostname, "seori-m6-01");
@@ -170,6 +171,7 @@ test("운영 복제본은 exact RPI5 selector와 일반 1/3, DIND 0/1일 때만 
     assert.equal(result.stderr, "");
     const output = JSON.parse(result.stdout);
     assert.equal(output.ok, true);
+    assert.equal(output.policyVersion, 2);
     assert.equal(output.workloadNode, "rpi5");
     assert.deepEqual(output.arc, [
       { name: "seorilabs-rpi-arm64", minRunners: 1, maxRunners: 3 },
@@ -208,6 +210,7 @@ test("live readback은 mutation 없이 cordon, selector, ARC와 메모리 eviden
     assert.equal(result.stderr, "");
     const output = JSON.parse(result.stdout);
     assert.equal(output.ok, true);
+    assert.equal(output.policyVersion, 2);
     assert.equal(output.evidence.rpi4NodeWorkingSetMi, 4565);
     assert.equal(output.evidence.rpi4RunningPodWorkingSetMi, 406);
     assert.equal(output.evidence.rpi5NodeWorkingSetMi, 3235);
