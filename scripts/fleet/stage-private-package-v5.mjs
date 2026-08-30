@@ -42,6 +42,13 @@ const PACKAGE_SECTIONS = [
 const MAX_PACKAGE_BYTES = 2 * 1024 * 1024;
 const MAX_LOCK_BYTES = 24 * 1024 * 1024;
 const MAX_PNPM_OVERRIDES = 64;
+const MAX_AUDIT_EXCEPTION_BYTES = 32 * 1024;
+const SHA = /^[0-9a-f]{40}$/u;
+const SHA256 = /^sha256:[0-9a-f]{64}$/u;
+const REPOSITORY_ID = /^[1-9][0-9]{0,31}$/u;
+const FULL_NAME = /^seorilabs\/[A-Za-z0-9._-]+$/u;
+const GHSA = /^GHSA-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}$/u;
+const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u;
 const CHILD_ENVIRONMENT_KEYS = Object.freeze([
   "CI",
   "COREPACK_HOME",
@@ -63,6 +70,213 @@ function fail(code) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]),
+    );
+  }
+  return value;
+}
+
+function canonicalJson(value) {
+  return JSON.stringify(canonicalize(value));
+}
+
+function exactKeys(value, keys) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    canonicalJson(Object.keys(value).sort()) === canonicalJson([...keys].sort())
+  );
+}
+
+function decodeDependencyAuditException(encoded) {
+  if (encoded === undefined || encoded === null || encoded === "") return null;
+  if (
+    typeof encoded !== "string" ||
+    encoded.length > Math.ceil(MAX_AUDIT_EXCEPTION_BYTES * 4 / 3) ||
+    !/^[A-Za-z0-9_-]+$/u.test(encoded)
+  ) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
+  }
+  try {
+    const bytes = Buffer.from(encoded, "base64url");
+    if (
+      bytes.length === 0 ||
+      bytes.length > MAX_AUDIT_EXCEPTION_BYTES ||
+      bytes.toString("base64url") !== encoded
+    ) {
+      fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
+    }
+    return JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    if (error?.message === "DEPENDENCY_AUDIT_EXCEPTION_INVALID") throw error;
+    fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
+  }
+}
+
+function validateDependencyAuditException({
+  value,
+  actionClass,
+  repositoryId,
+  fullName,
+  sourceSha,
+  lockfileSha256,
+  now,
+}) {
+  if (value === null) return null;
+  const topLevelKeys = [
+    "schemaVersion",
+    "repositoryId",
+    "fullName",
+    "expiresAt",
+    "reason",
+    "bindings",
+    "advisories",
+  ];
+  const bindingKeys = ["actionClass", "sourceSha", "lockfileSha256"];
+  const advisoryKeys = ["ghsa", "module", "severity", "versions"];
+  if (
+    !exactKeys(value, topLevelKeys) ||
+    value.schemaVersion !== 1 ||
+    value.repositoryId !== repositoryId ||
+    value.fullName !== fullName ||
+    typeof value.expiresAt !== "string" ||
+    !Number.isFinite(Date.parse(value.expiresAt)) ||
+    Date.parse(value.expiresAt) <= now.getTime() ||
+    typeof value.reason !== "string" ||
+    value.reason.length < 1 ||
+    value.reason.length > 500 ||
+    /[\r\n\0]/u.test(value.reason) ||
+    !Array.isArray(value.bindings) ||
+    value.bindings.length !== 2 ||
+    !Array.isArray(value.advisories) ||
+    value.advisories.length < 1 ||
+    value.advisories.length > 16
+  ) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
+  }
+  const expectedActions = ["ANDROID_BUILD_ONLY", "STATIC_CHECK"];
+  if (
+    canonicalJson(value.bindings.map((binding) => binding?.actionClass).sort()) !==
+      canonicalJson(expectedActions)
+  ) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
+  }
+  for (const binding of value.bindings) {
+    if (
+      !exactKeys(binding, bindingKeys) ||
+      !expectedActions.includes(binding.actionClass) ||
+      !SHA.test(binding.sourceSha ?? "") ||
+      !SHA256.test(binding.lockfileSha256 ?? "")
+    ) {
+      fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
+    }
+  }
+  const advisoryKeysSeen = [];
+  for (const advisory of value.advisories) {
+    if (
+      !exactKeys(advisory, advisoryKeys) ||
+      !GHSA.test(advisory.ghsa ?? "") ||
+      !PACKAGE_NAME.test(advisory.module ?? "") ||
+      advisory.severity !== "high" ||
+      !Array.isArray(advisory.versions) ||
+      advisory.versions.length < 1 ||
+      advisory.versions.length > 16 ||
+      advisory.versions.some((version) => !EXACT_VERSION.test(version)) ||
+      canonicalJson(advisory.versions) !== canonicalJson([...new Set(advisory.versions)].sort())
+    ) {
+      fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
+    }
+    advisoryKeysSeen.push(`${advisory.ghsa}:${advisory.module}`);
+  }
+  if (
+    canonicalJson(advisoryKeysSeen) !== canonicalJson([...new Set(advisoryKeysSeen)].sort())
+  ) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
+  }
+  const binding = value.bindings.find((candidate) => candidate.actionClass === actionClass);
+  if (
+    !binding ||
+    binding.sourceSha !== sourceSha ||
+    binding.lockfileSha256 !== lockfileSha256
+  ) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH");
+  }
+  return Object.freeze(structuredClone(value));
+}
+
+function auditedAdvisories(stdout) {
+  let report;
+  try {
+    report = JSON.parse(stdout ?? "");
+  } catch {
+    fail("DEPENDENCY_AUDIT_REPORT_INVALID");
+  }
+  if (
+    report === null ||
+    typeof report !== "object" ||
+    Array.isArray(report) ||
+    report.advisories === null ||
+    typeof report.advisories !== "object" ||
+    Array.isArray(report.advisories)
+  ) {
+    fail("DEPENDENCY_AUDIT_REPORT_INVALID");
+  }
+  const advisories = [];
+  for (const advisory of Object.values(report.advisories)) {
+    if (!advisory || !["high", "critical"].includes(advisory.severity)) continue;
+    const versions = [...new Set(
+      Array.isArray(advisory.findings)
+        ? advisory.findings.map((finding) => finding?.version)
+        : [],
+    )].sort();
+    if (
+      !GHSA.test(advisory.github_advisory_id ?? "") ||
+      !PACKAGE_NAME.test(advisory.module_name ?? "") ||
+      versions.length < 1 ||
+      versions.some((version) => !EXACT_VERSION.test(version))
+    ) {
+      fail("DEPENDENCY_AUDIT_REPORT_INVALID");
+    }
+    advisories.push({
+      ghsa: advisory.github_advisory_id,
+      module: advisory.module_name,
+      severity: advisory.severity,
+      versions,
+    });
+  }
+  return advisories.sort((left, right) =>
+    `${left.ghsa}:${left.module}`.localeCompare(`${right.ghsa}:${right.module}`),
+  );
+}
+
+function acceptAuditResult(result, exception) {
+  if (result?.status === 0 && result?.signal === null && !result?.error) {
+    if (exception !== null) fail("DEPENDENCY_AUDIT_EXCEPTION_UNUSED");
+    return null;
+  }
+  if (
+    result?.status !== 1 ||
+    result?.signal !== null ||
+    result?.error ||
+    exception === null
+  ) {
+    fail("DEPENDENCY_AUDIT_FAILED");
+  }
+  const actual = auditedAdvisories(result.stdout);
+  if (
+    actual.some((advisory) => advisory.severity === "critical") ||
+    canonicalJson(actual) !== canonicalJson(exception.advisories)
+  ) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_MISMATCH");
+  }
+  return `sha256:${createHash("sha256").update(canonicalJson(exception)).digest("hex")}`;
 }
 
 function packageManagerEnvironment(source, token, userConfigPath) {
@@ -478,6 +692,12 @@ export async function stageExactPlatformDependencyV5({
   token = process.env.NODE_AUTH_TOKEN,
   spawn = spawnSync,
   childEnvironment = process.env,
+  dependencyAuditException = null,
+  auditActionClass,
+  repositoryId,
+  fullName,
+  sourceSha,
+  now = () => new Date(),
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -492,6 +712,43 @@ export async function stageExactPlatformDependencyV5({
     packageManager,
   });
   const canonicalRepo = await resolveSafeDirectory(repoRoot, ".");
+  const current = now();
+  if (!(current instanceof Date) || Number.isNaN(current.getTime())) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_CLOCK_INVALID");
+  }
+  let actualSourceSha;
+  try {
+    actualSourceSha = execFileSync("git", ["-C", canonicalRepo.path, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+      maxBuffer: 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    fail("DEPENDENCY_SOURCE_SHA_READ_FAILED");
+  }
+  if (
+    (dependencyAuditException !== null || auditActionClass !== undefined) &&
+    (
+      !["ANDROID_BUILD_ONLY", "STATIC_CHECK"].includes(auditActionClass) ||
+      !REPOSITORY_ID.test(repositoryId ?? "") ||
+      !FULL_NAME.test(fullName ?? "") ||
+      !SHA.test(sourceSha ?? "") ||
+      sourceSha !== actualSourceSha
+    )
+  ) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_CONTEXT_INVALID");
+  }
+  const lockBytes = await readFile(join(canonicalRepo.path, inspected.lockPath));
+  const lockfileSha256 = `sha256:${createHash("sha256").update(lockBytes).digest("hex")}`;
+  const validatedAuditException = validateDependencyAuditException({
+    value: dependencyAuditException,
+    actionClass: auditActionClass,
+    repositoryId,
+    fullName,
+    sourceSha,
+    lockfileSha256,
+    now: current,
+  });
   await validateChildPath(childEnvironment?.PATH, canonicalRepo.path);
   const expectedRelative = packageManager === "pnpm"
     ? ".seorilabs-pnpm-store"
@@ -531,8 +788,8 @@ export async function stageExactPlatformDependencyV5({
         "--no-fund",
       ];
   const auditArgs = packageManager === "pnpm"
-    ? ["audit", "--audit-level", "high", `--registry=${PUBLIC_REGISTRY}`]
-    : ["audit", "--audit-level=high", `--registry=${PUBLIC_REGISTRY}`];
+    ? ["audit", "--audit-level", "high", "--json", `--registry=${PUBLIC_REGISTRY}`]
+    : ["audit", "--audit-level=high", "--json", `--registry=${PUBLIC_REGISTRY}`];
   const stagingRoot = await mkdtemp(join(tmpdir(), "seori-locked-dependencies-"));
   const stagingConfig = join(stagingRoot, ".npmrc");
   const auditConfig = join(stagingRoot, ".npmrc.audit");
@@ -571,6 +828,7 @@ export async function stageExactPlatformDependencyV5({
   );
   let stageResult;
   let auditResult;
+  let dependencyAuditExceptionDigest = null;
   try {
     stageResult = spawn(command, args, {
       // An app-owned .npmrc must never be able to redirect the package token.
@@ -600,13 +858,10 @@ export async function stageExactPlatformDependencyV5({
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 120_000,
     });
-    if (
-      auditResult?.status !== 0 ||
-      auditResult?.signal !== null ||
-      auditResult?.error
-    ) {
-      fail("DEPENDENCY_AUDIT_FAILED");
-    }
+    dependencyAuditExceptionDigest = acceptAuditResult(
+      auditResult,
+      validatedAuditException,
+    );
   } catch (error) {
     await rm(expectedCache, { force: true, recursive: true });
     throw error;
@@ -631,16 +886,23 @@ export async function stageExactPlatformDependencyV5({
     cachePath: expectedRelative,
     contentDigest: `sha256:${createHash("sha256").update(records.join("\n")).digest("hex")}`,
     tokenPersisted: false,
+    dependencyAuditExceptionDigest,
   });
 }
 
 async function main() {
-  const [repoRoot, dependencyRoot, packageManager, cacheRoot] = process.argv.slice(2);
+  const [repoRoot, dependencyRoot, packageManager, cacheRoot, encodedAuditException = ""] =
+    process.argv.slice(2);
   const result = await stageExactPlatformDependencyV5({
     repoRoot,
     dependencyRoot,
     packageManager,
     cacheRoot,
+    dependencyAuditException: decodeDependencyAuditException(encodedAuditException),
+    auditActionClass: encodedAuditException ? process.env.SEORI_AUDIT_ACTION_CLASS : undefined,
+    repositoryId: encodedAuditException ? process.env.SEORI_REPOSITORY_ID : undefined,
+    fullName: encodedAuditException ? process.env.SEORI_REPOSITORY : undefined,
+    sourceSha: encodedAuditException ? process.env.SEORI_SOURCE_SHA : undefined,
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

@@ -35,6 +35,7 @@ jobs:
       workflow_bundle_source_sha: ${{ steps.binding.outputs.workflow_bundle_source_sha }}
       workflow_bundle_payload_digest: ${{ steps.binding.outputs.workflow_bundle_payload_digest }}
       manifest_digest: ${{ steps.binding.outputs.manifest_digest }}
+      dependency_audit_exception: ${{ steps.binding.outputs.dependency_audit_exception }}
       bundle_repository: ${{ steps.bundle-identity.outputs.repository }}
       bundle_sha: ${{ steps.bundle-identity.outputs.sha }}
       bundle_ref: ${{ steps.bundle-identity.outputs.ref }}
@@ -181,13 +182,20 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
           DEPENDENCY_ROOT: ${{ needs.resolve-binding.outputs.dependency_root }}
+          DEPENDENCY_AUDIT_EXCEPTION: ${{ needs.resolve-binding.outputs.dependency_audit_exception }}
+          SEORI_AUDIT_ACTION_CLASS: ANDROID_BUILD_ONLY
+          SEORI_REPOSITORY_ID: ${{ github.repository_id }}
+          SEORI_REPOSITORY: ${{ github.repository }}
+          SEORI_SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
         run: |
           set -euo pipefail
           ulimit -c 0
           corepack enable
           COREPACK_NPM_REGISTRY=https://registry.npmjs.org corepack prepare pnpm@11.3.0 --activate
           application_root="$GITHUB_WORKSPACE/.seorilabs-application"
-          node scripts/fleet/stage-private-package-v5.mjs "$application_root" "$DEPENDENCY_ROOT" pnpm "$application_root/.seorilabs-pnpm-store"
+          node scripts/fleet/stage-private-package-v5.mjs \
+            "$application_root" "$DEPENDENCY_ROOT" pnpm \
+            "$application_root/.seorilabs-pnpm-store" "$DEPENDENCY_AUDIT_EXCEPTION"
 
       - name: Validate internal WIF public bindings
         shell: bash

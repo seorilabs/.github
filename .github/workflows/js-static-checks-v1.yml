@@ -38,6 +38,7 @@ jobs:
       snapshot_signature_policy_revision: ${{ steps.runtime-binding.outputs.snapshot_signature_policy_revision }}
       snapshot_signature_digest: ${{ steps.runtime-binding.outputs.snapshot_signature_digest }}
       manifest_digest: ${{ steps.runtime-binding.outputs.manifest_digest }}
+      dependency_audit_exception: ${{ steps.runtime-binding.outputs.dependency_audit_exception }}
 
     steps:
       - name: Validate called reusable workflow identity
@@ -199,6 +200,11 @@ jobs:
           NODE_AUTH_TOKEN: ${{ github.token }}
           PACKAGE_MANAGER: ${{ needs.resolve-binding.outputs.package_manager }}
           WORKSPACE_ROOT: ${{ needs.resolve-binding.outputs.workspace_root }}
+          DEPENDENCY_AUDIT_EXCEPTION: ${{ needs.resolve-binding.outputs.dependency_audit_exception }}
+          SEORI_AUDIT_ACTION_CLASS: STATIC_CHECK
+          SEORI_REPOSITORY_ID: ${{ github.repository_id }}
+          SEORI_REPOSITORY: ${{ github.repository }}
+          SEORI_SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
         run: |
           set -euo pipefail
           ulimit -c 0
@@ -209,7 +215,8 @@ jobs:
             cache_root="$application_root/.seorilabs-npm-cache"
           fi
           node scripts/fleet/stage-private-package-v5.mjs \
-            "$application_root" "$WORKSPACE_ROOT" "$PACKAGE_MANAGER" "$cache_root"
+            "$application_root" "$WORKSPACE_ROOT" "$PACKAGE_MANAGER" "$cache_root" \
+            "$DEPENDENCY_AUDIT_EXCEPTION"
 
       - name: Install exactly locked dependencies offline
         shell: bash

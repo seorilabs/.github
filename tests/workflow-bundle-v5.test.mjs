@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   cp,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -124,6 +125,7 @@ function staticRuntimeResponse(
       workspaceRoot: ".",
       commandDirectory: ".",
     },
+    dependencyAuditException,
   } = {},
 ) {
   const manifest = {
@@ -145,6 +147,9 @@ function staticRuntimeResponse(
       digest: `sha256:${"7".repeat(64)}`,
     },
     staticBinding: structuredClone(staticBinding),
+    ...(dependencyAuditException === undefined
+      ? {}
+      : { dependencyAuditException: structuredClone(dependencyAuditException) }),
   };
   return {
     schemaVersion: 1,
@@ -192,7 +197,10 @@ function buildRuntimeContext({
   };
 }
 
-function buildRuntimeResponse(request, { lifecycleState = "ACTIVE" } = {}) {
+function buildRuntimeResponse(
+  request,
+  { lifecycleState = "ACTIVE", dependencyAuditException } = {},
+) {
   const reactNative = request.buildProfile === "react-native-android";
   const manifest = {
     schemaVersion: 1,
@@ -227,6 +235,9 @@ function buildRuntimeResponse(request, { lifecycleState = "ACTIVE" } = {}) {
       scriptPath: "scripts/build-android.sh",
       artifactKind: "android-aab",
     },
+    ...(dependencyAuditException === undefined
+      ? {}
+      : { dependencyAuditException: structuredClone(dependencyAuditException) }),
   };
   return {
     schemaVersion: 1,
@@ -238,6 +249,56 @@ function buildRuntimeResponse(request, { lifecycleState = "ACTIVE" } = {}) {
     eventSourceSha: request.eventSourceSha,
     manifestDigest: sha256(JSON.stringify(canonicalize(manifest))),
     manifest,
+  };
+}
+
+function dependencyAuditExceptionFixture({
+  repositoryId,
+  fullName,
+  staticSourceSha,
+  androidSourceSha,
+  staticLockDigest = `sha256:${"1".repeat(64)}`,
+  androidLockDigest = `sha256:${"2".repeat(64)}`,
+  expiresAt = "2026-09-13T00:00:00Z",
+} = {}) {
+  return {
+    schemaVersion: 1,
+    repositoryId,
+    fullName,
+    expiresAt,
+    reason: "공식 patched release가 없는 transitive build-tool advisory의 한시적 build-only 예외",
+    bindings: [
+      {
+        actionClass: "ANDROID_BUILD_ONLY",
+        sourceSha: androidSourceSha,
+        lockfileSha256: androidLockDigest,
+      },
+      {
+        actionClass: "STATIC_CHECK",
+        sourceSha: staticSourceSha,
+        lockfileSha256: staticLockDigest,
+      },
+    ],
+    advisories: [
+      {
+        ghsa: "GHSA-2p57-rm9w-gvfp",
+        module: "ip",
+        severity: "high",
+        versions: ["1.1.9"],
+      },
+      {
+        ghsa: "GHSA-5p2g-fcmc-qvqq",
+        module: "image-size",
+        severity: "high",
+        versions: ["0.6.3", "1.2.1"],
+      },
+      {
+        ghsa: "GHSA-w3rx-r6r6-pgpr",
+        module: "image-size",
+        severity: "high",
+        versions: ["0.6.3", "1.2.1"],
+      },
+    ],
   };
 }
 
@@ -1391,6 +1452,67 @@ test("same-repo PR binds merge, base, and called path while trusted drift readba
   );
 });
 
+test("signed dependency audit exception is exact-source, scoped, ordered, and time-bound", async () => {
+  const staticContext = staticRuntimeContext({ applicationSourceSha: "8".repeat(40) });
+  const staticException = dependencyAuditExceptionFixture({
+    repositoryId: staticContext.repositoryId,
+    fullName: staticContext.fullName,
+    staticSourceSha: staticContext.applicationSourceSha,
+    androidSourceSha: "9".repeat(40),
+  });
+  const staticBinding = await resolveStaticRuntimeBindingV5(staticContext, {
+    now: () => new Date("2026-08-30T00:00:00Z"),
+    trustedManifestReadback: async (request) => staticRuntimeResponse(request, {
+      dependencyAuditException: staticException,
+    }),
+  });
+  assert.deepEqual(
+    JSON.parse(Buffer.from(staticBinding.dependencyAuditException, "base64url").toString("utf8")),
+    canonicalize(staticException),
+  );
+
+  const buildContext = buildRuntimeContext({ eventSourceSha: "9".repeat(40) });
+  const buildException = dependencyAuditExceptionFixture({
+    repositoryId: buildContext.repositoryId,
+    fullName: buildContext.fullName,
+    staticSourceSha: "8".repeat(40),
+    androidSourceSha: buildContext.eventSourceSha,
+  });
+  const buildBinding = await resolveBuildRuntimeBindingV5(buildContext, {
+    now: () => new Date("2026-08-30T00:00:00Z"),
+    trustedManifestReadback: async (request) => buildRuntimeResponse(request, {
+      dependencyAuditException: buildException,
+    }),
+  });
+  assert.deepEqual(
+    JSON.parse(Buffer.from(buildBinding.dependencyAuditException, "base64url").toString("utf8")),
+    canonicalize(buildException),
+  );
+
+  for (const invalid of [
+    { ...staticException, expiresAt: "2026-08-29T23:59:59Z" },
+    {
+      ...staticException,
+      bindings: staticException.bindings.map((binding) => (
+        binding.actionClass === "STATIC_CHECK"
+          ? { ...binding, sourceSha: "7".repeat(40) }
+          : binding
+      )),
+    },
+    { ...staticException, advisories: [...staticException.advisories].reverse() },
+  ]) {
+    await assert.rejects(
+      resolveStaticRuntimeBindingV5(staticContext, {
+        now: () => new Date("2026-08-30T00:00:00Z"),
+        trustedManifestReadback: async (request) => staticRuntimeResponse(request, {
+          dependencyAuditException: invalid,
+        }),
+      }),
+      /DEPENDENCY_AUDIT_EXCEPTION_(?:INVALID|BINDING_MISMATCH)/u,
+    );
+  }
+});
+
 test("called workflow path, profile, and package manager are one exact runtime identity", async () => {
   const context = staticRuntimeContext({
     calledWorkflowPath: ".github/workflows/godot-checks-v3.yml",
@@ -2078,6 +2200,86 @@ test("pnpm and npm staging require exact Platform lock evidence and never retain
   );
 });
 
+test("audit exception permits only the exact high advisory set for one source and lock", async () => {
+  const { root } = await fixtureRepository("saju-reader");
+  const sourceSha = git(root, ["rev-parse", "HEAD"]);
+  const lockDigest = sha256(await readFile(join(root, "pnpm-lock.yaml")));
+  const exception = dependencyAuditExceptionFixture({
+    repositoryId: "1250442131",
+    fullName: "seorilabs/happy-farm",
+    staticSourceSha: sourceSha,
+    androidSourceSha: "9".repeat(40),
+    staticLockDigest: lockDigest,
+  });
+  const auditReport = JSON.stringify({
+    advisories: Object.fromEntries(exception.advisories.map((advisory, index) => [String(index + 1), {
+      github_advisory_id: advisory.ghsa,
+      module_name: advisory.module,
+      severity: advisory.severity,
+      findings: advisory.versions.map((version) => ({ version })),
+    }])),
+  });
+  const cacheRoot = join(root, ".seorilabs-pnpm-store");
+  let calls = 0;
+  const staged = await stageExactPlatformDependencyV5({
+    repoRoot: root,
+    dependencyRoot: ".",
+    packageManager: "pnpm",
+    cacheRoot,
+    token: "token-that-must-never-be-persisted",
+    childEnvironment: { HOME: "/tmp/fixture-home", PATH: "/usr/bin:/bin" },
+    dependencyAuditException: exception,
+    auditActionClass: "STATIC_CHECK",
+    repositoryId: exception.repositoryId,
+    fullName: exception.fullName,
+    sourceSha,
+    now: () => new Date("2026-08-30T00:00:00Z"),
+    spawn: (_command, _args, options) => {
+      calls += 1;
+      if (calls === 1) {
+        mkdirSync(join(cacheRoot, "content"), { recursive: true });
+        writeFileSync(join(cacheRoot, "content", "package.tgz"), "public-package-bytes");
+        return { status: 0, signal: null };
+      }
+      assert.equal(_args.includes("--json"), true);
+      assert.equal(options.env.NODE_AUTH_TOKEN, undefined);
+      return { status: 1, signal: null, stdout: auditReport };
+    },
+  });
+  assert.equal(calls, 2);
+  assert.equal(staged.dependencyAuditExceptionDigest, sha256(JSON.stringify(canonicalize(exception))));
+
+  await rm(cacheRoot, { recursive: true, force: true });
+  const substituted = structuredClone(exception);
+  substituted.advisories[0].versions = ["1.1.8"];
+  await assert.rejects(
+    stageExactPlatformDependencyV5({
+      repoRoot: root,
+      dependencyRoot: ".",
+      packageManager: "pnpm",
+      cacheRoot,
+      token: "token-that-must-never-be-persisted",
+      childEnvironment: { HOME: "/tmp/fixture-home", PATH: "/usr/bin:/bin" },
+      dependencyAuditException: substituted,
+      auditActionClass: "STATIC_CHECK",
+      repositoryId: exception.repositoryId,
+      fullName: exception.fullName,
+      sourceSha,
+      now: () => new Date("2026-08-30T00:00:00Z"),
+      spawn: (_command, _args, options) => {
+        if (!options.env.NODE_AUTH_TOKEN) {
+          return { status: 1, signal: null, stdout: auditReport };
+        }
+        mkdirSync(join(cacheRoot, "content"), { recursive: true });
+        writeFileSync(join(cacheRoot, "content", "package.tgz"), "public-package-bytes");
+        return { status: 0, signal: null };
+      },
+    }),
+    /DEPENDENCY_AUDIT_EXCEPTION_MISMATCH/u,
+  );
+  assert.equal(await lstat(cacheRoot).catch(() => null), null);
+});
+
 test("pnpm staging preserves only exact stable public-registry overrides from the locked graph", async () => {
   const { root } = await fixtureRepository("saju-reader");
   const lockPath = join(root, "pnpm-lock.yaml");
@@ -2204,6 +2406,10 @@ test("new workflows are build-only, private ARC routed, checksum-bound, and reta
     contents: "read",
     "id-token": "write",
   });
+  assert.equal(
+    staticDefinition.jobs["resolve-binding"].outputs.dependency_audit_exception,
+    "${{ steps.runtime-binding.outputs.dependency_audit_exception }}",
+  );
   assert.deepEqual(staticDefinition.jobs.quality.permissions, {
     contents: "read",
     packages: "read",
@@ -2233,6 +2439,16 @@ test("new workflows are build-only, private ARC routed, checksum-bound, and reta
     staticDefinition.jobs.quality.steps.some(({ name }) => /evidence|provenance/iu.test(name)),
     false,
   );
+  const staticAuditTransport = staticDefinition.jobs.quality.steps.filter((step) =>
+    step.env?.DEPENDENCY_AUDIT_EXCEPTION !== undefined);
+  assert.deepEqual(staticAuditTransport.map(({ name }) => name), [
+    "Stage exactly locked dependency cache in an isolated process",
+  ]);
+  assert.equal(
+    staticAuditTransport[0].env.DEPENDENCY_AUDIT_EXCEPTION,
+    "${{ needs.resolve-binding.outputs.dependency_audit_exception }}",
+  );
+  assert.equal(staticAuditTransport[0].env.SEORI_AUDIT_ACTION_CLASS, "STATIC_CHECK");
   assert.equal(
     staticDefinition.jobs.evidence.steps.some(({ name }) => /Upload static evidence/u.test(name)),
     true,
@@ -2507,6 +2723,26 @@ test("RN and Godot v2 workflows resolve signed config before app checkout and ne
         ? ["Stage exact private Platform SDK without exporting the token"]
         : [],
     );
+    const auditTransport = Object.values(workflow.jobs)
+      .flatMap((job) => job.steps ?? [])
+      .filter((step) => step.env?.DEPENDENCY_AUDIT_EXCEPTION !== undefined);
+    assert.deepEqual(
+      auditTransport.map(({ name }) => name),
+      profile === "react-native-android"
+        ? ["Stage exact private Platform SDK without exporting the token"]
+        : [],
+    );
+    if (profile === "react-native-android") {
+      assert.equal(
+        workflow.jobs["resolve-binding"].outputs.dependency_audit_exception,
+        "${{ steps.binding.outputs.dependency_audit_exception }}",
+      );
+      assert.equal(
+        auditTransport[0].env.DEPENDENCY_AUDIT_EXCEPTION,
+        "${{ needs.resolve-binding.outputs.dependency_audit_exception }}",
+      );
+      assert.equal(auditTransport[0].env.SEORI_AUDIT_ACTION_CLASS, "ANDROID_BUILD_ONLY");
+    }
   }
 });
 

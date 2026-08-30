@@ -6,6 +6,9 @@ const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const REPOSITORY_ID = /^[1-9][0-9]{0,31}$/u;
 const FULL_NAME = /^seorilabs\/[A-Za-z0-9._-]+$/u;
 const PUBLIC_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/u;
+const GHSA = /^GHSA-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}$/u;
+const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u;
+const EXACT_VERSION = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/u;
 const SAFE_SEGMENT = /^[A-Za-z0-9_@-]+(?:\.[A-Za-z0-9_@-]+)*$/u;
 const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u;
 const STATIC_CALLER_PATH = ".github/workflows/org-contract.yml";
@@ -114,6 +117,87 @@ function exactKeys(value, keys) {
   );
 }
 
+function validateDependencyAuditException(value, request, actionClass, nowMs) {
+  if (value === undefined) return null;
+  const topLevelKeys = [
+    "schemaVersion",
+    "repositoryId",
+    "fullName",
+    "expiresAt",
+    "reason",
+    "bindings",
+    "advisories",
+  ];
+  const bindingKeys = ["actionClass", "sourceSha", "lockfileSha256"];
+  const advisoryKeys = ["ghsa", "module", "severity", "versions"];
+  if (
+    !exactKeys(value, topLevelKeys) ||
+    value.schemaVersion !== 1 ||
+    value.repositoryId !== request.repositoryId ||
+    value.fullName !== request.fullName ||
+    typeof value.reason !== "string" ||
+    value.reason.length < 1 ||
+    value.reason.length > 500 ||
+    /[\r\n\0]/u.test(value.reason) ||
+    typeof value.expiresAt !== "string" ||
+    !Number.isFinite(Date.parse(value.expiresAt)) ||
+    Date.parse(value.expiresAt) <= nowMs ||
+    !Array.isArray(value.bindings) ||
+    value.bindings.length !== 2 ||
+    !Array.isArray(value.advisories) ||
+    value.advisories.length < 1 ||
+    value.advisories.length > 16
+  ) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
+  }
+  const expectedActions = ["ANDROID_BUILD_ONLY", "STATIC_CHECK"];
+  const actions = value.bindings.map((binding) => binding?.actionClass).sort();
+  if (canonicalJson(actions) !== canonicalJson(expectedActions)) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
+  }
+  for (const binding of value.bindings) {
+    if (
+      !exactKeys(binding, bindingKeys) ||
+      !expectedActions.includes(binding.actionClass) ||
+      !SHA.test(binding.sourceSha ?? "") ||
+      !SHA256.test(binding.lockfileSha256 ?? "")
+    ) {
+      fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
+    }
+  }
+  const advisoryKeysSeen = [];
+  for (const advisory of value.advisories) {
+    if (
+      !exactKeys(advisory, advisoryKeys) ||
+      !GHSA.test(advisory.ghsa ?? "") ||
+      !PACKAGE_NAME.test(advisory.module ?? "") ||
+      advisory.severity !== "high" ||
+      !Array.isArray(advisory.versions) ||
+      advisory.versions.length < 1 ||
+      advisory.versions.length > 16 ||
+      advisory.versions.some((version) => !EXACT_VERSION.test(version)) ||
+      canonicalJson(advisory.versions) !== canonicalJson([...new Set(advisory.versions)].sort())
+    ) {
+      fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
+    }
+    advisoryKeysSeen.push(`${advisory.ghsa}:${advisory.module}`);
+  }
+  if (
+    canonicalJson(advisoryKeysSeen) !== canonicalJson([...new Set(advisoryKeysSeen)].sort())
+  ) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
+  }
+  const binding = value.bindings.find((candidate) => candidate.actionClass === actionClass);
+  if (!binding || binding.sourceSha !== request.applicationSourceSha) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH");
+  }
+  return Object.freeze(structuredClone(value));
+}
+
+function encodedDependencyAuditException(value) {
+  return value === null ? "" : Buffer.from(canonicalJson(value), "utf8").toString("base64url");
+}
+
 function safeDirectory(value) {
   return (
     value === "." ||
@@ -192,7 +276,7 @@ function validateContext(context) {
   });
 }
 
-function validateManifestResponse(response, request) {
+function validateManifestResponse(response, request, nowMs = Date.now()) {
   const responseKeys = [
     "schemaVersion",
     "state",
@@ -221,6 +305,9 @@ function validateManifestResponse(response, request) {
     "snapshotSignature",
     "staticBinding",
   ];
+  if (response?.manifest?.dependencyAuditException !== undefined) {
+    manifestKeys.push("dependencyAuditException");
+  }
   const signatureKeys = ["keyId", "policyRevision", "digest"];
   const bindingKeys = ["profile", "packageManager", "workspaceRoot", "commandDirectory"];
   const calledWorkflow = calledWorkflowForPath(request.calledWorkflowPath);
@@ -260,7 +347,13 @@ function validateManifestResponse(response, request) {
   ) {
     fail("STATIC_RUNTIME_READBACK_INVALID");
   }
-  return manifest;
+  const dependencyAuditException = validateDependencyAuditException(
+    manifest.dependencyAuditException,
+    request,
+    "STATIC_CHECK",
+    nowMs,
+  );
+  return { manifest, dependencyAuditException };
 }
 
 async function readLimitedText(response, maximumBytes) {
@@ -407,7 +500,7 @@ export function createStaticManifestReadbackV5({
 
 export async function resolveStaticRuntimeBindingV5(
   context,
-  { trustedManifestReadback } = {},
+  { trustedManifestReadback, now = () => new Date() } = {},
 ) {
   const identity = validateContext(context);
   if (typeof trustedManifestReadback !== "function") {
@@ -425,7 +518,15 @@ export async function resolveStaticRuntimeBindingV5(
     runAttempt: String(context.runAttempt),
   });
   const response = await trustedManifestReadback(structuredClone(request));
-  const manifest = validateManifestResponse(response, request);
+  const current = now();
+  if (!(current instanceof Date) || Number.isNaN(current.getTime())) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_CLOCK_INVALID");
+  }
+  const { manifest, dependencyAuditException } = validateManifestResponse(
+    response,
+    request,
+    current.getTime(),
+  );
   if (manifest.lifecycleState === "DEPRECATED") fail("STATIC_RUNTIME_NO_CALLER");
   return Object.freeze({
     applicationSourceSha: request.applicationSourceSha,
@@ -444,6 +545,7 @@ export async function resolveStaticRuntimeBindingV5(
     snapshotSignaturePolicyRevision: manifest.snapshotSignature.policyRevision,
     snapshotSignatureDigest: manifest.snapshotSignature.digest,
     manifestDigest: response.manifestDigest,
+    dependencyAuditException: encodedDependencyAuditException(dependencyAuditException),
   });
 }
 
@@ -511,7 +613,7 @@ function validateBuildContext(context) {
   });
 }
 
-function validateBuildManifestResponse(response, request, contract) {
+function validateBuildManifestResponse(response, request, contract, nowMs = Date.now()) {
   const responseKeys = [
     "schemaVersion", "state", "mode", "repositoryId", "fullName",
     "applicationSourceSha", "eventSourceSha", "manifestDigest", "manifest",
@@ -522,6 +624,9 @@ function validateBuildManifestResponse(response, request, contract) {
     "configRevision", "configRevisionDigest", "signedSnapshotDigest",
     "snapshotSignature", "workflowBundle", "buildBinding",
   ];
+  if (response?.manifest?.dependencyAuditException !== undefined) {
+    manifestKeys.push("dependencyAuditException");
+  }
   const signatureKeys = ["keyId", "policyRevision", "digest"];
   const workflowBundleKeys = ["sourceSha", "payloadDigest", "approvalState", "buildProfiles"];
   const bindingKeys = [
@@ -577,7 +682,13 @@ function validateBuildManifestResponse(response, request, contract) {
   ) {
     fail("BUILD_RUNTIME_READBACK_INVALID");
   }
-  return manifest;
+  const dependencyAuditException = validateDependencyAuditException(
+    manifest.dependencyAuditException,
+    request,
+    "ANDROID_BUILD_ONLY",
+    nowMs,
+  );
+  return { manifest, dependencyAuditException };
 }
 
 export function createBuildManifestReadbackV5({
@@ -648,7 +759,7 @@ export function createBuildManifestReadbackV5({
 
 export async function resolveBuildRuntimeBindingV5(
   context,
-  { trustedManifestReadback } = {},
+  { trustedManifestReadback, now = () => new Date() } = {},
 ) {
   const identity = validateBuildContext(context);
   if (typeof trustedManifestReadback !== "function") {
@@ -669,7 +780,16 @@ export async function resolveBuildRuntimeBindingV5(
     schema: identity.schema,
   });
   const response = await trustedManifestReadback(structuredClone(request));
-  const manifest = validateBuildManifestResponse(response, request, identity.contract);
+  const current = now();
+  if (!(current instanceof Date) || Number.isNaN(current.getTime())) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_CLOCK_INVALID");
+  }
+  const { manifest, dependencyAuditException } = validateBuildManifestResponse(
+    response,
+    request,
+    identity.contract,
+    current.getTime(),
+  );
   if (manifest.lifecycleState !== "ACTIVE") {
     fail(`${manifest.lifecycleState}_BUILD_RUNTIME_FORBIDDEN`);
   }
@@ -694,6 +814,7 @@ export async function resolveBuildRuntimeBindingV5(
     workflowBundlePayloadDigest: manifest.workflowBundle.payloadDigest,
     workflowBundleApprovalState: manifest.workflowBundle.approvalState,
     manifestDigest: response.manifestDigest,
+    dependencyAuditException: encodedDependencyAuditException(dependencyAuditException),
   });
 }
 
@@ -737,6 +858,7 @@ function appendOutputs(path, binding) {
     snapshot_signature_policy_revision: binding.snapshotSignaturePolicyRevision,
     snapshot_signature_digest: binding.snapshotSignatureDigest,
     manifest_digest: binding.manifestDigest,
+    dependency_audit_exception: binding.dependencyAuditException,
   };
   appendFileSync(
     path,
@@ -767,6 +889,7 @@ function appendBuildOutputs(path, binding) {
     workflow_bundle_payload_digest: binding.workflowBundlePayloadDigest,
     workflow_bundle_approval_state: binding.workflowBundleApprovalState,
     manifest_digest: binding.manifestDigest,
+    dependency_audit_exception: binding.dependencyAuditException,
   };
   appendFileSync(
     path,

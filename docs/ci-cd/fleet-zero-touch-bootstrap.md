@@ -132,6 +132,16 @@ Android caller는 생성 PR의 해당 파일 변경에만 반응한다. 중앙 r
 - candidate WIF prebind 승인 발급과 durable CAS store, shared provider/service-account transport 연결
 - private RN/Godot canary에서 5분 등록, 10분 bootstrap PR 또는 정확한 `needs_input` 검증
 - APPROVED Android caller는 `.github/workflows/android-build-only.yml@refs/heads/main`, CANDIDATE canary caller는 allowlisted PR branch로 구분해 runtime ref 검증
+
+dependency audit 예외는 repository 파일이나 workflow input으로 선언할 수 없다. Backoffice의
+ACTIVE ConfigRevision 서명 snapshot이 `dependencyAuditException`을 제공할 때만 사용하며,
+repository ID/full name, `STATIC_CHECK`과 `ANDROID_BUILD_ONLY`의 서로 다른 exact source SHA와
+lockfile SHA-256, 허용할 high GHSA/package/version 전체 집합, 만료 시각을 함께 고정한다. 중앙
+runtime은 현재 identity와 만료를 다시 검증하고 canonical public payload만 workflow job 사이에
+전달한다. staging은 실제 Git HEAD와 lock bytes를 다시 hash한 뒤 tokenless audit 결과의 모든
+high/critical 항목이 예외 집합과 정확히 같을 때만 계속한다. 새 advisory, critical, source/lock
+drift, 만료, 취약점 소멸 뒤 남은 불필요 예외는 모두 fail-closed다. 이 예외는 static 및 Android
+build-only에만 적용되며 release upload, 심사 제출, production/public 작업에는 전달하지 않는다.
 - ARC live Pod imageID와 signed WorkflowBundle runner digest 일치 확인
 - 두 번의 shadow parity 전에는 ruleset Active 전환 금지
 
