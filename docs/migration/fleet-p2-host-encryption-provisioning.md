@@ -158,7 +158,7 @@ controller는 root `/usr/local/libexec` 설치나 사용자 primary checkout을 
 create-only `~/.config/seorilabs/bin` boundary와 credential backup에서 분리된 exact-SHA runtime을 사용한다.
 중앙 `Contract Checks`와 `WorkflowBundle Candidate`는 Node `24.16.0`의
 GitHub-hosted Linux ARM64 runner에서 production ELF를 실제 실행하고, 격리된
-`/run/seorilabs-p2-native-harness-*` root에서 record publish/no-clobber, source rename/restore와 alternate
+`/var/tmp/seorilabs-p2-native-harness-*` root에서 record publish/no-clobber, source rename/restore와 alternate
 mount namespace 거부 syscall harness를 통과해야 한다. 별도 macOS ARM64 job은 native launcher로
 N-API module을 실제 load하고 plain Node, source/receipt digest drift, dirty primary controller를 거부하며
 FD 5/6/7과 `PT_DENY_ATTACH` 적용 receipt를 실제 검증한다.

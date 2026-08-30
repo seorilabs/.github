@@ -325,10 +325,15 @@ test('production native boundary build refuses a non-Linux artifact', {
 });
 
 test('central workflows gate Linux ARM64 host syscalls and Darwin child hardening', async () => {
-  const workflows = await Promise.all([
-    '.github/workflows/contract-checks.yml',
-    '.github/workflows/workflow-bundle-candidate.yml',
-  ].map(async (path) => parse(await readFile(path, 'utf8'))));
+  const [workflows, linuxHarness] = await Promise.all([
+    Promise.all([
+      '.github/workflows/contract-checks.yml',
+      '.github/workflows/workflow-bundle-candidate.yml',
+    ].map(async (path) => parse(await readFile(path, 'utf8')))),
+    readFile('scripts/fleet/verify-p2-host-fs-boundary-linux-arm64.mjs', 'utf8'),
+  ]);
+  assert.match(linuxHarness, /`\/var\/tmp\/seorilabs-p2-native-harness-/u);
+  assert.doesNotMatch(linuxHarness, /`\/run\/seorilabs-p2-native-harness-/u);
   for (const workflow of workflows) {
     const linux = workflow.jobs['p2-host-boundary-arm64'];
     const darwin = workflow.jobs['p2-process-boundary-macos'];
