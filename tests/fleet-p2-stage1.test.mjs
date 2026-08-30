@@ -301,7 +301,7 @@ test('scoped Tang inventory encrypts and restores content plus exact 0440 metada
       recipientPrivateKeyBytes: privateKey,
       recipientPublicKeyBytes: publicKey,
     });
-    const restoreParent = await realpath(await mkdtemp(join(tmpdir(), 'p2-stage1-restore-')));
+    const restoreParent = await mkdtemp(join(tmpdir(), 'p2-stage1-restore-'));
     try {
       const restored = isolatedRestoreInventory({
         payload,

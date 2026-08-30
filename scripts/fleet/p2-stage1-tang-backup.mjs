@@ -257,7 +257,7 @@ function assertInstalledRuntime(host) {
 function readFd(fd, maximum, code) {
   try {
     const entry = fstatSync(fd);
-    if (!entry.isFile() && !entry.isFIFO()) stop(code);
+    if (!entry.isFile() && !entry.isFIFO() && !entry.isSocket()) stop(code);
     const bytes = readFileSync(fd);
     if (bytes.length < 1 || bytes.length > maximum) stop(code);
     return bytes;

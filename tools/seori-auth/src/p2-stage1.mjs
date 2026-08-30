@@ -558,7 +558,7 @@ export function isolatedRestoreInventory({
   enforcePrivate = true,
   applyOwnership = true,
 }) {
-  const root = mkdtempSync(join(temporaryParent, 'seorilabs-tang-restore-'));
+  const root = realpathSync(mkdtempSync(join(temporaryParent, 'seorilabs-tang-restore-')));
   const tang = join(root, 'tang');
   try {
     mkdirSync(tang, { mode: 0o700 });
