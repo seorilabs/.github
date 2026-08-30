@@ -247,19 +247,19 @@ authBroker:
     audience: https://kubernetes.default.svc
     caConfigMapName: kube-root-ca.crt
     tokenExpirationSeconds: 600
-  image: ghcr.io/seorilabs/seori-auth@sha256:5f74e58fe28d1c1edfdedbe5a10e534808c93a0017486bc15404eaf218f7a8da
+  image: ghcr.io/seorilabs/seori-auth@sha256:58c0bf61b42ae253fc5db7037addea9f0386610dcabf7f3e45fd41ad7c1e0474
   imageProvenance:
     repository: seorilabs/.github
-    sourceSha: 554850de1552e812e4c9f7301d434970c191bc0b
+    sourceSha: da7ff0c01bbdef4d1e4cf627b34af273a6a62992
     workflow: .github/workflows/seori-auth-image.yml
-    runId: 33288832440
+    runId: 33294323501
     platform: linux/arm64
-    imageDigest: sha256:5f74e58fe28d1c1edfdedbe5a10e534808c93a0017486bc15404eaf218f7a8da
+    imageDigest: sha256:58c0bf61b42ae253fc5db7037addea9f0386610dcabf7f3e45fd41ad7c1e0474
   registry:
     mode: PACKAGES_READER
     server: ghcr.io
     repository: ghcr.io/seorilabs/seori-auth
-    packageVersionTag: 554850de1552e812e4c9f7301d434970c191bc0b
+    packageVersionTag: da7ff0c01bbdef4d1e4cf627b34af273a6a62992
     imagePullSecretName: seori-auth-ghcr-pull
     credentialId: shared/github/packages-reader
     credentialKind: github-pat-classic

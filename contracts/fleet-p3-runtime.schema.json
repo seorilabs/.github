@@ -331,18 +331,18 @@
             "tokenExpirationSeconds": { "const": 600 }
           }
         },
-        "image": { "const": "ghcr.io/seorilabs/seori-auth@sha256:5f74e58fe28d1c1edfdedbe5a10e534808c93a0017486bc15404eaf218f7a8da" },
+        "image": { "const": "ghcr.io/seorilabs/seori-auth@sha256:58c0bf61b42ae253fc5db7037addea9f0386610dcabf7f3e45fd41ad7c1e0474" },
         "imageProvenance": {
           "type": "object",
           "additionalProperties": false,
           "required": ["repository", "sourceSha", "workflow", "runId", "platform", "imageDigest"],
           "properties": {
             "repository": { "const": "seorilabs/.github" },
-            "sourceSha": { "const": "554850de1552e812e4c9f7301d434970c191bc0b" },
+            "sourceSha": { "const": "da7ff0c01bbdef4d1e4cf627b34af273a6a62992" },
             "workflow": { "const": ".github/workflows/seori-auth-image.yml" },
-            "runId": { "const": 33288832440 },
+            "runId": { "const": 33294323501 },
             "platform": { "const": "linux/arm64" },
-            "imageDigest": { "const": "sha256:5f74e58fe28d1c1edfdedbe5a10e534808c93a0017486bc15404eaf218f7a8da" }
+            "imageDigest": { "const": "sha256:58c0bf61b42ae253fc5db7037addea9f0386610dcabf7f3e45fd41ad7c1e0474" }
           }
         },
         "registry": {
