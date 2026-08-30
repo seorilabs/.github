@@ -57,6 +57,11 @@ function output(value) {
   process.exit(0);
 }
 
+function publicFailure(code) {
+  process.stdout.write(`${JSON.stringify({ ok: false, code })}\n`);
+  process.exit(1);
+}
+
 function mapped(path) {
   return join(nodeRoot, path.slice(1));
 }
@@ -298,6 +303,12 @@ const hostEncryptionApply = /^sudo -n \/usr\/local\/libexec\/seori-auth-native l
 if (hostEncryptionApply !== null) {
   if (nodeName !== contract.target.nodeName || input.toString('utf8') !== recoveryKeyCanary) {
     process.exit(126);
+  }
+  if (scenario === 'host-loader-input-error') {
+    publicFailure('P2_HOST_RECOVERY_LOADER_INPUT_INVALID');
+  }
+  if (scenario === 'host-loader-unapproved-error') {
+    publicFailure('SECRET_SHAPED_REMOTE_FAILURE');
   }
   output({
     schemaVersion: 1,

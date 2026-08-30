@@ -1086,6 +1086,40 @@ test('host-encryption backup and apply consume the catalog recovery key without 
   }
 });
 
+test('host-encryption apply propagates only allowlisted loader failure codes', async () => {
+  const fixture = await createFixture();
+  const sourceSha = 'f'.repeat(40);
+  try {
+    await bootstrapCredentials(fixture);
+    await runController(fixture, 'host-encryption-backup', [
+      `--source-sha=${sourceSha}`,
+      `--confirmation=${hostConfirmations(hostContract).backup}`,
+    ]);
+    await expectControllerFailure(
+      fixture,
+      'host-encryption-apply',
+      [
+        `--source-sha=${sourceSha}`,
+        `--confirmation=${hostConfirmations(hostContract).apply}`,
+      ],
+      'P2_HOST_RECOVERY_LOADER_INPUT_INVALID',
+      'host-loader-input-error',
+    );
+    await expectControllerFailure(
+      fixture,
+      'host-encryption-apply',
+      [
+        `--source-sha=${sourceSha}`,
+        `--confirmation=${hostConfirmations(hostContract).apply}`,
+      ],
+      'P2_STAGE1_REMOTE_OUTCOME_UNKNOWN',
+      'host-loader-unapproved-error',
+    );
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test('native SSH relay keeps the recovery key separate from SSH and sudo authentication', async () => {
   const fixture = await createFixture();
   const passwordPath = join(fixture.temporary, 'ssh-password');

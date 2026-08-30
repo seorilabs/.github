@@ -1300,8 +1300,28 @@ function runFixtureAware(executable, args, { input, maximum = MAX_PUBLIC_OUTPUT 
     timeout: 120_000,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
-  if (result.status !== 0 || result.error !== undefined) stop('P2_STAGE1_REMOTE_OUTCOME_UNKNOWN');
+  if (result.status !== 0 || result.error !== undefined) {
+    const publicCode = publicFailureCode(result.stdout);
+    if (publicCode !== undefined) stop(publicCode);
+    stop('P2_STAGE1_REMOTE_OUTCOME_UNKNOWN');
+  }
   return result.stdout;
+}
+
+function publicFailureCode(output) {
+  if (typeof output !== 'string' || Buffer.byteLength(output) > 4096) return undefined;
+  try {
+    const failure = JSON.parse(output);
+    if (
+      failure !== null && typeof failure === 'object' && !Array.isArray(failure) &&
+      Object.keys(failure).toSorted().join('\0') === ['code', 'ok'].join('\0') &&
+      failure.ok === false &&
+      /^(?:P2_|KUBECONFIG_|KUBECTL_|STATE_)[A-Z0-9_]+$/u.test(failure.code ?? '')
+    ) return failure.code;
+  } catch {
+    // Arbitrary remote output is never reflected.
+  }
+  return undefined;
 }
 
 async function runPublicSsh(machine, remoteCommand, input, { privileged = false, stdoutFd } = {}) {
@@ -1342,20 +1362,9 @@ async function runPublicSsh(machine, remoteCommand, input, { privileged = false,
   child.stdin.end();
   const status = await new Promise((resolve) => child.once('close', resolve));
   if (status !== 0 || outputSize > MAX_PUBLIC_OUTPUT) {
-    let publicCode;
-    if (outputSize <= 4096 && chunks.length > 0) {
-      try {
-        const failure = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        if (
-          failure !== null && typeof failure === 'object' && !Array.isArray(failure) &&
-          Object.keys(failure).toSorted().join('\0') === ['code', 'ok'].join('\0') &&
-          failure.ok === false &&
-          /^(?:P2_|KUBECONFIG_|KUBECTL_|STATE_)[A-Z0-9_]+$/u.test(failure.code ?? '')
-        ) publicCode = failure.code;
-      } catch {
-        // Arbitrary remote output is discarded and never reflected.
-      }
-    }
+    const publicCode = outputSize <= 4096 && chunks.length > 0
+      ? publicFailureCode(Buffer.concat(chunks).toString('utf8'))
+      : undefined;
     for (const chunk of chunks) chunk.fill(0);
     if (publicCode !== undefined) stop(publicCode);
     stop('P2_STAGE1_REMOTE_OUTCOME_UNKNOWN');

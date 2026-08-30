@@ -223,18 +223,17 @@ function runApply(host) {
 
 let recoveryKey;
 let created = false;
+let outcome;
+let failureCode;
 try {
   const { host } = loadContracts();
   ensureRuntimeRoot();
   recoveryKey = readRecoveryKey();
   writeRecoveryKey(recoveryKey);
   created = true;
-  const result = runApply(host);
-  process.stdout.write(`${JSON.stringify(result)}\n`);
+  outcome = runApply(host);
 } catch (error) {
-  const code = error instanceof LoaderError ? error.code : 'P2_HOST_RECOVERY_LOADER_FAILED';
-  process.stderr.write(`${JSON.stringify({ ok: false, code })}\n`);
-  process.exitCode = 1;
+  failureCode = error instanceof LoaderError ? error.code : 'P2_HOST_RECOVERY_LOADER_FAILED';
 } finally {
   recoveryKey?.fill(0);
   if (created) {
@@ -242,11 +241,15 @@ try {
       unlinkSync(recoveryPath);
       syncRuntimeRoot();
     } catch {
-      process.stderr.write(`${JSON.stringify({
-        ok: false,
-        code: 'P2_HOST_RECOVERY_LOADER_CLEANUP_REQUIRED',
-      })}\n`);
-      process.exitCode = 1;
+      failureCode = 'P2_HOST_RECOVERY_LOADER_CLEANUP_REQUIRED';
+      outcome = undefined;
     }
   }
+}
+
+if (failureCode === undefined) {
+  process.stdout.write(`${JSON.stringify(outcome)}\n`);
+} else {
+  process.stdout.write(`${JSON.stringify({ ok: false, code: failureCode })}\n`);
+  process.exitCode = 1;
 }
