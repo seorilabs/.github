@@ -552,6 +552,14 @@ test('AIT v1 framing을 exact length로 읽어 zip payload 스캔을 건너뛰�
   assert.ok(readZipEntryNames(bytes.subarray(zipStart, zipEnd)).length > 0);
   assert.deepEqual([...container.versionFields], []);
 
+  // framing의 의미가 확정되지 않은 미래 formatVersion은 v1으로 추측하지 않는다.
+  const futureFormat = Buffer.from(bytes);
+  futureFormat.writeUInt32BE(2, 8);
+  assert.throws(
+    () => readAitContainer(futureFormat),
+    (error) => error.code === 'artifact-provenance-mismatch',
+  );
+
   // zip payload 길이 필드를 건너뛴 옛 framing은 길이 검증에서 fail-closed한다.
   const legacyFraming = Buffer.concat([
     bytes.subarray(0, 20 + protobufLength),

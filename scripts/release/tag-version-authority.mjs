@@ -846,6 +846,9 @@ export function readAitContainer(buffer) {
       fail('artifact-provenance-mismatch', 'AIT 헤더가 잘렸다.');
     }
     const formatVersion = bytes.readUInt32BE(8);
+    if (formatVersion !== 1) {
+      fail('artifact-provenance-mismatch', `지원하지 않는 AIT formatVersion이다: ${formatVersion}`);
+    }
     const bundleLength = Number(bytes.readBigUInt64BE(12));
     const bundleEnd = AIT_HEADER_LENGTH + bundleLength;
     if (!Number.isSafeInteger(bundleLength) || bundleEnd > bytes.length) {
