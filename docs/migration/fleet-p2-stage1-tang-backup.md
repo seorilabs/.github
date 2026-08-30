@@ -39,7 +39,10 @@ credential 생성 전 백업 gate는 SHA-256
   plaintext fallback, caller 지정 path, overwrite, rotate, delete interface는 없다.
 - SSH password는 값이 아니라 owner-only password file path만 controller에 전달한다. native relay가
   exact `/usr/bin/ssh`, host/IP, option, remote command와 parent process를 검증하고 SSH 및 sudo prompt에
-  직접 공급한다. password는 argv, 환경, 로그, stdout에 넣지 않는다.
+  직접 공급한다. privileged payload는 먼저 SHA-256 이름의 owner-only remote file로 전송·readback하고
+  root target은 그 파일만 별도 FD로 연다. sudo stdin에는 password만 존재하며 target stdin은
+  `/dev/null`이라 cached credential이나 `NOPASSWD`에서도 password가 payload로 넘어가지 않는다.
+  password는 argv, 환경, 로그, stdout에 넣지 않는다.
 - unknown response는 mutation을 반복하지 않는다. 동일 action을 다시 실행하면 remote record와 exact
   digest를 먼저 읽는다. artifact만 남은 crash state는 current live inventory와 연결한 evidence를
   복구한 뒤 로컬 decrypt/restore 비교가 최종 진위를 판정한다.

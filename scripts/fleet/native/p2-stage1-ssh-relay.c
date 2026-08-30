@@ -23,7 +23,9 @@
 #include <sys/prctl.h>
 #endif
 
+#ifndef SSH_PATH
 #define SSH_PATH "/usr/bin/ssh"
+#endif
 #define MAX_PASSWORD 4096
 #define MAX_COMMAND 8192
 
@@ -167,15 +169,17 @@ static int command_allowed(const char *node, const char *command) {
     "^/usr/bin/install -d -m 0700 /var/tmp/seorilabs-fleet-p2$",
     "^/bin/bash -s -- --archive=/var/tmp/seorilabs-fleet-p2/[a-f0-9]{40}-[a-f0-9]{64}\\.tar --sha=[a-f0-9]{64}$",
     "^/usr/bin/dd of=/var/tmp/seorilabs-fleet-p2/[a-f0-9]{40}-[a-f0-9]{64}\\.tar status=none conv=excl$",
-    "^sudo -S -p '' /bin/bash -s -- --host=(rpi5|rpi4001|seori-m6-01) --source-sha=[a-f0-9]{40} --archive=/var/tmp/seorilabs-fleet-p2/[a-f0-9]{40}-[a-f0-9]{64}\\.tar --archive-sha=[a-f0-9]{64} --lock-sha=[a-f0-9]{64} --contract-digest=[a-f0-9]{64} --confirmation=fleet-p2-stage1-bootstrap-source-[A-Za-z0-9-]+-[a-f0-9]{12}-[a-f0-9]{12}-[a-f0-9]{16}$",
-    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/p2-stage1-tang-backup\\.mjs (plan|backup-state) --server=(rpi4001|seori-m6-01) 3<&0'$",
-    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/p2-stage1-tang-backup\\.mjs (backup-verify|verify-existing) --server=(rpi4001|seori-m6-01) --confirmation=fleet-p2-stage1-backup-(rpi4001|seori-m6-01)-[a-f0-9]{16} 3<&0'$",
-    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/p2-stage1-tang-backup\\.mjs install-evidence --server=(rpi4001|seori-m6-01) --confirmation=fleet-p2-stage1-install-evidence-(rpi4001|seori-m6-01)-[a-f0-9]{16} 3<&0'$",
-    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/p2-stage1-tang-backup\\.mjs install-rpi5-evidence --confirmation=fleet-p2-stage1-install-rpi5-evidence-[a-f0-9]{16} 3<&0'$",
-    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/provision-p2-tang-server\\.mjs plan --server=(rpi4001|seori-m6-01) 3<&0'$",
-    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/provision-p2-tang-server\\.mjs apply --server=(rpi4001|seori-m6-01) --confirmation=fleet-p2-tang-(rpi4001|seori-m6-01)-[a-f0-9]{12} 3<&0'$",
-    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/provision-p2-tang-server\\.mjs readback --server=(rpi4001|seori-m6-01) --backup-attestation=/var/lib/seorilabs/tang-backup-attestations/(rpi4001|seori-m6-01)\\.json 3<&0'$",
-    "^sudo -S -p '' /bin/cat -- /var/backups/seori-auth/tang-v1/(rpi4001|seori-m6-01)\\.(server-keys\\.seori-aes256gcm|live-evidence\\.json)$",
+    "^/bin/bash -s -- --payload=/var/tmp/seorilabs-fleet-p2/relay-input-[a-f0-9]{64}\\.payload --sha=[a-f0-9]{64}$",
+    "^/bin/bash -c 'umask 077 && exec /usr/bin/dd of=/var/tmp/seorilabs-fleet-p2/relay-input-[a-f0-9]{64}\\.payload status=none conv=excl'$",
+    "^sudo -S -p '' /bin/sh -c 'exec /bin/bash /var/tmp/seorilabs-fleet-p2/relay-input-[a-f0-9]{64}\\.payload --host=(rpi5|rpi4001|seori-m6-01) --source-sha=[a-f0-9]{40} --archive=/var/tmp/seorilabs-fleet-p2/[a-f0-9]{40}-[a-f0-9]{64}\\.tar --archive-sha=[a-f0-9]{64} --lock-sha=[a-f0-9]{64} --contract-digest=[a-f0-9]{64} --confirmation=fleet-p2-stage1-bootstrap-source-[A-Za-z0-9-]+-[a-f0-9]{12}-[a-f0-9]{12}-[a-f0-9]{16} </dev/null'$",
+    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/p2-stage1-tang-backup\\.mjs (plan|backup-state) --server=(rpi4001|seori-m6-01) 3</dev/null </dev/null'$",
+    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/p2-stage1-tang-backup\\.mjs (backup-verify|verify-existing) --server=(rpi4001|seori-m6-01) --confirmation=fleet-p2-stage1-backup-(rpi4001|seori-m6-01)-[a-f0-9]{16} 3< /var/tmp/seorilabs-fleet-p2/relay-input-[a-f0-9]{64}\\.payload </dev/null'$",
+    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/p2-stage1-tang-backup\\.mjs install-evidence --server=(rpi4001|seori-m6-01) --confirmation=fleet-p2-stage1-install-evidence-(rpi4001|seori-m6-01)-[a-f0-9]{16} 3< /var/tmp/seorilabs-fleet-p2/relay-input-[a-f0-9]{64}\\.payload </dev/null'$",
+    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/p2-stage1-tang-backup\\.mjs install-rpi5-evidence --confirmation=fleet-p2-stage1-install-rpi5-evidence-[a-f0-9]{16} 3< /var/tmp/seorilabs-fleet-p2/relay-input-[a-f0-9]{64}\\.payload </dev/null'$",
+    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/provision-p2-tang-server\\.mjs plan --server=(rpi4001|seori-m6-01) 3</dev/null </dev/null'$",
+    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/provision-p2-tang-server\\.mjs apply --server=(rpi4001|seori-m6-01) --confirmation=fleet-p2-tang-(rpi4001|seori-m6-01)-[a-f0-9]{12} 3</dev/null </dev/null'$",
+    "^sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/[a-f0-9]{40}/scripts/fleet/provision-p2-tang-server\\.mjs readback --server=(rpi4001|seori-m6-01) --backup-attestation=/var/lib/seorilabs/tang-backup-attestations/(rpi4001|seori-m6-01)\\.json 3</dev/null </dev/null'$",
+    "^sudo -S -p '' /bin/sh -c 'exec /bin/cat -- /var/backups/seori-auth/tang-v1/(rpi4001|seori-m6-01)\\.(server-keys\\.seori-aes256gcm|live-evidence\\.json) </dev/null'$",
   };
   int matched = 0;
   for (size_t index = 0; index < sizeof(patterns) / sizeof(patterns[0]); index += 1) {
@@ -190,12 +194,16 @@ static int command_allowed(const char *node, const char *command) {
       strstr(command, "install-rpi5-evidence") != NULL ||
       strcmp(command, "/usr/bin/install -d -m 0700 /var/tmp/seorilabs-fleet-p2") == 0 ||
       strstr(command, "/bin/bash -s -- --archive=") == command ||
-      strstr(command, "/usr/bin/dd of=") == command;
+      strstr(command, "/bin/bash -s -- --payload=") == command ||
+      strstr(command, "/usr/bin/dd of=") == command ||
+      strstr(command, "/bin/bash -c 'umask 077 && exec /usr/bin/dd of=") == command;
   }
   return strstr(command, node) != NULL ||
     strcmp(command, "/usr/bin/install -d -m 0700 /var/tmp/seorilabs-fleet-p2") == 0 ||
     strstr(command, "/bin/bash -s -- --archive=") == command ||
-    strstr(command, "/usr/bin/dd of=") == command;
+    strstr(command, "/bin/bash -s -- --payload=") == command ||
+    strstr(command, "/usr/bin/dd of=") == command ||
+    strstr(command, "/bin/bash -c 'umask 077 && exec /usr/bin/dd of=") == command;
 }
 
 static const char *node_ip(const char *node) {
@@ -243,6 +251,13 @@ static void copy_payload(int output) {
     }
   }
   memset(buffer, 0, sizeof(buffer));
+}
+
+static void require_empty_privileged_payload(void) {
+  unsigned char byte = 0;
+  ssize_t count = read(STDIN_FILENO, &byte, 1);
+  byte = 0;
+  if (count != 0) fail_closed();
 }
 
 static int relay(int argc, char **argv) {
@@ -294,7 +309,8 @@ static int relay(int argc, char **argv) {
       (write(input_pipe[1], password, (size_t)password_count) != password_count ||
        write(input_pipe[1], "\n", 1) != 1)) fail_closed();
   memset(password, 0, sizeof(password));
-  copy_payload(input_pipe[1]);
+  if (privileged) require_empty_privileged_payload();
+  else copy_payload(input_pipe[1]);
   if (close(input_pipe[1]) != 0) fail_closed();
   int status = 0;
   if (waitpid(child, &status, 0) != child || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {

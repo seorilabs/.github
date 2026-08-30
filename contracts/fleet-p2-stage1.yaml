@@ -81,6 +81,7 @@ sourceBootstrap:
     - /usr/bin/find
     - /usr/bin/grep
     - /usr/bin/hostname
+    - /usr/bin/id
     - /usr/bin/install
     - /usr/bin/ln
     - /usr/bin/mkdir
@@ -148,7 +149,7 @@ ssh:
   relayInstallRelativePath: bin/seorilabs-p2-stage1-ssh-relay
   relayInstalledMode: "0500"
   passwordFilePolicy: ABSOLUTE_OWNER_ONLY_REGULAR_O_NOFOLLOW_NO_VALUE_IN_ARGV_ENV_LOG
-  sudoPasswordTransport: TRUSTED_NATIVE_RELAY_PASSWORD_THEN_PAYLOAD_ROOT_SHELL_FD3
+  sudoPasswordTransport: TRUSTED_NATIVE_RELAY_PASSWORD_ONLY_STDIN_CONTENT_ADDRESSED_PAYLOAD_FD3
 hosts:
   - nodeName: rpi5
     hostname: rpi5

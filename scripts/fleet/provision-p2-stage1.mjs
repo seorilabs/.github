@@ -63,6 +63,9 @@ const fixtureEntrypoint = fileURLToPath(
 const fixtureCommand = fileURLToPath(
   new URL('../../tests/fixtures/p2-stage1-controller-command-mock.mjs', import.meta.url),
 );
+const relayPayloadReadbackScript = fileURLToPath(
+  new URL('./readback-p2-stage1-relay-payload.sh', import.meta.url),
+);
 const mode = process.argv[2] ?? 'plan';
 const MAX_PUBLIC_OUTPUT = 2 * 1024 * 1024;
 const SHA40 = /^[a-f0-9]{40}$/u;
@@ -745,6 +748,9 @@ async function runPublicSsh(machine, remoteCommand, input, { privileged = false,
     return '';
   }
   const authentication = sshAuthentication();
+  if (authentication !== null && privileged && input !== undefined) {
+    stop('P2_STAGE1_PRIVILEGED_INPUT_NOT_SEPARATED');
+  }
   const runtime = authentication === null ? stage1.ssh.executable : authentication.relay;
   const runtimeArgs = authentication === null
     ? sshArgs(machine, remoteCommand)
@@ -774,6 +780,42 @@ async function runPublicSsh(machine, remoteCommand, input, { privileged = false,
   return output;
 }
 
+async function preparePrivilegedInput(machine, input) {
+  if (!Buffer.isBuffer(input) || input.length < 1 || input.length > 128 * 1024 * 1024) {
+    stop('P2_STAGE1_REMOTE_PAYLOAD_INVALID');
+  }
+  if (fixtureRemoteRoot !== undefined || sshAuthentication() === null) {
+    return Object.freeze({ input, remotePath: null });
+  }
+  const digest = sha256(input);
+  const remotePath = `${stage1.sourceBootstrap.incomingRoot}/relay-input-${digest}.payload`;
+  await runPublicSsh(
+    machine,
+    `/usr/bin/install -d -m 0700 ${stage1.sourceBootstrap.incomingRoot}`,
+  );
+  const readbackScript = readFileSync(relayPayloadReadbackScript);
+  const readbackCommand = `/bin/bash -s -- --payload=${remotePath} --sha=${digest}`;
+  const before = parsePublicJson(
+    await runPublicSsh(machine, readbackCommand, readbackScript),
+    'P2_STAGE1_REMOTE_PAYLOAD_READBACK_INVALID',
+  );
+  if (before.state === 'ABSENT') {
+    await runPublicSsh(
+      machine,
+      `/bin/bash -c 'umask 077 && exec /usr/bin/dd of=${remotePath} status=none conv=excl'`,
+      input,
+    );
+  } else if (before.state !== 'EXACT_READBACK') {
+    stop('P2_STAGE1_REMOTE_PAYLOAD_DRIFT');
+  }
+  const after = parsePublicJson(
+    await runPublicSsh(machine, readbackCommand, readbackScript),
+    'P2_STAGE1_REMOTE_PAYLOAD_READBACK_INVALID',
+  );
+  if (after.state !== 'EXACT_READBACK') stop('P2_STAGE1_REMOTE_PAYLOAD_READBACK_INVALID');
+  return Object.freeze({ input: undefined, remotePath });
+}
+
 function remoteRoot(sourceSha) {
   if (!SHA40.test(sourceSha ?? '')) stop('P2_STAGE1_SOURCE_SHA_INVALID');
   return `${stage1.sourceBootstrap.installRoot}/${sourceSha}`;
@@ -792,10 +834,23 @@ function remoteNativeHelper(sourceSha) {
   return stage1.hostProcessBoundary.launcherExecutable;
 }
 
-function nativeNodeCommand(sourceSha, script, arguments_) {
-  const sudo = sshAuthentication() === null ? 'sudo -n' : "sudo -S -p ''";
+function nativeNodeCommand(sourceSha, script, arguments_, remoteInputPath) {
+  const passwordRelay = sshAuthentication() !== null;
+  const sudo = passwordRelay ? "sudo -S -p ''" : 'sudo -n';
+  const input = remoteInputPath === null
+    ? '3<&0'
+    : remoteInputPath === undefined && !passwordRelay ? '3<&0'
+      : remoteInputPath === undefined ? '3</dev/null' : `3< ${remoteInputPath}`;
+  const standardInput = passwordRelay ? ' </dev/null' : '';
   return `${sudo} /bin/sh -c 'exec ${remoteNativeHelper(sourceSha)} launch -- ` +
-    `/usr/local/bin/node ${script} ${arguments_} 3<&0'`;
+    `/usr/local/bin/node ${script} ${arguments_} ${input}${standardInput}'`;
+}
+
+function privilegedCatCommand(path) {
+  const sudo = sshAuthentication() === null ? 'sudo -n' : "sudo -S -p ''";
+  return sshAuthentication() === null
+    ? `${sudo} /bin/cat -- ${path}`
+    : `${sudo} /bin/sh -c 'exec /bin/cat -- ${path} </dev/null'`;
 }
 
 function parsePublicJson(text, code) {
@@ -839,8 +894,7 @@ async function copyRemoteArtifact(machine, remotePath, root, relativePath, expec
       fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
       0o600,
     );
-    const sudo = sshAuthentication() === null ? 'sudo -n' : "sudo -S -p ''";
-    const remoteCommand = `${sudo} /bin/cat -- ${remotePath}`;
+    const remoteCommand = privilegedCatCommand(remotePath);
     await runPublicSsh(machine, remoteCommand, undefined, { privileged: true, stdoutFd: descriptor });
     fsyncSync(descriptor);
     const transferred = readHeld(temporary, { mode: 0o600 });
@@ -907,11 +961,12 @@ async function backupTang() {
         ? 'verify-existing'
         : undefined;
     if (command === undefined) stop('P2_STAGE1_REMOTE_STATE_INVALID');
+    const encryptionInput = await preparePrivilegedInput(machine, encryption.publicKey);
     const result = parsePublicJson(await runPublicSsh(
       machine,
       nativeNodeCommand(sourceSha, helper, `${command} --server=${server.nodeName} ` +
-        `--confirmation=${confirmations().tang[server.nodeName]}`),
-      encryption.publicKey,
+        `--confirmation=${confirmations().tang[server.nodeName]}`, encryptionInput.remotePath),
+      encryptionInput.input,
       { privileged: true },
     ), 'P2_STAGE1_REMOTE_BACKUP_RESULT_INVALID');
     if (
@@ -930,10 +985,9 @@ async function backupTang() {
       paths.artifact,
       result.backupArtifactSha256,
     );
-    const sudo = sshAuthentication() === null ? 'sudo -n' : "sudo -S -p ''";
     const liveEvidence = parsePublicJson(await runPublicSsh(
       machine,
-      `${sudo} /bin/cat -- ${remoteBase}.live-evidence.json`,
+      privilegedCatCommand(`${remoteBase}.live-evidence.json`),
       undefined,
       { privileged: true },
     ), 'P2_STAGE1_PRIVATE_EVIDENCE_INVALID');
@@ -986,11 +1040,12 @@ async function backupTang() {
       attestation: signed,
     })}\n`, 'utf8');
     try {
+      const evidenceInput = await preparePrivilegedInput(machine, publicPayload);
       const installed = parsePublicJson(await runPublicSsh(
         machine,
         nativeNodeCommand(sourceSha, helper, `install-evidence --server=${server.nodeName} ` +
-          `--confirmation=${confirmations().tangInstall[server.nodeName]}`),
-        publicPayload,
+          `--confirmation=${confirmations().tangInstall[server.nodeName]}`, evidenceInput.remotePath),
+        evidenceInput.input,
         { privileged: true },
       ), 'P2_STAGE1_REMOTE_EVIDENCE_INSTALL_INVALID');
       if (installed.state !== 'TANG_BACKUP_EVIDENCE_INSTALLED') {
@@ -1123,11 +1178,12 @@ async function deliverRpi5() {
     })}\n`, 'utf8');
     try {
       const machine = host(hostContract.target.nodeName, 'state-host');
+      const rpi5Input = await preparePrivilegedInput(machine, payload);
       const result = parsePublicJson(await runPublicSsh(
         machine,
         nativeNodeCommand(sourceSha, remoteHostHelper(sourceSha),
-          `install-rpi5-evidence --confirmation=${confirmations().rpi5}`),
-        payload,
+          `install-rpi5-evidence --confirmation=${confirmations().rpi5}`, rpi5Input.remotePath),
+        rpi5Input.input,
         { privileged: true },
       ), 'P2_STAGE1_RPI5_EVIDENCE_INSTALL_INVALID');
       if (
@@ -1274,14 +1330,22 @@ async function bootstrapSource() {
       stop('P2_STAGE1_SOURCE_ARCHIVE_DRIFT');
     }
     const bootstrapScript = readFileSync(join(repositoryRoot, 'scripts/fleet/bootstrap-p2-stage1-host.sh'));
-    const result = parsePublicJson(await runPublicSsh(
-      machine,
-      `${sshAuthentication() === null ? 'sudo -n' : "sudo -S -p ''"} /bin/bash -s -- ` +
+    const bootstrapInput = await preparePrivilegedInput(machine, bootstrapScript);
+    const sudo = sshAuthentication() === null ? 'sudo -n' : "sudo -S -p ''";
+    const bootstrapCommand = bootstrapInput.remotePath === null
+      ? `${sudo} /bin/bash -s -- `
+      : `${sudo} /bin/sh -c 'exec /bin/bash ${bootstrapInput.remotePath} `;
+    const bootstrapSuffix =
         `--host=${machine.nodeName} --source-sha=${source.sourceSha} ` +
         `--archive=${remoteArchive} --archive-sha=${source.archiveSha256} ` +
         `--lock-sha=${source.packageLockSha256} --contract-digest=${combinedDigest} ` +
-        `--confirmation=${sourceConfirmation(machine, source)}`,
-      bootstrapScript,
+        `--confirmation=${sourceConfirmation(machine, source)}`;
+    const result = parsePublicJson(await runPublicSsh(
+      machine,
+      bootstrapInput.remotePath === null
+        ? `${bootstrapCommand}${bootstrapSuffix}`
+        : `${bootstrapCommand}${bootstrapSuffix} </dev/null'`,
+      bootstrapInput.input,
       { privileged: true },
     ), 'P2_STAGE1_SOURCE_BOOTSTRAP_INVALID');
     if (

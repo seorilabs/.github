@@ -615,6 +615,88 @@ test('native SSH relay cannot be used as a get-secret interface', async () => {
         },
       );
     }
+    const [relaySource, controllerSource, payloadReadback] = await Promise.all([
+      readFile('scripts/fleet/native/p2-stage1-ssh-relay.c', 'utf8'),
+      readFile('scripts/fleet/provision-p2-stage1.mjs', 'utf8'),
+      readFile('scripts/fleet/readback-p2-stage1-relay-payload.sh', 'utf8'),
+    ]);
+    assert.match(relaySource, /require_empty_privileged_payload/u);
+    assert.doesNotMatch(relaySource, /sudo -S -p '' \/bin\/bash -s/u);
+    assert.doesNotMatch(relaySource, /sudo -S -p ''.*3<&0/u);
+    assert.match(relaySource, /relay-input-\[a-f0-9\]/u);
+    assert.match(controllerSource, /P2_STAGE1_PRIVILEGED_INPUT_NOT_SEPARATED/u);
+    assert.match(controllerSource, /preparePrivilegedInput/u);
+    assert.match(payloadReadback, /EXACT_READBACK/u);
+    assert.doesNotMatch(controllerSource, /password.*payload|payload.*password/iu);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('native SSH relay keeps privileged payload out of sudo stdin in prompt and cached modes', async () => {
+  const fixture = await createFixture();
+  const passwordPath = join(fixture.temporary, 'ssh-password');
+  const fakeSsh = join(fixture.temporary, 'fake-ssh');
+  const testRelay = join(fixture.temporary, 'relay-under-test');
+  const password = 'FIXTURE_SUDO_PASSWORD_CANARY_58291';
+  const safeCommand = "sudo -S -p '' /bin/sh -c 'exec /bin/cat -- " +
+    "/var/backups/seori-auth/tang-v1/rpi4001.live-evidence.json </dev/null'";
+  const runWithInput = (input, mode = 'prompted') => new Promise((resolve, reject) => {
+    const child = spawn(testRelay, [
+      'relay', 'rpi4001', passwordPath, '1', safeCommand,
+    ], {
+      env: { PATH: '/usr/bin:/bin', SEORI_TEST_SSH_MODE: mode },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const stdout = [];
+    const stderr = [];
+    child.stdout.on('data', (chunk) => stdout.push(Buffer.from(chunk)));
+    child.stderr.on('data', (chunk) => stderr.push(Buffer.from(chunk)));
+    child.once('error', reject);
+    child.once('close', (status) => resolve({
+      status,
+      stdout: Buffer.concat(stdout).toString('utf8'),
+      stderr: Buffer.concat(stderr).toString('utf8'),
+    }));
+    child.stdin.end(input);
+  });
+  try {
+    await writeFile(passwordPath, `${password}\n`, { mode: 0o600 });
+    await chmod(passwordPath, 0o600);
+    await writeFile(fakeSsh, `#!/bin/bash
+set -euo pipefail
+if [[ "\${SEORI_TEST_SSH_MODE:-}" == "cached" ]]; then
+  exit 0
+fi
+count="$(/usr/bin/wc -c | /usr/bin/tr -d ' ')"
+printf '{"stdinBytes":%s}\n' "$count"
+`, { mode: 0o700 });
+    await chmod(fakeSsh, 0o700);
+    await execFileAsync('/usr/bin/cc', [
+      `-DSSH_PATH="${fakeSsh}"`,
+      'scripts/fleet/native/p2-stage1-ssh-relay.c',
+      '-o',
+      testRelay,
+    ]);
+    const prompted = await runWithInput(Buffer.alloc(0));
+    assert.equal(prompted.status, 0);
+    assert.deepEqual(JSON.parse(prompted.stdout), {
+      stdinBytes: Buffer.byteLength(password) + 1,
+    });
+    assert.doesNotMatch(`${prompted.stdout}${prompted.stderr}`, new RegExp(password, 'u'));
+    const cached = await runWithInput(Buffer.alloc(0), 'cached');
+    assert.equal(cached.status, 0);
+    assert.equal(cached.stdout, '');
+    assert.equal(cached.stderr, '');
+    const rejected = await runWithInput(
+      Buffer.from('PRIVILEGED_PAYLOAD_MUST_BE_REJECTED', 'utf8'),
+    );
+    assert.equal(rejected.status, 126);
+    assert.doesNotMatch(`${rejected.stdout}${rejected.stderr}`, new RegExp(password, 'u'));
+    assert.doesNotMatch(
+      `${rejected.stdout}${rejected.stderr}`,
+      /PRIVILEGED_PAYLOAD_MUST_BE_REJECTED/u,
+    );
   } finally {
     await fixture.cleanup();
   }

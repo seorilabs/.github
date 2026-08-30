@@ -111,14 +111,15 @@
           ], "items": false
         },
         "requiredExecutables": {
-          "type": "array", "minItems": 26, "maxItems": 26,
+          "type": "array", "minItems": 27, "maxItems": 27,
           "prefixItems": [
             { "const": "/bin/bash" }, { "const": "/bin/cat" }, { "const": "/bin/sh" },
             { "const": "/usr/bin/awk" }, { "const": "/usr/bin/cc" },
             { "const": "/usr/bin/chmod" }, { "const": "/usr/bin/chown" },
             { "const": "/usr/bin/cut" }, { "const": "/usr/bin/dd" },
             { "const": "/usr/bin/find" }, { "const": "/usr/bin/grep" },
-            { "const": "/usr/bin/hostname" }, { "const": "/usr/bin/install" },
+            { "const": "/usr/bin/hostname" }, { "const": "/usr/bin/id" },
+            { "const": "/usr/bin/install" },
             { "const": "/usr/bin/ln" }, { "const": "/usr/bin/mkdir" },
             { "const": "/usr/bin/mv" }, { "const": "/usr/bin/readlink" },
             { "const": "/usr/bin/rm" }, { "const": "/usr/bin/tar" },
@@ -208,7 +209,7 @@
         "relayInstallRelativePath": { "const": "bin/seorilabs-p2-stage1-ssh-relay" },
         "relayInstalledMode": { "const": "0500" },
         "passwordFilePolicy": { "const": "ABSOLUTE_OWNER_ONLY_REGULAR_O_NOFOLLOW_NO_VALUE_IN_ARGV_ENV_LOG" },
-        "sudoPasswordTransport": { "const": "TRUSTED_NATIVE_RELAY_PASSWORD_THEN_PAYLOAD_ROOT_SHELL_FD3" }
+        "sudoPasswordTransport": { "const": "TRUSTED_NATIVE_RELAY_PASSWORD_ONLY_STDIN_CONTENT_ADDRESSED_PAYLOAD_FD3" }
       }
     },
     "hosts": {
