@@ -154,6 +154,11 @@ marker를 제거합니다. `protection.status`나 `hostEncryption.status` 자기
 대신할 수 없습니다. marker에는 공개 identity만 허용하고 mount 원시 출력, key material, unlock
 token은 ConfigMap, argv, log, probe output에 넣지 않습니다.
 
+host image와 두 Tang 서버의 실제 provisioning은
+[`docs/migration/fleet-p2-host-encryption-provisioning.md`](../../../../docs/migration/fleet-p2-host-encryption-provisioning.md)의
+별도 dry-run/readback-first 도구를 사용합니다. apply 성공만으로 준비 완료가 아니며 exact reboot
+readback receipt 전에는 broker workload를 활성화하지 않습니다.
+
 projected identity volume은 고정 mount
 `/var/run/seori-auth/projected-identity`와 고정 leaf `token`만 제공합니다. Kubernetes의
 atomic symlink ABI는 native helper가 Linux `openat2`의 beneath/no-magiclink/no-cross-mount

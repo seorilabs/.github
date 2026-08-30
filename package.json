@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "pack:check": "node packages/repo-contract/src/check-package.mjs",
-    "pretest": "npm --prefix tools/seori-auth run build:native && node scripts/fleet/build-github-keychain-helper.mjs --fixture && node scripts/fleet/build-github-keychain-helper.mjs --compile-gate",
+    "pretest": "npm --prefix tools/seori-auth run build:native && node scripts/fleet/build-github-keychain-helper.mjs --fixture && node scripts/fleet/build-github-keychain-helper.mjs --compile-gate && node scripts/fleet/build-p2-host-fs-boundary.mjs",
     "test": "node --test",
     "test:repo-contract": "node --test tests/repo-contract*.test.mjs"
   }

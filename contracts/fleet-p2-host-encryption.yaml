@@ -1,0 +1,106 @@
+schemaVersion: 1
+status: blocked_unverified
+target:
+  nodeName: rpi5
+  expectedHostname: rpi5
+  ipv4: 192.168.0.99
+  sourcePath: /data/seori-auth/seori-auth-state.luks
+  sourceSizeBytes: 17179869184
+  allocationPolicy: NON_SPARSE
+  mapperName: seori-auth-state
+  mapperPath: /dev/mapper/seori-auth-state
+  luksType: LUKS2
+  filesystemType: ext4
+  filesystemLabel: seori-auth-state
+  mountPath: /var/lib/seori-auth
+  markerPath: /var/lib/seori-auth/.seorilabs-host-encrypted-mount.json
+  markerOwner: root
+  markerGroupId: 65532
+  markerMode: "0440"
+  backupRoot: /var/backups/seori-auth/fleet-p2-host-v1
+  rollbackSourcePath: /data/seori-auth/rollback/seori-auth-state.luks
+  requiredPackages:
+    - cryptsetup
+    - clevis-luks
+    - clevis-systemd
+    - e2fsprogs
+    - util-linux
+    - curl
+systemd:
+  crypttabPath: /etc/crypttab
+  crypttabLine: seori-auth-state /data/seori-auth/seori-auth-state.luks none luks,_netdev
+  fstabPath: /etc/fstab
+  fstabLine: /dev/mapper/seori-auth-state /var/lib/seori-auth ext4 defaults,_netdev,nofail,x-systemd.requires=systemd-cryptsetup@seori\x2dauth\x2dstate.service 0 2
+  cryptsetupUnit: systemd-cryptsetup@seori\x2dauth\x2dstate.service
+  unlockerUnit: clevis-luks-askpass.path
+  mountUnit: var-lib-seori\x2dauth.mount
+filesystemBoundary:
+  executable: /usr/local/libexec/seorilabs-p2-host-fs-boundary
+  policy: FIXED_DIRFD_RENAMEAT2_NOREPLACE
+  operations:
+    - create-source
+    - backup-header
+    - rollback-source
+    - restore-source
+    - apply-config
+    - rollback-config
+    - restore-config
+tang:
+  pin: sss
+  threshold: 1
+  requiredServers: 2
+  advertisementPolicy: EXACT_LIVE_READBACK_THEN_PIN
+  backupAuthority:
+    signerIdentity: seorilabs-credential-backup-attestor-v1
+    signerLogicalCredentialId: shared/seori-auth/credential-backup-attestor
+    publicKeyPath: /etc/seorilabs/trust/credential-backup-attestor.ed25519.pem
+    algorithm: Ed25519
+    evidenceDomain: seorilabs-tang-backup-restore-v1
+    trustAnchorPolicy: FIXED_ROOT_OWNED_O_NOFOLLOW_PUBLIC_KEY
+  servers:
+    - nodeName: rpi4001
+      expectedHostname: rpi4001
+      ipv4: 192.168.0.100
+      port: 7500
+      url: http://192.168.0.100:7500
+      socketUnit: tangd.socket
+      keyDirectory: /var/lib/tang
+      backupLogicalId: shared/seori-auth/tang/rpi4001-server-keys
+    - nodeName: m6-seori-01
+      expectedHostname: m6-seori-01
+      ipv4: 192.168.0.118
+      port: 7500
+      url: http://192.168.0.118:7500
+      socketUnit: tangd.socket
+      keyDirectory: /var/lib/tang
+      backupLogicalId: shared/seori-auth/tang/m6-seori-01-server-keys
+kubernetes:
+  context: vzyx-cluster
+  namespace: auth-broker
+  persistentVolume: seori-auth-state-rpi5
+  persistentVolumeClaim: seori-auth-state
+  readbackPolicy: EXACT_UID_RESOURCE_VERSION
+  consumerGate:
+    requiredReplicas: 0
+    workloads:
+      - kind: StatefulSet
+        name: seori-auth-broker
+      - kind: Deployment
+        name: seori-password-loader
+      - kind: Deployment
+        name: seori-totp-signer
+    podPolicy: NO_LIVE_PVC_OR_HOST_PATH_CONSUMERS
+gates:
+  dryRunDefault: true
+  applyConfirmation: EXACT_CONTRACT_DIGEST
+  preProvisionState: SOURCE_MISSING_TARGET_EMPTY
+  preBackup: REQUIRED_AND_RESTORE_VERIFIED
+  recoveryKeyInput: CANONICAL_ROOT_OWNED_REGULAR_FILE_ONLY
+  secretTransport: FILE_DESCRIPTOR_BY_CHILD_ONLY
+  mutationUnknownPolicy: READBACK_FIRST
+  markerWritePolicy: AFTER_EXACT_MOUNT_AND_PV_PVC_READBACK
+  rebootReadback: REQUIRED_BEFORE_READY
+  rollbackPolicy: RECOVERABLE_RENAME_ONLY
+  restorePolicy: HEADER_AND_RECOVERY_KEY_REHEARSAL_REQUIRED
+  destructivePathPolicy: FIXED_DIRFD_RENAMEAT2_NOREPLACE_O_NOFOLLOW
+  tangBackupEvidencePolicy: TRUSTED_SIGNED_CANONICAL_BACKUP_AND_ISOLATED_RESTORE
