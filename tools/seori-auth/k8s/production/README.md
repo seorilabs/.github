@@ -20,6 +20,7 @@ renderer는 secret 값을 읽거나 출력하지 않고 하나의 JSON `List`만
 | `registry` | 명시적 `PUBLIC` 또는 `PACKAGES_READER`; mode가 없거나 readback 상태가 미검증이면 중단 |
 | `nodeSelector` | 고정값 `kubernetes.io/hostname: rpi5`. 다른 label이나 RPI4는 거부 |
 | `stateReadbackAttestation` | read-only verifier가 반환한 exact PV/PVC UID, resourceVersion, state contract digest와 observed digest |
+| `hostEncryptionAttestation` | trusted host provisioner가 고정한 exact LUKS UUID, mapper/source, RPI5, PV/PVC identity와 공개 digest marker |
 | `trustedWorkers` | namespace/pod exact match label을 각각 한 개씩 가진 selector |
 | `providerControlPlane` | signer ServiceAccount의 exact `backofficeClientSpiffeId`, 고정 `/internal/control-plane/provider-grants` scope, Backoffice signer Pod 전용 namespace/pod exact selector |
 | `egressProxy` | namespace/pod exact selector와 TLS proxy port |
@@ -107,7 +108,9 @@ kubectl apply --dry-run=client --validate=false -f /tmp/seori-auth-rendered.json
 ```
 
 실제 cluster의 server dry-run, 아홉 RBAC `can-i=no`, WIF/IAM readback, egress proxy allowlist,
-application envelope/PVC Retain readback과 fake-account login canary를 모두 통과한 뒤에만 별도 승인 작업에서 apply합니다.
+application envelope/PVC Retain readback, RPI5 host encrypted-mount attestation과 fake-account login
+canary를 모두 통과한 뒤에만 별도 승인 작업에서 apply합니다. 생성된 세 workload는 이 선행조건이
+실제로 준비될 때까지 기본 `replicas: 0`이며 renderer가 이를 자동으로 올리지 않습니다.
 private GHCR pull Secret이 namespace에 존재하고 예상 registry identity에서 생성됐다는 공개
 readback이 없으면 workload apply를 중단합니다. renderer가 `imagePullSecrets`를 생략한 manifest는
 `PUBLIC` verified mode가 아닌 한 node image cache가 있더라도 운영 계약에 맞지 않습니다.
@@ -118,8 +121,8 @@ readback이 없으면 workload apply를 중단합니다. renderer가 `imagePullS
 
 fleet runtime v3 계약은 secret-bearing durable state를 Browser Vault의 AES-256-GCM envelope로
 제한합니다. journal에는 strict public control/audit record만 허용하고 schema 검증을 append보다
-먼저 수행한 뒤 HMAC chain으로 인증합니다. backing disk 형식은 gate가 아닙니다. 저장소 루트에서
-다음 두 검증을 순서대로 실행합니다.
+먼저 수행한 뒤 HMAC chain으로 인증합니다. 이 application envelope와 별개로 backing mount도
+고정 LUKS2 dm-crypt여야 합니다. 저장소 루트에서 다음 두 검증을 순서대로 실행합니다.
 
 ```sh
 node scripts/fleet/verify-p2-state-envelope.mjs contract
@@ -138,10 +141,18 @@ PV/PVC가 모두 없으면 `MISSING`, 한쪽만 관측되면 `PARTIAL`, kubectl 
 구분하며 모두 `READBACK_FIRST`로 중단합니다. 이를 drift나 provisioning 성공으로 추측하지 않습니다.
 
 두 검증의 성공은 provisioning 승인이 아닙니다. PV/PVC 생성은 별도 승인 작업이며 삭제는 계약상
-금지됩니다. production renderer는 이 attestation이 없거나 digest가 다르면 중단합니다. broker
-startup initContainer는 exact PV/PVC를 다시 읽어 UID/RV/digest가 같을 때만 marker를 쓰고 main
-container 시작을 허용합니다. startup/readiness/liveness probe도 같은 marker digest를 검증합니다.
-`protection.status: verified` 자기 선언만으로 이 readback을 대신할 수 없습니다.
+금지됩니다. production renderer는 PV/PVC attestation 또는 host-encryption attestation이 없거나
+digest가 다르면 중단합니다. host marker는 고정 경로
+`/var/lib/seori-auth/.seorilabs-host-encrypted-mount.json`에 trusted host provisioner가
+`root:65532`, `0440`으로 쓰며, exact
+LUKS UUID, `/dev/mapper/seori-auth-state`, `/data/seori-auth/seori-auth-state.luks`, filesystem,
+RPI5와 동일 PV/PVC UID/resourceVersion을 canonical SHA-256으로 결합합니다. initContainer는 먼저
+이 marker를 검증하고 exact PV/PVC를 live readback한 뒤 두 digest를 결합한 tmpfs runtime marker만
+씁니다. marker 부재·불일치·일반 ext4 identity는 main container 시작 전에 fail-closed합니다.
+startup/readiness/liveness probe도 host marker와 결합 marker를 다시 검증하며 drift 시 readiness
+marker를 제거합니다. `protection.status`나 `hostEncryption.status` 자기 선언만으로 이 readback을
+대신할 수 없습니다. marker에는 공개 identity만 허용하고 mount 원시 출력, key material, unlock
+token은 ConfigMap, argv, log, probe output에 넣지 않습니다.
 
 projected identity volume은 고정 mount
 `/var/run/seori-auth/projected-identity`와 고정 leaf `token`만 제공합니다. Kubernetes의

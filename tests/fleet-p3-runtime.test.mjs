@@ -98,6 +98,18 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
   });
   assert.equal(contract.authBroker.state.protection.mode, "APPLICATION_ENVELOPE");
   assert.equal(contract.authBroker.state.protection.status, "blocked_unverified");
+  assert.deepEqual(contract.authBroker.state.hostEncryption, {
+    schemaVersion: 1,
+    mode: "LUKS2_DM_CRYPT",
+    status: "blocked_unverified",
+    luksType: "LUKS2",
+    filesystemType: "ext4",
+    mapperPath: "/dev/mapper/seori-auth-state",
+    sourcePath: "/data/seori-auth/seori-auth-state.luks",
+    markerPath: "/var/lib/seori-auth/.seorilabs-host-encrypted-mount.json",
+    digestAlgorithm: "SHA256_CANONICAL_JSON",
+    missingPolicy: "FAIL_CLOSED",
+  });
   assert.equal(
     contract.authBroker.state.protection.secretPersistencePolicy,
     "ENCRYPTED_ENVELOPE_ONLY",

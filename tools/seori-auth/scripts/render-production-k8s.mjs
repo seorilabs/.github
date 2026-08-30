@@ -21,6 +21,12 @@ import {
   StateEnvelopeError,
   validateStateVolumeReadbackAttestation,
 } from '../src/state-envelope.mjs';
+import {
+  buildRuntimeStateAttestationMarker,
+  HOST_ENCRYPTION_MARKER_PATH,
+  HostEncryptedMountError,
+  validateHostEncryptedMountAttestation,
+} from '../src/host-encrypted-mount.mjs';
 
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -151,7 +157,8 @@ function roleConfig(value, role) {
 function validate(config, fleetBroker) {
   if (!exactKeys(config, [
     'egressProxy', 'image', 'imageProvenance', 'imagePullPolicy', 'namespace', 'nodeSelector', 'registry',
-    'roles', 'providerControlPlane', 'schemaVersion', 'stateReadbackAttestation', 'trustedWorkers',
+    'roles', 'providerControlPlane', 'schemaVersion', 'stateReadbackAttestation',
+    'hostEncryptionAttestation', 'trustedWorkers',
   ]) || config.schemaVersion !== 2 || config.namespace !== 'auth-broker') {
     fail('top-level deployment fields are invalid');
   }
@@ -168,14 +175,21 @@ function validate(config, fleetBroker) {
     fleetBroker.kubernetesApi.caConfigMapName !== 'kube-root-ca.crt' ||
     fleetBroker.kubernetesApi.tokenExpirationSeconds !== 600
   ) fail('Kubernetes API startup attestor binding is invalid');
+  let hostEncryptionAttestation;
   let stateReadbackAttestation;
   try {
     stateReadbackAttestation = validateStateVolumeReadbackAttestation({
       state: fleetBroker.state,
       attestation: config.stateReadbackAttestation,
     });
+    hostEncryptionAttestation = validateHostEncryptedMountAttestation({
+      state: fleetBroker.state,
+      stateVolumeAttestation: stateReadbackAttestation,
+      attestation: config.hostEncryptionAttestation,
+    });
   } catch (error) {
     if (error instanceof StateEnvelopeError) fail('state readback attestation is invalid');
+    if (error instanceof HostEncryptedMountError) fail('host encryption attestation is invalid');
     throw error;
   }
   const imageProvenance = validateImageProvenance(config.image, config.imageProvenance, fail);
@@ -227,6 +241,7 @@ function validate(config, fleetBroker) {
     nodeSelector,
     state: fleetBroker.state,
     kubernetesApi: fleetBroker.kubernetesApi,
+    hostEncryptionAttestation,
     stateReadbackAttestation,
     trustedWorkers: Object.freeze({
       namespaceSelector: labels(config.trustedWorkers.namespaceSelector, 'trustedWorkers.namespaceSelector'),
@@ -279,6 +294,7 @@ function securityContext() {
 function podSecurityContext() {
   return {
     fsGroup: 65532,
+    fsGroupChangePolicy: 'OnRootMismatch',
     runAsGroup: 65532,
     runAsNonRoot: true,
     runAsUser: 65532,
@@ -292,7 +308,15 @@ function stateAttestorExpected(config) {
     state: config.state,
     kubernetesApi: config.kubernetesApi,
     attestation: config.stateReadbackAttestation,
+    hostEncryptionAttestation: config.hostEncryptionAttestation,
   };
+}
+
+function runtimeStateMarker(config) {
+  return buildRuntimeStateAttestationMarker({
+    stateVolumeAttestation: config.stateReadbackAttestation,
+    hostEncryptionAttestation: config.hostEncryptionAttestation,
+  });
 }
 
 function stateAttestorExpectedDigest(config) {
@@ -404,7 +428,9 @@ function probe(role, config) {
   const stateOptions = role === 'broker'
     ? [
         `--state-attestation-file=${STATE_ATTESTOR_MARKER_PATH}`,
-        `--expected-state-attestation-sha256=${config.stateReadbackAttestation.observedDigest}`,
+        `--expected-state-attestation-sha256=${runtimeStateMarker(config).observedDigest}`,
+        `--host-encryption-marker-file=${HOST_ENCRYPTION_MARKER_PATH}`,
+        `--expected-host-encryption-sha256=${config.hostEncryptionAttestation.observedDigest}`,
       ]
     : [];
   return {
@@ -472,7 +498,9 @@ function workload(role, config) {
       `--expected-provider-endpoint-scope=${config.providerControlPlane.endpointScope}`,
       ...(role === 'broker' ? [
         `--state-attestation-file=${STATE_ATTESTOR_MARKER_PATH}`,
-        `--expected-state-attestation-sha256=${config.stateReadbackAttestation.observedDigest}`,
+        `--expected-state-attestation-sha256=${runtimeStateMarker(config).observedDigest}`,
+        `--host-encryption-marker-file=${HOST_ENCRYPTION_MARKER_PATH}`,
+        `--expected-host-encryption-sha256=${config.hostEncryptionAttestation.observedDigest}`,
       ] : []),
     ],
     ports: [{ name: 'mtls', containerPort: port(role), protocol: 'TCP' }],
@@ -501,6 +529,9 @@ function workload(role, config) {
         ...(role === 'broker' ? {
           'seorilabs.io/state-attestor-expected-sha256': stateAttestorExpectedDigest(config),
           'seorilabs.io/state-observed-digest': config.stateReadbackAttestation.observedDigest,
+          'seorilabs.io/host-encryption-observed-digest':
+            config.hostEncryptionAttestation.observedDigest,
+          'seorilabs.io/runtime-state-observed-digest': runtimeStateMarker(config).observedDigest,
           'seorilabs.io/state-pv-uid': config.stateReadbackAttestation.pv.uid,
           'seorilabs.io/state-pv-resource-version': config.stateReadbackAttestation.pv.resourceVersion,
           'seorilabs.io/state-pvc-uid': config.stateReadbackAttestation.pvc.uid,
@@ -540,7 +571,7 @@ function workload(role, config) {
       },
     },
     spec: {
-      replicas: 1,
+      replicas: 0,
       selector: { matchLabels: labels },
       template: pod,
     },

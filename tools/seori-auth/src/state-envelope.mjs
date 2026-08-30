@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { BROWSER_VAULT_ENVELOPE } from './browser-vault.mjs';
 import { DURABLE_JOURNAL_ENVELOPE } from './durable-state.mjs';
+import { validateHostEncryptionPolicy } from './host-encrypted-mount.mjs';
 import { normalizeJournalCheckpointBinding } from './journal-checkpoint.mjs';
 
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -10,7 +11,7 @@ const DNS_SUBDOMAIN = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
 const SIZE = /^[1-9][0-9]*(?:Mi|Gi)$/;
 const PUBLIC_ID = /^[A-Za-z0-9._:-]{1,256}$/;
 const STATE_MOUNT_PATH = '/var/lib/seori-auth';
-const STATE_KEYS = ['protection', 'volume'];
+const STATE_KEYS = ['hostEncryption', 'protection', 'volume'];
 const PROTECTION_KEYS = [
   'browserVault', 'journal', 'mode', 'secretPersistencePolicy', 'status',
 ];
@@ -95,6 +96,11 @@ function validateStateContract(state) {
     stop('STATE_ENVELOPE_CONTRACT_INVALID');
   }
   const readbackAttestation = volume?.readbackAttestation;
+  try {
+    validateHostEncryptionPolicy(state);
+  } catch {
+    stop('STATE_ENVELOPE_CONTRACT_INVALID');
+  }
   if (
     !exactKeys(state, STATE_KEYS) || !exactKeys(protection, PROTECTION_KEYS) ||
     protection.mode !== 'APPLICATION_ENVELOPE' ||
@@ -222,6 +228,7 @@ export function verifyApplicationEnvelopeContract(state) {
       algorithm: state.protection.browserVault.algorithm,
       plaintextAtRestAllowed: state.protection.browserVault.plaintextAtRestAllowed,
     }),
+    hostEncryption: Object.freeze({ ...state.hostEncryption }),
   });
 }
 

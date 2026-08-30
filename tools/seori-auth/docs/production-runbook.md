@@ -70,7 +70,16 @@ body와 exact match해야 합니다. 알 수 없는 PID, 종료된 run, 다른 r
 
 ## 3. Journal과 Browser Vault
 
-production state는 다음 조건으로만 엽니다.
+production state는 RPI5의 `/var/lib/seori-auth`가 exact LUKS2 dm-crypt mount임을 먼저 증명한
+경우에만 엽니다. trusted host provisioner가 공개 LUKS UUID, 고정 mapper/source, filesystem,
+node, Retain PV/PVC UID와 resourceVersion을 canonical digest marker로 해당 mount 안에
+`root:65532`, `0440`으로 기록합니다. initContainer와 main process probe는 이 marker와
+Kubernetes live readback을 exact 검증하며 broker identity는 marker를 수정할 수 없습니다.
+marker 부재·drift·일반 ext4면 broker는 시작하지 않거나 readiness marker를 제거합니다. unlock key,
+raw mount output, recovery material은 marker, argv, log에 포함하지 않습니다. renderer의 broker와
+factor workload는 이 host provisioning이 별도 승인으로 완료될 때까지 `replicas: 0`입니다.
+
+이 선행조건이 검증된 production state는 다음 조건으로만 엽니다.
 
 ```js
 await DurableAuthState.open({

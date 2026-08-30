@@ -60,6 +60,7 @@ function withExternalGateState(source, ready) {
   binding.secretManager.state = externalState;
   binding.secretManager.provisioning.state = externalState;
   binding.state.protection.status = ready ? 'verified' : 'blocked_unverified';
+  binding.state.hostEncryption.status = ready ? 'verified' : 'blocked_unverified';
   configMap.data['bindings.json'] = JSON.stringify(binding);
   return copy;
 }
@@ -167,6 +168,7 @@ test('readiness auditor exact-matches live foundation and remains blocked by cur
     { code: 'REGISTRY_GATE_BLOCKED' },
     { code: 'SECRET_MANAGER_GATE_BLOCKED' },
     { code: 'STATE_APPLICATION_PROTECTION_GATE_BLOCKED' },
+    { code: 'STATE_HOST_ENCRYPTION_GATE_BLOCKED' },
   ]);
   assert.match(result.stateReadbackAttestation.observedDigest, /^[a-f0-9]{64}$/u);
   assert.deepEqual(result.stateReadbackAttestation.pv, {

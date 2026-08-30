@@ -591,8 +591,28 @@
         "state": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["protection", "volume"],
+          "required": ["hostEncryption", "protection", "volume"],
           "properties": {
+            "hostEncryption": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schemaVersion", "mode", "status", "luksType", "filesystemType",
+                "mapperPath", "sourcePath", "markerPath", "digestAlgorithm", "missingPolicy"
+              ],
+              "properties": {
+                "schemaVersion": { "const": 1 },
+                "mode": { "const": "LUKS2_DM_CRYPT" },
+                "status": { "enum": ["verified", "blocked_unverified"] },
+                "luksType": { "const": "LUKS2" },
+                "filesystemType": { "const": "ext4" },
+                "mapperPath": { "const": "/dev/mapper/seori-auth-state" },
+                "sourcePath": { "const": "/data/seori-auth/seori-auth-state.luks" },
+                "markerPath": { "const": "/var/lib/seori-auth/.seorilabs-host-encrypted-mount.json" },
+                "digestAlgorithm": { "const": "SHA256_CANONICAL_JSON" },
+                "missingPolicy": { "const": "FAIL_CLOSED" }
+              }
+            },
             "protection": {
               "type": "object",
               "additionalProperties": false,

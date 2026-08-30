@@ -110,6 +110,18 @@ test('P2 runtime v3는 startup attestation과 application envelope를 actual imp
     rolloutStatus: 'blocked_unverified',
     mode: 'APPLICATION_ENVELOPE',
     secretPersistencePolicy: 'ENCRYPTED_ENVELOPE_ONLY',
+    hostEncryption: {
+      schemaVersion: 1,
+      mode: 'LUKS2_DM_CRYPT',
+      status: 'blocked_unverified',
+      luksType: 'LUKS2',
+      filesystemType: 'ext4',
+      mapperPath: '/dev/mapper/seori-auth-state',
+      sourcePath: '/data/seori-auth/seori-auth-state.luks',
+      markerPath: '/var/lib/seori-auth/.seorilabs-host-encrypted-mount.json',
+      digestAlgorithm: 'SHA256_CANONICAL_JSON',
+      missingPolicy: 'FAIL_CLOSED',
+    },
     journal: {
       schemaVersion: 2,
       contentPolicy: 'SECRET_FREE_PUBLIC_CONTROL_AND_AUDIT_ONLY',

@@ -388,6 +388,17 @@ authBroker:
         - browser_vault_round_trip_verified
   wifAudience: //iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/microk8s-auth
   state:
+    hostEncryption:
+      schemaVersion: 1
+      mode: LUKS2_DM_CRYPT
+      status: blocked_unverified
+      luksType: LUKS2
+      filesystemType: ext4
+      mapperPath: /dev/mapper/seori-auth-state
+      sourcePath: /data/seori-auth/seori-auth-state.luks
+      markerPath: /var/lib/seori-auth/.seorilabs-host-encrypted-mount.json
+      digestAlgorithm: SHA256_CANONICAL_JSON
+      missingPolicy: FAIL_CLOSED
     protection:
       mode: APPLICATION_ENVELOPE
       status: blocked_unverified

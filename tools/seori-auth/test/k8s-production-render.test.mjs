@@ -11,6 +11,11 @@ import { parse } from 'yaml';
 
 import { APPROVED_IMAGE_BINDING } from '../scripts/public-image-binding.mjs';
 import {
+  buildHostEncryptedMountAttestation,
+  buildRuntimeStateAttestationMarker,
+  HOST_ENCRYPTION_MARKER_PATH,
+} from '../src/host-encrypted-mount.mjs';
+import {
   buildRetainVolumeList,
   verifyRetainVolumeReadback,
 } from '../src/state-envelope.mjs';
@@ -18,7 +23,10 @@ import {
 const execFileAsync = promisify(execFile);
 const renderer = fileURLToPath(new URL('../scripts/render-production-k8s.mjs', import.meta.url));
 const digest = APPROVED_IMAGE_BINDING.imageProvenance.imageDigest.slice('sha256:'.length);
-const fleetContract = parse(await readFile('contracts/fleet-p3-runtime.yaml', 'utf8'));
+const fleetContract = parse(await readFile(
+  fileURLToPath(new URL('../../../contracts/fleet-p3-runtime.yaml', import.meta.url)),
+  'utf8',
+));
 const state = fleetContract.authBroker.state;
 
 function exactStateAttestation() {
@@ -44,6 +52,7 @@ function exactStateAttestation() {
 
 function deploymentConfig() {
   const audience = '//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seori-auth/providers/microk8s';
+  const stateReadbackAttestation = exactStateAttestation();
   return {
     schemaVersion: 2,
     namespace: 'auth-broker',
@@ -58,7 +67,12 @@ function deploymentConfig() {
       kubernetesStatus: 'VERIFIED',
     },
     nodeSelector: { 'kubernetes.io/hostname': 'rpi5' },
-    stateReadbackAttestation: exactStateAttestation(),
+    stateReadbackAttestation,
+    hostEncryptionAttestation: structuredClone(buildHostEncryptedMountAttestation({
+      state,
+      stateVolumeAttestation: stateReadbackAttestation,
+      luksUuid: '12345678-1234-1234-1234-123456789abc',
+    })),
     trustedWorkers: {
       namespaceSelector: { 'kubernetes.io/metadata.name': 'release-workers' },
       podSelector: { 'seorilabs.io/auth-client': 'true' },
@@ -257,8 +271,10 @@ test('production renderer exact-binds startup readback without Secret access or 
     assert.equal(container.securityContext.allowPrivilegeEscalation, false);
     assert.deepEqual(container.securityContext.capabilities.drop, ['ALL']);
     assert.equal(pod.securityContext.runAsNonRoot, true);
+    assert.equal(pod.securityContext.fsGroupChangePolicy, 'OnRootMismatch');
     assert.equal(pod.securityContext.seccompProfile.type, 'RuntimeDefault');
     assert.equal(container.startupProbe.failureThreshold, 30);
+    assert.equal(item.spec.replicas, 0);
 
     for (const mount of container.volumeMounts.filter((value) => [
       'config', 'service-tls', 'egress-tls', 'journal-checkpoint-tls',
@@ -274,7 +290,13 @@ test('production renderer exact-binds startup readback without Secret access or 
   const brokerContainer = brokerPod.containers[0];
   const init = brokerPod.initContainers[0];
   const expectedAttestation = deploymentConfig().stateReadbackAttestation;
+  const expectedHostAttestation = deploymentConfig().hostEncryptionAttestation;
+  const expectedRuntimeMarker = buildRuntimeStateAttestationMarker({
+    stateVolumeAttestation: expectedAttestation,
+    hostEncryptionAttestation: expectedHostAttestation,
+  });
   assert.ok(broker.spec.template.spec.volumes.some((volume) => volume.name === 'state' && volume.persistentVolumeClaim));
+  assert.equal(JSON.stringify(broker.spec.template.spec.volumes).includes('hostPath'), false);
   assert.ok(factors.every((item) => !item.spec.template.spec.volumes.some((volume) => volume.name === 'state')));
   assert.equal(brokerPod.initContainers.length, 1);
   const checkpointTlsVolume = brokerPod.volumes.find(({ name }) => name === 'journal-checkpoint-tls');
@@ -318,10 +340,18 @@ test('production renderer exact-binds startup readback without Secret access or 
       ({ name }) => name === 'state-api-token'), false);
   }
   assert.ok(brokerContainer.args.includes(
-    `--expected-state-attestation-sha256=${expectedAttestation.observedDigest}`));
+    `--expected-state-attestation-sha256=${expectedRuntimeMarker.observedDigest}`));
+  assert.ok(brokerContainer.args.includes(
+    `--host-encryption-marker-file=${HOST_ENCRYPTION_MARKER_PATH}`));
+  assert.ok(brokerContainer.args.includes(
+    `--expected-host-encryption-sha256=${expectedHostAttestation.observedDigest}`));
   for (const probeName of ['startupProbe', 'readinessProbe', 'livenessProbe']) {
     assert.ok(brokerContainer[probeName].exec.command.includes(
-      `--expected-state-attestation-sha256=${expectedAttestation.observedDigest}`));
+      `--expected-state-attestation-sha256=${expectedRuntimeMarker.observedDigest}`));
+    assert.ok(brokerContainer[probeName].exec.command.includes(
+      `--host-encryption-marker-file=${HOST_ENCRYPTION_MARKER_PATH}`));
+    assert.ok(brokerContainer[probeName].exec.command.includes(
+      `--expected-host-encryption-sha256=${expectedHostAttestation.observedDigest}`));
   }
   assert.equal(
     broker.spec.template.metadata.annotations['seorilabs.io/state-pv-uid'],
@@ -345,6 +375,7 @@ test('production renderer exact-binds startup readback without Secret access or 
   );
   const expectedDocument = JSON.parse(stateAttestorConfig.data['expected.json']);
   assert.deepEqual(expectedDocument.attestation, expectedAttestation);
+  assert.deepEqual(expectedDocument.hostEncryptionAttestation, expectedHostAttestation);
   assert.deepEqual(expectedDocument.kubernetesApi, fleetContract.authBroker.kubernetesApi);
   assert.ok(policies.some((item) => item.metadata.name === 'default-deny' && item.spec.ingress.length === 0 && item.spec.egress.length === 0));
   const dnsEgress = policies.flatMap((item) => item.spec.egress ?? []).find((rule) =>
@@ -454,6 +485,21 @@ test('production renderer rejects mutable images and shared factor identities', 
     await assert.rejects(render(invalidStateReadback), (error) => {
       assert.equal(error.code, 1);
       assert.match(error.stderr, /(?:top-level deployment fields|state readback attestation) .*invalid/u);
+      return true;
+    });
+  }
+
+  for (const mutate of [
+    (config) => { delete config.hostEncryptionAttestation; },
+    (config) => { config.hostEncryptionAttestation.luksUuid = 'ffffffff-ffff-ffff-ffff-ffffffffffff'; },
+    (config) => { config.hostEncryptionAttestation.mapperPath = '/dev/mapper/plain-ext4'; },
+    (config) => { config.hostEncryptionAttestation.pv.uid = 'substituted-pv-uid'; },
+  ]) {
+    const invalidHostEncryption = deploymentConfig();
+    mutate(invalidHostEncryption);
+    await assert.rejects(render(invalidHostEncryption), (error) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr, /(?:top-level deployment fields|host encryption attestation) .*invalid/u);
       return true;
     });
   }

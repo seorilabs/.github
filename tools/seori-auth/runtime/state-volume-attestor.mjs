@@ -11,6 +11,13 @@ import {
   validateStateVolumeReadbackAttestation,
   verifyExactStateVolumeReadback,
 } from '../src/state-envelope.mjs';
+import {
+  buildRuntimeStateAttestationMarker,
+  HOST_ENCRYPTION_MARKER_PATH,
+  HostEncryptedMountError,
+  validateHostEncryptedMountAttestation,
+  validateHostEncryptedMountMarkerDigest,
+} from '../src/host-encrypted-mount.mjs';
 
 const EXPECTED_PATH = '/etc/seori-auth-state-attestor/expected.json';
 const TOKEN_PATH = '/var/run/seori-auth-state-token/token';
@@ -57,7 +64,9 @@ async function secureBytes(path, { maxBytes, writableByOwner = false }) {
 
 export function validateStateAttestorExpected(expected) {
   if (
-    !exactKeys(expected, ['attestation', 'kubernetesApi', 'schemaVersion', 'state']) ||
+    !exactKeys(expected, [
+      'attestation', 'hostEncryptionAttestation', 'kubernetesApi', 'schemaVersion', 'state',
+    ]) ||
     expected.schemaVersion !== 1 ||
     !exactKeys(expected.kubernetesApi, [
       'audience', 'caConfigMapName', 'egressCidr', 'port', 'server',
@@ -75,8 +84,16 @@ export function validateStateAttestorExpected(expected) {
       state: expected.state,
       attestation: expected.attestation,
     });
+    validateHostEncryptedMountAttestation({
+      state: expected.state,
+      stateVolumeAttestation: expected.attestation,
+      attestation: expected.hostEncryptionAttestation,
+    });
   } catch (error) {
-    if (error instanceof StateEnvelopeError) stop('STATE_ATTESTOR_EXPECTED_INVALID');
+    if (
+      error instanceof StateEnvelopeError ||
+      error instanceof HostEncryptedMountError
+    ) stop('STATE_ATTESTOR_EXPECTED_INVALID');
     throw error;
   }
   return expected;
@@ -144,16 +161,28 @@ function readApiResource({ apiServer, ca, token, path }) {
   });
 }
 
-async function writeMarker(observedDigest) {
-  if (!/^[a-f0-9]{64}$/.test(observedDigest ?? '')) stop('STATE_VOLUME_ATTESTATION_INVALID');
+async function publicHostEncryptionMarker(expected) {
+  const bytes = await secureBytes(HOST_ENCRYPTION_MARKER_PATH, { maxBytes: 64 * 1024 });
+  try {
+    const marker = JSON.parse(bytes.toString('utf8'));
+    validateHostEncryptedMountMarkerDigest({
+      attestation: marker,
+      expectedDigest: expected.hostEncryptionAttestation.observedDigest,
+    });
+    return marker;
+  } catch (error) {
+    if (error instanceof HostEncryptedMountError) throw error;
+    stop('HOST_ENCRYPTION_MARKER_INVALID');
+  } finally {
+    bytes.fill(0);
+  }
+}
+
+async function writeMarker(marker) {
   try {
     await writeFile(
       MARKER_PATH,
-      `${JSON.stringify({
-        schemaVersion: 1,
-        state: 'STATE_VOLUME_ATTESTATION_VERIFIED',
-        observedDigest,
-      })}\n`,
+      `${JSON.stringify(marker)}\n`,
       { flag: 'wx', mode: 0o600 },
     );
   } catch {
@@ -161,7 +190,11 @@ async function writeMarker(observedDigest) {
   }
 }
 
-export async function verifyStateVolumeWithReader({ expected, readResource }) {
+export async function verifyStateVolumeWithReader({
+  expected,
+  hostEncryptionMarker,
+  readResource,
+}) {
   validateStateAttestorExpected(expected);
   if (typeof readResource !== 'function') stop('STATE_ATTESTOR_READER_INVALID');
   const { volume } = expected.state;
@@ -172,12 +205,29 @@ export async function verifyStateVolumeWithReader({ expected, readResource }) {
       `/persistentvolumeclaims/${encodeURIComponent(volume.claimName)}`,
     ),
   ]);
-  return verifyExactStateVolumeReadback({
+  const verified = verifyExactStateVolumeReadback({
     state: expected.state,
     attestation: expected.attestation,
     observedPv,
     observedPvc,
   });
+  const hostEncryptionAttestation = validateHostEncryptedMountAttestation({
+    state: expected.state,
+    stateVolumeAttestation: verified.attestation,
+    attestation: hostEncryptionMarker,
+  });
+  validateHostEncryptedMountMarkerDigest({
+    attestation: hostEncryptionAttestation,
+    expectedDigest: expected.hostEncryptionAttestation.observedDigest,
+  });
+  return {
+    ...verified,
+    hostEncryptionAttestation,
+    runtimeMarker: buildRuntimeStateAttestationMarker({
+      stateVolumeAttestation: verified.attestation,
+      hostEncryptionAttestation,
+    }),
+  };
 }
 
 async function main() {
@@ -186,12 +236,14 @@ async function main() {
   try {
     if (process.argv.length !== 2) stop('STATE_ATTESTOR_ARGUMENTS_INVALID');
     const expected = await publicExpected();
+    const hostEncryptionMarker = await publicHostEncryptionMarker(expected);
     [token, ca] = await Promise.all([
       secureBytes(TOKEN_PATH, { maxBytes: MAX_CREDENTIAL_BYTES, writableByOwner: true }),
       secureBytes(CA_PATH, { maxBytes: MAX_CREDENTIAL_BYTES }),
     ]);
     const verified = await verifyStateVolumeWithReader({
       expected,
+      hostEncryptionMarker,
       readResource: (path) => readApiResource({
         apiServer: expected.kubernetesApi.server,
         ca,
@@ -199,13 +251,14 @@ async function main() {
         path,
       }),
     });
-    await writeMarker(verified.attestation.observedDigest);
+    await writeMarker(verified.runtimeMarker);
     process.stdout.write(`${JSON.stringify({
-      state: 'STATE_VOLUME_ATTESTATION_VERIFIED',
-      observedDigest: verified.attestation.observedDigest,
+      state: 'STATE_VOLUME_AND_HOST_ENCRYPTION_VERIFIED',
+      observedDigest: verified.runtimeMarker.observedDigest,
     })}\n`);
   } catch (error) {
-    const code = error instanceof StateAttestorFailure || error instanceof StateEnvelopeError
+    const code = error instanceof StateAttestorFailure ||
+      error instanceof StateEnvelopeError || error instanceof HostEncryptedMountError
       ? error.code
       : 'STATE_ATTESTOR_FAILED';
     process.stderr.write(`${JSON.stringify({ state: 'FAILED', code })}\n`);

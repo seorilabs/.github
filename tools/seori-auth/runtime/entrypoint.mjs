@@ -32,6 +32,11 @@ import {
   isLogicalCredentialRef,
 } from '../src/index.mjs';
 import { createRuntimeReadinessGate } from '../src/runtime-readiness.mjs';
+import {
+  HOST_ENCRYPTION_MARKER_PATH,
+  validateHostEncryptedMountMarkerDigest,
+  validateRuntimeStateAttestationMarker,
+} from '../src/host-encrypted-mount.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const ROLE = new Set(['broker', 'password-loader', 'totp-signer']);
@@ -207,7 +212,10 @@ function deploymentBinding(options) {
     'config', 'expected-backoffice-spiffe-id', 'expected-google-service-account',
     'expected-provider-endpoint-scope', 'expected-secret-access-sha256', 'expected-wif-audience',
   ];
-  const state = ['expected-state-attestation-sha256', 'state-attestation-file'];
+  const state = [
+    'expected-host-encryption-sha256', 'expected-state-attestation-sha256',
+    'host-encryption-marker-file', 'state-attestation-file',
+  ];
   const allowed = new Set([...common, ...state]);
   if (
     common.some((key) => !options.has(key)) ||
@@ -226,6 +234,8 @@ function deploymentBinding(options) {
     ...(options.has('state-attestation-file') ? {
       stateAttestationFile: options.get('state-attestation-file'),
       stateAttestationSha256: options.get('expected-state-attestation-sha256'),
+      hostEncryptionMarkerFile: options.get('host-encryption-marker-file'),
+      hostEncryptionSha256: options.get('expected-host-encryption-sha256'),
     } : {}),
   };
   if (
@@ -236,7 +246,9 @@ function deploymentBinding(options) {
     binding.providerEndpointScope !== PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE ||
     (binding.stateAttestationFile !== undefined && (
       binding.stateAttestationFile !== '/run/seori-auth-state-attestor/verified.json' ||
-      !SHA256.test(binding.stateAttestationSha256 ?? '')
+      !SHA256.test(binding.stateAttestationSha256 ?? '') ||
+      binding.hostEncryptionMarkerFile !== HOST_ENCRYPTION_MARKER_PATH ||
+      !SHA256.test(binding.hostEncryptionSha256 ?? '')
     ))
   ) fail('runtime deployment identity binding is invalid');
   return Object.freeze(binding);
@@ -260,18 +272,28 @@ function validateRuntimeDeploymentBinding(config, binding) {
 async function verifyStateAttestationMarker(binding) {
   const path = binding.stateAttestationFile;
   try {
-    const [entry, canonical] = await Promise.all([lstat(path), realpath(path)]);
+    const hostPath = binding.hostEncryptionMarkerFile;
+    const [entry, canonical, hostEntry, hostCanonical] = await Promise.all([
+      lstat(path), realpath(path), lstat(hostPath), realpath(hostPath),
+    ]);
     if (
       !entry.isFile() || entry.isSymbolicLink() || canonical !== path ||
-      entry.uid !== process.getuid?.() || (entry.mode & 0o077) !== 0
+      entry.uid !== process.getuid?.() || (entry.mode & 0o077) !== 0 ||
+      !hostEntry.isFile() || hostEntry.isSymbolicLink() || hostCanonical !== hostPath ||
+      hostEntry.uid !== 0 || (hostEntry.mode & 0o222) !== 0
     ) fail('state attestation marker is invalid');
-    const marker = await readConfig(path);
-    if (
-      !exactKeys(marker, ['observedDigest', 'schemaVersion', 'state']) ||
-      marker.schemaVersion !== 1 ||
-      marker.state !== 'STATE_VOLUME_ATTESTATION_VERIFIED' ||
-      marker.observedDigest !== binding.stateAttestationSha256
-    ) fail('state attestation marker is invalid');
+    const [marker, hostMarker] = await Promise.all([
+      readConfig(path), readConfig(hostPath),
+    ]);
+    validateRuntimeStateAttestationMarker({
+      marker,
+      expectedObservedDigest: binding.stateAttestationSha256,
+      expectedHostEncryptionDigest: binding.hostEncryptionSha256,
+    });
+    validateHostEncryptedMountMarkerDigest({
+      attestation: hostMarker,
+      expectedDigest: binding.hostEncryptionSha256,
+    });
   } catch (error) {
     if (error?.code === 'runtime_error') throw error;
     fail('state attestation marker is invalid');
@@ -383,7 +405,12 @@ async function healthcheck(path, stateBinding) {
   if (!exactKeys(state, ['pid', 'role']) || !Number.isSafeInteger(state.pid) || !ROLE.has(state.role)) fail('runtime is not ready');
   if (state.role === 'broker') {
     if (!stateBinding) fail('state attestation health binding is missing');
-    await verifyStateAttestationMarker(stateBinding);
+    try {
+      await verifyStateAttestationMarker(stateBinding);
+    } catch (error) {
+      await rm(path, { force: true }).catch(() => {});
+      throw error;
+    }
   } else if (stateBinding) {
     fail('factor healthcheck cannot accept a state attestation');
   }
@@ -944,20 +971,27 @@ try {
     validateRuntimeDeploymentBinding(config, binding);
     process.stdout.write(`${JSON.stringify({ valid: true, schemaVersion: config.schemaVersion, role: config.role })}\n`);
   } else if (command === 'healthcheck' && options.has('readiness-file')) {
-    const stateOptions = ['expected-state-attestation-sha256', 'state-attestation-file'];
+    const stateOptions = [
+      'expected-host-encryption-sha256', 'expected-state-attestation-sha256',
+      'host-encryption-marker-file', 'state-attestation-file',
+    ];
     const hasStateBinding = stateOptions.every((key) => options.has(key));
     if (
-      ![1, 3].includes(options.size) ||
+      ![1, 5].includes(options.size) ||
       stateOptions.some((key) => options.has(key)) && !hasStateBinding ||
       hasStateBinding && (
         options.get('state-attestation-file') !==
           '/run/seori-auth-state-attestor/verified.json' ||
-        !SHA256.test(options.get('expected-state-attestation-sha256') ?? '')
+        !SHA256.test(options.get('expected-state-attestation-sha256') ?? '') ||
+        options.get('host-encryption-marker-file') !== HOST_ENCRYPTION_MARKER_PATH ||
+        !SHA256.test(options.get('expected-host-encryption-sha256') ?? '')
       )
     ) fail('healthcheck arguments are invalid');
     await healthcheck(options.get('readiness-file'), hasStateBinding ? {
       stateAttestationFile: options.get('state-attestation-file'),
       stateAttestationSha256: options.get('expected-state-attestation-sha256'),
+      hostEncryptionMarkerFile: options.get('host-encryption-marker-file'),
+      hostEncryptionSha256: options.get('expected-host-encryption-sha256'),
     } : undefined);
   } else if (command === 'canary' && options.size === 1 && options.has('native-helper')) {
     await canary(options.get('native-helper'));

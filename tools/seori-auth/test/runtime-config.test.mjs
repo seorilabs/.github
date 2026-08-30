@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -16,6 +16,17 @@ const backofficeSpiffeId = 'spiffe://seorilabs.local/ns/platform/sa/provider-exe
 const providerEndpointScope = '/internal/control-plane/provider-grants';
 const stateAttestationFile = '/run/seori-auth-state-attestor/verified.json';
 const stateAttestationSha256 = 'f'.repeat(64);
+const hostEncryptionMarkerFile = '/var/lib/seori-auth/.seorilabs-host-encrypted-mount.json';
+const hostEncryptionSha256 = 'e'.repeat(64);
+
+function stateDeploymentArguments() {
+  return [
+    `--state-attestation-file=${stateAttestationFile}`,
+    `--expected-state-attestation-sha256=${stateAttestationSha256}`,
+    `--host-encryption-marker-file=${hostEncryptionMarkerFile}`,
+    `--expected-host-encryption-sha256=${hostEncryptionSha256}`,
+  ];
+}
 
 function passwordConfig() {
   return {
@@ -150,14 +161,9 @@ async function validate(config, overrides = {}) {
       `--expected-wif-audience=${wifAudience}`,
       `--expected-backoffice-spiffe-id=${overrides.backofficeSpiffeId ?? backofficeSpiffeId}`,
       `--expected-provider-endpoint-scope=${overrides.providerEndpointScope ?? providerEndpointScope}`,
-      ...(config.role === 'broker' && overrides.omitStateAttestation !== true ? [
-        `--state-attestation-file=${stateAttestationFile}`,
-        `--expected-state-attestation-sha256=${stateAttestationSha256}`,
-      ] : []),
-      ...(overrides.factorStateAttestation === true ? [
-        `--state-attestation-file=${stateAttestationFile}`,
-        `--expected-state-attestation-sha256=${stateAttestationSha256}`,
-      ] : []),
+      ...(config.role === 'broker' && overrides.omitStateAttestation !== true
+        ? stateDeploymentArguments() : []),
+      ...(overrides.factorStateAttestation === true ? stateDeploymentArguments() : []),
     ]);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -272,4 +278,10 @@ test('broker는 exact state attestation deployment binding을 요구하고 facto
       return true;
     },
   );
+});
+
+test('broker healthcheck removes readiness when encrypted-state attestation cannot be revalidated', async () => {
+  const source = await readFile(entrypoint, 'utf8');
+  assert.match(source, /validateHostEncryptedMountMarkerDigest/u);
+  assert.match(source, /await rm\(path, \{ force: true \}\)/u);
 });

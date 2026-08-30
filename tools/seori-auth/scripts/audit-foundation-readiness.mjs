@@ -299,6 +299,9 @@ function contractDiagnostics(desired) {
   if (binding.state?.protection?.status !== 'verified') {
     diagnostics.push({ code: 'STATE_APPLICATION_PROTECTION_GATE_BLOCKED' });
   }
+  if (binding.state?.hostEncryption?.status !== 'verified') {
+    diagnostics.push({ code: 'STATE_HOST_ENCRYPTION_GATE_BLOCKED' });
+  }
   return diagnostics;
 }
 

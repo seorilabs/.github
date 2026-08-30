@@ -65,6 +65,9 @@
   readiness 전에 exact match
 - native advisory lock 하나가 durable journal writer를 process 단위로 직렬화하며 crash 뒤
   stale lock inode는 OS lock ownership 없이 writer 권한을 만들지 못함
+- RPI5 durable state는 exact LUKS2 UUID, mapper/source, filesystem, PV/PVC identity를 묶은 공개
+  host marker와 live Kubernetes readback을 startup과 모든 probe에서 검증하며, 부재·drift·일반
+  ext4에서는 fail-closed하고 readiness를 제거. key와 raw mount data는 출력하지 않음
 - browser timeout은 AbortSignal, native kill acknowledgement, adapter promise settlement를
   모두 확인하고 그 전에는 clone/session을 reclaim 또는 reuse하지 않음
 - ordered auth fallback은 같은 run의 앞선 전략 실패를 journal의 non-secret digest로 증명
