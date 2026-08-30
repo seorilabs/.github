@@ -270,6 +270,85 @@ function expectedRestrictedPodNode(pod) {
   return contract.cluster.nodes.workload.hostname;
 }
 
+function labelsContain(labels, selector) {
+  return Object.entries(selector ?? {}).every(
+    ([key, value]) => labels?.[key] === value,
+  );
+}
+
+function validatePreservedControllers(resources) {
+  const expectedControllers =
+    contract.cluster.nodes.quarantined.allowedPreservedControllers;
+  for (const expected of expectedControllers) {
+    const actual = (resources?.items ?? []).find(
+      (item) =>
+        item?.kind === expected.kind &&
+        item?.metadata?.namespace === expected.namespace &&
+        item?.metadata?.name === expected.name,
+    );
+    if (
+      actual?.spec?.replicas !== expected.replicas ||
+      !labelsContain(
+        actual?.spec?.template?.metadata?.annotations,
+        expected.requiredPodAnnotations,
+      ) ||
+      !same(actual?.spec?.selector?.matchLabels, expected.podSelector) ||
+      !same(actual?.spec?.template?.metadata?.labels, expected.podSelector) ||
+      !same(podTemplateSelector(actual), expected.nodeSelector) ||
+      !same(actual?.spec?.template?.spec?.tolerations ?? [], expected.tolerations)
+    ) {
+      fail("RPI_CAPACITY_PRESERVED_CONTROLLER_DRIFT");
+    }
+  }
+  return expectedControllers;
+}
+
+function isPreservedControllerPod(pod, replicaSets, expectedControllers) {
+  return expectedControllers.some((expected) => {
+    if (
+      pod?.metadata?.namespace !== expected.namespace ||
+      !labelsContain(pod?.metadata?.labels, expected.podSelector)
+    ) {
+      return false;
+    }
+    const replicaSetOwner = pod?.metadata?.ownerReferences?.find(
+      (owner) => owner?.controller === true && owner?.kind === "ReplicaSet",
+    );
+    if (!replicaSetOwner) return false;
+    const replicaSet = (replicaSets?.items ?? []).find(
+      (item) =>
+        item?.metadata?.namespace === expected.namespace &&
+        item?.metadata?.name === replicaSetOwner.name,
+    );
+    const deploymentOwner = replicaSet?.metadata?.ownerReferences?.find(
+      (owner) =>
+        owner?.controller === true &&
+        owner?.kind === expected.kind &&
+        owner?.name === expected.name,
+    );
+    return (
+      deploymentOwner !== undefined &&
+      labelsContain(
+        replicaSet?.spec?.template?.metadata?.labels,
+        expected.podSelector,
+      ) &&
+      labelsContain(
+        replicaSet?.spec?.template?.metadata?.annotations,
+        expected.requiredPodAnnotations,
+      ) &&
+      labelsContain(
+        pod?.metadata?.annotations,
+        expected.requiredPodAnnotations,
+      ) &&
+      same(podTemplateSelector(replicaSet), expected.nodeSelector) &&
+      same(
+        replicaSet?.spec?.template?.spec?.tolerations ?? [],
+        expected.tolerations,
+      )
+    );
+  });
+}
+
 function liveReadback() {
   const context = runKubectl(
     ["config", "current-context"],
@@ -428,6 +507,11 @@ function liveReadback() {
     ["get", "deployment,statefulset", "-A", "-o", "json"],
     "RPI_CAPACITY_WORKLOAD_READ_FAILED",
   );
+  const preservedControllers = validatePreservedControllers(workloadResources);
+  const replicaSets = kubectlJson(
+    ["get", "replicasets", "-A", "-o", "json"],
+    "RPI_CAPACITY_REPLICASET_READ_FAILED",
+  );
   const auth = contract.workloads.authBroker;
   const authWorkloads = (workloadResources?.items ?? []).filter(
     (item) => item?.metadata?.namespace === auth.namespace,
@@ -463,7 +547,8 @@ function liveReadback() {
       return (
         createdAt >= quarantineStartedAt &&
         pod?.metadata?.ownerReferences?.[0]?.kind !== "DaemonSet" &&
-        new Set(["Pending", "Running", "Unknown"]).has(pod?.status?.phase)
+        new Set(["Pending", "Running", "Unknown"]).has(pod?.status?.phase) &&
+        !isPreservedControllerPod(pod, replicaSets, preservedControllers)
       );
     },
   );
@@ -561,6 +646,9 @@ function liveReadback() {
     oomKilled: 0,
     oomEvictionEvents: 0,
     authBrokerState: authWorkloads.length === 0 ? "not_deployed" : "rpi5",
+    preservedControllers: preservedControllers.map(
+      ({ namespace, kind, name }) => `${namespace}/${kind}/${name}`,
+    ),
     arc: arcStatus,
   };
   if (observedHours < contract.observation.minimumHours) {

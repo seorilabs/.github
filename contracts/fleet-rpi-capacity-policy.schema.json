@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/seorilabs/.github/contracts/v2/fleet-rpi-capacity-policy.schema.json",
-  "title": "Seorilabs RPI fleet capacity policy v2",
+  "$id": "https://github.com/seorilabs/.github/contracts/v3/fleet-rpi-capacity-policy.schema.json",
+  "title": "Seorilabs RPI fleet capacity policy v3",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "cluster", "workloads", "observation", "rollback"],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "cluster": {
       "type": "object",
       "additionalProperties": false,
@@ -21,7 +21,7 @@
             "quarantined": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["hostname", "unschedulable", "requiredTaint", "preserveExistingPods", "requiredConditions"],
+              "required": ["hostname", "unschedulable", "requiredTaint", "preserveExistingPods", "allowedPreservedControllers", "requiredConditions"],
               "properties": {
                 "hostname": { "const": "rpi4001" },
                 "unschedulable": { "const": true },
@@ -35,6 +35,15 @@
                   }
                 },
                 "preserveExistingPods": { "const": true },
+                "allowedPreservedControllers": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "prefixItems": [
+                    { "$ref": "#/$defs/containerRegistryPreservedController" }
+                  ],
+                  "items": false
+                },
                 "requiredConditions": {
                   "type": "object",
                   "additionalProperties": false,
@@ -196,7 +205,7 @@
             { "const": "rpi4001_ready_without_pressure" },
             { "const": "rpi4001_has_no_new_oom_or_eviction" },
             { "const": "rpi5_ready_schedulable_without_pressure" },
-            { "const": "new_active_non_daemon_workloads_absent_from_rpi4001" },
+            { "const": "new_active_non_daemon_workloads_absent_except_preserved_controller" },
             { "const": "restricted_workloads_absent_from_rpi4001" },
             { "const": "arc_capacity_and_placement_exact" }
           ],
@@ -249,6 +258,61 @@
     }
   },
   "$defs": {
+    "rpi4Selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kubernetes.io/hostname"],
+      "properties": {
+        "kubernetes.io/hostname": { "const": "rpi4001" }
+      }
+    },
+    "rpi4CordonToleration": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "operator", "effect"],
+          "properties": {
+            "key": { "const": "node.kubernetes.io/unschedulable" },
+            "operator": { "const": "Exists" },
+            "effect": { "const": "NoSchedule" }
+          }
+        }
+      ],
+      "items": false
+    },
+    "containerRegistryPreservedController": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "kind", "name", "replicas", "requiredPodAnnotations", "podSelector", "nodeSelector", "tolerations"],
+      "properties": {
+        "namespace": { "const": "container-registry" },
+        "kind": { "const": "Deployment" },
+        "name": { "const": "registry" },
+        "replicas": { "const": 1 },
+        "requiredPodAnnotations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["seorilabs.dev/rpi4-preserved-workload"],
+          "properties": {
+            "seorilabs.dev/rpi4-preserved-workload": { "const": "container-registry" }
+          }
+        },
+        "podSelector": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["app"],
+          "properties": {
+            "app": { "const": "registry" }
+          }
+        },
+        "nodeSelector": { "$ref": "#/$defs/rpi4Selector" },
+        "tolerations": { "$ref": "#/$defs/rpi4CordonToleration" }
+      }
+    },
     "rpi5Selector": {
       "type": "object",
       "additionalProperties": false,

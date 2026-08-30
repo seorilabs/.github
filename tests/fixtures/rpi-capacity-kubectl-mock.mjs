@@ -35,6 +35,14 @@ const x64Toleration = [
   { key: "workload", operator: "Equal", value: "ci", effect: "NoSchedule" },
 ];
 const authSelector = { "kubernetes.io/hostname": "rpi5" };
+const rpi4Selector = { "kubernetes.io/hostname": "rpi4001" };
+const rpi4CordonToleration = [
+  {
+    key: "node.kubernetes.io/unschedulable",
+    operator: "Exists",
+    effect: "NoSchedule",
+  },
+];
 
 if (args.join("\0") === ["config", "current-context"].join("\0")) {
   output(scenario === "wrong-context" ? "other-cluster" : "vzyx-cluster");
@@ -176,28 +184,99 @@ if (args[0] === "get" && args[1] === "cronjob") {
 }
 
 if (args[0] === "get" && args[1] === "deployment,statefulset") {
-  if (scenario === "auth-drift") {
-    output({
-      items: [
-        {
-          kind: "StatefulSet",
-          metadata: { name: "seori-auth-broker", namespace: "auth-broker" },
+  const items = [
+    {
+      kind: "Deployment",
+      metadata: { name: "registry", namespace: "container-registry" },
+      spec: {
+        replicas: 1,
+        selector: { matchLabels: { app: "registry" } },
+        template: {
+          metadata: { labels: { app: "registry" } },
           spec: {
-            template: {
-              spec: {
-                nodeSelector: { "kubernetes.io/hostname": "rpi4001" },
+            nodeSelector: rpi4Selector,
+            tolerations: rpi4CordonToleration,
+          },
+        },
+      },
+    },
+  ];
+  items[0].spec.template.metadata.annotations = {
+    "seorilabs.dev/rpi4-preserved-workload":
+      scenario === "preserved-controller-drift"
+        ? "other"
+        : "container-registry",
+  };
+  if (scenario === "auth-drift") {
+    items.push({
+      kind: "StatefulSet",
+      metadata: { name: "seori-auth-broker", namespace: "auth-broker" },
+      spec: {
+        template: {
+          spec: {
+            nodeSelector: { "kubernetes.io/hostname": "rpi4001" },
+          },
+        },
+      },
+    });
+  }
+  output({ items });
+}
+
+if (args[0] === "get" && args[1] === "replicasets") {
+  output({
+    items: [
+      {
+        kind: "ReplicaSet",
+        metadata: {
+          name: "registry-current",
+          namespace: "container-registry",
+          ownerReferences: [
+            {
+              controller: true,
+              kind: "Deployment",
+              name:
+                scenario === "preserved-owner-drift" ? "other" : "registry",
+            },
+          ],
+        },
+        spec: {
+          template: {
+            metadata: {
+              labels: { app: "registry", "pod-template-hash": "current" },
+              annotations: {
+                "seorilabs.dev/rpi4-preserved-workload": "container-registry",
               },
+            },
+            spec: {
+              nodeSelector: rpi4Selector,
+              tolerations: rpi4CordonToleration,
             },
           },
         },
-      ],
-    });
-  }
-  output({ items: [] });
+      },
+    ],
+  });
 }
 
 if (args[0] === "get" && args[1] === "pods") {
   const items = [
+    {
+      metadata: {
+        namespace: "container-registry",
+        name: "registry-current-pod",
+        creationTimestamp: "2026-01-01T00:00:00Z",
+        labels: { app: "registry", "pod-template-hash": "current" },
+        annotations: {
+          "seorilabs.dev/rpi4-preserved-workload": "container-registry",
+        },
+        ownerReferences: [
+          { controller: true, kind: "ReplicaSet", name: "registry-current" },
+        ],
+      },
+      spec: { nodeName: "rpi4001" },
+      status: { phase: "Running", containerStatuses: [] },
+    },
     {
       metadata: {
         namespace: "kube-system",
@@ -290,6 +369,13 @@ if (
 ) {
   output({
     items: [
+      {
+        metadata: {
+          namespace: "container-registry",
+          name: "registry-current-pod",
+        },
+        containers: [{ usage: { memory: "128Mi" } }],
+      },
       {
         metadata: { namespace: "kube-system", name: "existing-system-pod" },
         containers: [{ usage: { memory: "406Mi" } }],

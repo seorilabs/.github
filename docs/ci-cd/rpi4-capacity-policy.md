@@ -9,10 +9,11 @@ fail-closed로 확인한다.
 
 ## 결론과 적용 경계
 
-- `rpi4001`은 기존 Pod를 이동하지 않은 채 cordon 상태를 유지한다. 새 active
-  non-DaemonSet workload가 cordon 이후 이 노드에 생기면 검증 실패다. 종료된 진단
-  readback Pod는 현재 capacity를 소비하지 않으므로 placement 실패로 세지 않되 감사 근거로
-  보존한다.
+- `rpi4001`은 cordon 상태를 유지한다. 이 노드의 local hostpath PV를 쓰는 기존
+  `container-registry/Deployment/registry` 한 개는 replicas 1, exact selector·toleration·
+  승인 annotation·ReplicaSet owner chain이 모두 일치할 때만 재생성을 허용한다. 그 외 새 active
+  non-DaemonSet workload가 cordon 이후 이 노드에 생기면 검증 실패다. 종료된 진단 readback
+  Pod는 현재 capacity를 소비하지 않으므로 placement 실패로 세지 않되 감사 근거로 보존한다.
 - Backoffice automation scheduler, ARC controller/listener/general/DIND runner와 향후
   Auth Broker 세 workload는 exact `rpi5` selector를 사용한다.
 - ARC 스케일셋은 arm64 general(`1/3`)·DIND(`0/1`)와 x64 general(`1/6`)·
@@ -64,6 +65,13 @@ ARC의 idle 최소 러너는 `pendingEphemeralRunners`로 집계될 수 있으�
 [AGENTS.md](../../AGENTS.md)의 major 분리 원칙에 따라 `schemaVersion`을 `1`에서
 `2`로 올렸다. 스키마의 `schemaVersion` const, `title`, `$id`도 v2로 함께 갱신했다.
 
+2026-08-30에는 Backoffice 배포 중 registry Pod 재생성이 필요했지만 registry PVC가
+`rpi4001`의 local hostpath PV에 고정되어 있어 일반 RPI5 이동으로 복구할 수 없었다. RPI4를
+uncordon하지 않고 exact registry Deployment만 고정 selector와 cordon toleration으로
+복구했다. 이 예외를 기계 판독 계약에 포함하면서 임의 Pod가 같은 label만 위조해 통과하지
+못하도록 Deployment와 ReplicaSet owner chain까지 검증한다. 새 필수 필드와 관찰 조건의
+의미가 바뀌므로 `schemaVersion`은 `3`으로 올렸다.
+
 단, 위 시각은 cordon 뒤 약 20시간 25분이므로 24시간 관찰 완료 증거가 아니다. 최초로
 24시간을 채우는 시각은 **2026-08-29 09:01:39 KST**다. verifier는 Node의
 `node.kubernetes.io/unschedulable` taint `timeAdded`에서 직접 시간을 계산하며 24시간 전에
@@ -85,9 +93,10 @@ SEORILABS_ARC_WORKSPACE=/absolute/path/to/kubectl \
   node scripts/fleet/verify-rpi-capacity-policy.mjs readback
 ```
 
-readback은 context, 두 Node condition과 cordon taint, ARC spec/status, controller와 scheduler
-template, Auth Broker workload, active Pod placement, OOM/eviction event, node/Pod working set을
-함께 확인한다. `apply`, `patch`, `cordon`, `uncordon`, `taint`, `delete`는 구현하지 않는다.
+readback은 context, 두 Node condition과 cordon taint, exact registry Deployment·ReplicaSet
+owner chain, ARC spec/status, controller와 scheduler template, Auth Broker workload, active Pod
+placement, OOM/eviction event, node/Pod working set을 함께 확인한다. `apply`, `patch`, `cordon`,
+`uncordon`, `taint`, `delete`는 구현하지 않는다.
 
 ## uncordon과 rollback 조건
 

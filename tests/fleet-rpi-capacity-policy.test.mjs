@@ -136,15 +136,33 @@ async function verify(mode, root, scenario = "healthy", log = undefined) {
   });
 }
 
-test("RPI capacity contract는 exact node와 ARC 상한을 strict schema로 고정한다", () => {
+test("RPI capacity contract는 exact node, 보존 controller와 ARC 상한을 strict schema로 고정한다", () => {
   const validate = new Ajv2020({ strict: true, validateFormats: false }).compile(
     schema,
   );
   assert.equal(validate(contract), true, JSON.stringify(validate.errors));
-  assert.equal(contract.schemaVersion, 2);
+  assert.equal(contract.schemaVersion, 3);
   assert.equal(contract.cluster.nodes.quarantined.hostname, "rpi4001");
   assert.equal(contract.cluster.nodes.workload.hostname, "rpi5");
   assert.equal(contract.cluster.nodes.x64.hostname, "seori-m6-01");
+  assert.deepEqual(
+    contract.cluster.nodes.quarantined.allowedPreservedControllers.map(
+      ({ namespace, kind, name, replicas }) => ({
+        namespace,
+        kind,
+        name,
+        replicas,
+      }),
+    ),
+    [
+      {
+        namespace: "container-registry",
+        kind: "Deployment",
+        name: "registry",
+        replicas: 1,
+      },
+    ],
+  );
   assert.deepEqual(
     contract.workloads.arc.scaleSets.map(
       ({ name, minRunners, maxRunners }) => ({
@@ -171,7 +189,7 @@ test("운영 복제본은 exact RPI5 selector와 일반 1/3, DIND 0/1일 때만 
     assert.equal(result.stderr, "");
     const output = JSON.parse(result.stdout);
     assert.equal(output.ok, true);
-    assert.equal(output.policyVersion, 2);
+    assert.equal(output.policyVersion, 3);
     assert.equal(output.workloadNode, "rpi5");
     assert.deepEqual(output.arc, [
       { name: "seorilabs-rpi-arm64", minRunners: 1, maxRunners: 3 },
@@ -210,11 +228,14 @@ test("live readback은 mutation 없이 cordon, selector, ARC와 메모리 eviden
     assert.equal(result.stderr, "");
     const output = JSON.parse(result.stdout);
     assert.equal(output.ok, true);
-    assert.equal(output.policyVersion, 2);
+    assert.equal(output.policyVersion, 3);
     assert.equal(output.evidence.rpi4NodeWorkingSetMi, 4565);
-    assert.equal(output.evidence.rpi4RunningPodWorkingSetMi, 406);
+    assert.equal(output.evidence.rpi4RunningPodWorkingSetMi, 534);
     assert.equal(output.evidence.rpi5NodeWorkingSetMi, 3235);
     assert.equal(output.evidence.authBrokerState, "not_deployed");
+    assert.deepEqual(output.evidence.preservedControllers, [
+      "container-registry/Deployment/registry",
+    ]);
     const calls = (await readFile(log, "utf8"))
       .trim()
       .split("\n")
@@ -262,6 +283,25 @@ test("Auth Broker selector drift와 OOM evidence는 live gate를 닫지 못한�
     ["auth-drift", "RPI_CAPACITY_AUTH_BROKER_LIVE_DRIFT"],
     ["oom", "RPI_CAPACITY_MEMORY_EVENT_DETECTED"],
     ["oom-event", "RPI_CAPACITY_MEMORY_EVENT_DETECTED"],
+  ];
+  for (const [scenario, code] of cases) {
+    const root = await fixtureWorkspace();
+    try {
+      await assert.rejects(verify("readback", root, scenario), (error) => {
+        assert.equal(error.code, 1);
+        assert.match(error.stderr, new RegExp(code, "u"));
+        return true;
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("RPI4 보존 예외는 exact registry controller와 owner chain만 허용한다", async () => {
+  const cases = [
+    ["preserved-controller-drift", "RPI_CAPACITY_PRESERVED_CONTROLLER_DRIFT"],
+    ["preserved-owner-drift", "RPI_CAPACITY_WORKLOAD_PLACEMENT_DRIFT"],
   ];
   for (const [scenario, code] of cases) {
     const root = await fixtureWorkspace();
