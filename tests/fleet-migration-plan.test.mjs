@@ -666,6 +666,7 @@ function refreshInventoryReadbacks(inventory) {
     redigest(entry.observation.treeReadback);
     for (const candidate of entry.candidates) {
       const stream = candidate.proofs.parityStream;
+      if (stream === null) continue;
       const head = stream.observations.at(-1);
       stream.headObservationId = head.observationId;
       stream.headSequence = head.sequence;
@@ -2099,6 +2100,25 @@ test("resolved manifest digest는 revision, signed snapshot, signing key와 poli
 });
 
 test("parity는 trusted stream의 최신 contiguous MATCH 두 건과 previous ID chain을 요구한다", () => {
+  const missingParity = structuredClone(makeFleetInventory());
+  firstLegacy(missingParity).proofs.parityStream = null;
+  refreshAndSign(missingParity);
+  assert.equal(validateFleetMigrationInventory(missingParity).ok, true);
+  const missingParityPlan = createFleetMigrationPlan(missingParity, {
+    trustedInventoryBinding: trustedBinding(missingParity),
+  });
+  const missingParityChange = missingParityPlan.repositories[0].changes[0];
+  assert.equal(missingParityChange.evidence.parityStreamId, null);
+  assert.equal(missingParityChange.evidence.parityHeadObservationId, null);
+  assert.equal(missingParityChange.evidence.parityHeadSequence, null);
+  assert.equal(missingParityChange.evidence.parityTotalObservations, null);
+  assert.ok(
+    missingParityPlan.reasonCodes.includes(
+      "PARITY_REQUIRES_LATEST_CONTIGUOUS_MATCHES",
+    ),
+  );
+  assert.notEqual(missingParityPlan.outcome, "READY_FOR_REVIEW");
+
   const intermediateMismatch = structuredClone(makeFleetInventory());
   const candidate = firstLegacy(intermediateMismatch);
   const first = candidate.proofs.parityStream.observations[0];

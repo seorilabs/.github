@@ -25,6 +25,9 @@ const requiredPackageFiles = [
   ".generated/contracts/fleet-migration-chain-head.schema.json",
   ".generated/contracts/fleet-migration-inventory.schema.json",
   ".generated/contracts/fleet-migration-plan.schema.json",
+  ".generated/contracts/legacy/backoffice-operations.v1.schema.json",
+  ".generated/contracts/legacy/market-launch-state.v1.schema.json",
+  ".generated/contracts/legacy/platform-registry-app.v1.schema.json",
   ".generated/contracts/markets/app-store.schema.json",
   ".generated/contracts/markets/apps-in-toss.schema.json",
   ".generated/contracts/markets/google-play.schema.json",
@@ -52,6 +55,7 @@ const requiredPackageFiles = [
   "src/bootstrap.mjs",
   "src/standard-labels.mjs",
   "src/fleet-migration-collector.mjs",
+  "src/fleet-migration-legacy-validator.mjs",
   "src/fleet-migration.mjs",
   "src/trusted-cleanup-executor.mjs",
   "src/workflow-bundle-v5.mjs",
@@ -383,6 +387,29 @@ try {
   if (!installedCollectorCheck.stdout.includes("public export 검증 통과")) {
     throw new Error(
       "배포된 repo-contract에 Fleet migration collector API가 없습니다.",
+    );
+  }
+  const installedLegacyValidatorCheck = await execFileAsync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'const installed = await import("@seorilabs/repo-contract/fleet-migration-legacy-validator");',
+        'if (typeof installed.validateFleetMigrationLegacyDocument !== "function") process.exit(1);',
+        'if (!/^fleet-legacy-schema-validator-v1-[0-9a-f]{16}$/.test(installed.fleetMigrationLegacyValidatorRevision ?? "")) process.exit(1);',
+        'process.stdout.write("Fleet migration legacy validator public export 검증 통과\\n");',
+      ].join("\n"),
+    ],
+    {
+      cwd: consumerRoot,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    },
+  );
+  if (!installedLegacyValidatorCheck.stdout.includes("public export 검증 통과")) {
+    throw new Error(
+      "배포된 repo-contract에 Fleet migration legacy validator API가 없습니다.",
     );
   }
   const installedIssuerCheck = await execFileAsync(

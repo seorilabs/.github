@@ -485,10 +485,24 @@
         "platformFleetBindingObservationId": {
           "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
         },
-        "parityStreamId": { "$ref": "#/$defs/evidenceId" },
-        "parityHeadObservationId": { "$ref": "#/$defs/evidenceId" },
-        "parityHeadSequence": { "type": "integer", "minimum": 2 },
-        "parityTotalObservations": { "type": "integer", "minimum": 2 },
+        "parityStreamId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        },
+        "parityHeadObservationId": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evidenceId" }]
+        },
+        "parityHeadSequence": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 2 }
+          ]
+        },
+        "parityTotalObservations": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 2 }
+          ]
+        },
         "buildRunIds": {
           "type": "array",
           "maxItems": 20,

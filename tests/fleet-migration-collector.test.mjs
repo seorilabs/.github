@@ -413,6 +413,23 @@ test("38-repository exact fixture와 verified capability만 authoritative READY�
   assert.equal(signerRequest.payload.every((byte) => byte === 0), true);
 });
 
+test("collector fixture도 공용 legacy schema validator로 malformed 문서를 거부한다", async () => {
+  const fixture = makeCollectorFixture({
+    count: 38,
+    nowMs: Date.now(),
+    verifiedCapability: true,
+  });
+  const legacyBlob = fixture.blobs[1].find(
+    ({ path }) => path === "release/market-launch-state.json",
+  );
+  legacyBlob.text = `${JSON.stringify({ schemaVersion: 1 })}\n`;
+
+  await assert.rejects(
+    collect(fixture),
+    /FLEET_MIGRATION_COLLECTOR_LEGACY_SCHEMA_VALIDATION_FAILED/u,
+  );
+});
+
 test("current live permission/event mismatch는 public shadow까지만 허용한다", async () => {
   const nowMs = Date.now();
   const fixture = makeCollectorFixture({ count: 38, nowMs });

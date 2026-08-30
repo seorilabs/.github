@@ -1371,7 +1371,12 @@
           "$ref": "#/$defs/platformFleetBindingReadback"
         },
         "sourceReadback": { "$ref": "#/$defs/sourceReadback" },
-        "parityStream": { "$ref": "#/$defs/parityStream" },
+        "parityStream": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/parityStream" }
+          ]
+        },
         "buildOnly": {
           "type": "array",
           "maxItems": 20,

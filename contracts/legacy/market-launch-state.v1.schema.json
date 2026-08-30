@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.com/contracts/legacy/market-launch-state.v1.schema.json",
+  "title": "Seorilabs legacy market launch state",
+  "description": "Strict shadow schema for release/market-launch-state.json during Fleet migration.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "app",
+    "release",
+    "deploymentApproval",
+    "commonGates",
+    "markets"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "repo", "sourceRevision"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyText" },
+        "repo": {
+          "type": "string",
+          "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+        },
+        "sourceRevision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "tag", "objective", "countries", "rolloutMode"],
+      "properties": {
+        "version": { "$ref": "#/$defs/nonEmptyText" },
+        "tag": { "$ref": "#/$defs/nonEmptyText" },
+        "objective": { "$ref": "#/$defs/longText" },
+        "countries": {
+          "type": "array",
+          "maxItems": 250,
+          "items": { "$ref": "#/$defs/longText" }
+        },
+        "rolloutMode": { "$ref": "#/$defs/longText" }
+      }
+    },
+    "deploymentApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "markets", "objective", "approvedAt", "evidence"],
+      "properties": {
+        "status": { "enum": ["pending", "approved"] },
+        "markets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/marketName" }
+        },
+        "objective": { "$ref": "#/$defs/longText" },
+        "approvedAt": { "$ref": "#/$defs/nullableTimestamp" },
+        "evidence": { "$ref": "#/$defs/evidenceList" }
+      }
+    },
+    "commonGates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate", "quality", "production_dependencies", "observability"],
+      "properties": {
+        "candidate": { "$ref": "#/$defs/gate" },
+        "quality": { "$ref": "#/$defs/gate" },
+        "production_dependencies": { "$ref": "#/$defs/gate" },
+        "observability": { "$ref": "#/$defs/gate" }
+      }
+    },
+    "markets": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "google_play": { "$ref": "#/$defs/market" },
+        "app_store": { "$ref": "#/$defs/market" },
+        "apps_in_toss": { "$ref": "#/$defs/market" }
+      }
+    }
+  },
+  "$defs": {
+    "nonEmptyText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "longText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "marketName": {
+      "enum": ["google_play", "app_store", "apps_in_toss"]
+    },
+    "nullableTimestamp": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+        }
+      ]
+    },
+    "evidenceList": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "evidence", "checkedAt", "blocker"],
+      "properties": {
+        "status": { "enum": ["pending", "pass", "blocked", "na"] },
+        "evidence": { "$ref": "#/$defs/evidenceList" },
+        "checkedAt": { "$ref": "#/$defs/nullableTimestamp" },
+        "blocker": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/longText" }
+          ]
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicationId", "version", "build"],
+      "properties": {
+        "applicationId": { "$ref": "#/$defs/nonEmptyText" },
+        "version": { "$ref": "#/$defs/nonEmptyText" },
+        "build": { "$ref": "#/$defs/nonEmptyText" },
+        "productionVersion": { "$ref": "#/$defs/nonEmptyText" },
+        "productionBuild": { "$ref": "#/$defs/nonEmptyText" }
+      }
+    },
+    "marketGates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate",
+        "artifact",
+        "upload",
+        "processing",
+        "qa",
+        "metadata",
+        "policy",
+        "submission",
+        "approval",
+        "release",
+        "live_smoke"
+      ],
+      "properties": {
+        "candidate": { "$ref": "#/$defs/gate" },
+        "artifact": { "$ref": "#/$defs/gate" },
+        "upload": { "$ref": "#/$defs/gate" },
+        "processing": { "$ref": "#/$defs/gate" },
+        "qa": { "$ref": "#/$defs/gate" },
+        "metadata": { "$ref": "#/$defs/gate" },
+        "policy": { "$ref": "#/$defs/gate" },
+        "submission": { "$ref": "#/$defs/gate" },
+        "approval": { "$ref": "#/$defs/gate" },
+        "release": { "$ref": "#/$defs/gate" },
+        "live_smoke": { "$ref": "#/$defs/gate" }
+      }
+    },
+    "market": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective", "state", "identity", "gates"],
+      "properties": {
+        "objective": { "$ref": "#/$defs/longText" },
+        "state": { "$ref": "#/$defs/nonEmptyText" },
+        "identity": { "$ref": "#/$defs/identity" },
+        "gates": { "$ref": "#/$defs/marketGates" }
+      }
+    }
+  }
+}

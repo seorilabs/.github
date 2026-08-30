@@ -2,6 +2,9 @@ import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 
 import {
+  validateFleetMigrationLegacyDocument,
+} from "../../packages/repo-contract/src/fleet-migration-legacy-validator.mjs";
+import {
   computeFleetCredentialBindingScopeDigest,
   computeFleetEvidenceDigest,
   computeFleetMigrationOutageRecoveryDigest,
@@ -109,6 +112,177 @@ export function gitBlobSha(value) {
     .update(`blob ${bytes.length}\0`)
     .update(bytes)
     .digest("hex");
+}
+
+function fixtureGate(status = "pass") {
+  return {
+    status,
+    evidence: [],
+    checkedAt: status === "pending" ? null : "2026-08-29T00:00:00Z",
+    blocker: status === "blocked" ? "fixture blocker" : null,
+  };
+}
+
+function fixtureMarketLaunchState(index) {
+  const appId = `app-${String(index).padStart(2, "0")}`;
+  const gates = Object.fromEntries(
+    [
+      "candidate",
+      "artifact",
+      "upload",
+      "processing",
+      "qa",
+      "metadata",
+      "policy",
+      "submission",
+      "approval",
+      "release",
+      "live_smoke",
+    ].map((name) => [name, fixtureGate()]),
+  );
+  return {
+    schemaVersion: 1,
+    app: {
+      name: `App ${String(index).padStart(2, "0")}`,
+      repo: `seorilabs/${appId}`,
+      sourceRevision: sha(`source:${index}`),
+    },
+    release: {
+      version: "1.0.0",
+      tag: "v1.0.0",
+      objective: "fixture release candidate",
+      countries: [],
+      rolloutMode: "manual",
+    },
+    deploymentApproval: {
+      status: "approved",
+      markets: ["google_play"],
+      objective: "fixture approved scope",
+      approvedAt: "2026-08-29T00:00:00Z",
+      evidence: [],
+    },
+    commonGates: {
+      candidate: fixtureGate(),
+      quality: fixtureGate(),
+      production_dependencies: fixtureGate(),
+      observability: fixtureGate(),
+    },
+    markets: {
+      google_play: {
+        objective: "fixture market candidate",
+        state: "submission",
+        identity: {
+          applicationId: `com.seorilabs.app${String(index).padStart(2, "0")}`,
+          version: "1.0.0",
+          build: "1",
+        },
+        gates,
+      },
+    },
+  };
+}
+
+export function legacyDocumentForPath(path, index = 1) {
+  const appId = `app-${String(index).padStart(2, "0")}`;
+  if (path === ".seorilabs/app.yaml") {
+    return {
+      schemaVersion: 1,
+      app: {
+        id: appId,
+        displayName: `App ${String(index).padStart(2, "0")}`,
+        kind: "app",
+        profile: "react-native",
+        lifecycle: "launched",
+      },
+      repository: { defaultBranch: "main" },
+      quality: {
+        policy: "org-v1",
+        commands: {
+          core: "pnpm test:core",
+          architecture: "pnpm check:architecture",
+          release: "pnpm check:release",
+        },
+      },
+      release: { policy: "org-v1", trigger: "explicit-semver-tag" },
+      sdk: {
+        distribution: "package",
+        package: "@seorilabs/platform-sdk",
+        version: "1.0.0",
+        lockfile: "pnpm-lock.yaml",
+        consumers: [{ packageJson: "package.json", lockfileImporter: "." }],
+      },
+      markets: {},
+      credentials: {
+        consumersManifest: ".seorilabs/credential-consumers.yaml",
+      },
+    };
+  }
+  if (/^registry\/apps\/[a-z0-9][a-z0-9-]{0,63}\.json$/u.test(path)) {
+    const registryAppId = path.slice("registry/apps/".length, -".json".length);
+    return {
+      app_id: registryAppId,
+      display_name: `Registry ${String(index).padStart(2, "0")}`,
+      firebase_project_id: registryAppId,
+      status: "active",
+      features: { config: true, events: true, iap: false },
+      require_app_check: false,
+      ga4: { event_prefix: "" },
+      platform_event_allowlist: [],
+      cors_origins: [],
+    };
+  }
+  if (path === "play-store/google-play.config.json") {
+    return {
+      schemaVersion: 1,
+      appId,
+      packageName: `com.seorilabs.app${String(index).padStart(2, "0")}`,
+      listing: {
+        defaultLocale: "ko-KR",
+        metadataDirectory: "play-store/metadata",
+        assetsDirectory: "play-store/assets",
+      },
+      release: { artifact: "android-app-bundle", defaultTrack: "internal" },
+    };
+  }
+  if (path === "app-store/app-store.config.json") {
+    return {
+      schemaVersion: 1,
+      appId,
+      bundleId: `com.seorilabs.app${String(index).padStart(2, "0")}`,
+      listing: {
+        defaultLocale: "ko-KR",
+        metadataDirectory: "app-store/metadata",
+        assetsDirectory: "app-store/assets",
+      },
+      release: { artifact: "xcode-archive", executor: "xcode-cloud" },
+    };
+  }
+  if (path === "apps-in-toss/apps-in-toss.config.json") {
+    return {
+      schemaVersion: 1,
+      appId,
+      appName: appId,
+      listing: {
+        defaultLocale: "ko-KR",
+        metadataDirectory: "apps-in-toss/metadata",
+        assetsDirectory: "apps-in-toss/assets",
+      },
+      release: { artifact: "ait" },
+    };
+  }
+  if (path === "release/market-launch-state.json") {
+    return fixtureMarketLaunchState(index);
+  }
+  if (path === ".seorilabs/backoffice.json") {
+    return {
+      $schema:
+        "https://seorilabs.com/contracts/legacy/backoffice-operations.v1.schema.json",
+      version: 1,
+      summary: `App ${String(index).padStart(2, "0")} operations`,
+      tools: [],
+    };
+  }
+  throw new Error(`unknown legacy fixture path: ${path}`);
 }
 
 export function evidence(value) {
@@ -750,11 +924,12 @@ function fullBlobSet(count) {
   addBlob(repositoryBlobs, 0, "Assets/icon.png", "lower-case path\n");
   for (let index = 1; index <= 13; index += 1) {
     const appId = `registry-${String(index).padStart(2, "0")}`;
+    const path = `registry/apps/${appId}.json`;
     addBlob(
       repositoryBlobs,
       0,
-      `registry/apps/${appId}.json`,
-      `${JSON.stringify({ appId })}\n`,
+      path,
+      `${JSON.stringify(legacyDocumentForPath(path, index))}\n`,
     );
   }
   const legacyGroups = [
@@ -766,7 +941,12 @@ function fullBlobSet(count) {
   ];
   for (const [path, total] of legacyGroups) {
     for (let index = 1; index <= total; index += 1) {
-      addBlob(repositoryBlobs, index, path, `${JSON.stringify({ index })}\n`);
+      addBlob(
+        repositoryBlobs,
+        index,
+        path,
+        `${JSON.stringify(legacyDocumentForPath(path, index))}\n`,
+      );
     }
   }
   addBlob(
@@ -781,6 +961,28 @@ function fullBlobSet(count) {
       "  kind: app",
       "  profile: react-native",
       "  lifecycle: launched",
+      "repository:",
+      "  defaultBranch: main",
+      "quality:",
+      "  policy: org-v1",
+      "  commands:",
+      "    core: pnpm test:core",
+      "    architecture: pnpm check:architecture",
+      "    release: pnpm check:release",
+      "release:",
+      "  policy: org-v1",
+      "  trigger: explicit-semver-tag",
+      "sdk:",
+      "  distribution: package",
+      "  package: '@seorilabs/platform-sdk'",
+      "  version: 1.0.0",
+      "  lockfile: pnpm-lock.yaml",
+      "  consumers:",
+      "    - packageJson: package.json",
+      "      lockfileImporter: .",
+      "markets: {}",
+      "credentials:",
+      "  consumersManifest: .seorilabs/credential-consumers.yaml",
       "",
     ].join("\n"),
   );
@@ -1014,13 +1216,7 @@ export function makeCollectorFixture({
         content,
       };
     },
-    validateLegacyDocument: async (request) => ({
-      state: "MATCH",
-      contract: request.contract,
-      schemaId: request.schemaId,
-      contentDigest: request.contentDigest,
-      validatorRevision: "fleet-legacy-schema-validator-0001",
-    }),
+    validateLegacyDocument: validateFleetMigrationLegacyDocument,
     readBackofficePublicEvidence: async (request) => {
       const repository = repositoriesById.get(request.repositoryId);
       const candidates = request.detections.map((scanned) =>

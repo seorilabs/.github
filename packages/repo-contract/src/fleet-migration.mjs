@@ -1947,7 +1947,7 @@ function evidenceObjects(proofs) {
     proofs.platformFleetBindingReadback,
     proofs.sourceReadback,
     proofs.parityStream,
-    ...proofs.parityStream.observations,
+    ...(proofs.parityStream?.observations ?? []),
     ...proofs.buildOnly,
     ...proofs.credentialBindings,
     proofs.consumerReadback,
@@ -2111,7 +2111,10 @@ function parityReasons(
   now,
 ) {
   const stream = candidate.proofs.parityStream;
-  const observations = candidate.proofs.parityStream.observations;
+  if (stream === null) {
+    return ["PARITY_REQUIRES_LATEST_CONTIGUOUS_MATCHES"];
+  }
+  const observations = stream.observations;
   if (observations.length < 2) {
     return ["PARITY_REQUIRES_LATEST_CONTIGUOUS_MATCHES"];
   }
@@ -2668,10 +2671,10 @@ function evidenceSummary(proofs) {
     sourceReadbackId: proofs.sourceReadback?.observationId ?? null,
     platformFleetBindingObservationId:
       proofs.platformFleetBindingReadback?.observationId ?? null,
-    parityStreamId: proofs.parityStream.streamId,
-    parityHeadObservationId: proofs.parityStream.headObservationId,
-    parityHeadSequence: proofs.parityStream.headSequence,
-    parityTotalObservations: proofs.parityStream.totalObservations,
+    parityStreamId: proofs.parityStream?.streamId ?? null,
+    parityHeadObservationId: proofs.parityStream?.headObservationId ?? null,
+    parityHeadSequence: proofs.parityStream?.headSequence ?? null,
+    parityTotalObservations: proofs.parityStream?.totalObservations ?? null,
     buildRunIds: proofs.buildOnly
       .map(({ runId }) => runId)
       .sort(compareNumericIds),

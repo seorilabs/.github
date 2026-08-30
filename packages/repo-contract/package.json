@@ -13,6 +13,7 @@
     "./fleet": "./src/fleet.mjs",
     "./standard-labels": "./src/standard-labels.mjs",
     "./fleet-migration-collector": "./src/fleet-migration-collector.mjs",
+    "./fleet-migration-legacy-validator": "./src/fleet-migration-legacy-validator.mjs",
     "./fleet-migration": "./src/fleet-migration.mjs",
     "./trusted-cleanup-executor": "./src/trusted-cleanup-executor.mjs",
     "./trusted-candidate-canary": "./src/trusted-candidate-canary.mjs",
