@@ -309,6 +309,7 @@ if (executable === '/usr/sbin/cryptsetup') {
   if (action === 'open') {
     state.mapper = true;
     saveState();
+    if (scenario === 'after-mapper-open-unknown') process.exit(70);
     process.exit(0);
   }
   if (action === 'close') {
@@ -395,7 +396,8 @@ if (executable === '/usr/bin/clevis') {
   }
 }
 
-if (executable === '/usr/sbin/mkfs.ext4') {
+if (executable === '/usr/sbin/mke2fs') {
+  if (args[0] !== '-t' || args[1] !== 'ext4') process.exit(64);
   state.filesystem = true;
   saveState();
   process.exit(0);

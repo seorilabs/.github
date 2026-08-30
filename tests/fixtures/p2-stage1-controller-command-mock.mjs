@@ -290,10 +290,16 @@ if (hostEncryptionReadback !== null) {
   if (scenario === 'host-unapproved-error') {
     output({ ok: false, code: 'SECRET_SHAPED_REMOTE_FAILURE' });
   }
-  if (hostEncryptionReadback[1] === 'apply-state' && scenario === 'host-clevis-bound-resume') {
+  if (
+    hostEncryptionReadback[1] === 'apply-state' &&
+    ['host-clevis-bound-resume', 'host-mapper-open-resume'].includes(scenario)
+  ) {
+    const mapperReady = scenario === 'host-mapper-open-resume';
     const core = {
       schemaVersion: 1,
-      state: 'HOST_LUKS_CLEVIS_BOUND_RESUME_READY',
+      state: mapperReady
+        ? 'HOST_LUKS_CLEVIS_MAPPER_OPEN_RESUME_READY'
+        : 'HOST_LUKS_CLEVIS_BOUND_RESUME_READY',
       nodeName: contract.target.nodeName,
       contractDigest: contractDigest(contract),
       luksUuid: '12345678-1234-1234-1234-123456789abc',
@@ -308,6 +314,7 @@ if (hostEncryptionReadback !== null) {
         sizeBytes: contract.target.sourceSizeBytes,
       },
       clevis: { pin: 'sss', policyDigest: 'a'.repeat(64) },
+      ...(mapperReady ? { mapperBacking: { observedDigest: 'c'.repeat(64) } } : {}),
       stateVolumeAttestation: { observedDigest: 'b'.repeat(64) },
     };
     output({ ...core, observedDigest: canonicalDigest(core) });
