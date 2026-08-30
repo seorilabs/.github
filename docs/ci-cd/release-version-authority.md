@@ -126,9 +126,9 @@ readback한 `Info.plist`를 쓴다.
 `--promote-version-code`로 넘기며, 트랙의 "최신 build"를 승격하지 않는다.
 
 `.ait` 컨테이너는 `AITBUNDL` magic(8) + formatVersion(4) + protobuf 길이(8) + protobuf +
-zip payload 길이(8) + zip payload로 framing된다. zip 길이 필드를 건너뛰고 payload를 찾으면
-payload를 열지 못한 채 "version 기록 없음"으로 통과하므로, 전체 길이를 exact로 검증한 뒤
-central directory에서 entry를 읽는다.
+zip payload 길이(8) + zip payload + reserved zero trailer(8)로 framing된다. zip 길이 필드나
+trailer를 건너뛰고 payload를 찾으면 payload를 열지 못한 채 "version 기록 없음"으로 통과할 수
+있으므로, 전체 길이와 8-byte zero trailer를 exact로 검증한 뒤 central directory에서 entry를 읽는다.
 
 ## Godot export preset 주입
 

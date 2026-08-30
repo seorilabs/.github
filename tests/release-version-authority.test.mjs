@@ -526,22 +526,26 @@ test('지원하는 .ait 형식에는 내부 version 필드가 없고 memo가 art
 
 test('AIT v1 framing을 exact length로 읽어 zip payload 스캔을 건너뛰지 않는다', () => {
   const bytes = readFileSync(join(FIXTURES, 'react-native/ait/trait-test-hub.ait'));
-  // magic(8) + formatVersion(4) + protobuf 길이(8) + protobuf + zip 길이(8) + zip payload
+  // magic(8) + formatVersion(4) + protobuf 길이(8) + protobuf + zip 길이(8) + zip payload + zero trailer(8)
   const protobufLength = Number(bytes.readBigUInt64BE(12));
   const zipStart = 20 + protobufLength + 8;
-  assert.equal(Number(bytes.readBigUInt64BE(20 + protobufLength)), bytes.length - zipStart);
+  const zipLength = Number(bytes.readBigUInt64BE(20 + protobufLength));
+  const zipEnd = zipStart + zipLength;
+  assert.equal(zipEnd + 8, bytes.length);
+  assert.deepEqual(bytes.subarray(zipEnd), Buffer.alloc(8));
   assert.deepEqual(bytes.subarray(zipStart, zipStart + 4), Buffer.from([0x50, 0x4b, 0x03, 0x04]));
 
   const container = readAitContainer(bytes);
-  assert.equal(container.zipLength, bytes.length - zipStart);
+  assert.equal(container.zipLength, zipLength);
+  assert.equal(container.trailerLength, 8);
   // zip payload를 실제로 열어 entry를 읽었는지 확인한다. 건너뛰면 아래가 비어 있다.
-  assert.ok(readZipEntryNames(bytes.subarray(zipStart)).length > 0);
+  assert.ok(readZipEntryNames(bytes.subarray(zipStart, zipEnd)).length > 0);
   assert.deepEqual([...container.versionFields], []);
 
   // zip payload 길이 필드를 건너뛴 옛 framing은 길이 검증에서 fail-closed한다.
   const legacyFraming = Buffer.concat([
     bytes.subarray(0, 20 + protobufLength),
-    bytes.subarray(zipStart),
+    bytes.subarray(zipStart, zipEnd),
   ]);
   assert.throws(
     () => readAitContainer(legacyFraming),
@@ -554,7 +558,7 @@ test('AIT v1 framing을 exact length로 읽어 zip payload 스캔을 건너뛰�
   );
   for (const delta of [-1, 1]) {
     const wrongLength = Buffer.from(bytes);
-    wrongLength.writeBigUInt64BE(BigInt(bytes.length - zipStart + delta), 20 + protobufLength);
+    wrongLength.writeBigUInt64BE(BigInt(zipLength + delta), 20 + protobufLength);
     assert.throws(
       () => readAitContainer(wrongLength),
       (error) => error.code === 'artifact-provenance-mismatch',
@@ -566,6 +570,21 @@ test('AIT v1 framing을 exact length로 읽어 zip payload 스캔을 건너뛰�
     () => readZipEntryNames(bytes.subarray(zipStart, zipStart + 40)),
     (error) => error.code === 'artifact-provenance-mismatch',
   );
+  const nonzeroTrailer = Buffer.from(bytes);
+  nonzeroTrailer[nonzeroTrailer.length - 1] = 1;
+  assert.throws(
+    () => readAitContainer(nonzeroTrailer),
+    (error) => error.code === 'artifact-provenance-mismatch',
+  );
+});
+
+test('AIT fixture는 현행 CLI의 8-byte zero trailer framing을 재현한다', () => {
+  const generated = spawnSync(
+    process.execPath,
+    [join(REPOSITORY_ROOT, 'scripts/release/generate-ait-fixtures.mjs'), '--check'],
+    { encoding: 'utf8' },
+  );
+  assert.equal(generated.status, 0, generated.stderr);
 });
 
 test('zip payload에 version metadata가 들어간 .ait은 배포를 거부한다', () => {

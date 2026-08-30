@@ -734,9 +734,10 @@ const ZIP_METADATA_ENTRY = /^(?:manifest|metadata|version|app)(?:\.(?:json|txt|y
 const ZIP_CENTRAL_HEADER = Buffer.from([0x50, 0x4b, 0x01, 0x02]);
 const ZIP_END_OF_CENTRAL_DIRECTORY = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
 // AIT v1 framing: magic(8) + formatVersion(4) + protobuf length(8) + protobuf
-//                 + zip payload length(8) + zip payload
+//                 + zip payload length(8) + zip payload + reserved zero trailer(8)
 const AIT_HEADER_LENGTH = 20;
 const AIT_ZIP_LENGTH_FIELD = 8;
+const AIT_TRAILER_LENGTH = 8;
 
 function scanAitBundleVersionFields(fields) {
   const found = [];
@@ -810,7 +811,7 @@ function scanZipVersionEntries(payload) {
 
 /**
  * .ait 컨테이너를 읽는다. AIT v1은 magic + formatVersion + protobuf 길이 + protobuf +
- * zip payload 길이 + zip payload로 framing되고, legacy 번들은 zip 자체다. 어느 형식도 내부
+ * zip payload 길이 + zip payload + 8-byte zero trailer로 framing되고, legacy 번들은 zip 자체다. 어느 형식도 내부
  * version 필드를 갖지 않으므로 version authority는 tag다. 이 가정이 깨진 컨테이너를 조용히
  * 통과시키지 않도록 framing을 exact length로 검증하고 versionFields로 관측 결과를 돌려준다.
  */
@@ -845,11 +846,17 @@ export function readAitContainer(buffer) {
     const zipLength = Number(bytes.readBigUInt64BE(bundleEnd));
     const zipStart = bundleEnd + AIT_ZIP_LENGTH_FIELD;
     const zipEnd = zipStart + zipLength;
-    if (!Number.isSafeInteger(zipLength) || zipEnd !== bytes.length) {
+    const trailerEnd = zipEnd + AIT_TRAILER_LENGTH;
+    if (!Number.isSafeInteger(zipLength) || trailerEnd !== bytes.length) {
       fail(
         'artifact-provenance-mismatch',
-        `AIT zip payload 길이가 파일 크기와 다르다: ${zipStart}+${zipLength} != ${bytes.length}`,
+        `AIT zip payload와 trailer 길이가 파일 크기와 다르다: ` +
+          `${zipStart}+${zipLength}+${AIT_TRAILER_LENGTH} != ${bytes.length}`,
       );
+    }
+    const trailer = bytes.subarray(zipEnd, trailerEnd);
+    if (!trailer.equals(Buffer.alloc(AIT_TRAILER_LENGTH))) {
+      fail('artifact-provenance-mismatch', 'AIT reserved trailer가 8-byte zero가 아니다.');
     }
     const zipPayload = bytes.subarray(zipStart, zipEnd);
     if (!zipPayload.subarray(0, ZIP_LOCAL_HEADER.length).equals(ZIP_LOCAL_HEADER)) {
@@ -862,6 +869,7 @@ export function readAitContainer(buffer) {
       deploymentId,
       appName,
       zipLength,
+      trailerLength: AIT_TRAILER_LENGTH,
       versionFields: Object.freeze([
         ...scanAitBundleVersionFields(fields),
         ...scanZipVersionEntries(zipPayload),
