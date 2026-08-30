@@ -21,10 +21,7 @@ on:
         type: string
       runs_on:
         required: false
-        # 기본 러너를 x64(seorilabs-x64) 로 옮긴다. arm64 스케일셋(rpi5, max 3)이
-        # 병목이라 큐가 30분까지 밀렸다(2026-08-30 실측, 실행 자체는 1~3분).
-        # 이 워크플로는 arch 의존이 없다. arm64 가 꼭 필요하면 호출부에서 넘긴다.
-        default: "seorilabs-x64"
+        default: "seorilabs-rpi-arm64"
         type: string
       timeout_minutes:
         required: false
