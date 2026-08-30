@@ -337,7 +337,7 @@ if (executable === '/usr/sbin/losetup') {
       'back-file': scenario === 'wrong-backing'
         ? '/data/lookalike/seori-auth-state.luks'
         : '/data/seori-auth/seori-auth-state.luks',
-      'maj:min': '7:7',
+      'maj:min': '  7:7  ',
     }],
   });
 }

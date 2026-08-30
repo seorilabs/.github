@@ -1014,6 +1014,9 @@ function readMapperBacking(luksUuid, sourceIdentity) {
       stop('P2_HOST_MAPPER_BACKING_READBACK_INVALID');
     }
     const [loopDevice] = loop.loopdevices;
+    const backingDeviceId = typeof loopDevice['maj:min'] === 'string'
+      ? loopDevice['maj:min'].trim()
+      : loopDevice['maj:min'];
     if (
       Object.keys(loopDevice).toSorted().join('\0') !== ['back-file', 'maj:min', 'name'].join('\0') ||
       loopDevice.name !== backingDevice || loopDevice['back-file'] !== sourcePath
@@ -1025,7 +1028,7 @@ function readMapperBacking(luksUuid, sourceIdentity) {
       dmUuid,
       dmDeviceId: `${dmMajor}:${dmMinor}`,
       backingDevice,
-      backingDeviceId: loopDevice['maj:min'],
+      backingDeviceId,
       sourcePath,
       sourceIdentityDigest: canonicalDigest(sourceIdentity),
     };
