@@ -366,21 +366,12 @@ if (executable === '/usr/bin/clevis') {
       config.thp !== THUMBPRINTS[expected] ||
       (scenario === 'tang-trust-drift' && expected === 'seori-m6-01')
     ) process.exit(1);
-    output({
-      protected: 'fixture-protected',
-      iv: 'fixture-iv',
-      ciphertext: `fixture-${expected}`,
-      tag: 'fixture-tag',
-    });
+    outputRaw(`fixture-protected..fixture-iv.fixture-${expected}.fixture-tag`);
   }
   if (args[0] === 'decrypt' && args.length === 1) {
     const input = readFileSync(0, 'utf8');
-    try {
-      const jwe = JSON.parse(input);
-      if (!jwe.ciphertext?.startsWith('fixture-')) process.exit(1);
-    } catch {
-      process.exit(1);
-    }
+    if (!/^fixture-protected\.\.fixture-iv\.fixture-(?:rpi4001|seori-m6-01)\.fixture-tag$/u
+      .test(input)) process.exit(1);
     outputRaw(TANG_TRUST_PROBE);
   }
   if (args[1] === 'bind') {

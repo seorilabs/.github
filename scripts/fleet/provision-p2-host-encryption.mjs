@@ -1426,18 +1426,16 @@ function verifyTangTrust(attestations) {
       'P2_TANG_ADVERTISEMENT_READBACK_FAILED',
       { input: probe },
     ).stdout;
-    const jwe = publicJson(encrypted, 'P2_TANG_ADVERTISEMENT_DRIFT');
-    if (
-      !['ciphertext', 'iv', 'protected', 'tag'].every((name) =>
-        typeof jwe[name] === 'string' && jwe[name].length > 0)
-    ) {
+    const compactJwe = encrypted.trim();
+    if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u
+      .test(compactJwe)) {
       stop('P2_TANG_ADVERTISEMENT_DRIFT');
     }
     const decrypted = run(
       '/usr/bin/clevis',
       ['decrypt'],
       'P2_TANG_ADVERTISEMENT_READBACK_FAILED',
-      { input: encrypted },
+      { input: compactJwe },
     ).stdout;
     if (decrypted !== probe) {
       stop('P2_TANG_ADVERTISEMENT_DRIFT');
