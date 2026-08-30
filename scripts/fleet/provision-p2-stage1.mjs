@@ -1411,9 +1411,11 @@ function nativeNodeCommand(
     : remoteInputPath === undefined && !passwordRelay ? '3<&0'
       : remoteInputPath === undefined ? '3</dev/null' : `3< ${remoteInputPath}`;
   const standardInput = passwordRelay ? ' </dev/null' : '';
-  const errorChannel = publicErrors ? ' 2>&1' : '';
+  const effectiveArguments = publicErrors
+    ? `${arguments_} --public-error-channel=stdout`
+    : arguments_;
   return `${sudo} /bin/sh -c 'exec ${remoteNativeHelper(sourceSha)} launch -- ` +
-    `/usr/local/bin/node ${script} ${arguments_} ${input}${standardInput}${errorChannel}'`;
+    `/usr/local/bin/node ${script} ${effectiveArguments} ${input}${standardInput}'`;
 }
 
 function privilegedCatCommand(path) {
@@ -1427,6 +1429,10 @@ function parsePublicJson(text, code) {
   try {
     const value = JSON.parse(text);
     if (value === null || typeof value !== 'object' || Array.isArray(value)) stop(code);
+    if (
+      Object.keys(value).toSorted().join('\0') === ['code', 'ok'].join('\0') &&
+      value.ok === false && /^P2_[A-Z0-9_]+$/u.test(value.code ?? '')
+    ) stop(value.code);
     return value;
   } catch (error) {
     if (error instanceof Stage1ControllerError) throw error;

@@ -146,6 +146,8 @@ function parseOptions() {
 }
 
 const options = parseOptions();
+const publicErrorChannel = options.get('public-error-channel');
+const publicErrorsOnStdout = publicErrorChannel?.length === 1 && publicErrorChannel[0] === 'stdout';
 
 function option(name, required = true) {
   const values = options.get(name) ?? [];
@@ -164,8 +166,9 @@ function repeatedOption(name, count) {
 
 function assertAllowedOptions(allowed) {
   for (const key of options.keys()) {
-    if (!allowed.includes(key)) stop('P2_HOST_COMMAND_INVALID');
+    if (!allowed.includes(key) && key !== 'public-error-channel') stop('P2_HOST_COMMAND_INVALID');
   }
+  if (publicErrorChannel !== undefined && !publicErrorsOnStdout) stop('P2_HOST_COMMAND_INVALID');
 }
 
 function mappedPath(path) {
@@ -2001,8 +2004,13 @@ try {
     error instanceof KubectlReadbackBoundaryError
     ? error.code
     : 'P2_HOST_PROVISIONING_FAILED';
-  process.stderr.write(`${JSON.stringify({ ok: false, code })}\n`);
-  process.exitCode = 1;
+  const output = `${JSON.stringify({ ok: false, code })}\n`;
+  if (publicErrorsOnStdout) {
+    process.stdout.write(output);
+  } else {
+    process.stderr.write(output);
+    process.exitCode = 1;
+  }
 } finally {
   for (const recoveryKey of [...openRecoveryKeys]) {
     try {

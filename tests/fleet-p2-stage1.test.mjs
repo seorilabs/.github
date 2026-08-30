@@ -903,10 +903,10 @@ test('native SSH relay permits only the exact RPI5 host-encryption readback comm
     '--kubeconfig=/var/snap/microk8s/current/credentials/client.config ' +
     '--tang-attestation=/var/lib/seorilabs/tang-backup-attestations/rpi4001.json ' +
     '--tang-attestation=/var/lib/seorilabs/tang-backup-attestations/seori-m6-01.json ' +
-    "3</dev/null </dev/null'";
-  const runRelay = (nodeName) => new Promise((resolve, reject) => {
+    "--public-error-channel=stdout 3</dev/null </dev/null'";
+  const runRelay = (nodeName, command = readbackCommand) => new Promise((resolve, reject) => {
     const child = spawn(testRelay, [
-      'relay', nodeName, passwordPath, '1', readbackCommand,
+      'relay', nodeName, passwordPath, '1', command,
     ], { stdio: ['pipe', 'pipe', 'pipe'] });
     const stdout = [];
     const stderr = [];
@@ -942,6 +942,18 @@ printf '{"stdinBytes":%s}\n' "$count"
       stdinBytes: Buffer.byteLength(password) + 1,
     });
     assert.doesNotMatch(`${accepted.stdout}${accepted.stderr}`, new RegExp(password, 'u'));
+
+    const backupStateCommand = "sudo -S -p '' /bin/sh -c 'exec " +
+      '/usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node ' +
+      '/opt/seorilabs/fleet-p2/' + 'a'.repeat(40) +
+      '/scripts/fleet/provision-p2-host-encryption.mjs backup-state ' +
+      '--kubeconfig=/var/snap/microk8s/current/credentials/client.config ' +
+      "--public-error-channel=stdout 3</dev/null </dev/null'";
+    const backupStateAccepted = await runRelay('rpi5', backupStateCommand);
+    assert.equal(backupStateAccepted.status, 0);
+    assert.deepEqual(JSON.parse(backupStateAccepted.stdout), {
+      stdinBytes: Buffer.byteLength(password) + 1,
+    });
 
     const rejected = await runRelay('rpi4001');
     assert.equal(rejected.status, 126);

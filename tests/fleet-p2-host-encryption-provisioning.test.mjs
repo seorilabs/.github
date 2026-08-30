@@ -312,6 +312,22 @@ test('P2 host provisioning contract fixes non-sparse LUKS2, exact mount and Tang
   assert.equal(plan.confirmations.apply, confirmationSet.apply);
 });
 
+test('trusted public error channel returns only a stable code without changing failure semantics', async (context) => {
+  const fixture = await createFixture();
+  context.after(() => fixture.cleanup());
+  const result = await runHost(fixture, 'backup', [
+    `--confirmation=${confirmationSet.backup}`,
+    `--kubeconfig=${fixture.kubeconfig}`,
+    '--public-error-channel=stdout',
+  ], 'wrong-host');
+  assert.deepEqual(JSON.parse(result.stdout), {
+    ok: false,
+    code: 'P2_HOST_IDENTITY_MISMATCH',
+  });
+  assert.equal(result.stderr, '');
+  assert.doesNotMatch(result.stdout, new RegExp(fakeRecoverySecret, 'u'));
+});
+
 test('production native boundary build refuses a non-Linux artifact', {
   skip: process.platform === 'linux',
 }, async () => {
