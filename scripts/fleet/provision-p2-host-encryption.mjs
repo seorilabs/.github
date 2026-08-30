@@ -948,6 +948,9 @@ function classifyReadback() {
     targetEmpty
   ) return { state: 'MAPPER_OPEN_PARTIAL', targetEmpty: true };
   if (
+    source && mapper && mount !== null && !marker && crypttab === 1 && fstab === 1
+  ) return { state: 'MOUNTED_PRE_MARKER_PARTIAL', targetEmpty };
+  if (
     !source || !mapper || mount === null || crypttab !== 1 || fstab !== 1 ||
     (!marker && mode !== 'apply' && mode !== 'restore')
   ) stop('P2_HOST_READBACK_PARTIAL');
@@ -1191,10 +1194,80 @@ function partialApplyReadback({ kubeconfigPath, tangAttestations, authorityPubli
   return { ...core, observedDigest: canonicalDigest(core) };
 }
 
+function managedConfigurationReadback(preBackupAttestation) {
+  const paths = backupPaths();
+  for (const entry of preBackupAttestation.configuration) {
+    const originalPath = entry.path === systemdConfiguration.crypttabPath
+      ? paths.crypttab
+      : paths.fstab;
+    const managedPath = `${originalPath}.managed`;
+    const line = entry.path === systemdConfiguration.crypttabPath
+      ? systemdConfiguration.crypttabLine
+      : systemdConfiguration.fstabLine;
+    withBackupDescriptors([originalPath, managedPath], (descriptors) => {
+      const original = readFileSync(descriptors[0]);
+      const managed = readFileSync(descriptors[1]);
+      const expectedManaged = managedConfigurationBytes(original, line);
+      try {
+        if (
+          sha256(original) !== entry.sha256 || !managed.equals(expectedManaged) ||
+          !fileBytes(entry.path).equals(expectedManaged)
+        ) stop('P2_HOST_MANAGED_CONFIGURATION_DRIFT');
+      } finally {
+        original.fill(0);
+        managed.fill(0);
+        expectedManaged.fill(0);
+      }
+    });
+    const expectedMetadata = entry.metadata ?? { ownerId: 0, groupId: 0, mode: '0644' };
+    if (
+      fixtureRuntime === undefined &&
+      !configurationMetadataMatches(entry.path, expectedMetadata)
+    ) {
+      stop('P2_HOST_MANAGED_CONFIGURATION_DRIFT');
+    }
+  }
+  return configurationDigest();
+}
+
+function mountedPreMarkerReadback({ kubeconfigPath, tangAttestations, authorityPublicKey }) {
+  const current = fullReadback({
+    kubeconfigPath,
+    tangAttestations,
+    authorityPublicKey,
+    markerRequired: false,
+  });
+  if (current.state !== 'HOST_ENCRYPTED_MOUNT_PRE_MARKER_VERIFIED') {
+    stop('P2_HOST_PARTIAL_RESUME_STATE_INVALID');
+  }
+  const preBackupAttestation = loadPreBackup({ currentMustMatch: false, mounted: true });
+  for (const path of applyArtifactPaths()) {
+    assertMissingLeaf(path, 'P2_HOST_PARTIAL_RESUME_ARTIFACT_PRESENT');
+  }
+  const core = {
+    schemaVersion: 1,
+    state: 'HOST_ENCRYPTED_MOUNT_PRE_MARKER_RESUME_READY',
+    nodeName: contract.target.nodeName,
+    contractDigest: contractDigest(contract),
+    luksUuid: current.luksUuid,
+    sourceIdentity: current.sourceIdentity,
+    mapperBacking: current.mapperBacking,
+    mount: current.mount,
+    clevis: current.clevis,
+    stateVolumeAttestation: current.stateVolumeAttestation,
+    preBackupDigest: preBackupAttestation.observedDigest,
+    configurationSha256: managedConfigurationReadback(preBackupAttestation),
+  };
+  return { ...core, observedDigest: canonicalDigest(core) };
+}
+
 function applyStateReadback({ kubeconfigPath, tangAttestations, authorityPublicKey }) {
   const classification = classifyReadback();
   if (['CLEVIS_BOUND_PARTIAL', 'MAPPER_OPEN_PARTIAL'].includes(classification.state)) {
     return partialApplyReadback({ kubeconfigPath, tangAttestations, authorityPublicKey });
+  }
+  if (classification.state === 'MOUNTED_PRE_MARKER_PARTIAL') {
+    return mountedPreMarkerReadback({ kubeconfigPath, tangAttestations, authorityPublicKey });
   }
   return fullReadback({ kubeconfigPath, tangAttestations, authorityPublicKey });
 }
@@ -1710,21 +1783,27 @@ function apply() {
   const resumable = [
     'HOST_LUKS_CLEVIS_BOUND_RESUME_READY',
     'HOST_LUKS_CLEVIS_MAPPER_OPEN_RESUME_READY',
+    'HOST_ENCRYPTED_MOUNT_PRE_MARKER_RESUME_READY',
   ].includes(applyState.state);
-  const mapperReady = applyState.state === 'HOST_LUKS_CLEVIS_MAPPER_OPEN_RESUME_READY';
+  const mountedReady = applyState.state === 'HOST_ENCRYPTED_MOUNT_PRE_MARKER_RESUME_READY';
+  const mapperReady = mountedReady ||
+    applyState.state === 'HOST_LUKS_CLEVIS_MAPPER_OPEN_RESUME_READY';
   if (!resumable && applyState.state !== 'HOST_ENCRYPTED_MOUNT_MISSING') {
     stop('P2_HOST_PRE_PROVISION_STATE_INVALID');
   }
   if (!resumable) assertPristine();
-  const preBackupAttestation = loadPreBackup();
+  const loadApplyBackup = () => mountedReady
+    ? loadPreBackup({ currentMustMatch: false, mounted: true })
+    : loadPreBackup();
+  const preBackupAttestation = loadApplyBackup();
   for (const path of applyArtifactPaths()) {
     assertMissingLeaf(path, 'P2_HOST_APPLY_ARTIFACT_ALREADY_EXISTS');
   }
   const preflightStateVolumeAttestation = resumable
     ? applyState.stateVolumeAttestation
     : readStateVolume(kubeconfigPath);
-  readRequiredPackages({ installMissing: true });
-  loadPreBackup();
+  readRequiredPackages({ installMissing: !mountedReady });
+  loadApplyBackup();
   verifyTangTrust(tangAttestations);
   const clevisPolicy = buildClevisPolicy(contract, tangAttestations, authorityPublicKey);
 
@@ -1770,36 +1849,49 @@ function apply() {
       clevisStoredPolicy(clevisPolicy),
     );
   }
-  if (mapperReady) {
-    const mapperBacking = readMapperBacking(luksUuid, sourceIdentity);
-    if (canonicalJson(mapperBacking) !== canonicalJson(applyState.mapperBacking)) {
-      stop('P2_HOST_MAPPER_BACKING_DRIFT');
+  let beforeMarker;
+  if (mountedReady) {
+    const current = mountedPreMarkerReadback({
+      kubeconfigPath,
+      tangAttestations,
+      authorityPublicKey,
+    });
+    if (current.observedDigest !== applyState.observedDigest) {
+      stop('P2_HOST_PARTIAL_RESUME_STATE_CHANGED');
     }
+    beforeMarker = current;
   } else {
-    mutateWithRecoveryKey('/usr/sbin/cryptsetup', [
-      'open', '--type', 'luks2', '--key-file', '/proc/self/fd/3',
-      contract.target.sourcePath, contract.target.mapperName,
-    ], recoveryKey);
+    if (mapperReady) {
+      const mapperBacking = readMapperBacking(luksUuid, sourceIdentity);
+      if (canonicalJson(mapperBacking) !== canonicalJson(applyState.mapperBacking)) {
+        stop('P2_HOST_MAPPER_BACKING_DRIFT');
+      }
+    } else {
+      mutateWithRecoveryKey('/usr/sbin/cryptsetup', [
+        'open', '--type', 'luks2', '--key-file', '/proc/self/fd/3',
+        contract.target.sourcePath, contract.target.mapperName,
+      ], recoveryKey);
+    }
+    assertPathIdentity(sourceIdentity, 'P2_HOST_SOURCE_IDENTITY_DRIFT');
+    mutate('/usr/sbin/mke2fs', [
+      '-t', contract.target.filesystemType,
+      '-F', '-L', contract.target.filesystemLabel, contract.target.mapperPath,
+    ]);
+    mutate('/usr/bin/install', [
+      '--directory', '--owner=0', `--group=${contract.target.markerGroupId}`,
+      '--mode=0750', contract.target.mountPath,
+    ]);
+    installManagedConfigurations(preBackupAttestation);
+    mutate('/usr/bin/systemctl', ['daemon-reload']);
+    mutate('/usr/bin/systemctl', ['enable', '--now', systemdConfiguration.unlockerUnit]);
+    mutate('/usr/bin/mount', [contract.target.mountPath]);
+    beforeMarker = fullReadback({
+      kubeconfigPath,
+      tangAttestations,
+      authorityPublicKey,
+      markerRequired: false,
+    });
   }
-  assertPathIdentity(sourceIdentity, 'P2_HOST_SOURCE_IDENTITY_DRIFT');
-  mutate('/usr/sbin/mke2fs', [
-    '-t', contract.target.filesystemType,
-    '-F', '-L', contract.target.filesystemLabel, contract.target.mapperPath,
-  ]);
-  mutate('/usr/bin/install', [
-    '--directory', '--owner=0', `--group=${contract.target.markerGroupId}`,
-    '--mode=0750', contract.target.mountPath,
-  ]);
-  installManagedConfigurations(preBackupAttestation);
-  mutate('/usr/bin/systemctl', ['daemon-reload']);
-  mutate('/usr/bin/systemctl', ['enable', '--now', systemdConfiguration.unlockerUnit]);
-  mutate('/usr/bin/mount', [contract.target.mountPath]);
-  const beforeMarker = fullReadback({
-    kubeconfigPath,
-    tangAttestations,
-    authorityPublicKey,
-    markerRequired: false,
-  });
   if (
     beforeMarker.luksUuid !== luksUuid ||
     !samePathIdentity(beforeMarker.sourceIdentity, sourceIdentity)
@@ -1810,11 +1902,11 @@ function apply() {
   ) stop('P2_HOST_KUBERNETES_IDENTITY_CHANGED_DURING_APPLY');
 
   const canonicalHeaderPath = `${contract.target.backupRoot}/luks-header.bin`;
-  assertManagedPathIdentities(preBackupAttestation);
+  assertManagedPathIdentities(preBackupAttestation, { mounted: true });
   assertPathIdentity(sourceIdentity, 'P2_HOST_SOURCE_IDENTITY_DRIFT');
   mutateFilesystemBoundary('backup-header');
   const headerBackupIdentity = readRegularFileIdentity(canonicalHeaderPath);
-  assertManagedPathIdentities(preBackupAttestation);
+  assertManagedPathIdentities(preBackupAttestation, { mounted: true });
   if (
     fixtureRuntime === undefined &&
     (headerBackupIdentity.ownerId !== 0 || headerBackupIdentity.groupId !== 0 ||

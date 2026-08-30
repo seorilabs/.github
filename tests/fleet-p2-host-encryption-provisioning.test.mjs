@@ -890,6 +890,45 @@ test('a verified open mapper partial state resumes without opening the mapper ag
   assert.doesNotMatch(await readFile(fixture.log, 'utf8'), new RegExp(fakeRecoverySecret, 'u'));
 });
 
+test('a verified mounted pre-marker state resumes without repeating storage mutations', async (context) => {
+  const fixture = await createFixture({ scenario: 'after-mount-unknown' });
+  context.after(() => fixture.cleanup());
+  await runHost(fixture, 'backup', [
+    `--confirmation=${confirmationSet.backup}`,
+    `--kubeconfig=${fixture.kubeconfig}`,
+  ]);
+  const applyArguments = [
+    `--confirmation=${confirmationSet.apply}`,
+    `--kubeconfig=${fixture.kubeconfig}`,
+    `--recovery-key-file=${fixture.recoveryKey}`,
+    ...tangFlags(fixture),
+  ];
+  await expectHostFailure(
+    fixture,
+    'apply',
+    applyArguments,
+    'P2_HOST_MUTATION_OUTCOME_UNKNOWN',
+  );
+  const beforeResume = (await readFile(fixture.log, 'utf8')).trim().split('\n').length;
+  const resumed = await runHost(fixture, 'apply', applyArguments, 'missing');
+  assert.equal(JSON.parse(resumed.stdout).state, 'HOST_PROVISIONED_REBOOT_READBACK_REQUIRED');
+  const resumeCalls = (await readFile(fixture.log, 'utf8')).trim().split('\n')
+    .slice(beforeResume)
+    .map((line) => JSON.parse(line));
+  assert.equal(resumeCalls.filter(({ executable }) => executable === '/usr/sbin/mke2fs').length, 0);
+  assert.equal(resumeCalls.filter(({ executable, args }) =>
+    executable === '/usr/sbin/cryptsetup' && args[0] === 'open' &&
+    !args.includes('--test-passphrase')).length, 0);
+  assert.equal(resumeCalls.filter(({ executable }) => executable === '/usr/bin/mount').length, 0);
+  assert.equal(resumeCalls.filter(({ executable, args }) =>
+    executable.endsWith('seorilabs-p2-host-fs-boundary') &&
+    ['apply-config', 'crypttab-managed', 'fstab-managed'].some((value) => args.includes(value)))
+    .length, 0);
+  assert.ok(resumeCalls.some(({ executable, args }) =>
+    executable.endsWith('seorilabs-p2-host-fs-boundary') && args.includes('backup-header')));
+  assert.doesNotMatch(await readFile(fixture.log, 'utf8'), new RegExp(fakeRecoverySecret, 'u'));
+});
+
 test('partial, nonempty and identity drift fail before mutation', async (context) => {
   const partial = await createFixture({ scenario: 'partial' });
   const nonempty = await createFixture({ scenario: 'nonempty' });

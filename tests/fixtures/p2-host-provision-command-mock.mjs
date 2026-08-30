@@ -414,6 +414,7 @@ if (executable === '/usr/bin/mount') {
     renameSync(encryptedMarker, visibleMarker);
   }
   saveState();
+  if (scenario === 'after-mount-unknown') process.exit(70);
   process.exit(0);
 }
 

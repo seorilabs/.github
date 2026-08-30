@@ -1874,9 +1874,15 @@ async function remoteHostEncryptionReadback(sourceSha, action = 'readback') {
     'sourceIdentity', 'clevis', 'stateVolumeAttestation', 'observedDigest',
   ];
   const mapperResumeKeys = [...boundResumeKeys, 'mapperBacking'];
+  const mountedResumeKeys = [
+    'schemaVersion', 'state', 'nodeName', 'contractDigest', 'luksUuid',
+    'sourceIdentity', 'mapperBacking', 'mount', 'clevis', 'stateVolumeAttestation',
+    'preBackupDigest', 'configurationSha256', 'observedDigest',
+  ];
   const resumeState = [
     'HOST_LUKS_CLEVIS_BOUND_RESUME_READY',
     'HOST_LUKS_CLEVIS_MAPPER_OPEN_RESUME_READY',
+    'HOST_ENCRYPTED_MOUNT_PRE_MARKER_RESUME_READY',
   ].includes(result.state);
   const expectedKeys = result.state === 'HOST_ENCRYPTED_MOUNT_MISSING'
     ? missingKeys
@@ -1886,6 +1892,9 @@ async function remoteHostEncryptionReadback(sourceSha, action = 'readback') {
         ? boundResumeKeys
         : action === 'apply-state' && result.state === 'HOST_LUKS_CLEVIS_MAPPER_OPEN_RESUME_READY'
           ? mapperResumeKeys
+          : action === 'apply-state' &&
+              result.state === 'HOST_ENCRYPTED_MOUNT_PRE_MARKER_RESUME_READY'
+            ? mountedResumeKeys
           : undefined;
   const resumeCore = resumeState
     ? (() => {
@@ -1900,6 +1909,10 @@ async function remoteHostEncryptionReadback(sourceSha, action = 'readback') {
     result.schemaVersion !== 1 || result.nodeName !== hostContract.target.nodeName ||
     result.contractDigest !== contractDigest(hostContract) ||
     (result.state === 'HOST_ENCRYPTED_MOUNT_MISSING' && result.targetEmpty !== true) ||
+    (result.state === 'HOST_ENCRYPTED_MOUNT_PRE_MARKER_RESUME_READY' && (
+      !SHA256.test(result.preBackupDigest ?? '') ||
+      !SHA256.test(result.configurationSha256 ?? '')
+    )) ||
     (resumeState && (
       !SHA256.test(result.observedDigest ?? '') ||
       canonicalDigest(resumeCore) !== result.observedDigest
@@ -2020,6 +2033,7 @@ async function hostEncryptionApply() {
   if (![
     'HOST_LUKS_CLEVIS_BOUND_RESUME_READY',
     'HOST_LUKS_CLEVIS_MAPPER_OPEN_RESUME_READY',
+    'HOST_ENCRYPTED_MOUNT_PRE_MARKER_RESUME_READY',
   ].includes(current.state)) {
     const backup = await remoteHostEncryptionBackupState(sourceSha);
     if (backup.state !== 'PRE_PROVISION_BACKUP_RESTORE_VERIFIED') {

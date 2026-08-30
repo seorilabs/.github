@@ -1098,6 +1098,11 @@ test('host-encryption backup and apply consume the catalog recovery key without 
       `--confirmation=${hostConfirmations(hostContract).apply}`,
     ], 'host-mapper-open-resume')).stdout);
     assert.deepEqual(mapperResumed, applied);
+    const mountedResumed = JSON.parse((await runController(fixture, 'host-encryption-apply', [
+      `--source-sha=${sourceSha}`,
+      `--confirmation=${hostConfirmations(hostContract).apply}`,
+    ], 'host-mounted-pre-marker-resume')).stdout);
+    assert.deepEqual(mountedResumed, applied);
     const commands = await readFile(fixture.log, 'utf8');
     const resumeCommands = commands.trim().split('\n').slice(beforeResume).join('\n');
     assert.doesNotMatch(resumeCommands, /provision-p2-host-encryption\.mjs backup-state/u);
