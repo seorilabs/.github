@@ -421,7 +421,10 @@ function sourceBoundary() {
     const packageLock = join(canonicalRoot, stage1.sourceBootstrap.packageLockPath);
     const nativeLauncher = stage1.hostProcessBoundary.launcherExecutable;
     const processBoundary = stage1.hostProcessBoundary.moduleExecutable;
-    const recordBoundary = stage1.sourceBootstrap.filesystemBoundaryPath;
+    const recordBoundary = join(
+      canonicalRoot,
+      stage1.sourceBootstrap.filesystemBoundaryBuildRelativePath,
+    );
     const sourceNativeBytes = readRegular(sourceNativeHelper, { modes: [0o755], rootOwned: true });
     const packageLockBytes = readRegular(packageLock, {
       modes: [0o600, 0o644, 0o444],
@@ -440,7 +443,7 @@ function sourceBoundary() {
     const recordBytes = readRegular(recordBoundary, {
       modes: [0o755],
       rootOwned: true,
-      linkCounts: [2],
+      linkCounts: [1],
     });
     if (
       Object.keys(receipt).toSorted().join('\0') !== expectedReceiptKeys.toSorted().join('\0') ||

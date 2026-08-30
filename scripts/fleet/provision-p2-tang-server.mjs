@@ -85,6 +85,9 @@ function loadContract() {
 
 const contract = loadContract();
 const confirmationSet = confirmations(contract);
+const filesystemBoundaryExecutable = fileURLToPath(
+  new URL(`../../${contract.filesystemBoundary.executableRelativePath}`, import.meta.url),
+);
 
 function parseOptions() {
   const parsed = new Map();
@@ -153,7 +156,7 @@ function canonicalExecutable(path) {
       !isAbsolute(path) || !entry.isFile() || entry.isSymbolicLink() ||
       realpathSync(path) !== path || (entry.mode & 0o111) === 0 ||
       ([
-        contract.filesystemBoundary.executable,
+        filesystemBoundaryExecutable,
         contract.processBoundary.launcherExecutable,
       ].includes(path) &&
         (entry.uid !== 0 || entry.gid !== 0 || (entry.mode & 0o022) !== 0))
@@ -201,7 +204,7 @@ function verifyNativeHostMountNamespace() {
   }
   const receipt = publicJson(
     run(
-      contract.filesystemBoundary.executable,
+      filesystemBoundaryExecutable,
       ['verify-namespace'],
       'P2_TANG_MOUNT_NAMESPACE_NATIVE_READBACK_FAILED',
     ).stdout,
@@ -529,7 +532,7 @@ function publishTangOverride(bytes) {
   }
   const receipt = publicJson(
     run(
-      contract.filesystemBoundary.executable,
+      filesystemBoundaryExecutable,
       ['publish-record', 'tang-socket-override'],
       'P2_TANG_FILESYSTEM_BOUNDARY_FAILED',
       { mutation: true, input: bytes },

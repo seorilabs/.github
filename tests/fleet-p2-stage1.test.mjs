@@ -1226,7 +1226,16 @@ test('source bootstrap validates the outer Node command symlink without collapsi
     /PATH: '\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/sbin:\/bin'/u,
   );
   assert.match(hostCliSource, /modes: \[0o600, 0o644, 0o444\]/u);
-  assert.equal((hostCliSource.match(/linkCounts: \[2\]/gu) ?? []).length, 3);
+  assert.equal((hostCliSource.match(/linkCounts: \[2\]/gu) ?? []).length, 2);
+  assert.equal((hostCliSource.match(/linkCounts: \[1\]/gu) ?? []).length, 1);
+  assert.match(
+    source,
+    /record_boundary="\$\{target\}\/\.build\/seorilabs-p2-host-fs-boundary"/u,
+  );
+  assert.doesNotMatch(
+    source,
+    /install_exact_helper "\$staging_record" "\$record_boundary"/u,
+  );
   assert.match(
     source,
     /npm ci --ignore-scripts --no-bin-links --workspaces=false[\s\S]*--fund=false >\/dev\/null\)/u,

@@ -107,7 +107,7 @@
     },
     "sourceBootstrap": {
       "type": "object", "additionalProperties": false,
-      "required": ["installRoot", "incomingRoot", "archivePolicy", "dependencyPolicy", "packageLockPath", "receiptName", "receiptMode", "packageInstallCommand", "requiredExecutables", "nativeLauncherRelativePath", "filesystemBoundaryPath", "processBoundaryBuildRelativePath", "localInstallerRelativePath", "localInstallPolicy", "helperPolicy"],
+      "required": ["installRoot", "incomingRoot", "archivePolicy", "dependencyPolicy", "packageLockPath", "receiptName", "receiptMode", "packageInstallCommand", "requiredExecutables", "nativeLauncherRelativePath", "filesystemBoundaryBuildRelativePath", "processBoundaryBuildRelativePath", "localInstallerRelativePath", "localInstallPolicy", "helperPolicy"],
       "properties": {
         "installRoot": { "const": "/opt/seorilabs/fleet-p2" },
         "incomingRoot": { "const": "/var/tmp/seorilabs-fleet-p2" },
@@ -145,11 +145,11 @@
           ], "items": false
         },
         "nativeLauncherRelativePath": { "const": "tools/seori-auth/.build/seori-auth-native" },
-        "filesystemBoundaryPath": { "const": "/usr/local/libexec/seorilabs-p2-host-fs-boundary" },
+        "filesystemBoundaryBuildRelativePath": { "const": ".build/seorilabs-p2-host-fs-boundary" },
         "processBoundaryBuildRelativePath": { "const": ".build/seorilabs-p2-process-hardening.node" },
         "localInstallerRelativePath": { "const": "scripts/fleet/bootstrap-p2-stage1-local-hardening.mjs" },
         "localInstallPolicy": { "const": "DARWIN_CURRENT_UID_CREATE_ONLY_EXACT_CONFIRMATION_CRASH_RECOVERABLE" },
-        "helperPolicy": { "const": "SOURCE_BUILT_DIGEST_RECEIPT_CREATE_ONLY_OR_EXACT" }
+        "helperPolicy": { "const": "SOURCE_VERSIONED_BUILD_DIGEST_RECEIPT_CREATE_ONLY_OR_EXACT" }
       }
     },
     "hostProcessBoundary": {

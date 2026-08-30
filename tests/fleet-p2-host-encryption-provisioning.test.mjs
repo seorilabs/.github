@@ -57,6 +57,9 @@ const commandMock = fileURLToPath(
 );
 const contract = parse(await readFile('contracts/fleet-p2-host-encryption.yaml', 'utf8'));
 const schema = JSON.parse(await readFile('contracts/fleet-p2-host-encryption.schema.json', 'utf8'));
+const filesystemBoundaryExecutable = fileURLToPath(
+  new URL('../.build/seorilabs-p2-host-fs-boundary', import.meta.url),
+);
 const hostReadbackRbac = parse(
   await readFile('contracts/fleet-p2-host-readback-rbac.yaml', 'utf8'),
 );
@@ -262,8 +265,8 @@ test('P2 host provisioning contract fixes non-sparse LUKS2, exact mount and Tang
   assert.equal(contract.target.mapperPath, '/dev/mapper/seori-auth-state');
   assert.equal(contract.target.mountPath, '/var/lib/seori-auth');
   assert.equal(
-    contract.filesystemBoundary.executable,
-    '/usr/local/libexec/seorilabs-p2-host-fs-boundary',
+    contract.filesystemBoundary.executableRelativePath,
+    '.build/seorilabs-p2-host-fs-boundary',
   );
   assert.equal(
     contract.filesystemBoundary.policy,
@@ -761,18 +764,18 @@ test('success path backs up, provisions once, writes canonical marker and verifi
   assert.doesNotMatch(log, /FAKE_RECOVERY_SECRET_CANARY/u);
   const calls = log.trim().split('\n').map((line) => JSON.parse(line));
   assert.equal(calls.filter(({ executable, args }) =>
-    executable === contract.filesystemBoundary.executable && args[0] === 'create-source').length, 1);
+    executable === filesystemBoundaryExecutable && args[0] === 'create-source').length, 1);
   assert.ok(calls.some(({ executable, args }) =>
-    executable === contract.filesystemBoundary.executable && args[0] === 'backup-header'));
+    executable === filesystemBoundaryExecutable && args[0] === 'backup-header'));
   assert.ok(calls.some(({ executable, args }) =>
-    executable === contract.filesystemBoundary.executable && args[0] === 'apply-config'));
+    executable === filesystemBoundaryExecutable && args[0] === 'apply-config'));
   assert.ok(calls.some(({ executable, args }) =>
-    executable === contract.filesystemBoundary.executable && args[0] === 'rollback-config'));
+    executable === filesystemBoundaryExecutable && args[0] === 'rollback-config'));
   assert.ok(calls.some(({ executable, args }) =>
-    executable === contract.filesystemBoundary.executable && args[0] === 'restore-config'));
+    executable === filesystemBoundaryExecutable && args[0] === 'restore-config'));
   assert.deepEqual(
     calls.filter(({ executable, args }) =>
-      executable === contract.filesystemBoundary.executable && args[0] === 'publish-record')
+      executable === filesystemBoundaryExecutable && args[0] === 'publish-record')
       .map(({ args }) => args[1]).toSorted(),
     [
       'crypttab-before', 'crypttab-managed', 'fstab-before', 'fstab-managed', 'marker',
@@ -813,7 +816,7 @@ test('Tang trust uses the attested signing thumbprints and fails before volume m
     [thumbprints.rpi4001, thumbprints['seori-m6-01']],
   );
   assert.equal(calls.filter(({ executable, args }) =>
-    executable === contract.filesystemBoundary.executable && args[0] === 'create-source').length, 0);
+    executable === filesystemBoundaryExecutable && args[0] === 'create-source').length, 0);
   assert.doesNotMatch(await readFile(fixture.log, 'utf8'), new RegExp(fakeRecoverySecret, 'u'));
 });
 
@@ -843,7 +846,7 @@ test('a verified LUKS and Clevis partial state resumes without formatting or bin
     .slice(beforeResume)
     .map((line) => JSON.parse(line));
   assert.equal(resumeCalls.filter(({ executable, args }) =>
-    executable === contract.filesystemBoundary.executable && args[0] === 'create-source').length, 0);
+    executable === filesystemBoundaryExecutable && args[0] === 'create-source').length, 0);
   assert.equal(resumeCalls.filter(({ executable, args }) =>
     executable === '/usr/sbin/cryptsetup' && args[0] === 'luksFormat').length, 0);
   assert.equal(resumeCalls.filter(({ executable, args }) =>
@@ -1231,7 +1234,7 @@ test('unknown mutation outcome stops immediately and the next run is readback-fi
   const log = await readFile(fixture.log, 'utf8');
   const calls = log.trim().split('\n').map((line) => JSON.parse(line));
   assert.equal(calls.filter(({ executable, args }) =>
-    executable === contract.filesystemBoundary.executable && args[0] === 'create-source').length, 1);
+    executable === filesystemBoundaryExecutable && args[0] === 'create-source').length, 1);
   assert.doesNotMatch(log, new RegExp(fakeRecoverySecret, 'u'));
 });
 
@@ -1352,7 +1355,7 @@ test('both missing Tang servers install only after exact confirmation and stop a
     assert.match(log, /"executable":"\/usr\/bin\/systemctl"/u);
     const calls = log.trim().split('\n').map((line) => JSON.parse(line));
     const overrideIndex = calls.findIndex(({ executable, args }) =>
-      executable === contract.filesystemBoundary.executable &&
+      executable === filesystemBoundaryExecutable &&
       args.join('\0') === ['publish-record', 'tang-socket-override'].join('\0'));
     const updateIndex = calls.findIndex(({ executable, args }) =>
       executable === '/usr/bin/apt-get' && args.join('\0') === ['update'].join('\0'));
@@ -1360,10 +1363,10 @@ test('both missing Tang servers install only after exact confirmation and stop a
       executable === '/usr/bin/apt-get' && args.join('\0') === ['install', '--yes', 'tang'].join('\0'));
     assert.ok(overrideIndex >= 0 && overrideIndex < updateIndex && updateIndex < installIndex);
     assert.ok(calls.some(({ executable, args }) =>
-      executable === contract.filesystemBoundary.executable &&
+      executable === filesystemBoundaryExecutable &&
       args.join('\0') === ['verify-namespace'].join('\0')));
     assert.ok(calls.some(({ executable, args }) =>
-      executable === contract.filesystemBoundary.executable &&
+      executable === filesystemBoundaryExecutable &&
       args.join('\0') === ['publish-record', 'tang-socket-override'].join('\0')));
     assert.doesNotMatch(`${result.stdout}${result.stderr}${log}`, new RegExp(fakeRecoverySecret, 'u'));
   }

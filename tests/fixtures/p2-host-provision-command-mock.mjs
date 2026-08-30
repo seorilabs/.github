@@ -113,7 +113,7 @@ if (isCommand('/usr/local/libexec/seori-auth-native', ['fixture-process-hardenin
   });
 }
 
-if (executable === '/usr/local/libexec/seorilabs-p2-host-fs-boundary') {
+if (executable.endsWith('/.build/seorilabs-p2-host-fs-boundary')) {
   const operation = args[0];
   if (operation === 'verify-namespace' && args.length === 1) {
     output({ operation, verified: true });

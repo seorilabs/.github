@@ -107,11 +107,11 @@ sourceBootstrap:
     - /usr/local/bin/node
     - /usr/local/bin/npm
   nativeLauncherRelativePath: tools/seori-auth/.build/seori-auth-native
-  filesystemBoundaryPath: /usr/local/libexec/seorilabs-p2-host-fs-boundary
+  filesystemBoundaryBuildRelativePath: .build/seorilabs-p2-host-fs-boundary
   processBoundaryBuildRelativePath: .build/seorilabs-p2-process-hardening.node
   localInstallerRelativePath: scripts/fleet/bootstrap-p2-stage1-local-hardening.mjs
   localInstallPolicy: DARWIN_CURRENT_UID_CREATE_ONLY_EXACT_CONFIRMATION_CRASH_RECOVERABLE
-  helperPolicy: SOURCE_BUILT_DIGEST_RECEIPT_CREATE_ONLY_OR_EXACT
+  helperPolicy: SOURCE_VERSIONED_BUILD_DIGEST_RECEIPT_CREATE_ONLY_OR_EXACT
 hostProcessBoundary:
   launcherExecutable: /usr/local/libexec/seori-auth-native
   moduleExecutable: /usr/local/libexec/seorilabs-p2-process-hardening.node

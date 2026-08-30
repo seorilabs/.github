@@ -128,6 +128,9 @@ function loadFleetState() {
 
 const contract = loadContract();
 const state = loadFleetState();
+const filesystemBoundaryExecutable = fileURLToPath(
+  new URL(`../../${contract.filesystemBoundary.executableRelativePath}`, import.meta.url),
+);
 const systemdConfiguration = buildSystemdConfiguration(contract);
 const confirmationSet = confirmations(contract);
 
@@ -222,7 +225,7 @@ function canonicalExecutable(path) {
       !isAbsolute(path) || !entry.isFile() || entry.isSymbolicLink() ||
       realpathSync(path) !== path || (entry.mode & 0o111) === 0 ||
       ([
-        contract.filesystemBoundary.executable,
+        filesystemBoundaryExecutable,
         contract.processBoundary.launcherExecutable,
         kubectl,
       ].includes(path) &&
@@ -294,7 +297,7 @@ function mutateFilesystemBoundary(operation, args = [], inputDescriptors = [], i
     stop('P2_HOST_FILESYSTEM_BOUNDARY_OPERATION_INVALID');
   }
   const result = run(
-    contract.filesystemBoundary.executable,
+    filesystemBoundaryExecutable,
     [operation, ...args],
     'P2_HOST_FILESYSTEM_BOUNDARY_FAILED',
     { mutation: true, inputDescriptors, input },
@@ -310,7 +313,7 @@ function verifyNativeHostMountNamespace() {
   }
   const receipt = publicJson(
     run(
-      contract.filesystemBoundary.executable,
+      filesystemBoundaryExecutable,
       ['verify-namespace'],
       'P2_HOST_MOUNT_NAMESPACE_NATIVE_READBACK_FAILED',
     ).stdout,

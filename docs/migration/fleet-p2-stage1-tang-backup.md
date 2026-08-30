@@ -43,10 +43,11 @@ source bootstrap, Tang provision과 backup은 모두 중단한다.
   `~/.config/seorilabs/bin`에는 작은 launcher, module, install receipt만 둔다.
 - 고정 `stage1-process-boundary-v2.json`은 launcher, module, relay digest만 증명한다. 변경 가능한 계약
   digest와 controller/source SHA는 source별 `stage1-local-source.json`이 고정한다.
-- host record는 `/usr/local/libexec/seorilabs-p2-host-fs-boundary publish-record <fixed-id>`만 쓴다.
-  fixed pending entry를 identity-bound로 복구하고 file과 parent directory를 `fsync`한 뒤
-  `renameat2 RENAME_NOREPLACE`로 게시한다. plaintext fallback, caller 지정 path, overwrite, rotate,
-  delete interface는 없다.
+- host record는 exact source의 `.build/seorilabs-p2-host-fs-boundary publish-record <fixed-id>`만
+  쓴다. 각 source SHA의 root-owned binary와 receipt digest가 함께 고정되므로 새 helper가 과거 source의
+  readback과 rollback을 바꾸지 않는다. fixed pending entry를 identity-bound로 복구하고 file과 parent
+  directory를 `fsync`한 뒤 `renameat2 RENAME_NOREPLACE`로 게시한다. plaintext fallback, caller 지정
+  path, overwrite, rotate, delete interface는 없다.
 - SSH password는 값이 아니라 owner-only password file path만 controller에 전달한다. native relay가
   exact `/usr/bin/ssh`, host/IP, option, remote command와 parent process를 검증하고 SSH 및 sudo prompt에
   직접 공급한다. privileged payload는 먼저 SHA-256 이름의 owner-only remote file로 전송·readback하고

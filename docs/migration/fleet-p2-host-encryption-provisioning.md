@@ -171,9 +171,9 @@ sudo /usr/local/libexec/seori-auth-native launch -- \
 확인한다. `contracts/fleet-p2-host-readback-rbac.yaml`은 control-plane의 검증된 admin 실행 경계에서
 적용하고 `kubectl auth can-i --as=system:node:rpi5`로 선언된 get/list만 `yes`, Secret과 mutation은
 `no`인지 readback한다.
-먼저 RPI5 또는 검증된 Linux ARM64 환경에서 native boundary를 빌드하고 별도 승인된 root 설치 단계에서
-plan의 exact executable path에
-root-owned, group/world non-writable file로 설치한다. production entrypoint는
+먼저 Stage1 source bootstrap이 RPI5의 exact source 디렉터리에서 native filesystem boundary를 빌드하고
+`stage1-source.json`에 source-relative path와 digest를 고정한다. 새 source의 helper는 과거 source의
+helper를 덮어쓰지 않는다. production entrypoint는
 `SEORILABS_KUBECTL` override를 거부하고 state와 snap의 동일한 숫자 revision에 있는 exact
 `/snap/microk8s/<revision>/kubectl`만 사용한다.
 `tools/seori-auth/.build/seori-auth-native`도 같은 Linux ARM64 source에서 빌드해
@@ -191,13 +191,6 @@ GitHub-hosted Linux ARM64 runner에서 production ELF를 실제 실행하고, �
 mount namespace 거부 syscall harness를 통과해야 한다. 별도 macOS ARM64 job은 native launcher로
 N-API module을 실제 load하고 plain Node, source/receipt digest drift, dirty primary controller를 거부하며
 FD 5/6/7과 `PT_DENY_ATTACH` 적용 receipt를 실제 검증한다.
-
-```bash
-node scripts/fleet/build-p2-host-fs-boundary.mjs
-sudo install -o root -g root -m 0755 \
-  .build/seorilabs-p2-host-fs-boundary \
-  /usr/local/libexec/seorilabs-p2-host-fs-boundary
-```
 
 ```bash
 node scripts/fleet/provision-p2-host-encryption.mjs plan

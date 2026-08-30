@@ -93,7 +93,7 @@ receipt="${target}/stage1-source.json"
 native_helper="${target}/tools/seori-auth/.build/seori-auth-native"
 native_launcher="/usr/local/libexec/seori-auth-native"
 process_boundary="/usr/local/libexec/seorilabs-p2-process-hardening.node"
-record_boundary="/usr/local/libexec/seorilabs-p2-host-fs-boundary"
+record_boundary="${target}/.build/seorilabs-p2-host-fs-boundary"
 apply_loader="${target}/scripts/fleet/p2-host-encryption-apply-loader.mjs"
 apply_sudoers="/etc/sudoers.d/seorilabs-p2-host-encryption-${source_sha}"
 
@@ -261,7 +261,6 @@ install_exact_helper() {
 }
 install_exact_helper "$staging_native" "$native_launcher" "$native_sha"
 install_exact_helper "$staging_process" "$process_boundary" "$process_sha"
-install_exact_helper "$staging_record" "$record_boundary" "$record_sha"
 /usr/local/bin/node -e '
   const fs = require("node:fs");
   const [path,nodeName,sourceSha,archiveSha256,packageLockSha256,nativeHelperPath,nativeHelperSha256,
