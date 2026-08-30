@@ -196,7 +196,7 @@ function run(executable, args, code) {
   try {
     return execFileSync(executable, args, {
       encoding: 'utf8',
-      env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C', LC_ALL: 'C' },
+      env: { PATH: '/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C', LC_ALL: 'C' },
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 15_000,
       maxBuffer: 256 * 1024,

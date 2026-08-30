@@ -887,6 +887,10 @@ test('source bootstrap validates the outer Node command symlink without collapsi
   assert.match(hostCliSource, /readlinkSync\(link\) !== target/u);
   assert.doesNotMatch(hostCliSource, /realpathSync\(link\) !== target/u);
   assert.match(
+    hostCliSource,
+    /PATH: '\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/sbin:\/bin'/u,
+  );
+  assert.match(
     source,
     /npm ci --ignore-scripts --no-bin-links --workspaces=false[\s\S]*--fund=false >\/dev\/null\)/u,
   );
