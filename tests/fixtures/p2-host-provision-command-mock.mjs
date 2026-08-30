@@ -386,8 +386,8 @@ if (executable === '/usr/bin/clevis') {
       t: 1,
       pins: {
         tang: [
-          { url: 'http://192.168.0.100:7500', thp: THUMBPRINTS.rpi4001 },
-          { url: 'http://192.168.0.118:7500', thp: THUMBPRINTS['seori-m6-01'] },
+          { url: 'http://192.168.0.100:7500' },
+          { url: 'http://192.168.0.118:7500' },
         ],
       },
     };

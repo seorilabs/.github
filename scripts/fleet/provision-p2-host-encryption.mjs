@@ -679,6 +679,15 @@ function parseClevisList(raw, expectedPolicy) {
   return { pin: 'sss', policyDigest: canonicalDigest(actual) };
 }
 
+function clevisStoredPolicy(policy) {
+  return {
+    t: policy.t,
+    pins: {
+      tang: policy.pins.tang.map(({ url }) => ({ url })),
+    },
+  };
+}
+
 function loadTangAttestations() {
   const paths = repeatedOption('tang-attestation', contract.tang.requiredServers);
   const authorityPublicKey = readBackupAuthorityPublicKey();
@@ -1079,7 +1088,7 @@ function fullReadback({
   const mount = readMount();
   const clevis = parseClevisList(
     read('/usr/bin/clevis', ['luks', 'list', '-d', contract.target.sourcePath], 'P2_HOST_CLEVIS_READBACK_FAILED'),
-    buildClevisPolicy(contract, tangAttestations, authorityPublicKey),
+    clevisStoredPolicy(buildClevisPolicy(contract, tangAttestations, authorityPublicKey)),
   );
   const unlockerState = readUnlockerState();
   if (
@@ -1136,7 +1145,7 @@ function clevisBoundPartialReadback({ kubeconfigPath, tangAttestations, authorit
       ['luks', 'list', '-d', contract.target.sourcePath],
       'P2_HOST_CLEVIS_READBACK_FAILED',
     ),
-    buildClevisPolicy(contract, tangAttestations, authorityPublicKey),
+    clevisStoredPolicy(buildClevisPolicy(contract, tangAttestations, authorityPublicKey)),
   );
   loadPreBackup();
   for (const path of applyArtifactPaths()) {
@@ -1702,7 +1711,7 @@ function apply() {
         ['luks', 'list', '-d', contract.target.sourcePath],
         'P2_HOST_CLEVIS_READBACK_FAILED',
       ),
-      clevisPolicy,
+      clevisStoredPolicy(clevisPolicy),
     );
   } else {
     mutate('/usr/bin/install', ['--directory', '--mode=0700', '/data/seori-auth']);
@@ -1728,7 +1737,7 @@ function apply() {
         ['luks', 'list', '-d', contract.target.sourcePath],
         'P2_HOST_CLEVIS_READBACK_FAILED',
       ),
-      clevisPolicy,
+      clevisStoredPolicy(clevisPolicy),
     );
   }
   mutateWithRecoveryKey('/usr/sbin/cryptsetup', [
