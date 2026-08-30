@@ -27,7 +27,7 @@ const processBoundaryChild = resolve(
   repositoryRoot,
   'scripts/fleet/verify-p2-process-hardening-child.mjs',
 );
-const harnessRoot = `/var/tmp/seorilabs-p2-native-harness-${randomUUID().replaceAll('-', '')}`;
+const harnessRoot = `/root/seorilabs-p2-native-harness-${randomUUID().replaceAll('-', '')}`;
 const productionBinary = `${harnessRoot}/bin/seorilabs-p2-host-fs-boundary`;
 const testBinary = `${harnessRoot}/bin/seorilabs-p2-host-fs-boundary-test`;
 const nativeLauncher = `${harnessRoot}/bin/seori-auth-native`;
@@ -44,7 +44,7 @@ if (process.platform !== 'linux' || process.arch !== 'arm64') {
   throw new Error('P2 filesystem boundary harness requires Linux ARM64');
 }
 if (process.geteuid?.() !== 0) throw new Error('P2 filesystem boundary harness requires root');
-if (!/^\/var\/tmp\/seorilabs-p2-native-harness-[a-f0-9]+$/u.test(harnessRoot)) {
+if (!/^\/root\/seorilabs-p2-native-harness-[a-f0-9]+$/u.test(harnessRoot)) {
   throw new Error('P2 filesystem boundary harness root is invalid');
 }
 

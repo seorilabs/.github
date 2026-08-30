@@ -6,7 +6,7 @@ const moduleExecutable = process.argv[2];
 if (
   process.argv.length !== 3 || process.platform !== 'linux' || process.arch !== 'arm64' ||
   process.geteuid?.() !== 0 ||
-  !/^\/var\/tmp\/seorilabs-p2-native-harness-[a-f0-9]+\/bin\/seorilabs-p2-process-hardening\.node$/u
+  !/^\/root\/seorilabs-p2-native-harness-[a-f0-9]+\/bin\/seorilabs-p2-process-hardening\.node$/u
     .test(moduleExecutable ?? '')
 ) {
   throw new Error('P2 process hardening child harness boundary is invalid');

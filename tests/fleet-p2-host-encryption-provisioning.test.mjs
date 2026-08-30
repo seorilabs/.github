@@ -336,8 +336,8 @@ test('central workflows gate Linux ARM64 host syscalls and Darwin child hardenin
   ]);
   for (const source of [linuxHarness, linuxChild, linuxBuilder]) {
     const normalized = source.replaceAll('\\', '');
-    assert.match(normalized, /\/var\/tmp\/seorilabs-p2-native-harness-/u);
-    assert.doesNotMatch(normalized, /\/run\/seorilabs-p2-native-harness-/u);
+    assert.match(normalized, /\/root\/seorilabs-p2-native-harness-/u);
+    assert.doesNotMatch(normalized, /\/(?:run|var\/tmp)\/seorilabs-p2-native-harness-/u);
   }
   for (const workflow of workflows) {
     const linux = workflow.jobs['p2-host-boundary-arm64'];
