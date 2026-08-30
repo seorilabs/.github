@@ -51,7 +51,7 @@ required_executables=(
   /bin/bash /bin/cat /bin/sh /usr/bin/awk /usr/bin/cc /usr/bin/chmod /usr/bin/chown
   /usr/bin/cut /usr/bin/dd /usr/bin/find /usr/bin/grep /usr/bin/hostname /usr/bin/install
   /usr/bin/ln /usr/bin/mkdir /usr/bin/mv /usr/bin/readlink /usr/bin/rm /usr/bin/tar
-  /usr/bin/sha256sum /usr/bin/stat /usr/bin/sync /usr/bin/uname /usr/sbin/ip
+  /usr/bin/rmdir /usr/bin/sha256sum /usr/bin/stat /usr/bin/sync /usr/bin/uname /usr/sbin/ip
   /usr/local/bin/node /usr/local/bin/npm
 )
 for executable in "${required_executables[@]}"; do
@@ -185,6 +185,21 @@ fi
 
 (cd "$staging" && /usr/local/bin/npm ci --ignore-scripts --no-bin-links --workspaces=false \
   --audit=false --fund=false)
+workspace_parent="$staging/node_modules/@seorilabs"
+for workspace in repo-contract seori-auth; do
+  workspace_link="$workspace_parent/$workspace"
+  case "$workspace" in
+    repo-contract) expected_workspace_target="../../packages/repo-contract" ;;
+    seori-auth) expected_workspace_target="../../tools/seori-auth" ;;
+    *) exit 126 ;;
+  esac
+  if [[ ! -L "$workspace_link" ]] || \
+     [[ "$(/usr/bin/readlink "$workspace_link")" != "$expected_workspace_target" ]]; then
+    exit 126
+  fi
+  /usr/bin/rm -- "$workspace_link"
+done
+/usr/bin/rmdir -- "$workspace_parent"
 /usr/local/bin/node "$staging/tools/seori-auth/scripts/build-native.mjs" \
   "$staging/tools/seori-auth/.build/seori-auth-native"
 /usr/local/bin/node "$staging/scripts/fleet/build-p2-process-hardening-boundary.mjs" \
