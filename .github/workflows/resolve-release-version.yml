@@ -1,0 +1,164 @@
+# Seorilabs org 재사용 워크플로우: 앱별 custom build 경로용 릴리즈 태그 해석
+# 호출: uses: seorilabs/.github/.github/workflows/resolve-release-version.yml@<FULL_COMMIT_SHA>
+# 버전 정본은 exact GitHub tag vX.Y.Z 하나뿐이며 앱 저장소의 version 파일은 읽지 않는다.
+name: Resolve Release Version (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "버전 정본인 stable SemVer 태그. 비우면 수동 dispatch에서 최신 stable 태그."
+        required: false
+        default: ""
+        type: string
+    outputs:
+      tag:
+        value: ${{ jobs.resolve.outputs.tag }}
+      source_sha:
+        value: ${{ jobs.resolve.outputs.source_sha }}
+      version_name:
+        value: ${{ jobs.resolve.outputs.version_name }}
+      android_version_code:
+        value: ${{ jobs.resolve.outputs.android_version_code }}
+      apple_build_number:
+        value: ${{ jobs.resolve.outputs.apple_build_number }}
+      authority_revision:
+        value: ${{ jobs.resolve.outputs.authority_revision }}
+      config_revision:
+        value: ${{ jobs.resolve.outputs.config_revision }}
+      binding_digest:
+        value: ${{ jobs.resolve.outputs.binding_digest }}
+      binding_base64:
+        description: "비밀이 아닌 불변 release binding JSON의 base64 표현"
+        value: ${{ jobs.resolve.outputs.binding_base64 }}
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Bind exact release tag
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      version_name: ${{ steps.release.outputs.version_name }}
+      android_version_code: ${{ steps.release.outputs.android_version_code }}
+      apple_build_number: ${{ steps.release.outputs.apple_build_number }}
+      authority_revision: ${{ steps.release.outputs.authority_revision }}
+      config_revision: ${{ steps.release.outputs.config_revision }}
+      binding_digest: ${{ steps.release.outputs.binding_digest }}
+      binding_base64: ${{ steps.release.outputs.binding_base64 }}
+
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          check-latest: false
+
+      - name: Validate called reusable workflow identity
+        id: authority
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/resolve-release-version.yml
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
+          '
+
+      - name: Checkout exact release version authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.authority.outputs.repository }}
+          ref: ${{ steps.authority.outputs.sha }}
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
+      - name: Resolve exact release tag
+        id: tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git tag --list > "$RUNNER_TEMP/git-tags.txt"
+          tag="$(node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --tag-list-file "$RUNNER_TEMP/git-tags.txt" --print-tag)"
+          git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null
+          git -c advice.detachedHead=false checkout "refs/tags/$tag"
+          tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          head_commit="$(git rev-parse 'HEAD^{commit}')"
+          [ "$tag_commit" = "$head_commit" ] || {
+            echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
+            exit 1
+          }
+          case "$RELEASE_EVENT_REF" in
+            refs/tags/*)
+              [ "$tag" = "${RELEASE_EVENT_REF#refs/tags/}" ] || {
+                echo "tag 이벤트 ref와 해석된 태그가 다름: $RELEASE_EVENT_REF != $tag" >&2
+                exit 1
+              }
+              [ "$tag_commit" = "$RELEASE_EVENT_SHA" ] || {
+                echo "tag 이벤트 commit과 태그 commit이 다름: $RELEASE_EVENT_SHA != $tag_commit" >&2
+                exit 1
+              }
+              ;;
+          esac
+          { echo "tag=$tag"; echo "sha=$tag_commit"; } >> "$GITHUB_OUTPUT"
+
+      - name: Bind release version to the tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
+          JOB_WORKFLOW_REPOSITORY: ${{ steps.authority.outputs.repository }}
+          JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
+          JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then
+            git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release-tag-message.txt"
+            export RELEASE_TAG_MESSAGE_FILE="$RUNNER_TEMP/release-tag-message.txt"
+          fi
+          RELEASE_HEAD_SHA="$(git rev-parse 'HEAD^{commit}')" \
+          RELEASE_LOCAL_TAG_SHA="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" \
+            node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --github-output
+          node --input-type=module - "$RELEASE_BINDING_PATH" "$GITHUB_OUTPUT" <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const bytes = readFileSync(process.argv[2]);
+          appendFileSync(process.argv[3], `binding_base64=${bytes.toString('base64')}\n`);
+          NODE
+
+      - name: Summarize immutable binding
+        shell: bash
+        run: |
+          {
+            echo "### Release Version Binding"
+            echo ""
+            echo "- tag: ${{ steps.tag.outputs.tag }}"
+            echo "- source: ${{ steps.release.outputs.source_sha }}"
+            echo "- version: ${{ steps.release.outputs.version_name }}"
+            echo "- Android versionCode: ${{ steps.release.outputs.android_version_code }}"
+            echo "- Apple build: ${{ steps.release.outputs.apple_build_number }}"
+            echo "- config revision: ${{ steps.release.outputs.config_revision }}"
+          } >> "$GITHUB_STEP_SUMMARY"
