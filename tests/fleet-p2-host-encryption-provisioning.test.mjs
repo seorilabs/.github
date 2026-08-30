@@ -40,6 +40,9 @@ const execFileAsync = promisify(execFile);
 const hostProductionCli = fileURLToPath(
   new URL('../scripts/fleet/provision-p2-host-encryption.mjs', import.meta.url),
 );
+const nativeBoundaryBuildCli = fileURLToPath(
+  new URL('../scripts/fleet/build-p2-host-fs-boundary.mjs', import.meta.url),
+);
 const hostCli = fileURLToPath(
   new URL('./fixtures/p2-host-provision-fixture-entrypoint.mjs', import.meta.url),
 );
@@ -99,14 +102,14 @@ async function createFixture({ scenario = 'missing', nodeName = 'rpi5' } = {}) {
       { mode: 0o444 },
     ),
     ...Object.entries(tangKeyFixture).map(([name, bytes]) =>
-      writeFile(join(root, 'var/lib/tang', name), bytes, { mode: 0o640 })),
+      writeFile(join(root, 'var/lib/tang', name), bytes, { mode: 0o440 })),
   ]);
   await chmod(kubeconfig, 0o600);
   await chmod(recoveryKey, 0o600);
   await chmod(join(root, contract.tang.backupAuthority.publicKeyPath.slice(1)), 0o444);
   await chmod(join(root, 'var/lib/tang'), 0o750);
   await Promise.all(Object.keys(tangKeyFixture).map((name) =>
-    chmod(join(root, 'var/lib/tang', name), 0o640)));
+    chmod(join(root, 'var/lib/tang', name), 0o440)));
 
   const directoryMetadata = await stat(join(root, 'var/lib/tang'));
   const contentRecords = [];
@@ -203,6 +206,7 @@ async function createFixture({ scenario = 'missing', nodeName = 'rpi5' } = {}) {
     SEORILABS_HOST_FIXTURE_RUNTIME: commandMock,
     SEORILABS_HOST_FIXTURE_SCENARIO: scenario,
     SEORILABS_HOST_FIXTURE_STATE: state,
+    SEORI_AUTH_NATIVE_LAUNCHED: '1',
   };
 
   return {
@@ -258,9 +262,33 @@ test('P2 host provisioning contract fixes non-sparse LUKS2, exact mount and Tang
     contract.filesystemBoundary.executable,
     '/usr/local/libexec/seorilabs-p2-host-fs-boundary',
   );
-  assert.equal(contract.filesystemBoundary.policy, 'FIXED_DIRFD_RENAMEAT2_NOREPLACE');
+  assert.equal(
+    contract.filesystemBoundary.policy,
+    'INITIAL_MOUNT_NAMESPACE_FIXED_DIRFD_NOREPLACE',
+  );
+  assert.ok(contract.filesystemBoundary.operations.includes('verify-namespace'));
+  assert.ok(contract.filesystemBoundary.operations.includes('publish-record'));
+  assert.equal(contract.gates.hostMountNamespacePolicy, 'PID1_INITIAL_MOUNT_NAMESPACE_EXACT');
+  assert.equal(
+    contract.gates.recordWritePolicy,
+    'FIXED_RECORD_ID_STDIN_OPENAT_LINKAT_NO_CLOBBER_FSYNC',
+  );
   assert.equal(contract.tang.pin, 'sss');
+  assert.deepEqual(contract.processBoundary, {
+    launcherExecutable: '/usr/local/libexec/seori-auth-native',
+    moduleExecutable: '/usr/local/libexec/seorilabs-p2-process-hardening.node',
+    launchMarker: 'SEORI_AUTH_NATIVE_LAUNCHED',
+    policy: 'INHERIT_CORE_NNP_REAPPLY_DUMPABLE_NATIVE_READBACK',
+  });
+  assert.equal(
+    contract.gates.processHardeningPolicy,
+    'NATIVE_LAUNCH_AND_NAPI_CHILD_READBACK_REQUIRED',
+  );
   assert.equal(contract.tang.threshold, 1);
+  assert.deepEqual(contract.tang.keyInventoryPolicy, {
+    fileMode: '0440',
+    ownershipPolicy: 'EXACT_KEY_DIRECTORY_UID_GID',
+  });
   assert.deepEqual(contract.tang.servers.map(({ ipv4 }) => ipv4), [
     '192.168.0.100',
     '192.168.0.118',
@@ -282,6 +310,45 @@ test('P2 host provisioning contract fixes non-sparse LUKS2, exact mount and Tang
   assert.equal(plan.secretValuesCreated, false);
   assert.equal(plan.secretValuesReturned, false);
   assert.equal(plan.confirmations.apply, confirmationSet.apply);
+});
+
+test('production native boundary build refuses a non-Linux artifact', {
+  skip: process.platform === 'linux',
+}, async () => {
+  await assert.rejects(
+    execFileAsync(process.execPath, [nativeBoundaryBuildCli]),
+    (error) => {
+      assert.match(error.stderr, /production build requires Linux/u);
+      return true;
+    },
+  );
+});
+
+test('central workflows gate Linux ARM64 host syscalls and Darwin child hardening', async () => {
+  const workflows = await Promise.all([
+    '.github/workflows/contract-checks.yml',
+    '.github/workflows/workflow-bundle-candidate.yml',
+  ].map(async (path) => parse(await readFile(path, 'utf8'))));
+  for (const workflow of workflows) {
+    const linux = workflow.jobs['p2-host-boundary-arm64'];
+    const darwin = workflow.jobs['p2-process-boundary-macos'];
+    assert.equal(linux['runs-on'], 'ubuntu-24.04-arm');
+    assert.equal(linux['timeout-minutes'], 10);
+    assert.equal(darwin['runs-on'], 'macos-26');
+    assert.equal(darwin['timeout-minutes'], 10);
+    assert.match(
+      linux.steps.at(-1).run,
+      /verify-p2-host-fs-boundary-linux-arm64\.mjs/u,
+    );
+    assert.match(
+      darwin.steps.at(-1).run,
+      /fleet-p2-process-hardening-darwin\.test\.mjs/u,
+    );
+  }
+  assert.deepEqual(
+    workflows[1].jobs.candidate.needs,
+    ['p2-host-boundary-arm64', 'p2-process-boundary-macos'],
+  );
 });
 
 test('Tang attestations exact-bind both host identities, port, advertisements and backup inventories', async (context) => {
@@ -490,15 +557,21 @@ test('success path backs up, provisions once, writes canonical marker and verifi
     executable === contract.filesystemBoundary.executable && args[0] === 'rollback-config'));
   assert.ok(calls.some(({ executable, args }) =>
     executable === contract.filesystemBoundary.executable && args[0] === 'restore-config'));
+  assert.deepEqual(
+    calls.filter(({ executable, args }) =>
+      executable === contract.filesystemBoundary.executable && args[0] === 'publish-record')
+      .map(({ args }) => args[1]).toSorted(),
+    [
+      'crypttab-before', 'crypttab-managed', 'fstab-before', 'fstab-managed', 'marker',
+      'pre-provision', 'provision', 'provision-restored', 'reboot', 'reboot-restored', 'rollback',
+    ].toSorted(),
+  );
   assert.doesNotMatch(log, /"executable":"\/usr\/bin\/fallocate"|"executable":"\/usr\/bin\/mv"|"luksHeaderBackup"/u);
   assert.ok(calls.some(({ executable, args }) =>
     executable === '/usr/sbin/cryptsetup' && args.includes('--test-passphrase')));
-  assert.ok(calls.some(({ executable, args }) =>
-    executable === '/usr/bin/chown' && args[0] === '0:65532'));
   assert.equal(calls.filter(({ executable, args }) =>
     executable === '/usr/bin/chown' &&
-    args[0] === '0:65532' &&
-    args[1] === contract.target.markerPath).length, 1);
+    args.includes(contract.target.markerPath)).length, 0);
   const secretCalls = calls.filter(({ args }) => args.includes('/proc/self/fd/3'));
   assert.ok(secretCalls.length >= 4);
   assert.equal(new Set(secretCalls.map(({ recoveryFdIdentity }) => recoveryFdIdentity)).size, 1);
@@ -573,6 +646,79 @@ test('production host entrypoint rejects kubectl executable overrides', async ()
       return true;
     },
   );
+});
+
+test('production host and Tang entrypoints reject plain Node execution', async () => {
+  const environment = { ...process.env };
+  delete environment.SEORI_AUTH_NATIVE_LAUNCHED;
+  for (const [cli, args, code] of [
+    [hostProductionCli, ['readback'], 'P2_HOST_NATIVE_LAUNCH_REQUIRED'],
+    [tangProductionCli, ['readback', '--server=rpi4001'], 'P2_TANG_NATIVE_LAUNCH_REQUIRED'],
+  ]) {
+    await assert.rejects(
+      execFileAsync(process.execPath, [cli, ...args], { env: environment }),
+      (error) => {
+        assert.deepEqual(JSON.parse(error.stderr), { ok: false, code });
+        return true;
+      },
+    );
+  }
+});
+
+test('host and Tang reject a forged launcher marker without native hardening readback', async (context) => {
+  const hostFixture = await createFixture({ scenario: 'unhardened-process' });
+  const tangFixture = await createFixture({ scenario: 'unhardened-process', nodeName: 'rpi4001' });
+  context.after(async () => Promise.all([hostFixture.cleanup(), tangFixture.cleanup()]));
+  await expectHostFailure(hostFixture, 'backup', [
+    `--confirmation=${confirmationSet.backup}`,
+    `--kubeconfig=${hostFixture.kubeconfig}`,
+  ], 'P2_HOST_PROCESS_HARDENING_READBACK_FAILED');
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      tangCli,
+      'readback',
+      '--server=rpi4001',
+      `--backup-attestation=${tangFixture.tangBackupEvidencePaths[0]}`,
+    ], { env: tangFixture.environment }),
+    (error) => {
+      assert.deepEqual(JSON.parse(error.stderr), {
+        ok: false,
+        code: 'P2_TANG_PROCESS_HARDENING_READBACK_FAILED',
+      });
+      return true;
+    },
+  );
+  for (const fixture of [hostFixture, tangFixture]) {
+    const log = await readFile(fixture.log, 'utf8');
+    assert.doesNotMatch(log, /seorilabs-p2-host-fs-boundary|apt-get|cryptsetup|systemctl/u);
+  }
+});
+
+test('host and Tang operations reject an alternate mount namespace before readback or mutation', async (context) => {
+  const fixture = await createFixture({ scenario: 'alternate-mount-namespace' });
+  context.after(() => fixture.cleanup());
+  const plan = await runHost(fixture, 'plan');
+  assert.equal(JSON.parse(plan.stdout).state, 'DRY_RUN');
+  await expectHostFailure(fixture, 'backup', [
+    `--confirmation=${confirmationSet.backup}`,
+    `--kubeconfig=${fixture.kubeconfig}`,
+  ], 'P2_HOST_MOUNT_NAMESPACE_MISMATCH');
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      tangCli,
+      'apply',
+      '--server=rpi4001',
+      `--confirmation=${confirmationSet.tang.rpi4001}`,
+    ], { env: fixture.environment }),
+    (error) => {
+      assert.deepEqual(JSON.parse(error.stderr), {
+        ok: false,
+        code: 'P2_TANG_MOUNT_NAMESPACE_MISMATCH',
+      });
+      return true;
+    },
+  );
+  await assert.rejects(readFile(fixture.log, 'utf8'), { code: 'ENOENT' });
 });
 
 test('recovery key is single-open and a path swap fails before a second secret consumer', async (context) => {
@@ -695,16 +841,22 @@ test('mapper readback rejects a lookalike loop backing file', async (context) =>
 
 test('native filesystem boundary uses fixed dirfds and atomic no-clobber operations', async () => {
   const source = await readFile('scripts/fleet/native/p2-host-fs-boundary.c', 'utf8');
+  const caller = await readFile('scripts/fleet/provision-p2-host-encryption.mjs', 'utf8');
   assert.match(source, /openat\(/u);
+  assert.match(source, /linkat\(/u);
   assert.match(source, /SYS_renameat2/u);
   assert.match(source, /RENAME_NOREPLACE/u);
   assert.match(source, /RENAME_EXCHANGE/u);
   assert.match(source, /posix_fallocate/u);
   assert.match(source, /SOURCE_PATH/u);
+  assert.match(source, /\/proc\/1\/ns\/mnt/u);
+  assert.match(source, /NSFS_MAGIC/u);
+  assert.match(source, /STDIN_FILENO/u);
   assert.match(source, /luksHeaderBackup[^]*source_child_path/u);
   assert.match(source, /require_same_entry\(source_parent, SOURCE_LEAF, &source_entry\)/u);
   assert.doesNotMatch(source, /luksHeaderBackup[^\n]*SOURCE_PATH/u);
   assert.doesNotMatch(source, /argv\[[0-9]+\].*SOURCE_PATH/u);
+  assert.doesNotMatch(caller, /linkSync\(|openSync\(temporary|unlinkSync\(temporary/u);
 });
 
 test('unknown mutation outcome stops immediately and the next run is readback-first', async (context) => {
@@ -769,11 +921,13 @@ test('Tang readback rejects live key content drift against signed isolated-resto
     '[Socket]\nListenStream=\nListenStream=7500\n',
     { mode: 0o644 },
   );
+  await chmod(join(fixture.root, 'var/lib/tang/sig.jwk'), 0o640);
   await writeFile(
     join(fixture.root, 'var/lib/tang/sig.jwk'),
     '{"kty":"EC","kid":"drifted-signing"}\n',
-    { mode: 0o640 },
+    { mode: 0o440 },
   );
+  await chmod(join(fixture.root, 'var/lib/tang/sig.jwk'), 0o440);
   await assert.rejects(
     execFileAsync(process.execPath, [
       tangCli,
@@ -785,6 +939,32 @@ test('Tang readback rejects live key content drift against signed isolated-resto
       assert.deepEqual(JSON.parse(error.stderr), {
         ok: false,
         code: 'P2_TANG_BACKUP_LIVE_INVENTORY_MISMATCH',
+      });
+      return true;
+    },
+  );
+});
+
+test('Tang readback accepts package 0440 keys and rejects mode drift', async (context) => {
+  const fixture = await createFixture({ nodeName: 'rpi4001' });
+  context.after(() => fixture.cleanup());
+  await writeFile(
+    join(fixture.root, 'etc/systemd/system/tangd.socket.d/seorilabs.conf'),
+    '[Socket]\nListenStream=\nListenStream=7500\n',
+    { mode: 0o644 },
+  );
+  await chmod(join(fixture.root, 'var/lib/tang/sig.jwk'), 0o640);
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      tangCli,
+      'readback',
+      '--server=rpi4001',
+      `--backup-attestation=${fixture.tangBackupEvidencePaths[0]}`,
+    ], { env: fixture.environment }),
+    (error) => {
+      assert.deepEqual(JSON.parse(error.stderr), {
+        ok: false,
+        code: 'P2_TANG_KEY_INVENTORY_READBACK_INVALID',
       });
       return true;
     },
@@ -818,6 +998,60 @@ test('both missing Tang servers install only after exact confirmation and stop a
     const log = await readFile(fixture.log, 'utf8');
     assert.match(log, /"executable":"\/usr\/bin\/apt-get"/u);
     assert.match(log, /"executable":"\/usr\/bin\/systemctl"/u);
+    const calls = log.trim().split('\n').map((line) => JSON.parse(line));
+    const overrideIndex = calls.findIndex(({ executable, args }) =>
+      executable === contract.filesystemBoundary.executable &&
+      args.join('\0') === ['publish-record', 'tang-socket-override'].join('\0'));
+    const updateIndex = calls.findIndex(({ executable, args }) =>
+      executable === '/usr/bin/apt-get' && args.join('\0') === ['update'].join('\0'));
+    const installIndex = calls.findIndex(({ executable, args }) =>
+      executable === '/usr/bin/apt-get' && args.join('\0') === ['install', '--yes', 'tang'].join('\0'));
+    assert.ok(overrideIndex >= 0 && overrideIndex < updateIndex && updateIndex < installIndex);
+    assert.ok(calls.some(({ executable, args }) =>
+      executable === contract.filesystemBoundary.executable &&
+      args.join('\0') === ['verify-namespace'].join('\0')));
+    assert.ok(calls.some(({ executable, args }) =>
+      executable === contract.filesystemBoundary.executable &&
+      args.join('\0') === ['publish-record', 'tang-socket-override'].join('\0')));
     assert.doesNotMatch(`${result.stdout}${result.stderr}${log}`, new RegExp(fakeRecoverySecret, 'u'));
   }
+});
+
+test('Tang override publication fails before package mutation and a staged override resumes safely', async (context) => {
+  const failed = await createFixture({ scenario: 'tang-boundary-failure', nodeName: 'rpi4001' });
+  const staged = await createFixture({ scenario: 'tang-missing', nodeName: 'rpi4001' });
+  context.after(async () => Promise.all([failed.cleanup(), staged.cleanup()]));
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      tangCli,
+      'apply',
+      '--server=rpi4001',
+      `--confirmation=${confirmationSet.tang.rpi4001}`,
+    ], { env: failed.environment }),
+    (error) => {
+      assert.deepEqual(JSON.parse(error.stderr), {
+        ok: false,
+        code: 'P2_TANG_MUTATION_OUTCOME_UNKNOWN',
+      });
+      return true;
+    },
+  );
+  assert.doesNotMatch(await readFile(failed.log, 'utf8'), /"executable":"\/usr\/bin\/apt-get"/u);
+
+  await writeFile(
+    join(staged.root, 'etc/systemd/system/tangd.socket.d/seorilabs.conf'),
+    '[Socket]\nListenStream=\nListenStream=7500\n',
+    { mode: 0o644 },
+  );
+  const resumed = await execFileAsync(process.execPath, [
+    tangCli,
+    'apply',
+    '--server=rpi4001',
+    `--confirmation=${confirmationSet.tang.rpi4001}`,
+  ], { env: staged.environment });
+  assert.equal(JSON.parse(resumed.stdout).state, 'TANG_SERVER_KEYS_BACKUP_REQUIRED');
+  const resumedLog = await readFile(staged.log, 'utf8');
+  assert.match(resumedLog, /"executable":"\/usr\/bin\/apt-get"/u);
+  assert.doesNotMatch(resumedLog, /"args":\["publish-record","tang-socket-override"\]/u);
 });

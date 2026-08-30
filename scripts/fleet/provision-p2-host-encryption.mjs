@@ -4,18 +4,13 @@ import { execFileSync } from 'node:child_process';
 import {
   closeSync,
   constants as fsConstants,
-  fchmodSync,
   existsSync,
   fstatSync,
-  fsyncSync,
-  linkSync,
   lstatSync,
-  mkdirSync,
   openSync,
   readFileSync,
   realpathSync,
-  unlinkSync,
-  writeFileSync,
+  statSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,6 +50,7 @@ import {
   KubectlReadbackBoundaryError,
   openSecureKubectlReadbackBoundary,
 } from '../../tools/seori-auth/src/kubectl-readback-boundary.mjs';
+import { activateP2ProcessHardening } from './p2-process-hardening-boundary.mjs';
 
 const contractPath = fileURLToPath(
   new URL('../../contracts/fleet-p2-host-encryption.yaml', import.meta.url),
@@ -204,7 +200,11 @@ function canonicalExecutable(path) {
     if (
       !isAbsolute(path) || !entry.isFile() || entry.isSymbolicLink() ||
       realpathSync(path) !== path || (entry.mode & 0o111) === 0 ||
-      ([contract.filesystemBoundary.executable, kubectl].includes(path) &&
+      ([
+        contract.filesystemBoundary.executable,
+        contract.processBoundary.launcherExecutable,
+        kubectl,
+      ].includes(path) &&
         (entry.uid !== 0 || entry.gid !== 0 || (entry.mode & 0o022) !== 0))
     ) stop('P2_HOST_EXECUTABLE_INVALID');
     return path;
@@ -218,8 +218,11 @@ function run(
   executable,
   args,
   code,
-  { mutation = false, allowedStatuses = [], recoveryKey, inputDescriptors = [] } = {},
+  { mutation = false, allowedStatuses = [], recoveryKey, inputDescriptors = [], input } = {},
 ) {
+  if (input !== undefined && (recoveryKey !== undefined || inputDescriptors.length > 0)) {
+    stop('P2_HOST_COMMAND_INPUT_BOUNDARY_INVALID');
+  }
   const commandPath = canonicalExecutable(executable);
   const runtime = fixtureRuntime === undefined ? commandPath : process.execPath;
   const runtimeArgs = fixtureRuntime === undefined
@@ -234,9 +237,10 @@ function run(
         env: commandEnvironment(),
         maxBuffer: MAX_OUTPUT_BYTES,
         stdio: [
-          'ignore', 'pipe', 'pipe',
+          input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe',
           ...(recoveryKey === undefined ? inputDescriptors : [recoveryKey.descriptor]),
         ],
+        ...(input === undefined ? {} : { input }),
         timeout: mutation ? 120_000 : 15_000,
       }),
     };
@@ -264,7 +268,7 @@ function mutateWithRecoveryKey(executable, args, recoveryKey) {
   });
 }
 
-function mutateFilesystemBoundary(operation, args = [], inputDescriptors = []) {
+function mutateFilesystemBoundary(operation, args = [], inputDescriptors = [], input) {
   if (!contract.filesystemBoundary.operations.includes(operation)) {
     stop('P2_HOST_FILESYSTEM_BOUNDARY_OPERATION_INVALID');
   }
@@ -272,11 +276,66 @@ function mutateFilesystemBoundary(operation, args = [], inputDescriptors = []) {
     contract.filesystemBoundary.executable,
     [operation, ...args],
     'P2_HOST_FILESYSTEM_BOUNDARY_FAILED',
-    { mutation: true, inputDescriptors },
+    { mutation: true, inputDescriptors, input },
   );
   const receipt = publicJson(result.stdout, 'P2_HOST_FILESYSTEM_BOUNDARY_RECEIPT_INVALID');
   if (receipt.operation !== operation) stop('P2_HOST_FILESYSTEM_BOUNDARY_RECEIPT_INVALID');
   return receipt;
+}
+
+function verifyNativeHostMountNamespace() {
+  if (!contract.filesystemBoundary.operations.includes('verify-namespace')) {
+    stop('P2_HOST_FILESYSTEM_BOUNDARY_OPERATION_INVALID');
+  }
+  const receipt = publicJson(
+    run(
+      contract.filesystemBoundary.executable,
+      ['verify-namespace'],
+      'P2_HOST_MOUNT_NAMESPACE_NATIVE_READBACK_FAILED',
+    ).stdout,
+    'P2_HOST_FILESYSTEM_BOUNDARY_RECEIPT_INVALID',
+  );
+  if (
+    receipt.operation !== 'verify-namespace' || receipt.verified !== true ||
+    Object.keys(receipt).toSorted().join('\0') !== ['operation', 'verified'].join('\0')
+  ) stop('P2_HOST_FILESYSTEM_BOUNDARY_RECEIPT_INVALID');
+}
+
+function assertNativeProcessHardening() {
+  let receipt;
+  try {
+    receipt = fixtureRuntime === undefined
+      ? activateP2ProcessHardening(contract.processBoundary)
+      : publicJson(
+        run(
+          contract.processBoundary.launcherExecutable,
+          ['fixture-process-hardening-readback'],
+          'P2_HOST_PROCESS_HARDENING_READBACK_FAILED',
+        ).stdout,
+        'P2_HOST_PROCESS_HARDENING_RECEIPT_INVALID',
+      );
+  } catch (error) {
+    if (error instanceof HostCommandError) throw error;
+    stop('P2_HOST_PROCESS_HARDENING_READBACK_FAILED');
+  }
+  const expected = {
+    state: 'PROCESS_HARDENING_OK',
+    coreSoft: 0,
+    coreHard: 0,
+    dumpable: 0,
+    noNewPrivileges: 1,
+  };
+  if (
+    Object.keys(receipt).toSorted().join('\0') !== Object.keys(expected).toSorted().join('\0') ||
+    Object.entries(expected).some(([key, value]) => receipt[key] !== value)
+  ) stop('P2_HOST_PROCESS_HARDENING_RECEIPT_INVALID');
+}
+
+function assertNativeLaunchMarker() {
+  if (process.env[contract.processBoundary.launchMarker] !== '1') {
+    stop('P2_HOST_NATIVE_LAUNCH_REQUIRED');
+  }
+  canonicalExecutable(contract.processBoundary.launcherExecutable);
 }
 
 function publicJson(text, code) {
@@ -306,6 +365,27 @@ function readCanonicalJson(path, code) {
 function assertRoot() {
   if (fixtureRuntime === undefined && process.geteuid?.() !== 0) {
     stop('P2_HOST_ROOT_REQUIRED');
+  }
+}
+
+function assertInitialHostMountNamespace() {
+  if (fixtureRuntime !== undefined) {
+    if (process.env.SEORILABS_HOST_FIXTURE_SCENARIO === 'alternate-mount-namespace') {
+      stop('P2_HOST_MOUNT_NAMESPACE_MISMATCH');
+    }
+    return Object.freeze({ device: 'fixture-nsfs', inode: '1' });
+  }
+  if (process.platform !== 'linux') stop('P2_HOST_LINUX_REQUIRED');
+  try {
+    const initial = statSync('/proc/1/ns/mnt', { bigint: true });
+    const current = statSync('/proc/self/ns/mnt', { bigint: true });
+    if (initial.dev !== current.dev || initial.ino !== current.ino) {
+      stop('P2_HOST_MOUNT_NAMESPACE_MISMATCH');
+    }
+    return Object.freeze({ device: String(current.dev), inode: String(current.ino) });
+  } catch (error) {
+    if (error instanceof HostCommandError) throw error;
+    stop('P2_HOST_MOUNT_NAMESPACE_READBACK_FAILED');
   }
 }
 
@@ -1077,106 +1157,31 @@ function backupPaths() {
   };
 }
 
-function atomicWrite(path, bytes, modeValue = 0o600) {
-  const temporary = `${path}.tmp`;
-  let descriptor;
-  let parentDescriptor;
-  try {
-    const parent = dirname(path);
-    const parentEntry = lstatSync(parent);
-    if (
-      !parentEntry.isDirectory() || parentEntry.isSymbolicLink() ||
-      realpathSync(parent) !== parent
-    ) stop('P2_HOST_ATOMIC_WRITE_BOUNDARY_INVALID');
-    parentDescriptor = openSync(
-      parent,
-      fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW,
-    );
-    const heldParent = fstatSync(parentDescriptor);
-    if (heldParent.dev !== parentEntry.dev || heldParent.ino !== parentEntry.ino) {
-      stop('P2_HOST_ATOMIC_WRITE_BOUNDARY_CHANGED');
-    }
-    let targetEntry;
-    try {
-      targetEntry = lstatSync(path);
-      if (
-        !targetEntry.isFile() || targetEntry.isSymbolicLink() || realpathSync(path) !== path
-      ) stop('P2_HOST_ATOMIC_WRITE_TARGET_INVALID');
-    } catch (error) {
-      if (error instanceof HostCommandError) throw error;
-      if (error?.code !== 'ENOENT') stop('P2_HOST_ATOMIC_WRITE_TARGET_INVALID');
-      targetEntry = null;
-    }
-    try {
-      lstatSync(temporary);
-      stop('P2_HOST_ATOMIC_WRITE_TEMPORARY_EXISTS');
-    } catch (error) {
-      if (error instanceof HostCommandError) throw error;
-      if (error?.code !== 'ENOENT') stop('P2_HOST_ATOMIC_WRITE_TEMPORARY_INVALID');
-    }
-    descriptor = openSync(
-      temporary,
-      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
-      modeValue,
-    );
-    writeFileSync(descriptor, bytes);
-    fchmodSync(descriptor, modeValue);
-    fsyncSync(descriptor);
-    const temporaryEntry = fstatSync(descriptor);
-    const currentParent = lstatSync(parent);
-    if (
-      !temporaryEntry.isFile() || temporaryEntry.isSymbolicLink() ||
-      temporaryEntry.dev !== parentEntry.dev ||
-      currentParent.dev !== parentEntry.dev || currentParent.ino !== parentEntry.ino ||
-      currentParent.mode !== parentEntry.mode || realpathSync(parent) !== parent
-    ) stop('P2_HOST_ATOMIC_WRITE_BOUNDARY_CHANGED');
-    let currentTarget;
-    try {
-      currentTarget = lstatSync(path);
-    } catch (error) {
-      if (error?.code !== 'ENOENT') stop('P2_HOST_ATOMIC_WRITE_TARGET_INVALID');
-      currentTarget = null;
-    }
-    if (
-      (targetEntry === null) !== (currentTarget === null) ||
-      (targetEntry !== null && (
-        currentTarget.isSymbolicLink() || !currentTarget.isFile() ||
-        currentTarget.dev !== targetEntry.dev || currentTarget.ino !== targetEntry.ino ||
-        currentTarget.mode !== targetEntry.mode || currentTarget.size !== targetEntry.size ||
-        currentTarget.mtimeMs !== targetEntry.mtimeMs || currentTarget.ctimeMs !== targetEntry.ctimeMs
-      ))
-    ) stop('P2_HOST_ATOMIC_WRITE_TARGET_CHANGED');
-    try {
-      linkSync(temporary, path);
-      unlinkSync(temporary);
-    } catch {
-      stop('P2_HOST_ATOMIC_WRITE_NO_CLOBBER_FAILED');
-    }
-    const written = lstatSync(path);
-    if (
-      written.dev !== temporaryEntry.dev || written.ino !== temporaryEntry.ino ||
-      written.size !== temporaryEntry.size || written.isSymbolicLink() || !written.isFile()
-    ) stop('P2_HOST_ATOMIC_WRITE_READBACK_FAILED');
-    if (fixtureRuntime === undefined) fsyncSync(parentDescriptor);
-  } catch (error) {
-    if (error instanceof HostCommandError) throw error;
-    stop('P2_HOST_MUTATION_OUTCOME_UNKNOWN');
-  } finally {
-    if (descriptor !== undefined) {
-      try {
-        closeSync(descriptor);
-      } catch {
-        stop('P2_HOST_MUTATION_OUTCOME_UNKNOWN');
-      }
-    }
-    if (parentDescriptor !== undefined) {
-      try {
-        closeSync(parentDescriptor);
-      } catch {
-        stop('P2_HOST_MUTATION_OUTCOME_UNKNOWN');
-      }
-    }
-  }
+const managedRecordIdentifiers = new Set([
+  'crypttab-before',
+  'fstab-before',
+  'pre-provision',
+  'crypttab-managed',
+  'fstab-managed',
+  'marker',
+  'provision',
+  'reboot',
+  'rollback',
+  'provision-restored',
+  'reboot-restored',
+]);
+
+function publishManagedRecord(identifier, bytes) {
+  if (!managedRecordIdentifiers.has(identifier)) stop('P2_HOST_RECORD_IDENTIFIER_INVALID');
+  const content = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  if (content.length > 512 * 1024) stop('P2_HOST_RECORD_INPUT_TOO_LARGE');
+  const receipt = mutateFilesystemBoundary('publish-record', [identifier], [], content);
+  if (
+    receipt.record !== identifier || receipt.sizeBytes !== content.length ||
+    Object.keys(receipt).toSorted().join('\0') !==
+      ['operation', 'record', 'sizeBytes'].toSorted().join('\0')
+  ) stop('P2_HOST_FILESYSTEM_BOUNDARY_RECEIPT_INVALID');
+  return receipt;
 }
 
 function assertPristine({ allowRollbackSource = false } = {}) {
@@ -1240,16 +1245,15 @@ function backup() {
     stop('P2_HOST_BACKUP_ALREADY_EXISTS');
   }
   const sources = [
-    [systemdConfiguration.crypttabPath, paths.crypttab],
-    [systemdConfiguration.fstabPath, paths.fstab],
+    [systemdConfiguration.crypttabPath, paths.crypttab, 'crypttab-before'],
+    [systemdConfiguration.fstabPath, paths.fstab, 'fstab-before'],
   ];
-  mkdirSync(paths.root, { recursive: true, mode: 0o700 });
-  const configuration = sources.map(([source, destination]) => {
+  const configuration = sources.map(([source, destination, recordIdentifier]) => {
     const existed = existsSync(mappedPath(source));
     const metadata = readConfigurationMetadata(source);
     if (existed !== (metadata !== null)) stop('P2_HOST_CONFIGURATION_PATH_INVALID');
     const bytes = fileBytes(source);
-    atomicWrite(destination, bytes);
+    publishManagedRecord(recordIdentifier, bytes);
     const restored = readFileSync(destination);
     if (!restored.equals(bytes)) stop('P2_HOST_PRE_BACKUP_RESTORE_REHEARSAL_FAILED');
     return { path: source, existed, sha256: sha256(bytes), metadata };
@@ -1260,7 +1264,7 @@ function backup() {
     pathIdentities,
     unlockerState,
   });
-  atomicWrite(paths.manifest, `${canonicalJson(attestation)}\n`);
+  publishManagedRecord('pre-provision', `${canonicalJson(attestation)}\n`);
   validatePreProvisionBackupAttestation(contract, readCanonicalJson(paths.manifest, 'P2_HOST_PRE_BACKUP_INVALID'));
   return attestation;
 }
@@ -1309,7 +1313,10 @@ function installManagedConfigurations(preBackupAttestation) {
     const original = readFileSync(originalPath);
     if (sha256(original) !== entry.sha256) stop('P2_HOST_PRE_BACKUP_DRIFT');
     const managedPath = `${originalPath}.managed`;
-    atomicWrite(managedPath, managedConfigurationBytes(original, line));
+    publishManagedRecord(
+      entry.path === systemdConfiguration.crypttabPath ? 'crypttab-managed' : 'fstab-managed',
+      managedConfigurationBytes(original, line),
+    );
     transitionConfiguration('apply-config', entry, originalPath, managedPath);
     if (lineCount(entry.path, line) !== 1) stop('P2_HOST_SYSTEMD_CONFIGURATION_APPLY_FAILED');
   }
@@ -1417,9 +1424,7 @@ function transitionConfiguration(operation, entry, originalPath, managedPath) {
 
 function writeMarker(attestation) {
   if (exists(contract.target.markerPath)) stop('P2_HOST_MARKER_ALREADY_EXISTS');
-  atomicWrite(mappedPath(contract.target.markerPath), `${canonicalJson(attestation)}\n`, 0o440);
-  mutate('/usr/bin/chown', [`0:${contract.target.markerGroupId}`, contract.target.markerPath]);
-  mutate('/usr/bin/chmod', [contract.target.markerMode, contract.target.markerPath]);
+  publishManagedRecord('marker', `${canonicalJson(attestation)}\n`);
 }
 
 function relocatedFileIdentity(identity, path) {
@@ -1586,7 +1591,7 @@ function apply() {
     bootId: readBootId(),
     configurationSha256: configurationDigest(),
   });
-  atomicWrite(backupPaths().provision, `${canonicalJson(provisioned)}\n`);
+  publishManagedRecord('provision', `${canonicalJson(provisioned)}\n`);
   const verified = fullReadback({ kubeconfigPath, tangAttestations, authorityPublicKey });
   if (verified.hostEncryption.observedDigest !== hostEncryption.observedDigest) {
     stop('P2_HOST_MARKER_READBACK_INVALID');
@@ -1641,7 +1646,10 @@ function rebootReadback() {
   const rebootReceiptPath = currentProvisionPath === paths.restoredProvision
     ? paths.restoredReboot
     : paths.reboot;
-  atomicWrite(rebootReceiptPath, `${canonicalJson(rebootVerified)}\n`);
+  publishManagedRecord(
+    rebootReceiptPath === paths.restoredReboot ? 'reboot-restored' : 'reboot',
+    `${canonicalJson(rebootVerified)}\n`,
+  );
   return rebootVerified;
 }
 
@@ -1794,7 +1802,7 @@ function rollback() {
     plaintextMarkerPresent: false,
   };
   const receipt = { ...core, observedDigest: canonicalDigest(core) };
-  atomicWrite(backupPaths().rollback, `${canonicalJson(receipt)}\n`);
+  publishManagedRecord('rollback', `${canonicalJson(receipt)}\n`);
   return receipt;
 }
 
@@ -1921,7 +1929,7 @@ function restore() {
   if (restored.hostEncryption.observedDigest !== rollbackReceipt.encryptedMarkerDigest) {
     stop('P2_HOST_RESTORE_MARKER_IDENTITY_DRIFT');
   }
-  atomicWrite(backupPaths().restoredProvision, `${canonicalJson(restored)}\n`);
+  publishManagedRecord('provision-restored', `${canonicalJson(restored)}\n`);
   const verified = fullReadback({ kubeconfigPath, tangAttestations, authorityPublicKey });
   if (verified.hostEncryption.observedDigest !== rollbackReceipt.encryptedMarkerDigest) {
     stop('P2_HOST_RESTORE_READBACK_FAILED');
@@ -1949,6 +1957,12 @@ try {
   if (kubectlOverrideForbidden) stop('P2_HOST_KUBECTL_OVERRIDE_FORBIDDEN');
   const handler = handlers.get(mode);
   if (handler === undefined) stop('P2_HOST_COMMAND_INVALID');
+  if (mode !== 'plan') {
+    assertNativeLaunchMarker();
+    assertInitialHostMountNamespace();
+    assertNativeProcessHardening();
+    verifyNativeHostMountNamespace();
+  }
   const result = handler();
   process.stdout.write(`${JSON.stringify(result)}\n`);
 } catch (error) {

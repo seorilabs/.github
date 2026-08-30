@@ -60,8 +60,8 @@ function defaultState() {
     filesystem: ['complete', 'drift'].includes(scenario),
     mounted: ['complete', 'drift'].includes(scenario),
     bootId: '11111111-1111-4111-8111-111111111111',
-    tangInstalled: scenario !== 'tang-missing',
-    tangActive: scenario !== 'tang-missing',
+    tangInstalled: !['tang-missing', 'tang-boundary-failure'].includes(scenario),
+    tangActive: !['tang-missing', 'tang-boundary-failure'].includes(scenario),
     unlockerEnabled: scenario !== 'unlocker-masked',
     unlockerActive: false,
   };
@@ -100,8 +100,52 @@ function isCommand(path, expected) {
   return executable === path && args.join('\0') === expected.join('\0');
 }
 
+if (isCommand('/usr/local/libexec/seori-auth-native', ['fixture-process-hardening-readback'])) {
+  if (scenario === 'unhardened-process') process.exit(65);
+  output({
+    state: 'PROCESS_HARDENING_OK',
+    coreSoft: 0,
+    coreHard: 0,
+    dumpable: 0,
+    noNewPrivileges: 1,
+  });
+}
+
 if (executable === '/usr/local/libexec/seorilabs-p2-host-fs-boundary') {
   const operation = args[0];
+  if (operation === 'verify-namespace' && args.length === 1) {
+    output({ operation, verified: true });
+  }
+  if (operation === 'publish-record') {
+    const records = {
+      'crypttab-before': '/var/backups/seori-auth/fleet-p2-host-v1/crypttab.before',
+      'fstab-before': '/var/backups/seori-auth/fleet-p2-host-v1/fstab.before',
+      'pre-provision': '/var/backups/seori-auth/fleet-p2-host-v1/pre-provision.json',
+      'crypttab-managed': '/var/backups/seori-auth/fleet-p2-host-v1/crypttab.before.managed',
+      'fstab-managed': '/var/backups/seori-auth/fleet-p2-host-v1/fstab.before.managed',
+      marker: '/var/lib/seori-auth/.seorilabs-host-encrypted-mount.json',
+      provision: '/var/backups/seori-auth/fleet-p2-host-v1/provision.json',
+      reboot: '/var/backups/seori-auth/fleet-p2-host-v1/reboot.json',
+      rollback: '/var/backups/seori-auth/fleet-p2-host-v1/rollback.json',
+      'provision-restored': '/var/backups/seori-auth/fleet-p2-host-v1/provision.restored.json',
+      'reboot-restored': '/var/backups/seori-auth/fleet-p2-host-v1/reboot.restored.json',
+      'tang-socket-override': '/etc/systemd/system/tangd.socket.d/seorilabs.conf',
+    };
+    const identifier = args[1];
+    const canonical = records[identifier];
+    if (args.length !== 2 || canonical === undefined) process.exit(64);
+    if (scenario === 'tang-boundary-failure' && identifier === 'tang-socket-override') {
+      process.exit(70);
+    }
+    const target = fixturePath(canonical);
+    if (existsSync(target)) process.exit(73);
+    const content = readFileSync(0);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content, {
+      mode: identifier === 'marker' ? 0o440 : identifier === 'tang-socket-override' ? 0o644 : 0o600,
+    });
+    output({ operation, record: identifier, sizeBytes: content.length });
+  }
   if (operation === 'create-source') {
     if (state.source) process.exit(73);
     state.source = true;

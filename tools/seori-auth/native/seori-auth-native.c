@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +21,8 @@
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 #elif defined(__APPLE__)
+#include <CommonCrypto/CommonDigest.h>
+#include <mach-o/dyld.h>
 #include <sys/ptrace.h>
 #include <sys/un.h>
 #endif
@@ -33,6 +36,20 @@ extern char **environ;
 #define SECRET_MANAGER_CHILD "/opt/seori-auth/runtime/secret-manager-child.mjs"
 #define PROJECTED_TOKEN_CANARY_CHILD "/opt/seori-auth/runtime/projected-token-canary.mjs"
 #define PROCESS_HARDENING_CANARY_CHILD "/opt/seori-auth/runtime/process-hardening-canary.mjs"
+#define NATIVE_LAUNCH_MARKER "SEORI_AUTH_NATIVE_LAUNCHED"
+#define PROCESS_BOUNDARY_FD_MARKER "SEORI_AUTH_PROCESS_BOUNDARY_FD"
+#define PROCESS_BOUNDARY_FD 5
+#define LOCAL_CONTROLLER_FD_MARKER "SEORI_AUTH_LOCAL_CONTROLLER_FD"
+#define LOCAL_CONTROLLER_FD 6
+#define LOCAL_SOURCE_RECEIPT_FD_MARKER "SEORI_AUTH_LOCAL_SOURCE_RECEIPT_FD"
+#define LOCAL_SOURCE_RECEIPT_FD 7
+#define LOCAL_SOURCE_SHA_MARKER "SEORI_AUTH_LOCAL_SOURCE_SHA"
+#define LOCAL_CONTROLLER_SHA256_MARKER "SEORI_AUTH_LOCAL_CONTROLLER_SHA256"
+#define LOCAL_SOURCE_RECEIPT_SHA256_MARKER "SEORI_AUTH_LOCAL_SOURCE_RECEIPT_SHA256"
+#define LOCAL_LAUNCHER_LEAF "seori-auth-native"
+#define LOCAL_MODULE_LEAF "seorilabs-p2-process-hardening.node"
+#define LOCAL_SOURCE_RECEIPT_LEAF "stage1-local-source.json"
+#define LOCAL_CONTROLLER_RELATIVE "scripts/fleet/provision-p2-stage1.mjs"
 #define SECRET_MANAGER_CONFIG_ARG "--config=/etc/seori-auth/secret-access.json"
 #define SECRET_MANAGER_RESOURCE_PREFIX "--resource=projects/"
 
@@ -131,6 +148,9 @@ static void harden_process(void) {
 #else
 #error "seori-auth-native supports only Linux and macOS"
 #endif
+  if (setenv(NATIVE_LAUNCH_MARKER, "1", 1) != 0) {
+    fail_closed("unable to attest native launch ancestry");
+  }
 }
 
 static int peer_credential(void) {
@@ -270,6 +290,366 @@ static int launch(int argc, char **argv) {
   return 126;
 }
 
+#if defined(__APPLE__)
+static int protected_descriptor(int descriptor) {
+  if (descriptor < 0) {
+    fail_closed("local process boundary descriptor open failed");
+  }
+  if (descriptor >= 10) return descriptor;
+  int protected = fcntl(descriptor, F_DUPFD_CLOEXEC, 10);
+  if (protected < 0 || close(descriptor) != 0) {
+    if (protected >= 0) (void)close(protected);
+    fail_closed("local process boundary descriptor protection failed");
+  }
+  return protected;
+}
+
+static void require_local_directory(int descriptor, uid_t user, mode_t exact_mode) {
+  struct stat entry;
+  if (
+      descriptor < 0 || fstat(descriptor, &entry) != 0 || !S_ISDIR(entry.st_mode) ||
+      entry.st_uid != user || (entry.st_mode & 07777) != exact_mode) {
+    fail_closed("local process boundary directory is invalid");
+  }
+}
+
+static void require_safe_home_component(int descriptor, uid_t user) {
+  struct stat entry;
+  if (
+      descriptor < 0 || fstat(descriptor, &entry) != 0 || !S_ISDIR(entry.st_mode) ||
+      (entry.st_uid != 0 && entry.st_uid != user) || (entry.st_mode & 0022) != 0) {
+    fail_closed("local process boundary home path is invalid");
+  }
+}
+
+static int open_safe_home_directory(const char *home, uid_t user) {
+  if (home == NULL || home[0] != '/' || strlen(home) >= PATH_MAX) {
+    fail_closed("local process boundary home is invalid");
+  }
+  int descriptor = protected_descriptor(
+      open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+  require_safe_home_component(descriptor, user);
+  const char *cursor = home + 1;
+  while (*cursor != '\0') {
+    const char *separator = strchr(cursor, '/');
+    size_t length = separator == NULL ? strlen(cursor) : (size_t)(separator - cursor);
+    char component[NAME_MAX + 1];
+    if (length == 0 || length > NAME_MAX ||
+        (length == 1 && cursor[0] == '.') ||
+        (length == 2 && cursor[0] == '.' && cursor[1] == '.')) {
+      (void)close(descriptor);
+      fail_closed("local process boundary home component is invalid");
+    }
+    (void)memcpy(component, cursor, length);
+    component[length] = '\0';
+    int next = protected_descriptor(openat(
+        descriptor, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+    require_safe_home_component(next, user);
+    if (close(descriptor) != 0) {
+      (void)close(next);
+      fail_closed("local process boundary home component close failed");
+    }
+    descriptor = next;
+    if (separator == NULL) break;
+    cursor = separator + 1;
+    if (*cursor == '\0') {
+      (void)close(descriptor);
+      fail_closed("local process boundary home has a trailing separator");
+    }
+  }
+  struct stat home_entry;
+  if (fstat(descriptor, &home_entry) != 0 || home_entry.st_uid != user) {
+    (void)close(descriptor);
+    fail_closed("local process boundary home owner is invalid");
+  }
+  return descriptor;
+}
+
+static int open_local_directory(
+    int parent, const char *leaf, uid_t user, mode_t exact_mode) {
+  int descriptor = protected_descriptor(openat(
+      parent, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+  require_local_directory(descriptor, user, exact_mode);
+  return descriptor;
+}
+
+static int open_safe_local_ancestor(int parent, const char *leaf, uid_t user) {
+  int descriptor = protected_descriptor(openat(
+      parent, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+  require_safe_home_component(descriptor, user);
+  return descriptor;
+}
+
+static void current_home(char output[PATH_MAX]) {
+#if defined(SEORI_AUTH_LOCAL_BOUNDARY_TEST_HOME)
+  const char *home = SEORI_AUTH_LOCAL_BOUNDARY_TEST_HOME;
+#else
+  struct passwd password;
+  struct passwd *result = NULL;
+  char buffer[16384];
+  if (getpwuid_r(geteuid(), &password, buffer, sizeof(buffer), &result) != 0 ||
+      result == NULL || result->pw_dir == NULL) {
+    fail_closed("unable to resolve local process boundary home");
+  }
+  const char *home = result->pw_dir;
+#endif
+  int length = snprintf(output, PATH_MAX, "%s", home);
+  if (length <= 1 || length >= PATH_MAX || output[0] != '/') {
+    fail_closed("local process boundary home is invalid");
+  }
+}
+
+static void expected_local_execution_paths(
+    const char *home, const char *source_sha,
+    char node[PATH_MAX], char controller[PATH_MAX]) {
+#if defined(SEORI_AUTH_LOCAL_BOUNDARY_TEST_NODE)
+  const char *expected_node = SEORI_AUTH_LOCAL_BOUNDARY_TEST_NODE;
+#else
+  char node_value[PATH_MAX];
+  int node_value_length = snprintf(
+      node_value, sizeof(node_value),
+      "%s/.nvm/versions/node/v24.16.0/bin/node", home);
+  if (node_value_length <= 1 || node_value_length >= (int)sizeof(node_value)) {
+    fail_closed("local Node path construction failed");
+  }
+  const char *expected_node = node_value;
+#endif
+  int node_length = snprintf(node, PATH_MAX, "%s", expected_node);
+  int controller_length = snprintf(
+      controller, PATH_MAX,
+      "%s/.local/share/seorilabs/fleet-p2/%s/%s",
+      home, source_sha, LOCAL_CONTROLLER_RELATIVE);
+  if (
+      node_length <= 1 || node_length >= PATH_MAX || node[0] != '/' ||
+      controller_length <= 1 || controller_length >= PATH_MAX || controller[0] != '/') {
+    fail_closed("local controller execution path is invalid");
+  }
+}
+
+static int lowercase_hex(const char *value, size_t length) {
+  if (value == NULL || strlen(value) != length) return 0;
+  for (size_t index = 0; index < length; index += 1) {
+    if (!((value[index] >= '0' && value[index] <= '9') ||
+          (value[index] >= 'a' && value[index] <= 'f'))) return 0;
+  }
+  return 1;
+}
+
+static void sha256_descriptor(int descriptor, char output[65]) {
+  CC_SHA256_CTX context;
+  unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+  unsigned char buffer[64 * 1024];
+  off_t offset = 0;
+  if (CC_SHA256_Init(&context) != 1) {
+    fail_closed("local process boundary digest initialization failed");
+  }
+  for (;;) {
+    ssize_t length = pread(descriptor, buffer, sizeof(buffer), offset);
+    if (length < 0) {
+      fail_closed("local process boundary artifact read failed");
+    }
+    if (length == 0) break;
+    if (CC_SHA256_Update(&context, buffer, (CC_LONG)length) != 1) {
+      fail_closed("local process boundary digest update failed");
+    }
+    offset += length;
+  }
+  (void)memset(buffer, 0, sizeof(buffer));
+  if (CC_SHA256_Final(digest, &context) != 1) {
+    fail_closed("local process boundary digest finalization failed");
+  }
+  static const char alphabet[] = "0123456789abcdef";
+  for (size_t index = 0; index < sizeof(digest); index += 1) {
+    output[index * 2] = alphabet[digest[index] >> 4];
+    output[(index * 2) + 1] = alphabet[digest[index] & 0x0f];
+  }
+  output[64] = '\0';
+  (void)memset(digest, 0, sizeof(digest));
+  (void)memset(&context, 0, sizeof(context));
+}
+
+static int running_executable_descriptor(void) {
+  char executable[PATH_MAX];
+  char canonical[PATH_MAX];
+  uint32_t size = (uint32_t)sizeof(executable);
+  if (_NSGetExecutablePath(executable, &size) != 0 || realpath(executable, canonical) == NULL) {
+    fail_closed("unable to resolve running local launcher");
+  }
+  return protected_descriptor(open(canonical, O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
+}
+
+static void require_local_regular_file(
+    int descriptor, uid_t user, mode_t exact_mode, off_t maximum, struct stat *entry) {
+  if (
+      descriptor < 0 || fstat(descriptor, entry) != 0 || !S_ISREG(entry->st_mode) ||
+      entry->st_uid != user || (entry->st_mode & 07777) != exact_mode ||
+      entry->st_nlink != 1 || entry->st_size < 1 || entry->st_size > maximum) {
+    fail_closed("local process boundary artifact identity is invalid");
+  }
+}
+
+static void bind_inherited_descriptor(
+    int source, int target, const struct stat *expected, const char *marker,
+    const char *marker_value) {
+  if (dup2(source, target) != target) {
+    fail_closed("unable to bind local process boundary descriptor");
+  }
+  int descriptor_flags = fcntl(target, F_GETFD);
+  struct stat actual;
+  if (
+      descriptor_flags < 0 ||
+      fcntl(target, F_SETFD, descriptor_flags & ~FD_CLOEXEC) != 0 ||
+      fstat(target, &actual) != 0 || actual.st_dev != expected->st_dev ||
+      actual.st_ino != expected->st_ino || actual.st_size != expected->st_size ||
+      setenv(marker, marker_value, 1) != 0) {
+    fail_closed("local process boundary descriptor readback failed");
+  }
+}
+
+static void close_local_descriptor(int descriptor, int *failure) {
+  if (descriptor >= 0 && close(descriptor) != 0) *failure = 1;
+}
+
+static void bind_local_process_boundary(
+    const char *home, const char *source_sha,
+    const char *controller_sha256, const char *receipt_sha256) {
+  const uid_t user = geteuid();
+  int home_directory = open_safe_home_directory(home, user);
+  int config_directory = protected_descriptor(openat(
+      home_directory, ".config", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+  require_safe_home_component(config_directory, user);
+  int credential_directory = open_local_directory(config_directory, "seorilabs", user, 0700);
+  int binary_directory = open_local_directory(credential_directory, "bin", user, 0700);
+  int local_directory = open_safe_local_ancestor(home_directory, ".local", user);
+  int share_directory = open_safe_local_ancestor(local_directory, "share", user);
+  int runtime_directory = open_local_directory(share_directory, "seorilabs", user, 0700);
+  int fleet_directory = open_local_directory(runtime_directory, "fleet-p2", user, 0700);
+  int source_directory = open_local_directory(fleet_directory, source_sha, user, 0700);
+  int scripts_directory = open_local_directory(source_directory, "scripts", user, 0700);
+  int controller_directory = open_local_directory(scripts_directory, "fleet", user, 0700);
+
+  int installed_launcher = protected_descriptor(openat(
+      binary_directory, LOCAL_LAUNCHER_LEAF, O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
+  int running_launcher = running_executable_descriptor();
+  int module = protected_descriptor(openat(
+      binary_directory, LOCAL_MODULE_LEAF, O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
+  int controller = protected_descriptor(openat(
+      controller_directory, "provision-p2-stage1.mjs",
+      O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
+  int receipt = protected_descriptor(openat(
+      source_directory, LOCAL_SOURCE_RECEIPT_LEAF,
+      O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
+  struct stat installed_entry;
+  struct stat running_entry;
+  struct stat module_entry;
+  struct stat controller_entry;
+  struct stat receipt_entry;
+  require_local_regular_file(
+      installed_launcher, user, 0500, 8 * 1024 * 1024, &installed_entry);
+  require_local_regular_file(
+      running_launcher, user, 0500, 8 * 1024 * 1024, &running_entry);
+  require_local_regular_file(module, user, 0400, 8 * 1024 * 1024, &module_entry);
+  require_local_regular_file(controller, user, 0400, 8 * 1024 * 1024, &controller_entry);
+  require_local_regular_file(receipt, user, 0400, 64 * 1024, &receipt_entry);
+  if (
+      installed_entry.st_dev != running_entry.st_dev ||
+      installed_entry.st_ino != running_entry.st_ino) {
+    fail_closed("running local launcher does not match the installed launcher");
+  }
+  char actual_controller_sha256[65];
+  char actual_receipt_sha256[65];
+  sha256_descriptor(controller, actual_controller_sha256);
+  sha256_descriptor(receipt, actual_receipt_sha256);
+  if (
+      strcmp(actual_controller_sha256, controller_sha256) != 0 ||
+      strcmp(actual_receipt_sha256, receipt_sha256) != 0) {
+    fail_closed("local process boundary artifact digest is invalid");
+  }
+  (void)memset(actual_controller_sha256, 0, sizeof(actual_controller_sha256));
+  (void)memset(actual_receipt_sha256, 0, sizeof(actual_receipt_sha256));
+
+  bind_inherited_descriptor(
+      module, PROCESS_BOUNDARY_FD, &module_entry, PROCESS_BOUNDARY_FD_MARKER, "5");
+  bind_inherited_descriptor(
+      controller, LOCAL_CONTROLLER_FD, &controller_entry, LOCAL_CONTROLLER_FD_MARKER, "6");
+  bind_inherited_descriptor(
+      receipt, LOCAL_SOURCE_RECEIPT_FD, &receipt_entry,
+      LOCAL_SOURCE_RECEIPT_FD_MARKER, "7");
+  if (
+      setenv(LOCAL_SOURCE_SHA_MARKER, source_sha, 1) != 0 ||
+      setenv(LOCAL_CONTROLLER_SHA256_MARKER, controller_sha256, 1) != 0 ||
+      setenv(LOCAL_SOURCE_RECEIPT_SHA256_MARKER, receipt_sha256, 1) != 0) {
+    fail_closed("local process boundary source binding failed");
+  }
+
+  int close_failure = 0;
+  close_local_descriptor(home_directory, &close_failure);
+  close_local_descriptor(config_directory, &close_failure);
+  close_local_descriptor(credential_directory, &close_failure);
+  close_local_descriptor(binary_directory, &close_failure);
+  close_local_descriptor(local_directory, &close_failure);
+  close_local_descriptor(share_directory, &close_failure);
+  close_local_descriptor(runtime_directory, &close_failure);
+  close_local_descriptor(fleet_directory, &close_failure);
+  close_local_descriptor(source_directory, &close_failure);
+  close_local_descriptor(scripts_directory, &close_failure);
+  close_local_descriptor(controller_directory, &close_failure);
+  close_local_descriptor(installed_launcher, &close_failure);
+  close_local_descriptor(running_launcher, &close_failure);
+  close_local_descriptor(module, &close_failure);
+  close_local_descriptor(controller, &close_failure);
+  close_local_descriptor(receipt, &close_failure);
+  if (close_failure != 0) {
+    fail_closed("local process boundary descriptor close failed");
+  }
+}
+
+static const char *option_value(const char *argument, const char *prefix) {
+  size_t prefix_length = strlen(prefix);
+  if (strncmp(argument, prefix, prefix_length) != 0) return NULL;
+  return argument + prefix_length;
+}
+
+static int launch_local_controller(int argc, char **argv) {
+  const char *source_sha = argc >= 6 ? option_value(argv[2], "--source-sha=") : NULL;
+  const char *controller_sha256 =
+      argc >= 6 ? option_value(argv[3], "--controller-sha256=") : NULL;
+  const char *receipt_sha256 =
+      argc >= 6 ? option_value(argv[4], "--receipt-sha256=") : NULL;
+  if (
+      argc < 8 || !lowercase_hex(source_sha, 40) ||
+      !lowercase_hex(controller_sha256, 64) || !lowercase_hex(receipt_sha256, 64) ||
+      strcmp(argv[5], "--") != 0) {
+    fail_closed("launch-local-controller source binding is invalid");
+  }
+  char home[PATH_MAX];
+  char expected_node[PATH_MAX];
+  char expected_controller[PATH_MAX];
+  current_home(home);
+  expected_local_execution_paths(home, source_sha, expected_node, expected_controller);
+  if (
+      strcmp(argv[6], expected_node) != 0 || strcmp(argv[7], expected_controller) != 0) {
+    fail_closed("launch-local-controller requires the exact Node and runtime controller paths");
+  }
+  harden_process();
+  bind_local_process_boundary(home, source_sha, controller_sha256, receipt_sha256);
+  execve(argv[6], &argv[6], environ);
+  (void)close(PROCESS_BOUNDARY_FD);
+  (void)close(LOCAL_CONTROLLER_FD);
+  (void)close(LOCAL_SOURCE_RECEIPT_FD);
+  fail_closed(errno == ENOENT ? "trusted local controller does not exist" :
+      "trusted local controller failed to start");
+  return 126;
+}
+#else
+static int launch_local_controller(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+  fail_closed("launch-local-controller is available only on macOS");
+  return 126;
+}
+#endif
+
 static void bind_projected_identity_token(void) {
 #if !defined(__linux__) || !defined(SYS_openat2)
   fail_closed("secure projected token open requires Linux openat2");
@@ -387,6 +767,9 @@ int main(int argc, char **argv) {
   }
   if (argc >= 2 && strcmp(argv[1], "launch") == 0) {
     return launch(argc, argv);
+  }
+  if (argc >= 2 && strcmp(argv[1], "launch-local-controller") == 0) {
+    return launch_local_controller(argc, argv);
   }
   if (argc >= 2 && strcmp(argv[1], "launch-with-projected-token") == 0) {
     return launch_with_projected_token(argc, argv);

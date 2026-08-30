@@ -12,19 +12,42 @@
 
 #if defined(__linux__)
 #include <linux/fs.h>
+#include <linux/magic.h>
 #include <sys/syscall.h>
+#include <sys/vfs.h>
 #include <sys/wait.h>
 #endif
 
+#if defined(SEORILABS_P2_TEST_ROOT)
+#define SOURCE_PARENT SEORILABS_P2_TEST_ROOT "/data/seori-auth"
+#define ROLLBACK_PARENT SEORILABS_P2_TEST_ROOT "/data/seori-auth/rollback"
+#define BACKUP_PARENT SEORILABS_P2_TEST_ROOT "/var/backups/seori-auth/fleet-p2-host-v1"
+#define MARKER_PARENT SEORILABS_P2_TEST_ROOT "/var/lib/seori-auth"
+#define ETC_PARENT SEORILABS_P2_TEST_ROOT "/etc"
+#define SYSTEMD_SYSTEM_PARENT SEORILABS_P2_TEST_ROOT "/etc/systemd/system"
+#define VAR_BACKUPS_PARENT SEORILABS_P2_TEST_ROOT "/var/backups"
+#define VAR_LIB_PARENT SEORILABS_P2_TEST_ROOT "/var/lib"
+#else
 #define SOURCE_PARENT "/data/seori-auth"
-#define SOURCE_LEAF "seori-auth-state.luks"
 #define ROLLBACK_PARENT "/data/seori-auth/rollback"
-#define ROLLBACK_LEAF "seori-auth-state.luks"
 #define BACKUP_PARENT "/var/backups/seori-auth/fleet-p2-host-v1"
+#define MARKER_PARENT "/var/lib/seori-auth"
+#define ETC_PARENT "/etc"
+#define SYSTEMD_SYSTEM_PARENT "/etc/systemd/system"
+#define VAR_BACKUPS_PARENT "/var/backups"
+#define VAR_LIB_PARENT "/var/lib"
+#endif
+
+#define SOURCE_LEAF "seori-auth-state.luks"
+#define ROLLBACK_LEAF "seori-auth-state.luks"
 #define HEADER_LEAF "luks-header.bin"
 #define SOURCE_PATH SOURCE_PARENT "/" SOURCE_LEAF
 #define SOURCE_SIZE ((off_t)17179869184LL)
 #define CRYPTSETUP "/usr/sbin/cryptsetup"
+#define HOST_RECORD_MAX_SIZE ((size_t)524288)
+#define STAGE1_ARTIFACT_MAX_SIZE ((size_t)4194304)
+#define STAGE1_EVIDENCE_MAX_SIZE ((size_t)1048576)
+#define TRUST_ANCHOR_MAX_SIZE ((size_t)16384)
 
 static void fail_closed(const char *reason) {
   (void)fprintf(stderr, "seorilabs-p2-host-fs-boundary: %s\n", reason);
@@ -32,21 +55,199 @@ static void fail_closed(const char *reason) {
 }
 
 #if defined(__linux__) && defined(SYS_renameat2)
+static size_t read_proc_identity(const char *path, char *buffer, size_t capacity) {
+  int descriptor = open(path, O_RDONLY | O_CLOEXEC);
+  if (descriptor < 0 || capacity < 2) fail_closed("host PID 1 identity read failed");
+  size_t total = 0;
+  while (total < capacity - 1) {
+    ssize_t count = read(descriptor, buffer + total, capacity - 1 - total);
+    if (count < 0 && errno == EINTR) continue;
+    if (count < 0) {
+      (void)close(descriptor);
+      fail_closed("host PID 1 identity read failed");
+    }
+    if (count == 0) break;
+    total += (size_t)count;
+  }
+  unsigned char overflow;
+  ssize_t extra;
+  do {
+    extra = read(descriptor, &overflow, 1);
+  } while (extra < 0 && errno == EINTR);
+  if (extra != 0 || close(descriptor) != 0) {
+    fail_closed("host PID 1 identity is invalid");
+  }
+  buffer[total] = '\0';
+  return total;
+}
+
+static void require_initial_mount_namespace(void) {
+  int initial = open("/proc/1/ns/mnt", O_RDONLY | O_CLOEXEC);
+  int current = open("/proc/self/ns/mnt", O_RDONLY | O_CLOEXEC);
+  int root = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  int initial_root = open("/proc/1/root", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  struct stat initial_entry;
+  struct stat current_entry;
+  struct stat root_entry;
+  struct stat initial_root_entry;
+  struct statfs initial_filesystem;
+  struct statfs current_filesystem;
+  if (initial < 0 || current < 0 || root < 0 || initial_root < 0 ||
+      fstat(initial, &initial_entry) != 0 ||
+      fstat(current, &current_entry) != 0 || fstatfs(initial, &initial_filesystem) != 0 ||
+      fstatfs(current, &current_filesystem) != 0 ||
+      fstat(root, &root_entry) != 0 || fstat(initial_root, &initial_root_entry) != 0 ||
+      initial_filesystem.f_type != NSFS_MAGIC || current_filesystem.f_type != NSFS_MAGIC ||
+      initial_entry.st_dev != current_entry.st_dev || initial_entry.st_ino != current_entry.st_ino ||
+      root_entry.st_dev != initial_root_entry.st_dev || root_entry.st_ino != initial_root_entry.st_ino) {
+    if (initial >= 0) (void)close(initial);
+    if (current >= 0) (void)close(current);
+    if (root >= 0) (void)close(root);
+    if (initial_root >= 0) (void)close(initial_root);
+    fail_closed("initial host mount namespace is required");
+  }
+  int close_failure = 0;
+  if (close(initial) != 0) close_failure = 1;
+  if (close(current) != 0) close_failure = 1;
+  if (close(root) != 0) close_failure = 1;
+  if (close(initial_root) != 0) close_failure = 1;
+  if (close_failure != 0) {
+    fail_closed("mount namespace descriptor close failed");
+  }
+  char command[32];
+  char control_group[8192];
+  size_t command_length = read_proc_identity("/proc/1/comm", command, sizeof(command));
+  (void)read_proc_identity("/proc/1/cgroup", control_group, sizeof(control_group));
+  if (
+      command_length != strlen("systemd\n") || strcmp(command, "systemd\n") != 0 ||
+      strstr(control_group, "docker") != NULL || strstr(control_group, "kubepods") != NULL ||
+      strstr(control_group, "containerd") != NULL || strstr(control_group, "libpod") != NULL ||
+      strstr(control_group, "lxc") != NULL) {
+    fail_closed("initial host PID 1 identity is required");
+  }
+}
+
 static int renameat2_exact(
     int old_dir, const char *old_name, int new_dir, const char *new_name,
     unsigned int flags) {
   return (int)syscall(SYS_renameat2, old_dir, old_name, new_dir, new_name, flags);
 }
 
-static int open_trusted_directory(const char *path) {
-  int descriptor = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+static void require_trusted_directory_descriptor(int descriptor) {
   struct stat entry;
   if (descriptor < 0 || fstat(descriptor, &entry) != 0 || !S_ISDIR(entry.st_mode) ||
       entry.st_uid != 0 || (entry.st_mode & 0022) != 0) {
-    if (descriptor >= 0) (void)close(descriptor);
     fail_closed("trusted directory boundary is invalid");
   }
+}
+
+static int open_trusted_directory(const char *path) {
+  if (path == NULL || path[0] != '/' || strlen(path) >= PATH_MAX) {
+    fail_closed("trusted directory path is invalid");
+  }
+  int descriptor = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (descriptor < 0) fail_closed("host root directory boundary is invalid");
+  require_trusted_directory_descriptor(descriptor);
+  const char *cursor = path + 1;
+  while (*cursor != '\0') {
+    const char *separator = strchr(cursor, '/');
+    size_t length = separator == NULL ? strlen(cursor) : (size_t)(separator - cursor);
+    char component[NAME_MAX + 1];
+    if (length == 0 || length > NAME_MAX ||
+        (length == 1 && cursor[0] == '.') ||
+        (length == 2 && cursor[0] == '.' && cursor[1] == '.')) {
+      (void)close(descriptor);
+      fail_closed("trusted directory component is invalid");
+    }
+    (void)memcpy(component, cursor, length);
+    component[length] = '\0';
+    int next = openat(
+        descriptor, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (next < 0) {
+      (void)close(descriptor);
+      fail_closed("trusted directory component open failed");
+    }
+    require_trusted_directory_descriptor(next);
+    if (close(descriptor) != 0) {
+      (void)close(next);
+      fail_closed("trusted directory component close failed");
+    }
+    descriptor = next;
+    if (separator == NULL) break;
+    cursor = separator + 1;
+    if (*cursor == '\0') {
+      (void)close(descriptor);
+      fail_closed("trusted directory path has a trailing separator");
+    }
+  }
   return descriptor;
+}
+
+static int open_or_create_trusted_child_directory(
+    int parent, const char *leaf, mode_t mode) {
+  int created = 0;
+  if (mkdirat(parent, leaf, mode) == 0) {
+    created = 1;
+  } else if (errno != EEXIST) {
+    (void)close(parent);
+    fail_closed("managed directory creation failed");
+  }
+  int directory = openat(
+      parent, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  struct stat entry;
+  if (directory < 0 || (created && fchmod(directory, mode) != 0) ||
+      fstat(directory, &entry) != 0 || !S_ISDIR(entry.st_mode) ||
+      entry.st_uid != 0 || entry.st_gid != 0 || (entry.st_mode & 07777) != mode) {
+    if (directory >= 0) (void)close(directory);
+    (void)close(parent);
+    fail_closed("managed directory boundary is invalid");
+  }
+  if ((created && fsync(directory) != 0) || fsync(parent) != 0 || close(parent) != 0) {
+    (void)close(directory);
+    fail_closed("managed directory sync failed");
+  }
+  return directory;
+}
+
+enum record_parent_policy {
+  RECORD_PARENT_EXISTING = 0,
+  RECORD_PARENT_TANG_OVERRIDE = 1,
+  RECORD_PARENT_STAGE1_BACKUP = 2,
+  RECORD_PARENT_TRUST = 3,
+  RECORD_PARENT_TANG_ATTESTATION = 4,
+  RECORD_PARENT_HOST_BACKUP = 5,
+};
+
+static int open_record_directory(int policy, const char *parent) {
+  int directory;
+  if (policy == RECORD_PARENT_EXISTING) return open_trusted_directory(parent);
+  if (policy == RECORD_PARENT_TANG_OVERRIDE) {
+    directory = open_trusted_directory(SYSTEMD_SYSTEM_PARENT);
+    return open_or_create_trusted_child_directory(directory, "tangd.socket.d", 0755);
+  }
+  if (policy == RECORD_PARENT_STAGE1_BACKUP) {
+    directory = open_trusted_directory(VAR_BACKUPS_PARENT);
+    directory = open_or_create_trusted_child_directory(directory, "seori-auth", 0700);
+    return open_or_create_trusted_child_directory(directory, "tang-v1", 0700);
+  }
+  if (policy == RECORD_PARENT_HOST_BACKUP) {
+    directory = open_trusted_directory(VAR_BACKUPS_PARENT);
+    directory = open_or_create_trusted_child_directory(directory, "seori-auth", 0700);
+    return open_or_create_trusted_child_directory(directory, "fleet-p2-host-v1", 0700);
+  }
+  if (policy == RECORD_PARENT_TRUST) {
+    directory = open_trusted_directory(ETC_PARENT);
+    directory = open_or_create_trusted_child_directory(directory, "seorilabs", 0755);
+    return open_or_create_trusted_child_directory(directory, "trust", 0755);
+  }
+  if (policy == RECORD_PARENT_TANG_ATTESTATION) {
+    directory = open_trusted_directory(VAR_LIB_PARENT);
+    directory = open_or_create_trusted_child_directory(directory, "seorilabs", 0700);
+    return open_or_create_trusted_child_directory(
+        directory, "tang-backup-attestations", 0700);
+  }
+  fail_closed("record parent policy is invalid");
+  return -1;
 }
 
 static struct stat open_regular_at(int directory, const char *leaf, int *descriptor) {
@@ -144,6 +345,129 @@ static void copy_descriptor_to_new_file(
 
 static void sync_directory(int descriptor) {
   if (fsync(descriptor) != 0) fail_closed("directory sync failed");
+}
+
+struct record_specification {
+  const char *identifier;
+  const char *parent;
+  const char *leaf;
+  uid_t owner;
+  gid_t group;
+  mode_t mode;
+  size_t max_size;
+  int parent_policy;
+};
+
+static const struct record_specification RECORDS[] = {
+  {"crypttab-before", NULL, "crypttab.before", 0, 0, 0600,
+   HOST_RECORD_MAX_SIZE, RECORD_PARENT_HOST_BACKUP},
+  {"fstab-before", NULL, "fstab.before", 0, 0, 0600,
+   HOST_RECORD_MAX_SIZE, RECORD_PARENT_HOST_BACKUP},
+  {"pre-provision", NULL, "pre-provision.json", 0, 0, 0600,
+   HOST_RECORD_MAX_SIZE, RECORD_PARENT_HOST_BACKUP},
+  {"crypttab-managed", NULL, "crypttab.before.managed", 0, 0, 0600,
+   HOST_RECORD_MAX_SIZE, RECORD_PARENT_HOST_BACKUP},
+  {"fstab-managed", NULL, "fstab.before.managed", 0, 0, 0600,
+   HOST_RECORD_MAX_SIZE, RECORD_PARENT_HOST_BACKUP},
+  {"marker", MARKER_PARENT, ".seorilabs-host-encrypted-mount.json", 0, 65532, 0440,
+   HOST_RECORD_MAX_SIZE, RECORD_PARENT_EXISTING},
+  {"provision", NULL, "provision.json", 0, 0, 0600,
+   HOST_RECORD_MAX_SIZE, RECORD_PARENT_HOST_BACKUP},
+  {"reboot", NULL, "reboot.json", 0, 0, 0600,
+   HOST_RECORD_MAX_SIZE, RECORD_PARENT_HOST_BACKUP},
+  {"rollback", NULL, "rollback.json", 0, 0, 0600,
+   HOST_RECORD_MAX_SIZE, RECORD_PARENT_HOST_BACKUP},
+  {"provision-restored", NULL, "provision.restored.json", 0, 0, 0600,
+   HOST_RECORD_MAX_SIZE, RECORD_PARENT_HOST_BACKUP},
+  {"reboot-restored", NULL, "reboot.restored.json", 0, 0, 0600,
+   HOST_RECORD_MAX_SIZE, RECORD_PARENT_HOST_BACKUP},
+  {"tang-socket-override", NULL, "seorilabs.conf", 0, 0, 0644,
+   HOST_RECORD_MAX_SIZE, RECORD_PARENT_TANG_OVERRIDE},
+  {"backup-artifact-rpi4001", NULL, "rpi4001.server-keys.seori-aes256gcm", 0, 0, 0600,
+   STAGE1_ARTIFACT_MAX_SIZE, RECORD_PARENT_STAGE1_BACKUP},
+  {"live-evidence-rpi4001", NULL, "rpi4001.live-evidence.json", 0, 0, 0600,
+   STAGE1_EVIDENCE_MAX_SIZE, RECORD_PARENT_STAGE1_BACKUP},
+  {"backup-artifact-seori-m6-01", NULL, "seori-m6-01.server-keys.seori-aes256gcm", 0, 0, 0600,
+   STAGE1_ARTIFACT_MAX_SIZE, RECORD_PARENT_STAGE1_BACKUP},
+  {"live-evidence-seori-m6-01", NULL, "seori-m6-01.live-evidence.json", 0, 0, 0600,
+   STAGE1_EVIDENCE_MAX_SIZE, RECORD_PARENT_STAGE1_BACKUP},
+  {"trust-anchor", NULL, "credential-backup-attestor.ed25519.pem", 0, 0, 0444,
+   TRUST_ANCHOR_MAX_SIZE, RECORD_PARENT_TRUST},
+  {"tang-attestation-rpi4001", NULL, "rpi4001.json", 0, 0, 0400,
+   STAGE1_EVIDENCE_MAX_SIZE, RECORD_PARENT_TANG_ATTESTATION},
+  {"tang-attestation-seori-m6-01", NULL, "seori-m6-01.json", 0, 0, 0400,
+   STAGE1_EVIDENCE_MAX_SIZE, RECORD_PARENT_TANG_ATTESTATION},
+};
+
+static const struct record_specification *record_specification(const char *identifier) {
+  size_t count = sizeof(RECORDS) / sizeof(RECORDS[0]);
+  for (size_t index = 0; index < count; index += 1) {
+    if (strcmp(identifier, RECORDS[index].identifier) == 0) return &RECORDS[index];
+  }
+  fail_closed("record identifier is not allowlisted");
+  return NULL;
+}
+
+static int publish_record(const char *identifier) {
+  const struct record_specification *record = record_specification(identifier);
+  int directory = open_record_directory(record->parent_policy, record->parent);
+  struct stat existing;
+  if (fstatat(directory, record->leaf, &existing, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT) {
+    fail_closed("record destination refused");
+  }
+  char temporary[96];
+  int temporary_length = snprintf(
+      temporary, sizeof(temporary), ".seorilabs-p2-record.%ld.tmp", (long)getpid());
+  if (temporary_length <= 0 || (size_t)temporary_length >= sizeof(temporary)) {
+    fail_closed("record staging name failed");
+  }
+  int target = openat(
+      directory, temporary,
+      O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  if (target < 0) fail_closed("record staging create failed");
+  unsigned char buffer[8192];
+  size_t total = 0;
+  for (;;) {
+    ssize_t count = read(STDIN_FILENO, buffer, sizeof(buffer));
+    if (count < 0 && errno == EINTR) continue;
+    if (count < 0) fail_closed("record input read failed");
+    if (count == 0) break;
+    if ((size_t)count > record->max_size - total) fail_closed("record input is too large");
+    ssize_t written = 0;
+    while (written < count) {
+      ssize_t result = write(target, buffer + written, (size_t)(count - written));
+      if (result < 0 && errno == EINTR) continue;
+      if (result <= 0) fail_closed("record staging write failed");
+      written += result;
+    }
+    total += (size_t)count;
+  }
+  struct stat target_entry;
+  if (fchown(target, record->owner, record->group) != 0 ||
+      fchmod(target, record->mode) != 0 || fsync(target) != 0 ||
+      fstat(target, &target_entry) != 0 || !S_ISREG(target_entry.st_mode) ||
+      target_entry.st_uid != record->owner || target_entry.st_gid != record->group ||
+      (target_entry.st_mode & 07777) != record->mode || target_entry.st_size != (off_t)total ||
+      target_entry.st_nlink != 1) {
+    fail_closed("record staging metadata failed");
+  }
+  require_same_entry(directory, temporary, &target_entry);
+  if (linkat(directory, temporary, directory, record->leaf, 0) != 0) {
+    fail_closed("record no-clobber publish failed");
+  }
+  require_same_entry(directory, record->leaf, &target_entry);
+  if (unlinkat(directory, temporary, 0) != 0) fail_closed("record staging unlink failed");
+  if (fstatat(directory, temporary, &existing, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT ||
+      fstat(target, &target_entry) != 0 || target_entry.st_nlink != 1) {
+    fail_closed("record publish readback failed");
+  }
+  require_same_entry(directory, record->leaf, &target_entry);
+  sync_directory(directory);
+  if (close(target) != 0 || close(directory) != 0) fail_closed("record close failed");
+  (void)printf(
+      "{\"operation\":\"publish-record\",\"record\":\"%s\",\"sizeBytes\":%zu}\n",
+      record->identifier, total);
+  return 0;
 }
 
 static int create_source(void) {
@@ -329,7 +653,7 @@ static int config_transition(int argc, char **argv, int transition) {
   if (!descriptor_is_private_backup(3) || !descriptor_is_private_backup(4)) {
     fail_closed("configuration backup descriptor is invalid");
   }
-  int directory = open_trusted_directory("/etc");
+  int directory = open_trusted_directory(ETC_PARENT);
   struct stat target_entry;
   struct stat swap_entry;
   int target_present = entry_exists(directory, target, &target_entry);
@@ -456,6 +780,12 @@ int main(int argc, char **argv) {
 #if defined(__linux__) && defined(SYS_renameat2)
   (void)umask(0077);
   if (geteuid() != 0 || argc < 2) fail_closed("root and exact operation are required");
+  require_initial_mount_namespace();
+  if (strcmp(argv[1], "verify-namespace") == 0 && argc == 2) {
+    (void)printf("{\"operation\":\"verify-namespace\",\"verified\":true}\n");
+    return 0;
+  }
+  if (strcmp(argv[1], "publish-record") == 0 && argc == 3) return publish_record(argv[2]);
   if (strcmp(argv[1], "create-source") == 0 && argc == 2) return create_source();
   if (strcmp(argv[1], "backup-header") == 0 && argc == 2) return backup_header();
   if (strcmp(argv[1], "rollback-source") == 0 && argc == 2) return move_source(0);

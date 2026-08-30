@@ -36,8 +36,10 @@ systemd:
   mountUnit: var-lib-seori\x2dauth.mount
 filesystemBoundary:
   executable: /usr/local/libexec/seorilabs-p2-host-fs-boundary
-  policy: FIXED_DIRFD_RENAMEAT2_NOREPLACE
+  policy: INITIAL_MOUNT_NAMESPACE_FIXED_DIRFD_NOREPLACE
   operations:
+    - verify-namespace
+    - publish-record
     - create-source
     - backup-header
     - rollback-source
@@ -45,11 +47,19 @@ filesystemBoundary:
     - apply-config
     - rollback-config
     - restore-config
+processBoundary:
+  launcherExecutable: /usr/local/libexec/seori-auth-native
+  moduleExecutable: /usr/local/libexec/seorilabs-p2-process-hardening.node
+  launchMarker: SEORI_AUTH_NATIVE_LAUNCHED
+  policy: INHERIT_CORE_NNP_REAPPLY_DUMPABLE_NATIVE_READBACK
 tang:
   pin: sss
   threshold: 1
   requiredServers: 2
   advertisementPolicy: EXACT_LIVE_READBACK_THEN_PIN
+  keyInventoryPolicy:
+    fileMode: "0440"
+    ownershipPolicy: EXACT_KEY_DIRECTORY_UID_GID
   backupAuthority:
     signerIdentity: seorilabs-credential-backup-attestor-v1
     signerLogicalCredentialId: shared/seori-auth/credential-backup-attestor
@@ -97,10 +107,13 @@ gates:
   preBackup: REQUIRED_AND_RESTORE_VERIFIED
   recoveryKeyInput: CANONICAL_ROOT_OWNED_REGULAR_FILE_ONLY
   secretTransport: FILE_DESCRIPTOR_BY_CHILD_ONLY
+  hostMountNamespacePolicy: PID1_INITIAL_MOUNT_NAMESPACE_EXACT
+  recordWritePolicy: FIXED_RECORD_ID_STDIN_OPENAT_LINKAT_NO_CLOBBER_FSYNC
+  processHardeningPolicy: NATIVE_LAUNCH_AND_NAPI_CHILD_READBACK_REQUIRED
   mutationUnknownPolicy: READBACK_FIRST
   markerWritePolicy: AFTER_EXACT_MOUNT_AND_PV_PVC_READBACK
   rebootReadback: REQUIRED_BEFORE_READY
   rollbackPolicy: RECOVERABLE_RENAME_ONLY
   restorePolicy: HEADER_AND_RECOVERY_KEY_REHEARSAL_REQUIRED
-  destructivePathPolicy: FIXED_DIRFD_RENAMEAT2_NOREPLACE_O_NOFOLLOW
+  destructivePathPolicy: INITIAL_MOUNT_NAMESPACE_FIXED_DIRFD_RENAMEAT2_NOREPLACE_O_NOFOLLOW
   tangBackupEvidencePolicy: TRUSTED_SIGNED_CANONICAL_BACKUP_AND_ISOLATED_RESTORE

@@ -4,16 +4,12 @@ import { execFileSync } from 'node:child_process';
 import {
   closeSync,
   constants as fsConstants,
-  fchmodSync,
   fstatSync,
-  fsyncSync,
   lstatSync,
-  mkdirSync,
   openSync,
   readFileSync,
   realpathSync,
-  renameSync,
-  writeFileSync,
+  statSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +27,7 @@ import {
   sha256,
   validateTangBackupAttestation,
 } from '../../tools/seori-auth/src/host-encryption-provisioning.mjs';
+import { activateP2ProcessHardening } from './p2-process-hardening-boundary.mjs';
 
 const contractPath = fileURLToPath(
   new URL('../../contracts/fleet-p2-host-encryption.yaml', import.meta.url),
@@ -154,7 +151,12 @@ function canonicalExecutable(path) {
     const entry = lstatSync(path);
     if (
       !isAbsolute(path) || !entry.isFile() || entry.isSymbolicLink() ||
-      realpathSync(path) !== path || (entry.mode & 0o111) === 0
+      realpathSync(path) !== path || (entry.mode & 0o111) === 0 ||
+      ([
+        contract.filesystemBoundary.executable,
+        contract.processBoundary.launcherExecutable,
+      ].includes(path) &&
+        (entry.uid !== 0 || entry.gid !== 0 || (entry.mode & 0o022) !== 0))
     ) stop('P2_TANG_EXECUTABLE_INVALID');
     return path;
   } catch (error) {
@@ -163,7 +165,7 @@ function canonicalExecutable(path) {
   }
 }
 
-function run(executable, args, code, { mutation = false, allowedStatuses = [] } = {}) {
+function run(executable, args, code, { mutation = false, allowedStatuses = [], input } = {}) {
   const commandPath = canonicalExecutable(executable);
   const runtime = fixtureRuntime === undefined ? commandPath : process.execPath;
   const runtimeArgs = fixtureRuntime === undefined ? args : [fixtureRuntime, commandPath, ...args];
@@ -174,7 +176,8 @@ function run(executable, args, code, { mutation = false, allowedStatuses = [] } 
         encoding: 'utf8',
         env: commandEnvironment(),
         maxBuffer: MAX_OUTPUT_BYTES,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+        ...(input === undefined ? {} : { input }),
         timeout: mutation ? 120_000 : 15_000,
       }),
     };
@@ -190,6 +193,81 @@ function read(executable, args, code) {
 
 function mutate(executable, args) {
   run(executable, args, 'P2_TANG_MUTATION_FAILED', { mutation: true });
+}
+
+function verifyNativeHostMountNamespace() {
+  if (!contract.filesystemBoundary.operations.includes('verify-namespace')) {
+    stop('P2_TANG_FILESYSTEM_BOUNDARY_OPERATION_INVALID');
+  }
+  const receipt = publicJson(
+    run(
+      contract.filesystemBoundary.executable,
+      ['verify-namespace'],
+      'P2_TANG_MOUNT_NAMESPACE_NATIVE_READBACK_FAILED',
+    ).stdout,
+    'P2_TANG_FILESYSTEM_BOUNDARY_RECEIPT_INVALID',
+  );
+  if (
+    receipt.operation !== 'verify-namespace' || receipt.verified !== true ||
+    Object.keys(receipt).toSorted().join('\0') !== ['operation', 'verified'].join('\0')
+  ) stop('P2_TANG_FILESYSTEM_BOUNDARY_RECEIPT_INVALID');
+}
+
+function assertNativeProcessHardening() {
+  let receipt;
+  try {
+    receipt = fixtureRuntime === undefined
+      ? activateP2ProcessHardening(contract.processBoundary)
+      : publicJson(
+        run(
+          contract.processBoundary.launcherExecutable,
+          ['fixture-process-hardening-readback'],
+          'P2_TANG_PROCESS_HARDENING_READBACK_FAILED',
+        ).stdout,
+        'P2_TANG_PROCESS_HARDENING_RECEIPT_INVALID',
+      );
+  } catch (error) {
+    if (error instanceof TangCommandError) throw error;
+    stop('P2_TANG_PROCESS_HARDENING_READBACK_FAILED');
+  }
+  const expected = {
+    state: 'PROCESS_HARDENING_OK',
+    coreSoft: 0,
+    coreHard: 0,
+    dumpable: 0,
+    noNewPrivileges: 1,
+  };
+  if (
+    Object.keys(receipt).toSorted().join('\0') !== Object.keys(expected).toSorted().join('\0') ||
+    Object.entries(expected).some(([key, value]) => receipt[key] !== value)
+  ) stop('P2_TANG_PROCESS_HARDENING_RECEIPT_INVALID');
+}
+
+function assertNativeLaunchMarker() {
+  if (process.env[contract.processBoundary.launchMarker] !== '1') {
+    stop('P2_TANG_NATIVE_LAUNCH_REQUIRED');
+  }
+  canonicalExecutable(contract.processBoundary.launcherExecutable);
+}
+
+function assertInitialHostMountNamespace() {
+  if (fixtureRuntime !== undefined) {
+    if (process.env.SEORILABS_HOST_FIXTURE_SCENARIO === 'alternate-mount-namespace') {
+      stop('P2_TANG_MOUNT_NAMESPACE_MISMATCH');
+    }
+    return;
+  }
+  if (process.platform !== 'linux') stop('P2_TANG_LINUX_REQUIRED');
+  try {
+    const initial = statSync('/proc/1/ns/mnt', { bigint: true });
+    const current = statSync('/proc/self/ns/mnt', { bigint: true });
+    if (initial.dev !== current.dev || initial.ino !== current.ino) {
+      stop('P2_TANG_MOUNT_NAMESPACE_MISMATCH');
+    }
+  } catch (error) {
+    if (error instanceof TangCommandError) throw error;
+    stop('P2_TANG_MOUNT_NAMESPACE_READBACK_FAILED');
+  }
 }
 
 function publicJson(text, code) {
@@ -352,7 +430,8 @@ function readInventory(selected) {
       if (
         !entry.isFile() || entry.isSymbolicLink() || realpathSync(localPath) !== localPath ||
         entry.uid !== directoryEntry.uid || entry.gid !== directoryEntry.gid ||
-        ![0o600, 0o640].includes(entry.mode & 0o777)
+        (entry.mode & 0o7777).toString(8).padStart(4, '0') !==
+          contract.tang.keyInventoryPolicy.fileMode
       ) stop('P2_TANG_KEY_INVENTORY_READBACK_INVALID');
       descriptor = openSync(localPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
       const descriptorEntry = fstatSync(descriptor);
@@ -444,83 +523,25 @@ function readPublicServer(selected) {
   };
 }
 
-function atomicWrite(path, bytes) {
-  const target = mappedPath(path);
-  const temporary = `${target}.tmp`;
-  let descriptor;
-  try {
-    const parent = dirname(target);
-    const grandparent = dirname(parent);
-    const grandparentEntry = lstatSync(grandparent);
-    if (
-      !grandparentEntry.isDirectory() || grandparentEntry.isSymbolicLink() ||
-      realpathSync(grandparent) !== grandparent
-    ) stop('P2_TANG_SOCKET_OVERRIDE_BOUNDARY_INVALID');
-    try {
-      const parentEntry = lstatSync(parent);
-      if (
-        !parentEntry.isDirectory() || parentEntry.isSymbolicLink() ||
-        realpathSync(parent) !== parent
-      ) stop('P2_TANG_SOCKET_OVERRIDE_BOUNDARY_INVALID');
-    } catch (error) {
-      if (error instanceof TangCommandError) throw error;
-      if (error?.code !== 'ENOENT') stop('P2_TANG_SOCKET_OVERRIDE_BOUNDARY_INVALID');
-      mkdirSync(parent, { mode: 0o755 });
-    }
-    const parentEntry = lstatSync(parent);
-    if (
-      !parentEntry.isDirectory() || parentEntry.isSymbolicLink() ||
-      realpathSync(parent) !== parent || parentEntry.dev !== grandparentEntry.dev
-    ) stop('P2_TANG_SOCKET_OVERRIDE_BOUNDARY_INVALID');
-    for (const candidate of [target, temporary]) {
-      try {
-        lstatSync(candidate);
-        stop('P2_TANG_SOCKET_OVERRIDE_TARGET_EXISTS');
-      } catch (error) {
-        if (error instanceof TangCommandError) throw error;
-        if (error?.code !== 'ENOENT') stop('P2_TANG_SOCKET_OVERRIDE_TARGET_INVALID');
-      }
-    }
-    descriptor = openSync(
-      temporary,
-      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
-      0o644,
-    );
-    writeFileSync(descriptor, bytes);
-    fchmodSync(descriptor, 0o644);
-    fsyncSync(descriptor);
-    const temporaryEntry = fstatSync(descriptor);
-    const currentParent = lstatSync(parent);
-    if (
-      temporaryEntry.dev !== parentEntry.dev ||
-      currentParent.dev !== parentEntry.dev || currentParent.ino !== parentEntry.ino ||
-      realpathSync(parent) !== parent
-    ) stop('P2_TANG_SOCKET_OVERRIDE_BOUNDARY_CHANGED');
-    try {
-      lstatSync(target);
-      stop('P2_TANG_SOCKET_OVERRIDE_TARGET_EXISTS');
-    } catch (error) {
-      if (error instanceof TangCommandError) throw error;
-      if (error?.code !== 'ENOENT') stop('P2_TANG_SOCKET_OVERRIDE_TARGET_INVALID');
-    }
-    renameSync(temporary, target);
-    const written = lstatSync(target);
-    if (
-      written.dev !== temporaryEntry.dev || written.ino !== temporaryEntry.ino ||
-      written.isSymbolicLink() || !written.isFile() || realpathSync(target) !== target
-    ) stop('P2_TANG_SOCKET_OVERRIDE_READBACK_FAILED');
-  } catch (error) {
-    if (error instanceof TangCommandError) throw error;
-    stop('P2_TANG_MUTATION_OUTCOME_UNKNOWN');
-  } finally {
-    if (descriptor !== undefined) {
-      try {
-        closeSync(descriptor);
-      } catch {
-        stop('P2_TANG_MUTATION_OUTCOME_UNKNOWN');
-      }
-    }
+function publishTangOverride(bytes) {
+  if (!contract.filesystemBoundary.operations.includes('publish-record')) {
+    stop('P2_TANG_FILESYSTEM_BOUNDARY_OPERATION_INVALID');
   }
+  const receipt = publicJson(
+    run(
+      contract.filesystemBoundary.executable,
+      ['publish-record', 'tang-socket-override'],
+      'P2_TANG_FILESYSTEM_BOUNDARY_FAILED',
+      { mutation: true, input: bytes },
+    ).stdout,
+    'P2_TANG_FILESYSTEM_BOUNDARY_RECEIPT_INVALID',
+  );
+  if (
+    receipt.operation !== 'publish-record' || receipt.record !== 'tang-socket-override' ||
+    receipt.sizeBytes !== bytes.length ||
+    Object.keys(receipt).toSorted().join('\0') !==
+      ['operation', 'record', 'sizeBytes'].toSorted().join('\0')
+  ) stop('P2_TANG_FILESYSTEM_BOUNDARY_RECEIPT_INVALID');
 }
 
 function plan() {
@@ -564,10 +585,10 @@ function apply() {
       'P2_TANG_PORT_READBACK_FAILED',
     ).stdout.trim();
     if (collision !== '') stop('P2_TANG_PORT_ALREADY_IN_USE');
+    if (!overrideExists) publishTangOverride(overrideBytes(selected));
     mutate('/usr/bin/apt-get', ['update']);
     mutate('/usr/bin/apt-get', ['install', '--yes', 'tang']);
   }
-  if (!overrideExists) atomicWrite(OVERRIDE_PATH, overrideBytes(selected));
   mutate('/usr/bin/systemctl', ['daemon-reload']);
   mutate('/usr/bin/systemctl', ['enable', '--now', selected.socketUnit]);
   const observed = readPublicServer(selected);
@@ -630,6 +651,12 @@ try {
   if (fixtureInjectionForbidden) stop('P2_TANG_FIXTURE_INJECTION_FORBIDDEN');
   const handler = handlers.get(mode);
   if (handler === undefined) stop('P2_TANG_COMMAND_INVALID');
+  if (mode !== 'plan') {
+    assertNativeLaunchMarker();
+    assertInitialHostMountNamespace();
+    assertNativeProcessHardening();
+    verifyNativeHostMountNamespace();
+  }
   process.stdout.write(`${JSON.stringify(handler())}\n`);
 } catch (error) {
   const code = error instanceof TangCommandError || error instanceof HostEncryptionProvisioningError

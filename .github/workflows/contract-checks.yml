@@ -15,6 +15,55 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  p2-process-boundary-macos:
+    name: P2 process boundary macOS ARM64
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup exact Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+          package-manager-cache: false
+
+      - name: Execute native launch and child hardening readback
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = "v24.16.0"
+          node tools/seori-auth/scripts/build-native.mjs
+          node scripts/fleet/build-p2-process-hardening-boundary.mjs
+          node --test tests/fleet-p2-process-hardening-darwin.test.mjs
+
+  p2-host-boundary-arm64:
+    name: P2 host boundary Linux ARM64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup exact Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+          package-manager-cache: false
+
+      - name: Execute production boundary and isolated syscall harness
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = "v24.16.0"
+          node_path="$(command -v node)"
+          sudo -- "$node_path" scripts/fleet/verify-p2-host-fs-boundary-linux-arm64.mjs
+
   verify:
     name: Repository contracts
     runs-on: ubuntu-latest

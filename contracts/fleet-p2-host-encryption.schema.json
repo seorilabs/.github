@@ -3,7 +3,7 @@
   "$id": "https://seorilabs.com/schemas/fleet-p2-host-encryption.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "status", "target", "systemd", "filesystemBoundary", "tang", "kubernetes", "gates"],
+  "required": ["schemaVersion", "status", "target", "systemd", "filesystemBoundary", "processBoundary", "tang", "kubernetes", "gates"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "status": { "const": "blocked_unverified" },
@@ -71,12 +71,14 @@
       "required": ["executable", "policy", "operations"],
       "properties": {
         "executable": { "const": "/usr/local/libexec/seorilabs-p2-host-fs-boundary" },
-        "policy": { "const": "FIXED_DIRFD_RENAMEAT2_NOREPLACE" },
+        "policy": { "const": "INITIAL_MOUNT_NAMESPACE_FIXED_DIRFD_NOREPLACE" },
         "operations": {
           "type": "array",
-          "minItems": 7,
-          "maxItems": 7,
+          "minItems": 9,
+          "maxItems": 9,
           "prefixItems": [
+            { "const": "verify-namespace" },
+            { "const": "publish-record" },
             { "const": "create-source" },
             { "const": "backup-header" },
             { "const": "rollback-source" },
@@ -89,15 +91,35 @@
         }
       }
     },
+    "processBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["launcherExecutable", "moduleExecutable", "launchMarker", "policy"],
+      "properties": {
+        "launcherExecutable": { "const": "/usr/local/libexec/seori-auth-native" },
+        "moduleExecutable": { "const": "/usr/local/libexec/seorilabs-p2-process-hardening.node" },
+        "launchMarker": { "const": "SEORI_AUTH_NATIVE_LAUNCHED" },
+        "policy": { "const": "INHERIT_CORE_NNP_REAPPLY_DUMPABLE_NATIVE_READBACK" }
+      }
+    },
     "tang": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["pin", "threshold", "requiredServers", "advertisementPolicy", "backupAuthority", "servers"],
+      "required": ["pin", "threshold", "requiredServers", "advertisementPolicy", "keyInventoryPolicy", "backupAuthority", "servers"],
       "properties": {
         "pin": { "const": "sss" },
         "threshold": { "const": 1 },
         "requiredServers": { "const": 2 },
         "advertisementPolicy": { "const": "EXACT_LIVE_READBACK_THEN_PIN" },
+        "keyInventoryPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["fileMode", "ownershipPolicy"],
+          "properties": {
+            "fileMode": { "const": "0440" },
+            "ownershipPolicy": { "const": "EXACT_KEY_DIRECTORY_UID_GID" }
+          }
+        },
         "backupAuthority": {
           "type": "object",
           "additionalProperties": false,
@@ -160,7 +182,8 @@
       "additionalProperties": false,
       "required": [
         "dryRunDefault", "applyConfirmation", "preProvisionState", "preBackup",
-        "recoveryKeyInput", "secretTransport", "mutationUnknownPolicy", "markerWritePolicy",
+        "recoveryKeyInput", "secretTransport", "hostMountNamespacePolicy", "recordWritePolicy", "processHardeningPolicy",
+        "mutationUnknownPolicy", "markerWritePolicy",
         "rebootReadback", "rollbackPolicy", "restorePolicy", "destructivePathPolicy",
         "tangBackupEvidencePolicy"
       ],
@@ -171,12 +194,15 @@
         "preBackup": { "const": "REQUIRED_AND_RESTORE_VERIFIED" },
         "recoveryKeyInput": { "const": "CANONICAL_ROOT_OWNED_REGULAR_FILE_ONLY" },
         "secretTransport": { "const": "FILE_DESCRIPTOR_BY_CHILD_ONLY" },
+        "hostMountNamespacePolicy": { "const": "PID1_INITIAL_MOUNT_NAMESPACE_EXACT" },
+        "recordWritePolicy": { "const": "FIXED_RECORD_ID_STDIN_OPENAT_LINKAT_NO_CLOBBER_FSYNC" },
+        "processHardeningPolicy": { "const": "NATIVE_LAUNCH_AND_NAPI_CHILD_READBACK_REQUIRED" },
         "mutationUnknownPolicy": { "const": "READBACK_FIRST" },
         "markerWritePolicy": { "const": "AFTER_EXACT_MOUNT_AND_PV_PVC_READBACK" },
         "rebootReadback": { "const": "REQUIRED_BEFORE_READY" },
         "rollbackPolicy": { "const": "RECOVERABLE_RENAME_ONLY" },
         "restorePolicy": { "const": "HEADER_AND_RECOVERY_KEY_REHEARSAL_REQUIRED" },
-        "destructivePathPolicy": { "const": "FIXED_DIRFD_RENAMEAT2_NOREPLACE_O_NOFOLLOW" },
+        "destructivePathPolicy": { "const": "INITIAL_MOUNT_NAMESPACE_FIXED_DIRFD_RENAMEAT2_NOREPLACE_O_NOFOLLOW" },
         "tangBackupEvidencePolicy": { "const": "TRUSTED_SIGNED_CANONICAL_BACKUP_AND_ISOLATED_RESTORE" }
       }
     }
