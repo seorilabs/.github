@@ -12,6 +12,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   statfsSync,
   statSync,
@@ -243,7 +244,9 @@ function assertInstalledRuntime(host) {
     const target = `${runtime.installRoot}/${relative}`;
     try {
       const entry = lstatSync(link);
-      if (!entry.isSymbolicLink() || realpathSync(link) !== target) stop('P2_STAGE1_NODE_RUNTIME_DRIFT');
+      if (!entry.isSymbolicLink() || readlinkSync(link) !== target) {
+        stop('P2_STAGE1_NODE_RUNTIME_DRIFT');
+      }
     } catch (error) {
       if (error instanceof Stage1HostError) throw error;
       stop('P2_STAGE1_NODE_RUNTIME_DRIFT');

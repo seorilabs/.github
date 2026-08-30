@@ -875,6 +875,7 @@ test('source bootstrap remote fixture is exact-SHA and readback-first', async ()
 
 test('source bootstrap validates the outer Node command symlink without collapsing package links', async () => {
   const source = await readFile('scripts/fleet/bootstrap-p2-stage1-host.sh', 'utf8');
+  const hostCliSource = await readFile('scripts/fleet/p2-stage1-tang-backup.mjs', 'utf8');
   assert.match(
     source,
     /\$\(\/usr\/bin\/readlink "\$link"\)" != "\$target"/u,
@@ -883,6 +884,8 @@ test('source bootstrap validates the outer Node command symlink without collapsi
     source,
     /\$\(\/usr\/bin\/readlink -f "\$link"\)" != "\$target"/u,
   );
+  assert.match(hostCliSource, /readlinkSync\(link\) !== target/u);
+  assert.doesNotMatch(hostCliSource, /realpathSync\(link\) !== target/u);
   assert.match(
     source,
     /npm ci --ignore-scripts --no-bin-links --workspaces=false[\s\S]*--fund=false >\/dev\/null\)/u,
