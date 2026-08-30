@@ -519,7 +519,7 @@ export function buildPreProvisionBackupAttestation({
   if (
     !Array.isArray(configuration) || configuration.length !== 2 ||
     configuration.some((entry) => !validConfigurationBackup(entry, contract)) ||
-    !Array.isArray(pathIdentities) || pathIdentities.length !== 4 ||
+    !Array.isArray(pathIdentities) || pathIdentities.length !== 5 ||
     pathIdentities.some((entry) => !validPathIdentity(entry, 'directory')) ||
     new Set(pathIdentities.map(({ path }) => path)).size !== pathIdentities.length ||
     !exactKeys(unlockerState, UNLOCKER_STATE_KEYS) ||
@@ -550,7 +550,7 @@ export function validatePreProvisionBackupAttestation(contract, attestation) {
     typeof attestation.unlockerState.active !== 'boolean' ||
     !Array.isArray(attestation.configuration) || attestation.configuration.length !== 2 ||
     attestation.configuration.some((entry) => !validConfigurationBackup(entry, contract)) ||
-    !Array.isArray(attestation.pathIdentities) || attestation.pathIdentities.length !== 4 ||
+    !Array.isArray(attestation.pathIdentities) || attestation.pathIdentities.length !== 5 ||
     attestation.pathIdentities.some((entry) => !validPathIdentity(entry, 'directory')) ||
     new Set(attestation.pathIdentities.map(({ path }) => path)).size !==
       attestation.pathIdentities.length

@@ -608,6 +608,19 @@ test('success path backs up, provisions once, writes canonical marker and verifi
   const backupAttestation = JSON.parse(backupResult.stdout);
   assert.equal(backupAttestation.state, 'PRE_PROVISION_BACKUP_RESTORE_VERIFIED');
   assert.deepEqual(backupAttestation.unlockerState, { active: false, enabled: true });
+  const backupParent = backupAttestation.pathIdentities.find(({ path }) =>
+    path === '/var/backups/seori-auth');
+  assert.equal(backupParent.type, 'directory');
+  assert.equal(backupParent.mode, '0700');
+  assert.match(backupParent.device, /^[0-9]+$/u);
+  assert.match(backupParent.inode, /^[0-9]+$/u);
+  const backupCommands = (await readFile(fixture.log, 'utf8')).trim().split('\n')
+    .map((line) => JSON.parse(line));
+  assert.ok(backupCommands.some(({ executable, args }) =>
+    executable === '/usr/bin/install' && args.join('\0') === [
+      '--directory', '--owner=0', '--group=0', '--mode=0700',
+      '/var/backups/seori-auth',
+    ].join('\0')));
 
   const applyResult = await runHost(fixture, 'apply', [
     `--confirmation=${confirmationSet.apply}`,

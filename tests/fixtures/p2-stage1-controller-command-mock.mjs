@@ -231,6 +231,7 @@ function fixtureHostBackup() {
       '/data/seori-auth',
       '/data/seori-auth/rollback',
       contract.target.mountPath,
+      '/var/backups/seori-auth',
       contract.target.backupRoot,
     ].map((path, index) => ({
       path,

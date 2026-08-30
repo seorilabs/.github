@@ -78,6 +78,9 @@ Broker workload를 활성화하지 않는다.
   rollback/restore와 system config 교환은 고정 경로만 허용하는 root-owned native boundary가 directory
   FD를 연 채 `openat O_EXCL` 또는 `renameat2 RENAME_NOREPLACE/RENAME_EXCHANGE`로 실행한다. caller의
   사전 existence 확인은 mutation 안전성을 대신하지 않는다.
+- `/var/backups/seori-auth`와 그 아래 host backup root는 모두 exact `root:root 0700`으로 먼저
+  수렴하고 path identity를 pre-provision attestation에 포함한다. 기존 parent가 `0755`이면 내용을
+  바꾸지 않고 접근 권한을 좁힌 뒤 native record publisher가 같은 metadata를 다시 검증한다.
 - pre-backup, managed config, marker, provision/reboot/rollback receipt도 path를 argv로 받지 않는다.
   caller는 allowlist record ID와 bytes를 stdin으로만 넘기고 native boundary가 host-root부터 component별
   `openat O_NOFOLLOW`로 연 parent dirfd 안에서 고정 pending entry의 identity-bound crash recovery,

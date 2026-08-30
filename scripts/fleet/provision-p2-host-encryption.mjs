@@ -523,6 +523,7 @@ function managedDirectorySpecs() {
       groupId: contract.target.markerGroupId,
       mode: '0750',
     },
+    { path: dirname(contract.target.backupRoot), ownerId: 0, groupId: 0, mode: '0700' },
     { path: contract.target.backupRoot, ownerId: 0, groupId: 0, mode: '0700' },
   ];
 }
