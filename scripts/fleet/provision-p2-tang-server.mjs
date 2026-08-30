@@ -580,7 +580,7 @@ function apply() {
   }
   if (installed === null) {
     const collision = run(
-      '/usr/sbin/ss',
+      '/usr/bin/ss',
       ['--no-header', '--listening', '--tcp', '--numeric', `sport = :${selected.port}`],
       'P2_TANG_PORT_READBACK_FAILED',
     ).stdout.trim();

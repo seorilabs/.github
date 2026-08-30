@@ -508,7 +508,7 @@ if (executable === '/usr/bin/dpkg-query') {
   output('install ok installed\t15-3');
 }
 
-if (executable === '/usr/sbin/ss') output();
+if (executable === '/usr/bin/ss') output();
 
 if (executable === '/usr/bin/apt-get') {
   if (args[0] === 'install') state.tangInstalled = true;
