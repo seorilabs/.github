@@ -8,7 +8,6 @@ import {
   fstatSync,
   lstatSync,
   openSync,
-  readlinkSync,
   readFileSync,
   realpathSync,
   statSync,
@@ -49,6 +48,7 @@ import {
 } from '../../tools/seori-auth/src/state-envelope.mjs';
 import {
   KubectlReadbackBoundaryError,
+  openSecureMicrok8sKubectlReadbackBoundary,
   openSecureKubectlReadbackBoundary,
 } from '../../tools/seori-auth/src/kubectl-readback-boundary.mjs';
 import { activateP2ProcessHardening } from './p2-process-hardening-boundary.mjs';
@@ -62,7 +62,8 @@ const schemaPath = fileURLToPath(
 const fleetPath = fileURLToPath(
   new URL('../../contracts/fleet-p3-runtime.yaml', import.meta.url),
 );
-const kubectl = '/usr/local/bin/kubectl';
+const kubectl = '/usr/bin/snap';
+const kubectlPrefix = ['run', 'microk8s.kubectl'];
 const MICROK8S_KUBECONFIG = '/var/snap/microk8s/current/credentials/client.config';
 const MICROK8S_STATE_ROOT = '/var/snap/microk8s';
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
@@ -180,44 +181,15 @@ function mappedPath(path) {
   return join(fixtureRoot, path.slice(1));
 }
 
-function resolveHostKubeconfigPath(requestedPath) {
-  if (requestedPath !== MICROK8S_KUBECONFIG) return requestedPath;
-  const root = mappedPath(MICROK8S_STATE_ROOT);
-  const current = mappedPath(`${MICROK8S_STATE_ROOT}/current`);
-  const requested = mappedPath(requestedPath);
-  const expectedOwner = fixtureRuntime === undefined ? 0 : process.geteuid?.();
-  try {
-    const rootEntry = lstatSync(root);
-    const currentEntry = lstatSync(current);
-    const revision = readlinkSync(current);
-    if (
-      !rootEntry.isDirectory() || rootEntry.isSymbolicLink() || realpathSync(root) !== root ||
-      rootEntry.uid !== expectedOwner || (rootEntry.mode & 0o022) !== 0 ||
-      !currentEntry.isSymbolicLink() || currentEntry.uid !== expectedOwner ||
-      currentEntry.nlink !== 1 || !/^[1-9][0-9]*$/u.test(revision)
-    ) stop('KUBECONFIG_PATH_INVALID');
-    const revisionRoot = join(root, revision);
-    const credentialsRoot = join(revisionRoot, 'credentials');
-    const canonical = join(credentialsRoot, 'client.config');
-    for (const path of [revisionRoot, credentialsRoot]) {
-      const entry = lstatSync(path);
-      if (
-        !entry.isDirectory() || entry.isSymbolicLink() || realpathSync(path) !== path ||
-        entry.uid !== expectedOwner || (entry.mode & 0o022) !== 0
-      ) stop('KUBECONFIG_PATH_INVALID');
-    }
-    const entry = lstatSync(canonical);
-    if (
-      realpathSync(current) !== revisionRoot || realpathSync(requested) !== canonical ||
-      !entry.isFile() || entry.isSymbolicLink() || realpathSync(canonical) !== canonical ||
-      entry.uid !== expectedOwner || entry.nlink !== 1 || (entry.mode & 0o022) !== 0 ||
-      readlinkSync(current) !== revision
-    ) stop('KUBECONFIG_PATH_INVALID');
-    return canonical;
-  } catch (error) {
-    if (error instanceof HostCommandError) throw error;
-    stop('KUBECONFIG_PATH_INVALID');
+function openHostKubectlReadbackBoundary(requestedPath) {
+  if (requestedPath !== MICROK8S_KUBECONFIG) {
+    return openSecureKubectlReadbackBoundary(requestedPath);
   }
+  return openSecureMicrok8sKubectlReadbackBoundary({
+    requestedPath: mappedPath(requestedPath),
+    stateRoot: mappedPath(MICROK8S_STATE_ROOT),
+    expectedOwner: fixtureRuntime === undefined ? 0 : process.geteuid?.(),
+  });
 }
 
 function commandEnvironment() {
@@ -299,8 +271,8 @@ function run(
   }
 }
 
-function read(executable, args, code) {
-  return run(executable, args, code).stdout.trim();
+function read(executable, args, code, runOptions = {}) {
+  return run(executable, args, code, runOptions).stdout.trim();
 }
 
 function mutate(executable, args) {
@@ -779,7 +751,7 @@ function pathsOverlap(left, right) {
   return within(canonicalLeft, canonicalRight) || within(canonicalRight, canonicalLeft);
 }
 
-function readConsumerQuiescence(prefix) {
+function readConsumerQuiescence(prefix, inputDescriptors) {
   const gate = contract.kubernetes.consumerGate;
   for (const expected of gate.workloads) {
     const resource = workloadResource(expected.kind);
@@ -790,7 +762,8 @@ function readConsumerQuiescence(prefix) {
       'get', resource, expected.name,
       '--namespace', contract.kubernetes.namespace,
       '--output=json', '--ignore-not-found=true',
-    ], 'P2_HOST_CONSUMER_READBACK_FAILED'), 'P2_HOST_CONSUMER_READBACK_INVALID');
+    ], 'P2_HOST_CONSUMER_READBACK_FAILED', { inputDescriptors }),
+    'P2_HOST_CONSUMER_READBACK_INVALID');
     if (observed === null) continue;
     if (
       observed.kind !== expected.kind || observed.metadata?.name !== expected.name ||
@@ -804,7 +777,8 @@ function readConsumerQuiescence(prefix) {
     ...prefix,
     '--context', contract.kubernetes.context,
     'get', 'pods', '--all-namespaces', '--output=json',
-  ], 'P2_HOST_CONSUMER_READBACK_FAILED'), 'P2_HOST_CONSUMER_READBACK_INVALID');
+  ], 'P2_HOST_CONSUMER_READBACK_FAILED', { inputDescriptors }),
+  'P2_HOST_CONSUMER_READBACK_INVALID');
   if (!Array.isArray(pods?.items)) stop('P2_HOST_CONSUMER_READBACK_INVALID');
   const managedNames = new Set(gate.workloads.map(({ name }) => name));
   const protectedPaths = [
@@ -833,8 +807,9 @@ function readConsumerQuiescence(prefix) {
 function readStateVolume(kubeconfigPath) {
   let boundary;
   try {
-    boundary = openSecureKubectlReadbackBoundary(resolveHostKubeconfigPath(kubeconfigPath));
+    boundary = openHostKubectlReadbackBoundary(kubeconfigPath);
     const prefix = [
+      ...kubectlPrefix,
       `--kubeconfig=${boundary.kubeconfig}`,
       `--cache-dir=${boundary.cacheDirectory}`,
     ];
@@ -842,24 +817,29 @@ function readStateVolume(kubeconfigPath) {
       kubectl,
       [...prefix, 'config', 'current-context'],
       'P2_HOST_KUBERNETES_READBACK_FAILED',
+      { inputDescriptors: boundary.inputDescriptors },
     );
     if (currentContext !== contract.kubernetes.context) {
       stop('P2_HOST_KUBERNETES_CONTEXT_MISMATCH');
     }
-    readConsumerQuiescence(prefix);
+    readConsumerQuiescence(prefix, boundary.inputDescriptors);
     const observedPv = publicJson(read(kubectl, [
       ...prefix,
       '--context', contract.kubernetes.context,
       'get', 'persistentvolume', contract.kubernetes.persistentVolume,
       '--output=json',
-    ], 'P2_HOST_KUBERNETES_READBACK_FAILED'), 'P2_HOST_KUBERNETES_READBACK_INVALID');
+    ], 'P2_HOST_KUBERNETES_READBACK_FAILED', {
+      inputDescriptors: boundary.inputDescriptors,
+    }), 'P2_HOST_KUBERNETES_READBACK_INVALID');
     const observedPvc = publicJson(read(kubectl, [
       ...prefix,
       '--context', contract.kubernetes.context,
       'get', 'persistentvolumeclaim', contract.kubernetes.persistentVolumeClaim,
       '--namespace', contract.kubernetes.namespace,
       '--output=json',
-    ], 'P2_HOST_KUBERNETES_READBACK_FAILED'), 'P2_HOST_KUBERNETES_READBACK_INVALID');
+    ], 'P2_HOST_KUBERNETES_READBACK_FAILED', {
+      inputDescriptors: boundary.inputDescriptors,
+    }), 'P2_HOST_KUBERNETES_READBACK_INVALID');
     return verifyRetainVolumeReadback({ state, observedPv, observedPvc }).attestation;
   } catch (error) {
     if (

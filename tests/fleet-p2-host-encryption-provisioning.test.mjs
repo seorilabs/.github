@@ -339,20 +339,30 @@ test('MicroK8S current kubeconfig resolves only through a root-equivalent numeri
   await writeFile(join(exactRoot, '7668/credentials/client.config'), 'fixture kubeconfig\n', {
     mode: 0o600,
   });
+  await chmod(join(exactRoot, '7668/credentials'), 0o770);
+  await chmod(join(exactRoot, '7668/credentials/client.config'), 0o660);
   await symlink('7668', join(exactRoot, 'current'));
   await runHost(exact, 'backup', [
     `--confirmation=${confirmationSet.backup}`,
     `--kubeconfig=${alias}`,
   ]);
   const exactLog = await readFile(exact.log, 'utf8');
-  assert.match(exactLog, /\/var\/snap\/microk8s\/7668\/credentials\/client\.config/u);
+  assert.match(exactLog, /--kubeconfig=\/proc\/self\/fd\/3/u);
+  assert.doesNotMatch(exactLog, /\/var\/snap\/microk8s\/7668\/credentials\/client\.config/u);
   assert.doesNotMatch(exactLog, /\/var\/snap\/microk8s\/current\/credentials\/client\.config/u);
+  const snapCalls = exactLog.trim().split('\n').map((line) => JSON.parse(line))
+    .filter(({ executable }) => executable === '/usr/bin/snap');
+  assert.ok(snapCalls.length > 1);
+  assert.equal(new Set(snapCalls.map(({ recoveryFdIdentity }) => recoveryFdIdentity)).size, 1);
+  assert.ok(snapCalls.every(({ recoveryFdIdentity }) => recoveryFdIdentity !== undefined));
 
   const lookalikeRoot = join(lookalike.root, 'var/snap/microk8s');
   await mkdir(join(lookalikeRoot, '7668/credentials'), { recursive: true });
   await writeFile(join(lookalikeRoot, '7668/credentials/client.config'), 'fixture kubeconfig\n', {
     mode: 0o600,
   });
+  await chmod(join(lookalikeRoot, '7668/credentials'), 0o770);
+  await chmod(join(lookalikeRoot, '7668/credentials/client.config'), 0o660);
   await symlink('../lookalike', join(lookalikeRoot, 'current'));
   const rejected = await runHost(lookalike, 'backup', [
     `--confirmation=${confirmationSet.backup}`,

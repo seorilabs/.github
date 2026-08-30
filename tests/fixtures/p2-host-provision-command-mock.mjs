@@ -518,8 +518,11 @@ if (executable === '/usr/bin/apt-get') {
 
 if (executable === '/usr/bin/tang-show-keys') output(THUMBPRINTS[nodeName]);
 
-if (executable.endsWith('/kubectl')) {
-  const commandArgs = args.slice(2);
+if (
+  executable === '/usr/bin/snap' &&
+  args.slice(0, 2).join('\0') === ['run', 'microk8s.kubectl'].join('\0')
+) {
+  const commandArgs = args.slice(4);
   const fleet = parse(readFileSync(fileURLToPath(
     new URL('../../contracts/fleet-p3-runtime.yaml', import.meta.url),
   ), 'utf8'));

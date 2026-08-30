@@ -1,9 +1,13 @@
 import {
   accessSync,
+  closeSync,
   constants as fsConstants,
+  fstatSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
+  readlinkSync,
   realpathSync,
   rmSync,
 } from 'node:fs';
@@ -41,8 +45,58 @@ export function resolveCanonicalKubeconfig(path) {
   }
 }
 
-export function openSecureKubectlReadbackBoundary(kubeconfigPath) {
-  const kubeconfig = resolveCanonicalKubeconfig(kubeconfigPath);
+export function resolveCanonicalMicrok8sKubeconfig({
+  requestedPath,
+  stateRoot,
+  expectedOwner,
+}) {
+  try {
+    if (
+      typeof requestedPath !== 'string' || typeof stateRoot !== 'string' ||
+      !isAbsolute(requestedPath) || !isAbsolute(stateRoot) ||
+      requestedPath !== join(stateRoot, 'current/credentials/client.config') ||
+      !Number.isSafeInteger(expectedOwner) || expectedOwner < 0
+    ) stop('KUBECONFIG_PATH_INVALID');
+    const rootEntry = lstatSync(stateRoot);
+    const current = join(stateRoot, 'current');
+    const currentEntry = lstatSync(current);
+    const revision = readlinkSync(current);
+    if (
+      !rootEntry.isDirectory() || rootEntry.isSymbolicLink() ||
+      realpathSync(stateRoot) !== stateRoot || rootEntry.uid !== expectedOwner ||
+      (rootEntry.mode & 0o022) !== 0 || !currentEntry.isSymbolicLink() ||
+      currentEntry.uid !== expectedOwner || currentEntry.nlink !== 1 ||
+      !/^[1-9][0-9]*$/u.test(revision)
+    ) stop('KUBECONFIG_PATH_INVALID');
+    const revisionRoot = join(stateRoot, revision);
+    const credentialsRoot = join(revisionRoot, 'credentials');
+    const canonical = join(credentialsRoot, 'client.config');
+    const revisionEntry = lstatSync(revisionRoot);
+    const credentialsEntry = lstatSync(credentialsRoot);
+    const fileEntry = lstatSync(canonical);
+    if (
+      !revisionEntry.isDirectory() || revisionEntry.isSymbolicLink() ||
+      realpathSync(revisionRoot) !== revisionRoot || revisionEntry.uid !== expectedOwner ||
+      (revisionEntry.mode & 0o022) !== 0 || !credentialsEntry.isDirectory() ||
+      credentialsEntry.isSymbolicLink() || realpathSync(credentialsRoot) !== credentialsRoot ||
+      credentialsEntry.uid !== expectedOwner || credentialsEntry.gid <= 0 ||
+      (credentialsEntry.mode & 0o7777) !== 0o770 || !fileEntry.isFile() ||
+      fileEntry.isSymbolicLink() || realpathSync(canonical) !== canonical ||
+      fileEntry.uid !== expectedOwner || fileEntry.gid !== credentialsEntry.gid ||
+      fileEntry.nlink !== 1 || (fileEntry.mode & 0o7777) !== 0o660 ||
+      fileEntry.size < 1 || fileEntry.size > 1024 * 1024 ||
+      realpathSync(current) !== revisionRoot || realpathSync(requestedPath) !== canonical ||
+      readlinkSync(current) !== revision
+    ) stop('KUBECONFIG_PATH_INVALID');
+    accessSync(canonical, fsConstants.R_OK);
+    return canonical;
+  } catch (error) {
+    if (error instanceof KubectlReadbackBoundaryError) throw error;
+    stop('KUBECONFIG_PATH_INVALID');
+  }
+}
+
+function createBoundary(kubeconfig, descriptor) {
   const systemTemp = realpathSync('/tmp');
   const root = mkdtempSync(join(systemTemp, TEMP_PREFIX));
   const paths = Object.freeze({
@@ -69,10 +123,12 @@ export function openSecureKubectlReadbackBoundary(kubeconfigPath) {
       XDG_DATA_HOME: paths.data,
       XDG_RUNTIME_DIR: paths.runtime,
     }),
+    inputDescriptors: Object.freeze(descriptor === undefined ? [] : [descriptor]),
     kubeconfig,
     close() {
       if (closed) return;
       closed = true;
+      if (descriptor !== undefined) closeSync(descriptor);
       const canonicalRoot = realpathSync(root);
       if (
         canonicalRoot !== root || !canonicalRoot.startsWith(`${systemTemp}/${TEMP_PREFIX}`)
@@ -80,4 +136,34 @@ export function openSecureKubectlReadbackBoundary(kubeconfigPath) {
       rmSync(canonicalRoot, { recursive: true, force: true });
     },
   });
+}
+
+export function openSecureKubectlReadbackBoundary(kubeconfigPath) {
+  return createBoundary(resolveCanonicalKubeconfig(kubeconfigPath));
+}
+
+export function openSecureMicrok8sKubectlReadbackBoundary(options) {
+  const canonical = resolveCanonicalMicrok8sKubeconfig(options);
+  let descriptor;
+  try {
+    descriptor = openSync(canonical, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    const held = fstatSync(descriptor);
+    const current = lstatSync(canonical);
+    if (
+      !held.isFile() || held.dev !== current.dev || held.ino !== current.ino ||
+      held.uid !== current.uid || held.gid !== current.gid || held.mode !== current.mode ||
+      held.nlink !== current.nlink || held.size !== current.size
+    ) stop('KUBECONFIG_PATH_INVALID');
+    return createBoundary('/proc/self/fd/3', descriptor);
+  } catch (error) {
+    if (descriptor !== undefined) {
+      try {
+        closeSync(descriptor);
+      } catch {
+        // The original stable failure is retained.
+      }
+    }
+    if (error instanceof KubectlReadbackBoundaryError) throw error;
+    stop('KUBECONFIG_PATH_INVALID');
+  }
 }

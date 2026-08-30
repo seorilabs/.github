@@ -51,6 +51,12 @@ Broker workload를 활성화하지 않는다.
   읽거나 생성하지 않고 `O_NOFOLLOW`로 한 번 연 FD와 최초 `fstat` identity를 고정한다. 모든
   secret-consuming child에는 같은 FD 3만 전달하며 중간에 파일 path를 다시 열지 않는다. 값과 원본
   경로는 child argv, 환경, stdout, stderr, marker, receipt에 남지 않는다.
+- RPI5 Kubernetes readback은 `/var/snap/microk8s/current`가 root 소유의 숫자 snap revision만 가리키고,
+  revision root는 non-writable이며 `credentials`와 `client.config`가 각각 exact `0770`, `0660`, 동일한
+  non-root group인 경우에만 canonical revision path를 사용한다. 일반 kubeconfig의 symlink·group write
+  거부 정책은 유지한다. 검증한 파일은 `O_NOFOLLOW`로 한 번 연 FD 3으로 kubectl child에만 전달해
+  group-writable parent의 path swap을 차단한다. 실행 파일은 존재하지 않는 `/usr/local/bin/kubectl`을
+  만들지 않고 root-owned `/usr/bin/snap run microk8s.kubectl`로 고정한다.
 - 무인 Stage1 controller는 catalog의 `shared/seori-auth/luks-recovery`만 해석한다. source SHA별 sudoers
   rule은 해당 source의 `p2-host-encryption-apply-loader.mjs` 한 명령만 `NOPASSWD:NOSETENV`로 허용한다.
   SSH 로그인 password는 native askpass 경계로, recovery key는 별도 stdin으로 전달한다. loader는 native
