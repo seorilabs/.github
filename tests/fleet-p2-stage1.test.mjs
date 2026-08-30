@@ -483,10 +483,23 @@ test('credential bootstrap is create-only, exact on rerun, and never emits priva
     assert.doesNotMatch(JSON.stringify(first.result), /PRIVATE KEY/u);
     assert.equal(JSON.stringify(first.result).includes(privateBytes.toString('base64')), false);
     assert.equal(JSON.stringify(first.result).includes(encryptionBytes.toString('base64')), false);
+    const postBackupReceipt = JSON.parse(await readFile(join(
+      fixture.credentialRoot,
+      contract.attestor.postBootstrapBackup.receiptRelativePath,
+    ), 'utf8'));
+    await chmod(postBackupReceipt.beeArchivePath, 0o700);
+    await chmod(`${postBackupReceipt.beeArchivePath}.sha256`, 0o700);
     const second = JSON.parse(
       (await runController(fixture, 'bootstrap-attestor', first.arguments_)).stdout,
     );
     assert.equal(second.state, 'STAGE1_CREDENTIALS_EXACT_READBACK');
+    await chmod(postBackupReceipt.beeArchivePath, 0o740);
+    await expectControllerFailure(
+      fixture,
+      'bootstrap-attestor',
+      first.arguments_,
+      'P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID',
+    );
     privateBytes.fill(0);
     encryptionBytes.fill(0);
   } finally {

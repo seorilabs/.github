@@ -127,7 +127,10 @@ create-only로 완성한다. public-only, private/public mismatch, catalog drift
 `P2_STAGE1_CREDENTIAL_HUMAN_RECOVERY_REQUIRED`로 중단한다.
 성공 응답의 `postBootstrapBackup`은 새 local/BeeStation archive의 동일 SHA-256, file count와
 `isolatedRestoreVerified=true`만 공개한다. receipt signature나 artifact readback이 이후 drift하면 호스트
-변경 전에 fail-closed한다.
+변경 전에 fail-closed한다. 로컬 원본은 exact `0600`을 유지한다. BeeStation CloudStorage가 동기화 중
+owner execute bit를 재부여하는 실제 filesystem 동작 때문에 원격 복제본 archive와 checksum만 owner-only
+`0600` 또는 `0700`을 허용하며, owner·inode·link count·size·mtime·ctime과 content digest는 그대로
+exact readback한다. group/world permission은 어느 경우에도 허용하지 않는다.
 
 ### 3. exact source를 세 호스트에 bootstrap
 

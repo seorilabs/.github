@@ -279,15 +279,23 @@ function syncDirectoryPath(path) {
 
 function readHeld(
   path,
-  { mode: modeValue, maximum = 4 * 1024 * 1024, allowEmpty = false } = {},
+  { mode: modeValue, modes: modeValues, maximum = 4 * 1024 * 1024, allowEmpty = false } = {},
 ) {
   let descriptor;
   try {
+    if (
+      modeValue !== undefined && modeValues !== undefined ||
+      modeValues !== undefined && (
+        !Array.isArray(modeValues) || modeValues.length === 0 ||
+        modeValues.some((value) => !Number.isSafeInteger(value) || value < 0 || value > 0o777)
+      )
+    ) stop('P2_STAGE1_CREDENTIAL_FILE_INVALID');
+    const allowedModes = modeValues ?? (modeValue === undefined ? undefined : [modeValue]);
     const entry = lstatSync(path);
     if (
       !entry.isFile() || entry.isSymbolicLink() || realpathSync(path) !== path ||
       entry.nlink !== 1 ||
-      (modeValue !== undefined && (entry.mode & 0o777) !== modeValue) ||
+      (allowedModes !== undefined && !allowedModes.includes(entry.mode & 0o777)) ||
       (fixtureCredentialRoot === undefined && entry.uid !== process.geteuid?.()) ||
       (!allowEmpty && entry.size < 1) || entry.size > maximum
     ) stop('P2_STAGE1_CREDENTIAL_FILE_INVALID');
@@ -525,14 +533,25 @@ function readLuksRecoveryKey(root) {
   return bytes;
 }
 
-function hashHeldRegular(path, { mode: modeValue, maximum = 16 * 1024 * 1024 * 1024 } = {}) {
+function hashHeldRegular(
+  path,
+  { mode: modeValue, modes: modeValues, maximum = 16 * 1024 * 1024 * 1024 } = {},
+) {
   let descriptor;
   try {
+    if (
+      modeValue !== undefined && modeValues !== undefined ||
+      modeValues !== undefined && (
+        !Array.isArray(modeValues) || modeValues.length === 0 ||
+        modeValues.some((value) => !Number.isSafeInteger(value) || value < 0 || value > 0o777)
+      )
+    ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
+    const allowedModes = modeValues ?? (modeValue === undefined ? undefined : [modeValue]);
     const entry = lstatSync(path);
     if (
       !entry.isFile() || entry.isSymbolicLink() || realpathSync(path) !== path ||
       entry.nlink !== 1 || entry.uid !== process.geteuid?.() ||
-      (modeValue !== undefined && (entry.mode & 0o777) !== modeValue) ||
+      (allowedModes !== undefined && !allowedModes.includes(entry.mode & 0o777)) ||
       entry.size < 1 || entry.size > maximum
     ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
     descriptor = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
@@ -773,9 +792,12 @@ function verifyPostBootstrapBackup(root, attestor, encryption) {
         : join(dirname(root), 'beestation-backups'),
     );
     const archiveReadback = hashHeldRegular(archive, { mode: 0o600 });
-    const beeReadback = hashHeldRegular(beeArchive, { mode: 0o600 });
+    const beeReadback = hashHeldRegular(beeArchive, { modes: [0o600, 0o700] });
     const checksum = readHeld(`${archive}.sha256`, { mode: 0o600, maximum: 4096 });
-    const beeChecksum = readHeld(`${beeArchive}.sha256`, { mode: 0o600, maximum: 4096 });
+    const beeChecksum = readHeld(
+      `${beeArchive}.sha256`,
+      { modes: [0o600, 0o700], maximum: 4096 },
+    );
     try {
       const expectedChecksum = `${receipt.archiveSha256}  ${basename(archive)}\n`;
       if (
@@ -814,9 +836,12 @@ function createPostBootstrapBackupReceipt(root, attestor, encryption) {
   }
   const backup = runCanonicalPostBootstrapBackup(root, attestor, encryption);
   const archive = hashHeldRegular(backup.archive, { mode: 0o600 });
-  const beeArchive = hashHeldRegular(backup.beeArchive, { mode: 0o600 });
+  const beeArchive = hashHeldRegular(backup.beeArchive, { modes: [0o600, 0o700] });
   const checksum = readHeld(`${backup.archive}.sha256`, { mode: 0o600, maximum: 4096 });
-  const beeChecksum = readHeld(`${backup.beeArchive}.sha256`, { mode: 0o600, maximum: 4096 });
+  const beeChecksum = readHeld(
+    `${backup.beeArchive}.sha256`,
+    { modes: [0o600, 0o700], maximum: 4096 },
+  );
   let signature;
   try {
     if (archive.sha256 !== backup.archiveSha256 || beeArchive.sha256 !== backup.archiveSha256) {
