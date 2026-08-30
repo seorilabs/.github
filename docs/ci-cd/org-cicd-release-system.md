@@ -187,8 +187,9 @@ flowchart LR
 정본 구현은 [`scripts/release/`](../../scripts/release/), 운영 설명은
 [릴리즈 버전 authority](release-version-authority.md)를 본다.
 
-- 파생 규칙: display/marketing version은 `v` 제거 값, Android `versionCode`와 Apple build number는
-  `major * 1000000 + minor * 1000 + patch`(세그먼트 base 1000).
+- 파생 규칙: display/marketing version은 `v` 제거 값이다. Android `versionCode`는
+  `1,000,000,000 + major * 1,000,000 + minor * 1,000 + patch`, Apple build number는
+  `major * 1,000,000 + minor * 1,000 + patch`로 정한다.
 - `package.json`, Gradle, Xcode, Godot `project.godot`/`export_presets.cfg`, Granite 설정, 마켓 config
   JSON, 저장소 로컬 `scripts/resolve-release-version.mjs`는 **authority가 아니다.** 값이 필요한 곳에는
   태그 파생값을 주입하고, build 후 artifact metadata를 다시 읽어 대조한다.

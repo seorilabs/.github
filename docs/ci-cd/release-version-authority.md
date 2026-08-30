@@ -11,16 +11,18 @@ GitHub 릴리즈 태그 `vMAJOR.MINOR.PATCH`가 Google Play, Apple App Store, Ap
 |---|---|---|
 | display / marketing version | 태그에서 `v` 제거 | `1.2.3` |
 | Android `versionName` | display version | `1.2.3` |
-| Android `versionCode` | `major * 1000000 + minor * 1000 + patch` | `1002003` |
+| Android `versionCode` | `1,000,000,000 + major * 1,000,000 + minor * 1,000 + patch` | `1001002003` |
 | Apple `CFBundleShortVersionString` | display version | `1.2.3` |
-| Apple `CFBundleVersion` | 같은 build number | `1002003` |
+| Apple `CFBundleVersion` | `major * 1,000,000 + minor * 1,000 + patch` | `1002003` |
 | Play release name | display version | `1.2.3` |
 
-`minor`와 `patch`는 각각 1000 미만이어야 하고 파생 `versionCode`는 Google Play 상한
-2,100,000,000을 넘을 수 없다. 하한도 있다. `v0.0.0`은 파생값이 `0`이라 Google Play와 App Store가
-모두 거부하므로 태그 생성과 배포 양쪽에서 `derived-version-code-out-of-range`로 막는다. 최소
-사용 가능한 태그는 `v0.0.1`(versionCode 1)이다. 조건을 만족하지 않는 태그는 `release-tag.yml`이
-생성 자체를 막고, 배포 경로도 build 전에 거부한다.
+Android의 `1,000,000,000`은 기존 Fleet에서 관측된 레거시 `versionCode`를 한 번에 넘기는 조직
+공통 migration epoch다. 앱별 offset이나 저장소 설정이 아니므로 같은 태그는 모든 저장소에서 항상
+같은 값을 만든다. `major`는 1099 이하, `minor`와 `patch`는 각각 1000 미만이어야 하며 파생
+`versionCode`는 Google Play 상한 2,100,000,000을 넘지 않는다. `v0.0.0`은 Apple build number가
+`0`이라 태그 생성과 배포 양쪽에서 `derived-version-code-out-of-range`로 막는다. 최소 사용 가능한
+태그는 `v0.0.1`이다. 조건을 만족하지 않는 태그는 `release-tag.yml`이 생성 자체를 막고, 배포 경로도
+build 전에 거부한다.
 
 ## authority가 아닌 값
 
@@ -196,7 +198,7 @@ authority-revision: <sha256 of contracts/release-version-authority.yaml>
 tag: v1.2.3
 source-sha: <40 hex>
 version-name: 1.2.3
-android-version-code: 1002003
+android-version-code: 1001002003
 apple-build-number: 1002003
 ```
 

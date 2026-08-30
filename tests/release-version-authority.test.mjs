@@ -119,24 +119,24 @@ function authorityEnv(workflow = 'rn-deploy-google-play.yml') {
   };
 }
 
-test('태그에서 display version과 deterministic build number를 파생한다', () => {
+test('태그에서 display version과 마켓별 deterministic build number를 파생한다', () => {
   const cases = [
-    ['v0.1.0', '0.1.0', 1000],
-    ['v1.0.0', '1.0.0', 1_000_000],
-    ['v1.2.3', '1.2.3', 1_002_003],
-    ['v2.0.5', '2.0.5', 2_000_005],
-    ['v0.1.2', '0.1.2', 1002],
-    ['v1.999.999', '1.999.999', 1_999_999],
+    ['v0.1.0', '0.1.0', 1_000_001_000, 1000],
+    ['v1.0.0', '1.0.0', 1_001_000_000, 1_000_000],
+    ['v1.2.3', '1.2.3', 1_001_002_003, 1_002_003],
+    ['v2.0.5', '2.0.5', 1_002_000_005, 2_000_005],
+    ['v0.1.2', '0.1.2', 1_000_001_002, 1002],
+    ['v1.999.999', '1.999.999', 1_001_999_999, 1_999_999],
   ];
 
-  for (const [tag, versionName, buildNumber] of cases) {
+  for (const [tag, versionName, androidVersionCode, appleBuildNumber] of cases) {
     const version = deriveReleaseVersion(tag);
     assert.equal(version.versionName, versionName, tag);
     assert.equal(version.displayVersion, versionName, tag);
     assert.equal(version.appleMarketingVersion, versionName, tag);
     assert.equal(version.releaseName, versionName, tag);
-    assert.equal(version.androidVersionCode, buildNumber, tag);
-    assert.equal(version.appleBuildNumber, buildNumber, tag);
+    assert.equal(version.androidVersionCode, androidVersionCode, tag);
+    assert.equal(version.appleBuildNumber, appleBuildNumber, tag);
   }
 });
 
@@ -150,6 +150,7 @@ test('exact stable SemVer가 아니거나 세그먼트 범위를 넘는 태그�
     'v1.2.3+build.7',
     'v1.1000.0',
     'v1.0.1000',
+    'v1100.0.0',
     'v2200.0.0',
     '',
     undefined,
@@ -326,7 +327,7 @@ test('annotated tag receipt는 같은 태그의 다른 source 재사용을 fail-
   assert.equal(receipt.authority, AUTHORITY_ID);
   assert.equal(receipt.tag, 'v1.2.3');
   assert.equal(receipt.sourceSha, SHA_A);
-  assert.equal(receipt.androidVersionCode, '1002003');
+  assert.equal(receipt.androidVersionCode, '1001002003');
   assert.doesNotThrow(() => assertTagReceipt(current, receipt));
 
   // receipt가 없는 legacy 태그는 tag→commit 결속만으로 계속 검증한다.
@@ -357,7 +358,7 @@ test('annotated tag receipt는 같은 태그의 다른 source 재사용을 fail-
 test('AAB manifest readback은 tag 파생값과 다르면 fail-closed한다', () => {
   const rn = binding();
   const rnManifest = parseAabManifest(readFileSync(join(FIXTURES, 'react-native/android/aab-manifest.pb')));
-  assert.deepEqual(rnManifest, { versionName: '1.2.3', versionCode: 1_002_003 });
+  assert.deepEqual(rnManifest, { versionName: '1.2.3', versionCode: 1_001_002_003 });
   assert.doesNotThrow(() =>
     assertArtifactVersion({ kind: 'android-app-bundle', binding: rn, observed: rnManifest }),
   );
@@ -374,7 +375,7 @@ test('AAB manifest readback은 tag 파생값과 다르면 fail-closed한다', ()
 
   const godot = binding({ tag: 'v2.0.5', workflow: 'godot-deploy-google-play.yml' });
   const godotManifest = parseAabManifest(readFileSync(join(FIXTURES, 'godot/android/aab-manifest.pb')));
-  assert.deepEqual(godotManifest, { versionName: '2.0.5', versionCode: 2_000_005 });
+  assert.deepEqual(godotManifest, { versionName: '2.0.5', versionCode: 1_002_000_005 });
   assert.doesNotThrow(() =>
     assertArtifactVersion({ kind: 'android-app-bundle', binding: godot, observed: godotManifest }),
   );
@@ -395,6 +396,15 @@ test('AAB manifest readback은 tag 파생값과 다르면 fail-closed한다', ()
       (error) => error.code === 'artifact-provenance-mismatch',
     );
   }
+});
+
+test('AAB fixture는 Android migration epoch를 적용한 실제 ZIP/protobuf 경로를 재현한다', () => {
+  const generated = spawnSync(
+    process.execPath,
+    [join(REPOSITORY_ROOT, 'scripts/release/generate-aab-fixtures.mjs'), '--check'],
+    { encoding: 'utf8' },
+  );
+  assert.equal(generated.status, 0, generated.stderr);
 });
 
 test('xcarchive Info.plist readback은 tag 파생값과 다르면 fail-closed한다', () => {
@@ -469,7 +479,7 @@ test('지원하는 .ait 형식에는 내부 version 필드가 없고 memo가 art
   const memo = canonicalReleaseMemo(current, { artifactDigest: digest });
   assert.equal(
     memo,
-    `v1.2.3 1.2.3 (1002003) src:${SHA_A.slice(0, 12)} sha256:${digest}`,
+    `v1.2.3 1.2.3 (1001002003) src:${SHA_A.slice(0, 12)} sha256:${digest}`,
   );
   assert.equal(
     canonicalReleaseMemo(current, { artifactDigest: digest, note: ' hotfix  rollout ' }),
@@ -676,7 +686,7 @@ test('Godot export preset 주입은 명시된 preset 하나만 바꾼다', () =>
     binding: current,
     preset: 'Android',
   });
-  assert.match(android, /^version\/code=2000005$/mu);
+  assert.match(android, /^version\/code=1002000005$/mu);
   assert.match(android, /^version\/name="2\.0\.5"$/mu);
   assert.doesNotMatch(android, /^version\/code=3$/mu);
 
@@ -789,7 +799,7 @@ test('v0.0.0과 versionCode 0은 어떤 마켓 artifact도 만들 수 없다', (
     () => selectLatestStableTag(['v0.0.0']),
     (error) => error.code === 'tag-pattern-mismatch',
   );
-  assert.equal(deriveReleaseVersion('v0.0.1').androidVersionCode, 1);
+  assert.equal(deriveReleaseVersion('v0.0.1').androidVersionCode, 1_000_000_001);
 });
 
 test('release ref는 exact stable tag ref 하나만 허용한다', () => {
@@ -829,7 +839,7 @@ test('resolver CLI는 태그만으로 GitHub output과 binding 파일을 만든�
       `${[...githubOutputLines(expected), 'tag_source=requested-tag'].join('\n')}\n`,
     );
     assert.match(readFileSync(outputPath, 'utf8'), /^version_name=1\.2\.3$/mu);
-    assert.match(readFileSync(outputPath, 'utf8'), /^android_version_code=1002003$/mu);
+    assert.match(readFileSync(outputPath, 'utf8'), /^android_version_code=1001002003$/mu);
     assert.match(readFileSync(outputPath, 'utf8'), /^apple_build_number=1002003$/mu);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -1085,7 +1095,7 @@ test('artifact 검증 CLI는 RN·Godot·AIT 경로 fixture를 그대로 readback
     assert.match(
       aitOutput,
       new RegExp(
-        `^release_memo=v1\\.2\\.3 1\\.2\\.3 \\(1002003\\) src:a{12} sha256:${aitDigest} · internal rollout$`,
+        `^release_memo=v1\\.2\\.3 1\\.2\\.3 \\(1001002003\\) src:a{12} sha256:${aitDigest} · internal rollout$`,
         'mu',
       ),
     );
@@ -1152,7 +1162,7 @@ test('Godot 주입 CLI는 binding 파일 기준으로 export preset을 덮어쓴
     }
 
     const patched = readFileSync(presetsPath, 'utf8');
-    assert.match(patched, /^version\/code=2000005$/mu);
+    assert.match(patched, /^version\/code=1002000005$/mu);
     assert.match(patched, /^version\/name="2\.0\.5"$/mu);
     assert.match(patched, /^application\/short_version="2\.0\.5"$/mu);
     assert.match(patched, /^application\/version="2000005"$/mu);
@@ -1563,9 +1573,14 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
   assert.equal(contract.derivation.displayVersion, 'tag-without-v-prefix');
   assert.equal(contract.derivation.marketingVersion, 'tag-without-v-prefix');
   assert.equal(contract.derivation.segmentBase, 1000);
-  assert.equal(contract.derivation.buildNumberFormula, 'major * 1000000 + minor * 1000 + patch');
-  assert.equal(contract.derivation.androidVersionCode, 'build-number');
-  assert.equal(contract.derivation.appleBuildNumber, 'build-number');
+  assert.equal(contract.derivation.encodedVersionFormula, 'major * 1000000 + minor * 1000 + patch');
+  assert.equal(contract.derivation.androidVersionCodeEpoch, 1_000_000_000);
+  assert.equal(
+    contract.derivation.androidVersionCodeFormula,
+    'androidVersionCodeEpoch + encodedVersion',
+  );
+  assert.equal(contract.derivation.appleBuildNumber, 'encoded-version');
+  assert.equal(contract.derivation.bounds.majorMax, 1099);
   assert.equal(contract.derivation.bounds.versionCodeMax, 2_100_000_000);
 
   const tagPattern = new RegExp(contract.authority.tagPattern, 'u');
@@ -1641,6 +1656,7 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
   assert.deepEqual(contract.authority.tagSelection.sources, RELEASE_TAG_SOURCES);
   // .ait framing은 exact length로 검증하고 zip entry는 central directory에서 읽는다.
   assert.equal(contract.artifactReadback.ait.framing.exactLengthRequired, true);
+  assert.equal(contract.artifactReadback.ait.framing.zeroTrailerRequired, true);
   assert.equal(contract.artifactReadback.ait.framing.zipEntrySource, 'central-directory');
   assert.deepEqual(contract.artifactReadback.ait.framing.layout, [
     'magic-8',
@@ -1649,6 +1665,7 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
     'protobuf',
     'zip-length-8',
     'zip-payload',
+    'zero-trailer-8',
   ]);
   assert.equal(contract.godotExportPreset.selector, 'explicit-preset-name-or-index');
   assert.equal(contract.godotExportPreset.ambiguousSelector, 'fail-closed');

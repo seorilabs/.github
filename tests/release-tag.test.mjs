@@ -178,7 +178,7 @@ test('annotated tag message는 org 정본이 만든 release binding receipt를 �
     assert.equal(receipt.tag, 'v1.2.3');
     assert.equal(receipt.sourceSha, target);
     assert.equal(receipt.versionName, '1.2.3');
-    assert.equal(receipt.androidVersionCode, '1002003');
+    assert.equal(receipt.androidVersionCode, '1001002003');
     assert.equal(receipt.appleBuildNumber, '1002003');
     assert.match(receipt.authorityRevision, /^[0-9a-f]{64}$/u);
   } finally {
@@ -292,7 +292,7 @@ test('이미 있는 태그도 파생값과 receipt를 먼저 검증한 뒤에만
       'tag: v1.2.3',
       `source-sha: ${'d'.repeat(40)}`,
       'version-name: 1.2.3',
-      'android-version-code: 1002003',
+      'android-version-code: 1001002003',
       'apple-build-number: 1002003',
     ].join('\n');
     git(repository.work, 'tag', '-a', 'v1.2.3', target, '-m', foreignReceipt);
@@ -316,7 +316,7 @@ test('이미 있는 태그도 파생값과 receipt를 먼저 검증한 뒤에만
       'tag: v1.2.3',
       `source-sha: ${target}`,
       'version-name: 1.2.3',
-      'android-version-code: 1002003',
+      'android-version-code: 1001002003',
       'apple-build-number: 1002003',
     ].join('\n');
     git(repository.work, 'tag', '-a', 'v1.2.3', target, '-m', staleReceipt);

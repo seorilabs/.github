@@ -43,18 +43,21 @@ derivation:
   # v prefix를 제거한 값이 display/marketing version이다.
   displayVersion: tag-without-v-prefix
   marketingVersion: tag-without-v-prefix
-  # 기존 org resolver 규칙(세그먼트 base 1000)을 그대로 유지한다.
+  # SemVer를 base-1000 정수로 인코딩한다. Android는 기존 Fleet의 최고 versionCode를
+  # 한 번에 넘기는 조직 공통 epoch를 더한다. 앱별 offset/config는 authority가 아니다.
   segmentBase: 1000
-  buildNumberFormula: 'major * 1000000 + minor * 1000 + patch'
-  androidVersionCode: build-number
-  appleBuildNumber: build-number
+  encodedVersionFormula: 'major * 1000000 + minor * 1000 + patch'
+  androidVersionCodeEpoch: 1000000000
+  androidVersionCodeFormula: 'androidVersionCodeEpoch + encodedVersion'
+  appleBuildNumber: encoded-version
   releaseName: display-version
   bounds:
+    majorMax: 1099
     minorMax: 999
     patchMax: 999
     versionCodeMax: 2100000000
-    # Google Play versionCode와 Apple build number는 1 이상이어야 한다. v0.0.0은 파생값이 0이라
-    # 어떤 마켓 artifact도 만들 수 없으므로 태그 생성과 배포 양쪽에서 거부한다.
+    # Apple build number의 encodedVersion은 1 이상이어야 한다. v0.0.0은 0이라 어떤 마켓
+    # artifact도 만들 수 없으므로 태그 생성과 배포 양쪽에서 거부한다.
     versionCodeMin: 1
 
 binding:
@@ -133,8 +136,9 @@ artifactReadback:
     # "version 기록 없음"으로 통과하므로, 전체 길이를 exact로 검증한 뒤 파싱한다.
     framing:
       magic: AITBUNDL
-      layout: [magic-8, format-version-4, protobuf-length-8, protobuf, zip-length-8, zip-payload]
+      layout: [magic-8, format-version-4, protobuf-length-8, protobuf, zip-length-8, zip-payload, zero-trailer-8]
       exactLengthRequired: true
+      zeroTrailerRequired: true
       zipEntrySource: central-directory
     fields:
       digest: sha256

@@ -25,14 +25,14 @@
   },
   "release": {
     "authority": "release-version-authority-v1",
-    "authorityRevision": "a4aefab8edc74d2a11ef0eefa690618d5839c3b8e6eeb8842045674ab60890d6",
+    "authorityRevision": "de690b27f1ecc8cf7166560b2e2edfd576ba6731342a1d0ab70611aad67345a4",
     "tag": "v1.2.3",
     "sourceSha": "dddddddddddddddddddddddddddddddddddddddd",
-    "configRevision": "16eb8032d3a48d15f70051f560edb2459962faf2b3f993a9f7db88d588ea621a",
+    "configRevision": "6e7375355da732404aaddf96a6ed45ea4eab5bb1dde93aae05176016ee608d8e",
     "versionName": "1.2.3",
     "appleMarketingVersion": "1.2.3",
     "appleBuildNumber": 1002003,
-    "bindingDigest": "028dc3387e5831ba4f0d10de7f213534bbe9fd7d347d5994ce8555d2167d2cae"
+    "bindingDigest": "20feca38e1d15ee1785fa63e3c47e342f61f27e08e76918f78b50ed7207facb4"
   },
   "productId": "product-saju",
   "workflowId": "workflow-saju",
@@ -59,5 +59,5 @@
     "expectedMarketingVersion": "1.2.3",
     "expectedBuildNumber": 1002003
   },
-  "idempotencyKey": "xcode-cloud-v5.7001.v1.2.3.028dc3387e5831ba4f0d10de7f213534"
+  "idempotencyKey": "xcode-cloud-v5.7001.v1.2.3.20feca38e1d15ee1785fa63e3c47e342"
 }

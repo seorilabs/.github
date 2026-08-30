@@ -9,9 +9,14 @@ export const AUTHORITY_ID = 'release-version-authority-v1';
 export const BINDING_SCHEMA_VERSION = 1;
 export const RELEASE_TAG_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 export const VERSION_SEGMENT_BASE = 1000;
+// 기존 Fleet의 Play versionCode 최고 관측값(로컬 build-only 포함 167,704,300)을 한 번에
+// 넘어서는 조직 공통 epoch다. 앱별 offset/config가 아니라 tag만으로 모든 repo에서 같은 값을
+// 파생하며, Play 상한 아래에서 major 0..1099를 온전히 쓸 수 있다.
+export const ANDROID_VERSION_CODE_EPOCH = 1_000_000_000;
+export const VERSION_MAJOR_MAX = 1099;
 export const VERSION_CODE_MAX = 2_100_000_000;
-// Google Play versionCode와 Apple build number는 1 이상이어야 한다. v0.0.0은 파생값이 0이므로
-// 어떤 마켓 artifact도 만들 수 없다. 태그 생성과 배포 양쪽에서 같은 하한으로 거부한다.
+// Apple build number의 tag 파생값은 1 이상이어야 한다. v0.0.0은 0을 만들므로 태그 생성과
+// 배포 양쪽에서 같은 하한으로 거부한다.
 export const VERSION_CODE_MIN = 1;
 export const TAG_RECEIPT_MARKER = 'seori-release-binding: 1';
 // 빌드된 artifact 하나를 tag binding에 묶는 receipt. digest가 들어가므로 같은 태그라도
@@ -69,10 +74,15 @@ export function parseReleaseTag(tag) {
   const major = Number(match[1]);
   const minor = Number(match[2]);
   const patch = Number(match[3]);
-  if (minor > VERSION_SEGMENT_BASE - 1 || patch > VERSION_SEGMENT_BASE - 1) {
+  if (
+    major > VERSION_MAJOR_MAX ||
+    minor > VERSION_SEGMENT_BASE - 1 ||
+    patch > VERSION_SEGMENT_BASE - 1
+  ) {
     fail(
       'tag-pattern-mismatch',
-      `minor와 patch는 versionCode 세그먼트 규칙상 각각 ${VERSION_SEGMENT_BASE} 미만이어야 한다: ${tag}`,
+      `major는 ${VERSION_MAJOR_MAX} 이하이고 minor와 patch는 각각 ` +
+        `${VERSION_SEGMENT_BASE} 미만이어야 한다: ${tag}`,
     );
   }
 
@@ -80,21 +90,25 @@ export function parseReleaseTag(tag) {
 }
 
 /**
- * v prefix를 제거한 값이 display/marketing version이고, Android versionCode와 Apple build
- * number는 기존 org resolver 규칙(세그먼트 base 1000)으로 파생한다.
+ * v prefix를 제거한 값이 display/marketing version이다. Apple build number는 SemVer를
+ * base-1000 정수로 인코딩하고, Android versionCode는 레거시 Fleet floor를 넘기기 위한 조직
+ * 공통 epoch를 더한다. 둘 다 repo 설정 없이 tag 하나에서만 결정된다.
  */
 export function deriveReleaseVersion(tag) {
   const { major, minor, patch } = parseReleaseTag(tag);
   const buildNumber = major * 1_000_000 + minor * VERSION_SEGMENT_BASE + patch;
-  if (!Number.isSafeInteger(buildNumber) || buildNumber > VERSION_CODE_MAX) {
-    fail('tag-pattern-mismatch', `파생 versionCode가 Google Play 최대값을 넘는다: ${buildNumber}`);
-  }
   if (buildNumber < VERSION_CODE_MIN) {
-    // v0.0.0은 versionCode 0을 만든다. Google Play와 App Store 모두 거부하는 값이므로
-    // 태그 생성 시점에도 배포 시점에도 artifact를 만들지 않는다.
+    // v0.0.0은 Apple build number 0을 만든다. 마켓 release tag로 쓰지 않는다.
     fail(
       'derived-version-code-out-of-range',
-      `파생 versionCode가 마켓 최소값 ${VERSION_CODE_MIN} 미만이다: ${tag} -> ${buildNumber}`,
+      `파생 build number가 마켓 최소값 ${VERSION_CODE_MIN} 미만이다: ${tag} -> ${buildNumber}`,
+    );
+  }
+  const androidVersionCode = ANDROID_VERSION_CODE_EPOCH + buildNumber;
+  if (!Number.isSafeInteger(androidVersionCode) || androidVersionCode > VERSION_CODE_MAX) {
+    fail(
+      'tag-pattern-mismatch',
+      `파생 Android versionCode가 Google Play 최대값을 넘는다: ${androidVersionCode}`,
     );
   }
 
@@ -103,7 +117,7 @@ export function deriveReleaseVersion(tag) {
     releaseTag: tag,
     versionName,
     displayVersion: versionName,
-    androidVersionCode: buildNumber,
+    androidVersionCode,
     appleMarketingVersion: versionName,
     appleBuildNumber: buildNumber,
     releaseName: versionName,
@@ -128,13 +142,19 @@ export function selectLatestStableTag(tags) {
       minor: Number(match[2]),
       patch: Number(match[3]),
     };
-    if (parsed.minor > VERSION_SEGMENT_BASE - 1 || parsed.patch > VERSION_SEGMENT_BASE - 1) {
+    if (
+      parsed.major > VERSION_MAJOR_MAX ||
+      parsed.minor > VERSION_SEGMENT_BASE - 1 ||
+      parsed.patch > VERSION_SEGMENT_BASE - 1
+    ) {
       continue;
     }
     const buildNumber = parsed.major * 1_000_000 + parsed.minor * VERSION_SEGMENT_BASE + parsed.patch;
+    const androidVersionCode = ANDROID_VERSION_CODE_EPOCH + buildNumber;
     if (
       !Number.isSafeInteger(buildNumber) ||
-      buildNumber > VERSION_CODE_MAX ||
+      !Number.isSafeInteger(androidVersionCode) ||
+      androidVersionCode > VERSION_CODE_MAX ||
       buildNumber < VERSION_CODE_MIN
     ) {
       // versionCode를 파생할 수 없는 태그는 마켓 artifact를 만들 수 없으므로 후보가 아니다.

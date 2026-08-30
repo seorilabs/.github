@@ -202,7 +202,7 @@ test('v5 release 실행은 태그에서 version을 파생하고 source SHA와 co
     assert.equal(binding.release.tag, RELEASE_TAG);
     assert.equal(binding.release.sourceSha, SOURCE_SHA);
     assert.equal(binding.release.versionName, '1.2.3');
-    assert.equal(binding.release.androidVersionCode, 1002003);
+    assert.equal(binding.release.androidVersionCode, 1001002003);
     assert.equal(binding.release.appleBuildNumber, 1002003);
     assert.equal(binding.release.configRevision, expected.configRevision);
     assert.equal(binding.release.authorityRevision, expected.authorityRevision);
@@ -509,7 +509,7 @@ test('caller migration inventory는 남은 결함을 기계적으로 찾아낸�
     write('scripts/build-ait.sh', '#!/usr/bin/env bash\nset -euo pipefail\n');
     write(
       'play-store/google-play.config.json',
-      `${JSON.stringify({ release: { versionName: '1.2.3', versionCode: 1002003 } }, null, 2)}\n`,
+      `${JSON.stringify({ release: { versionName: '1.2.3', versionCode: 1001002003 } }, null, 2)}\n`,
     );
 
     const inventory = collectCallerMigrationInventory(root, 'seorilabs/example-app');
