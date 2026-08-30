@@ -15,6 +15,7 @@ import {
 import {
   computeFleetEvidenceDigest,
   createFleetMigrationPlan,
+  fleetMigrationContract,
   loadTrustedFleetMigrationInventoryBinding,
 } from "../../packages/repo-contract/src/fleet-migration.mjs";
 import {
@@ -31,6 +32,8 @@ import {
 } from "./fleet-migration-collector-fixtures.mjs";
 
 const REQUEST = Object.freeze({
+  baselineRatification:
+    fleetMigrationContract.initialBaseline.ratification,
   deliveryId: "fleet-cleanup-collector-delivery-0001",
   inventoryId: "fleet-cleanup-inventory-0001",
   mode: "READ_ONLY_SHADOW",
@@ -107,6 +110,10 @@ export async function makeAuthoritativeCleanupFixture({
     fixture.configuration,
   ).collect({
     ...REQUEST,
+    baselineRatification:
+      count === 38
+        ? fleetMigrationContract.initialBaseline.ratification
+        : null,
     mode: count === 38 ? "READ_ONLY_SHADOW" : "FIXTURE",
   });
   if (count !== 38) {

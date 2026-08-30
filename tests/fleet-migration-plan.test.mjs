@@ -35,9 +35,10 @@ import {
   validateFleetMigrationPlanStructure,
 } from "../packages/repo-contract/src/fleet-migration.mjs";
 import { runFleetCli } from "../packages/repo-contract/src/fleet-cli.mjs";
+import { RATIFIED_COHORT } from "./helpers/fleet-migration-collector-fixtures.mjs";
 
 const ORGANIZATION_ID = "123456789";
-const DETECTOR_SHA = "e".repeat(40);
+const DETECTOR_SHA = "cd13b325918cb10401e089074461ba11042c154e";
 const WORKFLOW_BUNDLE_SHA = "d".repeat(40);
 const INVENTORY_KEY_ID = "fleet-inventory-key-0001";
 const INVENTORY_POLICY_REVISION = "fleet-inventory-policy-0001";
@@ -51,8 +52,8 @@ const EVALUATED_AT = new Date(TEST_NOW_MS).toISOString();
 const EXPECTED_COUNTS = Object.freeze({
   activeRepositories: 38,
   legacyOperationJson: 73,
-  workflowSecretsInherit: 108,
-  workflowFloatingRef: 87,
+  workflowSecretsInherit: 107,
+  workflowFloatingRef: 86,
 });
 const LEGACY_SCHEMA_IDS = Object.freeze({
   ORG_CONTRACT_APP:
@@ -120,15 +121,14 @@ function evidenceId(prefix, seed) {
 }
 
 function repositoryIdentity(index) {
+  const ratified = RATIFIED_COHORT[index];
   return {
-    id: String(1001 + index),
-    fullName:
-      index === 0
-        ? "seorilabs/platform"
-        : `seorilabs/app-${String(index).padStart(2, "0")}`,
-    defaultRef: "refs/heads/main",
-    sourceSha: sha(`source:${index}`),
+    id: ratified.id,
+    fullName: ratified.fullName,
+    defaultRef: `refs/heads/${ratified.defaultBranch}`,
+    sourceSha: ratified.sourceSha,
     archived: false,
+    private: ratified.private,
     fork: false,
     classification: index === 0 ? "PLATFORM_PRODUCER" : "PRODUCT_APP",
     classificationDecisionRevision: 1,
@@ -139,7 +139,9 @@ function repositoryIdentity(index) {
 function subjectForRepository(repository, { platformAppId = null } = {}) {
   const appId =
     repository.classification === "PRODUCT_APP"
-      ? repository.fullName.slice("seorilabs/".length)
+      ? repository.fullName === "seorilabs/.github"
+        ? "dot-github"
+        : repository.fullName.slice("seorilabs/".length)
       : null;
   return {
     kind: appId === null ? "REPOSITORY" : "PRODUCT_APP",
@@ -187,7 +189,7 @@ function workflowNameForTarget(target) {
 }
 
 function buildTargetsForRepository(targetRepository) {
-  return targetRepository.fullName === "seorilabs/app-01"
+  return targetRepository.fullName === RATIFIED_COHORT[1].fullName
     ? ["ORG_CONTRACT_STATIC", "ANDROID"]
     : ["ORG_CONTRACT_STATIC"];
 }
@@ -1020,7 +1022,7 @@ function makeFleetInventory(contextOptions = {}) {
       );
     }
   }
-  for (let finding = 0; finding < 108; finding += 1) {
+  for (let finding = 0; finding < 107; finding += 1) {
     const repositoryIndex = 1 + (finding % 37);
     const sequence = 1 + Math.floor(finding / 37);
     repositories[repositoryIndex].candidates.push(
@@ -1029,7 +1031,7 @@ function makeFleetInventory(contextOptions = {}) {
         sourceTreeSha: repositories[repositoryIndex].observation.treeSha,
         subject: subjectForRepository(repositories[repositoryIndex].repository),
         path: `.github/workflows/fleet-${String(sequence).padStart(2, "0")}.yml`,
-        includeFloating: finding < 87,
+        includeFloating: finding < 86,
         contextOptions,
       }),
     );
@@ -1041,7 +1043,7 @@ function makeFleetInventory(contextOptions = {}) {
     expiresAt: EXPIRES_AT,
     organization: { id: ORGANIZATION_ID, login: "seorilabs" },
     detector: {
-      repositoryId: "999",
+      repositoryId: "1241442018",
       fullName: "seorilabs/.github",
       sourceRef: "refs/heads/main",
       sourceSha: DETECTOR_SHA,
@@ -1049,7 +1051,7 @@ function makeFleetInventory(contextOptions = {}) {
     },
     coverage: {
       provider: "GITHUB_APP_INSTALLATION_REPOSITORY_READBACK",
-      installationId: "7770001",
+      installationId: "142120077",
       query: {
         organizationLogin: "seorilabs",
         archived: false,
@@ -1066,6 +1068,9 @@ function makeFleetInventory(contextOptions = {}) {
       pages: [],
     },
     expectedCounts: structuredClone(EXPECTED_COUNTS),
+    baselineRatification: structuredClone(
+      fleetMigrationContract.initialBaseline.ratification,
+    ),
     lineage: {
       mode: "BOOTSTRAP",
       waveNumber: 0,
@@ -1175,6 +1180,22 @@ function firstWorkflowSecret(inventory) {
     .find(({ detection }) => detection.type === "WORKFLOW_SECRETS_INHERIT");
 }
 
+function planChangeForCandidate(plan, inventory, candidate) {
+  const source = inventory.repositories.find(({ candidates }) =>
+    candidates.includes(candidate),
+  );
+  assert.ok(source);
+  const plannedRepository = plan.repositories.find(
+    ({ repositoryId }) => repositoryId === source.repository.id,
+  );
+  assert.ok(plannedRepository);
+  const change = plannedRepository.changes.find(
+    ({ path }) => path === candidate.path,
+  );
+  assert.ok(change);
+  return change;
+}
+
 function captureWriter() {
   let output = "";
   return {
@@ -1231,16 +1252,19 @@ test("서명된 전체 38-repo inventory만 READY plan을 만들고 동일 path 
 
 test("source repository와 PRODUCT_APP subject 및 P5 classification revision을 분리해 결합한다", () => {
   const { plan } = readyFixture();
-  const registryChange = plan.repositories[0].changes.find(
+  const platformRepository = plan.repositories.find(
+    ({ classification }) => classification === "PLATFORM_PRODUCER",
+  );
+  const registryChange = platformRepository.changes.find(
     ({ path }) => path === "registry/apps/registry-01.json",
   );
-  assert.equal(plan.repositories[0].classification, "PLATFORM_PRODUCER");
+  assert.equal(platformRepository.classification, "PLATFORM_PRODUCER");
   assert.equal(registryChange.subject.kind, "PRODUCT_APP");
-  assert.equal(registryChange.subject.repositoryId, "1002");
-  assert.equal(registryChange.subject.appId, "app-01");
+  assert.equal(registryChange.subject.repositoryId, RATIFIED_COHORT[1].id);
+  assert.equal(registryChange.subject.appId, "match-picture-app");
   assert.equal(registryChange.subject.platformAppId, "registry-01");
   assert.notEqual(
-    plan.repositories[0].repositoryId,
+    platformRepository.repositoryId,
     registryChange.subject.repositoryId,
   );
 
@@ -1438,6 +1462,111 @@ test("축소 inventory와 끊긴 pagination cursor chain은 서명되어도 trus
   assert.throws(
     () => trustedBinding(brokenPagination),
     /INVENTORY_PAGINATION_CHAIN_MISMATCH/u,
+  );
+});
+
+test("legacy schemaVersion 1 inventory와 checkpoint는 구조 호환되지만 authoritative binding은 거부된다", () => {
+  const legacy = structuredClone(makeFleetInventory());
+  delete legacy.baselineRatification;
+  for (const { repository } of legacy.repositories) {
+    delete repository.private;
+  }
+  refreshAndSign(legacy);
+
+  assert.equal(validateFleetMigrationInventory(legacy).ok, true);
+  assert.equal(Object.hasOwn(legacy, "baselineRatification"), false);
+  assert.throws(
+    () => trustedBinding(legacy),
+    /FLEET_MIGRATION_INVENTORY_UNTRUSTED:.*INITIAL_BASELINE_MISMATCH/u,
+  );
+
+  const wave = makeWaveInventory(legacy);
+  const rootCheckpoint = wave.lineage.ancestry[0];
+  assert.equal(Object.hasOwn(wave, "baselineRatification"), false);
+  assert.equal(Object.hasOwn(rootCheckpoint, "baselineRatification"), false);
+  assert.equal(validateFleetMigrationInventory(wave).ok, true);
+
+  const nullable = structuredClone(makeFleetInventory());
+  nullable.baselineRatification = null;
+  refreshAndSign(nullable);
+  assert.equal(validateFleetMigrationInventory(nullable).ok, true);
+  assert.throws(
+    () => trustedBinding(nullable),
+    /FLEET_MIGRATION_INVENTORY_UNTRUSTED:.*INITIAL_BASELINE_MISMATCH/u,
+  );
+});
+
+test("WAVE의 current baseline ratification 삭제와 변조는 재서명된 chain head로도 authoritative binding을 얻지 못한다", async () => {
+  const priorInventory = makeFleetInventory();
+  for (const [suffix, mutate] of [
+    ["missing", (inventory) => delete inventory.baselineRatification],
+    [
+      "modified",
+      (inventory) => {
+        inventory.baselineRatification = null;
+      },
+    ],
+  ]) {
+    const inventory = makeWaveInventory(priorInventory);
+    inventory.inventoryId = `fleet-inventory-20260829-wave-current-ratification-${suffix}`;
+    mutate(inventory);
+    signInventory(inventory);
+
+    assert.equal(validateFleetMigrationInventory(inventory).ok, true);
+    assert.deepEqual(
+      inventory.lineage.ancestry[0].baselineRatification,
+      fleetMigrationContract.initialBaseline.ratification,
+    );
+    const trustedPriorInventoryBinding =
+      trustedHistoricalBinding(priorInventory);
+    const chainHead = makeChainHead(priorInventory, inventory);
+    const chainHeadBinding = await trustedChainHeadBinding(chainHead);
+
+    assert.throws(
+      () =>
+        loadTrustedFleetMigrationInventoryBinding({
+          inventory,
+          trustedInventoryKeys: new Map([
+            [INVENTORY_KEY_ID, INVENTORY_KEYS.publicKey],
+          ]),
+          priorInventory,
+          trustedPriorInventoryBinding,
+          chainHead,
+          trustedChainHeadBinding: chainHeadBinding,
+          now: EVALUATED_AT,
+        }),
+      /FLEET_MIGRATION_INVENTORY_UNTRUSTED:.*INITIAL_BASELINE_MISMATCH/u,
+    );
+    assert.throws(
+      () => trustedHistoricalBinding(inventory),
+      /FLEET_MIGRATION_INVENTORY_UNTRUSTED:.*INITIAL_BASELINE_MISMATCH/u,
+    );
+  }
+});
+
+test("WAVE의 claimed detector SHA가 current detector repository HEAD와 다르면 재서명해도 거부한다", async () => {
+  const priorInventory = makeFleetInventory();
+  const inventory = makeWaveInventory(priorInventory);
+  inventory.detector.sourceSha = "f".repeat(40);
+  signInventory(inventory);
+  const trustedPriorInventoryBinding = trustedHistoricalBinding(priorInventory);
+  const chainHead = makeChainHead(priorInventory, inventory);
+  const chainHeadBinding = await trustedChainHeadBinding(chainHead);
+
+  assert.throws(
+    () =>
+      loadTrustedFleetMigrationInventoryBinding({
+        inventory,
+        trustedInventoryKeys: new Map([
+          [INVENTORY_KEY_ID, INVENTORY_KEYS.publicKey],
+        ]),
+        priorInventory,
+        trustedPriorInventoryBinding,
+        chainHead,
+        trustedChainHeadBinding: chainHeadBinding,
+        now: EVALUATED_AT,
+      }),
+    /FLEET_MIGRATION_INVENTORY_UNTRUSTED:.*DETECTOR_SOURCE_MISMATCH/u,
   );
 });
 
@@ -2068,7 +2197,8 @@ test("대소문자 path 충돌과 같은 path의 서로 다른 final digest를 �
 });
 
 test("resolved manifest digest는 revision, signed snapshot, signing key와 policy를 모두 결합한다", () => {
-  const { plan: initialPlan } = readyFixture();
+  const { inventory: initialInventory, plan: initialPlan } = readyFixture();
+  const initialCandidate = firstLegacy(initialInventory);
   const initialReplacement = firstLegacy(makeFleetInventory()).replacement;
   for (const [field, nextValue] of [
     ["configRevisionId", "config-revision-different-0001"],
@@ -2085,13 +2215,21 @@ test("resolved manifest digest는 revision, signed snapshot, signing key와 poli
     );
   }
 
-  const { plan: nextPlan } = readyFixture({
+  const { inventory: nextInventory, plan: nextPlan } = readyFixture({
     snapshotSalt: "next",
     signatureKeyId: "snapshot-signing-key-0002",
     configPolicyRevision: "snapshot-policy-0002",
   });
-  const initialChange = initialPlan.repositories[0].changes[0];
-  const nextChange = nextPlan.repositories[0].changes[0];
+  const initialChange = planChangeForCandidate(
+    initialPlan,
+    initialInventory,
+    initialCandidate,
+  );
+  const nextChange = planChangeForCandidate(
+    nextPlan,
+    nextInventory,
+    firstLegacy(nextInventory),
+  );
   assert.notEqual(
     initialChange.replacementDigest,
     nextChange.replacementDigest,
@@ -2107,7 +2245,11 @@ test("parity는 trusted stream의 최신 contiguous MATCH 두 건과 previous ID
   const missingParityPlan = createFleetMigrationPlan(missingParity, {
     trustedInventoryBinding: trustedBinding(missingParity),
   });
-  const missingParityChange = missingParityPlan.repositories[0].changes[0];
+  const missingParityChange = planChangeForCandidate(
+    missingParityPlan,
+    missingParity,
+    firstLegacy(missingParity),
+  );
   assert.equal(missingParityChange.evidence.parityStreamId, null);
   assert.equal(missingParityChange.evidence.parityHeadObservationId, null);
   assert.equal(missingParityChange.evidence.parityHeadSequence, null);
@@ -2170,9 +2312,7 @@ test("required build target은 ACTIVE MarketProfile에서 도출하고 approved 
   const missingPlan = createFleetMigrationPlan(missingIos, {
     trustedInventoryBinding: trustedBinding(missingIos),
   });
-  const changed = missingPlan.repositories[1].changes.find(
-    ({ path }) => path === candidate.path,
-  );
+  const changed = planChangeForCandidate(missingPlan, missingIos, candidate);
   assert.deepEqual(changed.requiredBuildTargets, [
     "ORG_CONTRACT_STATIC",
     "ANDROID",
@@ -2377,8 +2517,12 @@ test("DELETE 전 consumer 0, parser disabled와 REWRITE dispatch readback을 강
 });
 
 test("workflow run attempt, artifact, workflow, builder와 control revisions는 proof/idempotency에 결합된다", () => {
-  const { plan: baselinePlan } = readyFixture();
-  const baselineChange = baselinePlan.repositories[0].changes[0];
+  const { inventory: baselineInventory, plan: baselinePlan } = readyFixture();
+  const baselineChange = planChangeForCandidate(
+    baselinePlan,
+    baselineInventory,
+    firstLegacy(baselineInventory),
+  );
   const mutations = [
     (candidate) => {
       candidate.proofs.buildOnly[0].runAttempt = 2;
@@ -2412,13 +2556,14 @@ test("workflow run attempt, artifact, workflow, builder와 control revisions는 
   ];
   for (const mutate of mutations) {
     const inventory = structuredClone(makeFleetInventory());
-    mutate(firstLegacy(inventory));
+    const candidate = firstLegacy(inventory);
+    mutate(candidate);
     refreshAndSign(inventory);
     const plan = createFleetMigrationPlan(inventory, {
       trustedInventoryBinding: trustedBinding(inventory),
     });
     assert.equal(plan.outcome, "READY_FOR_REVIEW");
-    const change = plan.repositories[0].changes[0];
+    const change = planChangeForCandidate(plan, inventory, candidate);
     assert.notEqual(change.proofDigest, baselineChange.proofDigest);
     assert.notEqual(change.idempotencyKey, baselineChange.idempotencyKey);
   }

@@ -110,6 +110,12 @@
         "workflowFloatingRef": { "$ref": "#/$defs/count" }
       }
     },
+    "baselineRatification": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/baselineRatification" }
+      ]
+    },
     "lineage": { "$ref": "#/$defs/inventoryLineage" },
     "collectionEvidence": { "$ref": "#/$defs/collectorEvidence" },
     "repositories": {
@@ -170,6 +176,176 @@
         "legacyOperationJson": { "$ref": "#/$defs/count" },
         "workflowSecretsInherit": { "$ref": "#/$defs/count" },
         "workflowFloatingRef": { "$ref": "#/$defs/count" }
+      }
+    },
+    "baselineRatification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "expectedCounts",
+        "detector",
+        "cohortDigest",
+        "platform"
+      ],
+      "properties": {
+        "reason": {
+          "enum": ["PRE_AUTHORITATIVE_SECURITY_REMEDIATION"]
+        },
+        "expectedCounts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "activeRepositories",
+            "legacyOperationJson",
+            "workflowSecretsInherit",
+            "workflowFloatingRef"
+          ],
+          "properties": {
+            "activeRepositories": { "const": 38 },
+            "legacyOperationJson": { "const": 73 },
+            "workflowSecretsInherit": { "const": 107 },
+            "workflowFloatingRef": { "const": 86 }
+          }
+        },
+        "detector": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repositoryId", "sourceSha"],
+          "properties": {
+            "repositoryId": { "const": "1241442018" },
+            "sourceSha": {
+              "const": "cd13b325918cb10401e089074461ba11042c154e"
+            }
+          }
+        },
+        "cohortDigest": {
+          "const": "6b940f78bf810b5f725ff6c2d71af14fe2127d0de98c893e180594eeae29460d"
+        },
+        "platform": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repositoryId",
+            "fullName",
+            "checksWorkflowPath",
+            "publishWorkflowPath",
+            "baselineSourceSha",
+            "baselineChecksBlobSha",
+            "additionCommitSha",
+            "additionPublishBlobSha",
+            "remediationParentSha",
+            "remediationCommitSha",
+            "remediationChecksBlobSha",
+            "remediationPublishBlobSha",
+            "pinnedWorkflowSha",
+            "currentSourceSha",
+            "currentChecksBlobSha",
+            "currentPublishBlobSha",
+            "countTransition"
+          ],
+          "properties": {
+            "repositoryId": { "const": "1317999271" },
+            "fullName": { "const": "seorilabs/platform" },
+            "checksWorkflowPath": {
+              "const": ".github/workflows/checks-sdk.yml"
+            },
+            "publishWorkflowPath": {
+              "const": ".github/workflows/publish-sdk-gdscript.yml"
+            },
+            "baselineSourceSha": {
+              "const": "392f4ea528850ec07d71aa1bfb12670fc90a77a1"
+            },
+            "baselineChecksBlobSha": {
+              "const": "7bb5f0664d11015c2c6730ac78084fd234a24223"
+            },
+            "additionCommitSha": {
+              "const": "33f6b568d34ff8885c78abe8e7119382bcfb189d"
+            },
+            "additionPublishBlobSha": {
+              "const": "abea72ccd670969f9fce3d851528bf4acf46c3a9"
+            },
+            "remediationParentSha": {
+              "const": "186d8bcd83ab4a0daec1ca307ee7448c1d72c04f"
+            },
+            "remediationCommitSha": {
+              "const": "c23e7717286bd34c2a89eba2f3f445f3989be6f2"
+            },
+            "remediationChecksBlobSha": {
+              "const": "104d491c6c67d14639d820a9c8839756c24b812f"
+            },
+            "remediationPublishBlobSha": {
+              "const": "4b0eeca5ab83585b9c63f0302218a5c3eb604e25"
+            },
+            "pinnedWorkflowSha": {
+              "const": "97e16ce4cbdfb20d6a2a7872782cc34ecef022c3"
+            },
+            "currentSourceSha": {
+              "const": "a0a2e37ebbbd7490d1928ad95aac82fa1ad8d9c4"
+            },
+            "currentChecksBlobSha": {
+              "const": "27260d352e95287287a454206dc2a3cef5523d92"
+            },
+            "currentPublishBlobSha": {
+              "const": "f6ba06620e0b26868fb141b63a5dc237a590b1f9"
+            },
+            "countTransition": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["baseline", "transient", "ratified"],
+              "properties": {
+                "baseline": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "activeRepositories",
+                    "legacyOperationJson",
+                    "workflowSecretsInherit",
+                    "workflowFloatingRef"
+                  ],
+                  "properties": {
+                    "activeRepositories": { "const": 38 },
+                    "legacyOperationJson": { "const": 73 },
+                    "workflowSecretsInherit": { "const": 108 },
+                    "workflowFloatingRef": { "const": 87 }
+                  }
+                },
+                "transient": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "activeRepositories",
+                    "legacyOperationJson",
+                    "workflowSecretsInherit",
+                    "workflowFloatingRef"
+                  ],
+                  "properties": {
+                    "activeRepositories": { "const": 38 },
+                    "legacyOperationJson": { "const": 73 },
+                    "workflowSecretsInherit": { "const": 108 },
+                    "workflowFloatingRef": { "const": 88 }
+                  }
+                },
+                "ratified": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "activeRepositories",
+                    "legacyOperationJson",
+                    "workflowSecretsInherit",
+                    "workflowFloatingRef"
+                  ],
+                  "properties": {
+                    "activeRepositories": { "const": 38 },
+                    "legacyOperationJson": { "const": 73 },
+                    "workflowSecretsInherit": { "const": 107 },
+                    "workflowFloatingRef": { "const": 86 }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "inventoryLineage": {
@@ -317,6 +493,12 @@
         "detectorSourceSha": { "$ref": "#/$defs/sha" },
         "repositoriesDigest": { "$ref": "#/$defs/digest" },
         "expectedCounts": { "$ref": "#/$defs/expectedCounts" },
+        "baselineRatification": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/baselineRatification" }
+          ]
+        },
         "lineageCommitment": { "$ref": "#/$defs/lineageCommitment" },
         "attestation": { "$ref": "#/$defs/inventoryAttestation" }
       }
@@ -413,6 +595,7 @@
         "defaultRef": { "$ref": "#/$defs/sourceRef" },
         "sourceSha": { "$ref": "#/$defs/sha" },
         "archived": { "const": false },
+        "private": { "type": "boolean" },
         "fork": { "type": "boolean" },
         "classification": { "$ref": "#/$defs/repositoryClassification" },
         "classificationDecisionRevision": {

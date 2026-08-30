@@ -22,15 +22,26 @@ import {
 import {
   computeFleetEvidenceDigest,
   computeFleetMigrationInventoryDigest,
+  computeFleetMigrationLineageChainDigest,
+  computeFleetMigrationRatifiedCohortDigest,
+  computeFleetMigrationShadowCohortDigest,
+  computeFleetRepositoryReadbackDigest,
   createFleetMigrationAttestationPayload,
+  deriveFleetMigrationInventoryCheckpoint,
+  fleetMigrationContract,
+  isFleetMigrationBaselineRatificationBound,
+  validateFleetMigrationInventory,
 } from "../packages/repo-contract/src/fleet-migration.mjs";
 import {
   canonicalJson,
   makeCapability,
   makeCollectorFixture,
+  RATIFIED_COHORT,
 } from "./helpers/fleet-migration-collector-fixtures.mjs";
 
 const REQUEST = Object.freeze({
+  baselineRatification:
+    fleetMigrationContract.initialBaseline.ratification,
   deliveryId: "fleet-collector-delivery-0001",
   inventoryId: "fleet-inventory-collector-0001",
   mode: "READ_ONLY_SHADOW",
@@ -45,6 +56,59 @@ const inventorySchema = JSON.parse(
 
 function sha256(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function refreshCollectionDigests(collection) {
+  collection.inventoryDigest = computeFleetMigrationInventoryDigest(
+    collection.inventory,
+  );
+  const { collectionDigest: _collectionDigest, ...unsigned } = collection;
+  collection.collectionDigest = sha256(canonicalJson(unsigned));
+  return collection;
+}
+
+function waveCollectionFromBootstrap(collection, keys) {
+  const prior = structuredClone(collection.inventory);
+  const inventoryDigest = computeFleetMigrationInventoryDigest(prior);
+  const signedAt = new Date(
+    Date.parse(prior.capturedAt) + 1000,
+  ).toISOString();
+  const payload = createFleetMigrationAttestationPayload(prior, {
+    keyId: fleetMigrationInventoryIssuerContract.keyId,
+    policyRevision: fleetMigrationInventoryIssuerContract.policyRevision,
+    signedAt,
+  });
+  prior.attestation = {
+    algorithm: "Ed25519",
+    keyId: fleetMigrationInventoryIssuerContract.keyId,
+    policyRevision: fleetMigrationInventoryIssuerContract.policyRevision,
+    signedAt,
+    inventoryDigest,
+    value: signEd25519(null, payload, keys.privateKey).toString("base64url"),
+  };
+  const checkpoint = deriveFleetMigrationInventoryCheckpoint(prior);
+  const wave = structuredClone(collection);
+  wave.inventory.inventoryId = "fleet-inventory-collector-wave-0001";
+  wave.inventory.lineage = {
+    mode: "WAVE",
+    waveNumber: 1,
+    priorInventoryId: prior.inventoryId,
+    priorInventoryDigest: inventoryDigest,
+    priorCapturedAt: prior.capturedAt,
+    priorObservedCounts: structuredClone(prior.expectedCounts),
+    rootInventoryId: prior.inventoryId,
+    rootInventoryDigest: inventoryDigest,
+    chainDigest: computeFleetMigrationLineageChainDigest([checkpoint]),
+    ancestry: [structuredClone(checkpoint)],
+  };
+  return refreshCollectionDigests(wave);
+}
+
+function replaceDurableCollection(fixture, collection) {
+  const occurrence = fixture.durable.byOccurrence.get(
+    collection.occurrence.occurrenceId,
+  );
+  occurrence.collection = structuredClone(collection);
 }
 
 function publicKeyFingerprint(publicKey) {
@@ -135,6 +199,223 @@ test("collector evidence schema는 classification decision 계약과 일치한�
   assert.equal(capability.app.properties.permissions.uniqueItems, true);
   assert.equal(capability.app.properties.events.uniqueItems, true);
   assert.equal(capability.installation.properties.permissions.uniqueItems, true);
+
+  const ratification = inventorySchema.$defs.baselineRatification;
+  assert.deepEqual(ratification.properties.reason.enum, [
+    "PRE_AUTHORITATIVE_SECURITY_REMEDIATION",
+  ]);
+  assert.equal(
+    ratification.properties.expectedCounts.properties.workflowSecretsInherit
+      .const,
+    107,
+  );
+  assert.equal(
+    ratification.properties.expectedCounts.properties.workflowFloatingRef
+      .const,
+    86,
+  );
+  const contractRatification =
+    fleetMigrationContract.initialBaseline.ratification;
+  assert.equal(contractRatification.detector.repositoryId, "1241442018");
+  assert.equal(
+    contractRatification.detector.sourceSha,
+    "cd13b325918cb10401e089074461ba11042c154e",
+  );
+  assert.equal(
+    contractRatification.cohortDigest,
+    "6b940f78bf810b5f725ff6c2d71af14fe2127d0de98c893e180594eeae29460d",
+  );
+  assert.equal(
+    contractRatification.platform.remediationCommitSha,
+    "c23e7717286bd34c2a89eba2f3f445f3989be6f2",
+  );
+  assert.equal(
+    contractRatification.platform.remediationChecksBlobSha,
+    "104d491c6c67d14639d820a9c8839756c24b812f",
+  );
+  assert.equal(
+    contractRatification.platform.remediationPublishBlobSha,
+    "4b0eeca5ab83585b9c63f0302218a5c3eb604e25",
+  );
+  assert.deepEqual(contractRatification.platform.countTransition.ratified, {
+    activeRepositories: 38,
+    legacyOperationJson: 73,
+    workflowSecretsInherit: 107,
+    workflowFloatingRef: 86,
+  });
+});
+
+test("ratified cohort digest는 Backoffice shadow-readiness v2 exact vector에서 재현된다", () => {
+  const repositories = RATIFIED_COHORT.map((repository) => ({
+    id: repository.id,
+    fullName: repository.fullName,
+    defaultRef: `refs/heads/${repository.defaultBranch}`,
+    sourceSha: repository.sourceSha,
+    archived: false,
+    private: repository.private,
+    fork: false,
+  }));
+  const cohortDigest = computeFleetMigrationShadowCohortDigest({
+    installationId: "142120077",
+    repositories,
+  });
+
+  assert.equal(
+    cohortDigest,
+    fleetMigrationContract.initialBaseline.ratification.cohortDigest,
+  );
+  assert.equal(
+    cohortDigest,
+    "6b940f78bf810b5f725ff6c2d71af14fe2127d0de98c893e180594eeae29460d",
+  );
+
+  const currentRepositories = structuredClone(repositories);
+  const detectorRepositoryId =
+    fleetMigrationContract.initialBaseline.ratification.detector.repositoryId;
+  currentRepositories.find(
+    ({ id }) => id === detectorRepositoryId,
+  ).sourceSha = "e".repeat(40);
+  assert.notEqual(
+    computeFleetMigrationShadowCohortDigest({
+      installationId: "142120077",
+      repositories: currentRepositories,
+    }),
+    cohortDigest,
+  );
+  assert.equal(
+    computeFleetMigrationRatifiedCohortDigest({
+      installationId: "142120077",
+      repositories: currentRepositories,
+      detectorSourceSha: "e".repeat(40),
+    }),
+    cohortDigest,
+  );
+  assert.throws(
+    () =>
+      computeFleetMigrationRatifiedCohortDigest({
+        installationId: "142120077",
+        repositories: currentRepositories,
+        detectorSourceSha: "f".repeat(40),
+      }),
+    /FLEET_MIGRATION_DETECTOR_SOURCE_MISMATCH/u,
+  );
+});
+
+test("shadow bootstrap은 exact public baseline ratification 입력만 허용한다", async () => {
+  const fixture = makeCollectorFixture({ count: 38, nowMs: Date.now() });
+  const missing = structuredClone(REQUEST);
+  delete missing.baselineRatification;
+  await assert.rejects(
+    collect(fixture, missing),
+    /FLEET_MIGRATION_COLLECTION_REQUEST_INVALID/u,
+  );
+
+  const tampered = structuredClone(REQUEST);
+  tampered.baselineRatification.reason = "MANUAL_COUNT_OVERRIDE";
+  await assert.rejects(
+    collect(fixture, tampered),
+    /FLEET_MIGRATION_COLLECTION_REQUEST_INVALID/u,
+  );
+
+  const wrongDetectorRepository = makeCollectorFixture({
+    count: 38,
+    nowMs: Date.now(),
+  });
+  wrongDetectorRepository.configuration.detectorRepositoryId = "999999999";
+  await assert.rejects(
+    collect(wrongDetectorRepository),
+    /FLEET_MIGRATION_COLLECTION_REQUEST_INVALID/u,
+  );
+
+  const wrongDetectorSource = makeCollectorFixture({
+    count: 38,
+    nowMs: Date.now(),
+  });
+  wrongDetectorSource.configuration.detectorSourceSha = "f".repeat(40);
+  await assert.rejects(
+    collect(wrongDetectorSource),
+    /FLEET_MIGRATION_DETECTOR_SOURCE_MISMATCH/u,
+  );
+
+  const cohortDrifted = makeCollectorFixture({
+    count: 38,
+    nowMs: Date.now(),
+  });
+  cohortDrifted.repositories[0].private =
+    !cohortDrifted.repositories[0].private;
+  await assert.rejects(
+    collect(cohortDrifted),
+    /FLEET_MIGRATION_BASELINE_RATIFICATION_MISMATCH/u,
+  );
+
+  const drifted = makeCollectorFixture({ count: 38, nowMs: Date.now() });
+  const workflow = drifted.blobs
+    .flat()
+    .find(({ path }) => path.endsWith("fleet-03.yml"));
+  workflow.text = workflow.text.replace("    secrets: inherit\n", "");
+  await assert.rejects(
+    collect(drifted),
+    /FLEET_MIGRATION_BASELINE_RATIFICATION_MISMATCH/u,
+  );
+});
+
+test("detector repo main 이동만 historical ratification에 정규화하고 actual runtime SHA를 inventory에 서명한다", async () => {
+  const nowMs = Date.now();
+  const fixture = makeCollectorFixture({
+    count: 38,
+    nowMs,
+    verifiedCapability: true,
+  });
+  const detectorRepositoryId =
+    fleetMigrationContract.initialBaseline.ratification.detector.repositoryId;
+  const runtimeDetectorSha = "e".repeat(40);
+  const detectorRepository = fixture.repositories.find(
+    ({ id }) => id === detectorRepositoryId,
+  );
+  detectorRepository.sourceSha = runtimeDetectorSha;
+  fixture.configuration.detectorSourceSha = runtimeDetectorSha;
+
+  const collection = await collect(fixture);
+  assert.equal(collection.inventory.detector.sourceSha, runtimeDetectorSha);
+  assert.equal(
+    collection.inventory.repositories.find(
+      ({ repository }) => repository.id === detectorRepository.id,
+    ).repository.sourceSha,
+    runtimeDetectorSha,
+  );
+  assert.equal(
+    isFleetMigrationBaselineRatificationBound(collection.inventory),
+    true,
+  );
+  const keys = generateKeyPairSync("ed25519");
+  const issuance = await makeIssuer(fixture, keys).issueAuthoritative(
+    collection,
+  );
+  assert.equal(issuance.inventory.detector.sourceSha, runtimeDetectorSha);
+  assert.equal(
+    issuance.inventory.attestation.inventoryDigest,
+    issuance.inventoryDigest,
+  );
+  assert.equal(
+    validateFleetMigrationAuthoritativeInventory(
+      issuance,
+      keys.publicKey,
+      { now: nowMs },
+    ).ok,
+    true,
+  );
+
+  const otherRepositoryDrift = makeCollectorFixture({
+    count: 38,
+    nowMs: Date.now(),
+  });
+  otherRepositoryDrift.repositories.find(
+    ({ id }) => id !== detectorRepository.id,
+  ).sourceSha = "e".repeat(40);
+  await assert.rejects(
+    collect(otherRepositoryDrift),
+    /FLEET_MIGRATION_BASELINE_RATIFICATION_MISMATCH/u,
+  );
 });
 
 function makeIssuer(
@@ -176,6 +457,7 @@ test("2-repository fixture는 public evidence만 가진 비권위 collection으�
   const fixture = makeCollectorFixture({ count: 2, nowMs });
   const result = await collect(fixture, {
     ...REQUEST,
+    baselineRatification: null,
     mode: "FIXTURE",
   });
   assert.equal(result.state, "FIXTURE_COMPLETE");
@@ -220,9 +502,34 @@ test("38-repository exact fixture와 verified capability만 authoritative READY�
   assert.deepEqual(collection.inventory.expectedCounts, {
     activeRepositories: 38,
     legacyOperationJson: 73,
-    workflowSecretsInherit: 108,
-    workflowFloatingRef: 87,
+    workflowSecretsInherit: 107,
+    workflowFloatingRef: 86,
   });
+  assert.deepEqual(
+    collection.inventory.baselineRatification,
+    fleetMigrationContract.initialBaseline.ratification,
+  );
+  const ratificationKeys = [];
+  const visitRatification = (value) => {
+    if (value === null || typeof value !== "object") return;
+    for (const [key, nested] of Object.entries(value)) {
+      ratificationKeys.push(key);
+      visitRatification(nested);
+    }
+  };
+  visitRatification(collection.inventory.baselineRatification);
+  for (const generatedKey of [
+    "capturedAt",
+    "collectionDigest",
+    "expiresAt",
+    "inventoryDigest",
+    "inventoryId",
+    "keyId",
+    "signature",
+    "signedAt",
+  ]) {
+    assert.equal(ratificationKeys.includes(generatedKey), false);
+  }
   assert.equal(legacyValidationCount, 73);
   assert.equal(
     collection.inventory.repositories.every(
@@ -232,10 +539,12 @@ test("38-repository exact fixture와 verified capability만 authoritative READY�
     ),
     true,
   );
+  const platformObservation = collection.inventory.repositories.find(
+    ({ repository }) => repository.fullName === "seorilabs/platform",
+  ).observation;
   assert.equal(
-    collection.inventory.repositories[0].observation.treeReadback.blobCount -
-      collection.inventory.repositories[0].observation.treeReadback
-        .scannedBlobCount >=
+    platformObservation.treeReadback.blobCount -
+      platformObservation.treeReadback.scannedBlobCount >=
       4,
     true,
   );
@@ -250,6 +559,7 @@ test("38-repository exact fixture와 verified capability만 authoritative READY�
   const keys = generateKeyPairSync("ed25519");
   const issuedAtMs = nowMs + 60_000;
   let signerRequest;
+  let signedPayload;
   const issuer = makeIssuer(fixture, keys, {
     clock: () => issuedAtMs,
     readGitHubAppCapability: async (request) => {
@@ -285,6 +595,7 @@ test("38-repository exact fixture와 verified capability만 authoritative READY�
     },
     signer: async (request) => {
       signerRequest = request;
+      signedPayload = JSON.parse(request.payload.toString("utf8"));
       assert.equal(
         request.credentialId,
         "shared/platform/fleet-release-approval-signing",
@@ -316,6 +627,10 @@ test("38-repository exact fixture와 verified capability만 authoritative READY�
   assert.equal(issuance.state, "READY");
   assert.equal(issuance.authoritative, true);
   assert.equal(issuance.readyForPlanning, true);
+  assert.deepEqual(
+    signedPayload.baselineRatification,
+    fleetMigrationContract.initialBaseline.ratification,
+  );
   assert.equal(
     issuance.collectionCapabilityEvidenceDigest,
     collection.inventory.collectionEvidence.githubAppCapability
@@ -413,6 +728,115 @@ test("38-repository exact fixture와 verified capability만 authoritative READY�
   assert.equal(signerRequest.payload.every((byte) => byte === 0), true);
 });
 
+test("issuer는 claimed detector와 live repo HEAD mismatch 및 canonical cohort drift를 서명 전에 거부한다", async () => {
+  const nowMs = Date.now();
+  const fixture = makeCollectorFixture({
+    count: 38,
+    nowMs,
+    verifiedCapability: true,
+  });
+  const original = await collect(fixture);
+  const keys = generateKeyPairSync("ed25519");
+  let signerCalled = false;
+  const issuer = makeIssuer(fixture, keys, {
+    signer: async () => {
+      signerCalled = true;
+      throw new Error("must not sign");
+    },
+  });
+
+  for (const [field, value] of [
+    ["repositoryId", "999999999"],
+    ["sourceSha", "f".repeat(40)],
+  ]) {
+    const detectorDrifted = structuredClone(original);
+    detectorDrifted.inventory.detector[field] = value;
+    refreshCollectionDigests(detectorDrifted);
+    assert.equal(validateFleetMigrationCollection(detectorDrifted).ok, true);
+    replaceDurableCollection(fixture, detectorDrifted);
+    await assert.rejects(
+      issuer.issueAuthoritative(detectorDrifted),
+      /FLEET_MIGRATION_INVENTORY_NOT_AUTHORITATIVE/u,
+    );
+  }
+
+  const unratified = structuredClone(original);
+  delete unratified.inventory.baselineRatification;
+  refreshCollectionDigests(unratified);
+  assert.equal(validateFleetMigrationCollection(unratified).ok, true);
+  replaceDurableCollection(fixture, unratified);
+  await assert.rejects(
+    issuer.issueAuthoritative(unratified),
+    /FLEET_MIGRATION_INVENTORY_NOT_AUTHORITATIVE/u,
+  );
+
+  const cohortDrifted = structuredClone(original);
+  cohortDrifted.inventory.repositories[0].repository.private =
+    !cohortDrifted.inventory.repositories[0].repository.private;
+  cohortDrifted.inventory.coverage.repositoriesDigest =
+    computeFleetRepositoryReadbackDigest({
+      organizationId: cohortDrifted.inventory.organization.id,
+      repositories: cohortDrifted.inventory.repositories.map(
+        ({ repository }) => repository,
+      ),
+    });
+  refreshCollectionDigests(cohortDrifted);
+  assert.equal(validateFleetMigrationCollection(cohortDrifted).ok, true);
+  replaceDurableCollection(fixture, cohortDrifted);
+  await assert.rejects(
+    issuer.issueAuthoritative(cohortDrifted),
+    /FLEET_MIGRATION_INVENTORY_NOT_AUTHORITATIVE/u,
+  );
+  assert.equal(signerCalled, false);
+});
+
+test("issuer는 ratified ancestry가 있어도 current WAVE ratification 삭제와 변조를 서명 전에 거부한다", async () => {
+  const nowMs = Date.now();
+  const fixture = makeCollectorFixture({
+    count: 38,
+    nowMs,
+    verifiedCapability: true,
+  });
+  const original = await collect(fixture);
+  const keys = generateKeyPairSync("ed25519");
+  let signerCalled = false;
+  const issuer = makeIssuer(fixture, keys, {
+    signer: async () => {
+      signerCalled = true;
+      throw new Error("must not sign");
+    },
+  });
+
+  for (const mutate of [
+    (inventory) => delete inventory.baselineRatification,
+    (inventory) => {
+      inventory.baselineRatification = null;
+    },
+  ]) {
+    const wave = waveCollectionFromBootstrap(original, keys);
+    mutate(wave.inventory);
+    refreshCollectionDigests(wave);
+    assert.deepEqual(validateFleetMigrationInventory(wave.inventory), {
+      ok: true,
+      diagnostics: [],
+    });
+    assert.deepEqual(validateFleetMigrationCollection(wave), {
+      ok: true,
+      diagnostics: [],
+    });
+    assert.deepEqual(
+      wave.inventory.lineage.ancestry[0].baselineRatification,
+      fleetMigrationContract.initialBaseline.ratification,
+    );
+    replaceDurableCollection(fixture, wave);
+    await assert.rejects(
+      issuer.issueAuthoritative(wave),
+      /FLEET_MIGRATION_INVENTORY_NOT_AUTHORITATIVE/u,
+    );
+  }
+  assert.equal(signerCalled, false);
+});
+
 test("collector fixture도 공용 legacy schema validator로 malformed 문서를 거부한다", async () => {
   const fixture = makeCollectorFixture({
     count: 38,
@@ -451,8 +875,13 @@ test("current live permission/event mismatch는 public shadow까지만 허용한
 
 test("같은 provider vector의 duplicate delivery는 동일 durable occurrence와 collection을 replay한다", async () => {
   const fixture = makeCollectorFixture({ count: 2, nowMs: Date.now() });
-  const first = await collect(fixture, { ...REQUEST, mode: "FIXTURE" });
+  const first = await collect(fixture, {
+    ...REQUEST,
+    baselineRatification: null,
+    mode: "FIXTURE",
+  });
   const second = await collect(fixture, {
+    baselineRatification: null,
     deliveryId: "fleet-collector-delivery-duplicate-0002",
     inventoryId: "fleet-inventory-duplicate-ignored-0002",
     mode: "FIXTURE",
@@ -470,10 +899,15 @@ test("completion 결과 불명은 재수집 뒤 같은 occurrence/run의 durable
     failCompletionAfterPersist: true,
   });
   await assert.rejects(
-    collect(fixture, { ...REQUEST, mode: "FIXTURE" }),
+    collect(fixture, {
+      ...REQUEST,
+      baselineRatification: null,
+      mode: "FIXTURE",
+    }),
     /FLEET_MIGRATION_COLLECTION_COMPLETION_UNKNOWN/u,
   );
   const resumed = await collect(fixture, {
+    baselineRatification: null,
     deliveryId: "fleet-collector-delivery-resume-0002",
     inventoryId: "fleet-inventory-resume-0002",
     mode: "FIXTURE",
@@ -572,7 +1006,11 @@ test("전체 tree digest는 유지하되 detector 관련 BLOB만 읽는다", asy
     }
     return readBlob(request);
   };
-  const collection = await collect(fixture, { ...REQUEST, mode: "FIXTURE" });
+  const collection = await collect(fixture, {
+    ...REQUEST,
+    baselineRatification: null,
+    mode: "FIXTURE",
+  });
   const first = collection.inventory.repositories[0].observation.treeReadback;
   const evidence =
     collection.inventory.collectionEvidence.repositoryEvidence[0];
@@ -601,7 +1039,11 @@ test("전체 tree digest는 유지하되 detector 관련 BLOB만 읽는다", asy
     throw new Error("oversized relevant blob must not be fetched");
   };
   await assert.rejects(
-    collect(oversized, { ...REQUEST, mode: "FIXTURE" }),
+    collect(oversized, {
+      ...REQUEST,
+      baselineRatification: null,
+      mode: "FIXTURE",
+    }),
     /FLEET_MIGRATION_COLLECTOR_RELEVANT_BLOB_TOO_LARGE/u,
   );
 });
@@ -639,7 +1081,11 @@ test("Git tree의 공백, plus, Unicode와 backslash path를 손실 없이 diges
     }
     return tree;
   };
-  const collected = await collect(fixture, { ...REQUEST, mode: "FIXTURE" });
+  const collected = await collect(fixture, {
+    ...REQUEST,
+    baselineRatification: null,
+    mode: "FIXTURE",
+  });
   const repository = collected.inventory.repositories[0];
   assert.equal(
     repository.observation.treeReadback.entryCount,
@@ -675,7 +1121,11 @@ test("workflow detector는 YAML job semantics만 인식하고 malformed YAML은 
       "",
     ].join("\n"),
   });
-  const clean = await collect(incidental, { ...REQUEST, mode: "FIXTURE" });
+  const clean = await collect(incidental, {
+    ...REQUEST,
+    baselineRatification: null,
+    mode: "FIXTURE",
+  });
   assert.equal(clean.inventory.expectedCounts.workflowSecretsInherit, 0);
   assert.equal(clean.inventory.expectedCounts.workflowFloatingRef, 0);
 
@@ -685,7 +1135,11 @@ test("workflow detector는 YAML job semantics만 인식하고 malformed YAML은 
     text: "jobs:\n  test: {}\n  test: {}\n",
   });
   await assert.rejects(
-    collect(malformed, { ...REQUEST, mode: "FIXTURE" }),
+    collect(malformed, {
+      ...REQUEST,
+      baselineRatification: null,
+      mode: "FIXTURE",
+    }),
     /FLEET_MIGRATION_COLLECTOR_WORKFLOW_YAML_INVALID/u,
   );
 });
@@ -1080,6 +1534,19 @@ test("public contracts에는 authoritative gate와 secret-free issuer 경계를 
     Object.hasOwn(fleetMigrationCollectorContract, "githubAppGateIssue"),
     false,
   );
+  assert.deepEqual(fleetMigrationCollectorContract.baselineRatification, {
+    requiredMode: "READ_ONLY_SHADOW",
+    fixtureValue: null,
+    reason: "PRE_AUTHORITATIVE_SECURITY_REMEDIATION",
+  });
+  assert.deepEqual(fleetMigrationCollectorContract.detectorSource, {
+    repositoryId: "1241442018",
+    fullName: "seorilabs/.github",
+    defaultRef: "refs/heads/main",
+    runtimeBinding: "TRUSTED_CONFIGURATION_MATCHES_LIVE_DEFAULT_HEAD",
+    signedInventoryField: "detector.sourceSha",
+    historicalCohortNormalization: "DETECTOR_REPOSITORY_ONLY",
+  });
   assert.equal(
     fleetMigrationInventoryIssuerContract.authoritativeIssuanceEnabled,
     true,
@@ -1094,6 +1561,18 @@ test("public contracts에는 authoritative gate와 secret-free issuer 경계를 
   );
   assert.equal(fleetMigrationInventoryIssuerContract.privateKeyInputAllowed, false);
   assert.equal(fleetMigrationInventoryIssuerContract.rawKeyExportAllowed, false);
+  assert.equal(
+    fleetMigrationInventoryIssuerContract.baselineRatificationRequired,
+    true,
+  );
+  assert.equal(
+    fleetMigrationInventoryIssuerContract.actualDetectorCollectionBindingRequired,
+    true,
+  );
+  assert.equal(
+    fleetMigrationInventoryIssuerContract.historicalDetectorProvenanceRequired,
+    true,
+  );
   assert.equal(
     canonicalJson(fleetMigrationCollectorContract.githubApp.requiredEvents),
     canonicalJson([

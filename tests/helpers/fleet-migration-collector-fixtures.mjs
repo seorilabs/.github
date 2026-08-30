@@ -17,9 +17,277 @@ export const ORGANIZATION_ID = "283115031";
 export const INSTALLATION_ID = "142120077";
 export const APP_ID = "4124446";
 export const APP_SLUG = "seorilabs-backoffice";
-export const DETECTOR_REPOSITORY_ID = "900000001";
-export const DETECTOR_SHA = "e".repeat(40);
+export const DETECTOR_REPOSITORY_ID = "1241442018";
+export const DETECTOR_SHA = "cd13b325918cb10401e089074461ba11042c154e";
 export const WORKFLOW_BUNDLE_SHA = "d".repeat(40);
+export const RATIFIED_COHORT = Object.freeze([
+  {
+    id: "1317999271",
+    fullName: "seorilabs/platform",
+    defaultBranch: "main",
+    private: false,
+    sourceSha: "a0a2e37ebbbd7490d1928ad95aac82fa1ad8d9c4",
+  },
+  {
+    id: "1233845183",
+    fullName: "seorilabs/match-picture-app",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "f35ba4ef5e78fabf3c76af2030b924092c3a3079",
+  },
+  {
+    id: "1240419384",
+    fullName: "seorilabs/seorilabs-official",
+    defaultBranch: "main",
+    private: false,
+    sourceSha: "1934539a17ba9a5814f2c075ba3666638dedf301",
+  },
+  {
+    id: "1241411034",
+    fullName: "seorilabs/dpti-app",
+    defaultBranch: "develop",
+    private: true,
+    sourceSha: "324d8080524c12045b5eee8f9f40aee16411ed1b",
+  },
+  {
+    id: "1241442018",
+    fullName: "seorilabs/.github",
+    defaultBranch: "main",
+    private: false,
+    sourceSha: "cd13b325918cb10401e089074461ba11042c154e",
+  },
+  {
+    id: "1248262116",
+    fullName: "seorilabs/periodic-table-app",
+    defaultBranch: "main",
+    private: false,
+    sourceSha: "1bac04f240fc64d67ae6f954be16405324560c05",
+  },
+  {
+    id: "1248324137",
+    fullName: "seorilabs/lucid-chess",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "7a93527012285f0d7ffa0437c587af2f8b69db61",
+  },
+  {
+    id: "1249074926",
+    fullName: "seorilabs/crossword-puzzle",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "d95392d5e1ee1b8d3094c9b7c1cea423b17cd1ca",
+  },
+  {
+    id: "1250442131",
+    fullName: "seorilabs/happy-farm",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "376c31350558c3ac4ed88907c4a35b0e443b5cd7",
+  },
+  {
+    id: "1257176669",
+    fullName: "seorilabs/vocab-swipe",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "36ba2e19534f425897d822509e4356f4b1959983",
+  },
+  {
+    id: "1262004075",
+    fullName: "seorilabs/trait-test-hub",
+    defaultBranch: "main",
+    private: false,
+    sourceSha: "8813d60baee3d5f0273b67f4cc8fd37f9fd5de24",
+  },
+  {
+    id: "1265189386",
+    fullName: "seorilabs/slotmachine-game",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "d9018e8c4eceb1dcf475c0f9848d8a1e40437b3f",
+  },
+  {
+    id: "1265192029",
+    fullName: "seorilabs/lizard-tycoon",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "4d72bd7ee6db0acfe404235b10f426e7c495e606",
+  },
+  {
+    id: "1265192660",
+    fullName: "seorilabs/foam-party",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "eb7d09c7a69c65537a7c6215c2489c37f770c521",
+  },
+  {
+    id: "1265756783",
+    fullName: "seorilabs/lord-ledger",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "5e9677d4a1838caaa9abee399072427f59cc2d9d",
+  },
+  {
+    id: "1266184665",
+    fullName: "seorilabs/spiritgate-defenders",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "3697727ba1db20d7a84126dd0dd0911ce8467985",
+  },
+  {
+    id: "1268064909",
+    fullName: "seorilabs/gemini-pr-bot",
+    defaultBranch: "main",
+    private: false,
+    sourceSha: "27918fd4a25c274f841228f9620b10b0d5421cfe",
+  },
+  {
+    id: "1270313311",
+    fullName: "seorilabs/alley-market-match",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "05724d8f7c3fa353a2a15d85a22cd00ff952f64e",
+  },
+  {
+    id: "1270901663",
+    fullName: "seorilabs/starter-template-app",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "375edcc5de89d45d743d52eaf8037b3f2843f3d1",
+  },
+  {
+    id: "1276069248",
+    fullName: "seorilabs/reascend",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "ab153ef0b86dedfe21f1cfcd375bdf2fad73d003",
+  },
+  {
+    id: "1277459792",
+    fullName: "seorilabs/seorilabs-backoffice",
+    defaultBranch: "main",
+    private: false,
+    sourceSha: "f68b044263422bb1a25785faac864f86557d3d4f",
+  },
+  {
+    id: "1278723790",
+    fullName: "seorilabs/presentations",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "2f300230fd385632efbed9f4396c052b9f24f59a",
+  },
+  {
+    id: "1280303350",
+    fullName: "seorilabs/lucid-reversi",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "847fc55163c052fea4b89c75e1749fbfe01f0a85",
+  },
+  {
+    id: "1298244321",
+    fullName: "seorilabs/babycare",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "8b8d09791951e349b1e7654b08d6d95688e257a1",
+  },
+  {
+    id: "1298264957",
+    fullName: "seorilabs/cycle-pair",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "5babd0b3014f3b683cb95191798a638aca0964fd",
+  },
+  {
+    id: "1298304852",
+    fullName: "seorilabs/daoewo",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "d1e33835fc8988ca2bc36966cc7ea686f4838b7c",
+  },
+  {
+    id: "1300674065",
+    fullName: "seorilabs/minimax-defense",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "75531dba68d19eb23ce8cdab78a7b05aca133227",
+  },
+  {
+    id: "1302304299",
+    fullName: "seorilabs/matgo",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "387a61625e2356b4e798797c710746a8ce8e8291",
+  },
+  {
+    id: "1302688859",
+    fullName: "seorilabs/merge-lizard",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "6af071050904f3e200f8eafd4c7234a07d82e93b",
+  },
+  {
+    id: "1311181844",
+    fullName: "seorilabs/keeum",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "311beab019d3721244f796a7bbe35eb40832b6e5",
+  },
+  {
+    id: "1327777621",
+    fullName: "seorilabs/jomul",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "ff53380b6bc1e9327b1ebf668091b9ae4cfb95d1",
+  },
+  {
+    id: "1328339965",
+    fullName: "seorilabs/planning",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "f52462ecb95031471e0fb8926d8f3651164cca5f",
+  },
+  {
+    id: "1329789586",
+    fullName: "seorilabs/merge-battle",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "cc7ff64068e3d7398a1803811f460bfd5c0771ac",
+  },
+  {
+    id: "1329891653",
+    fullName: "seorilabs/credentials",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "6e87640f1b8598bf6be9fe5152d1bd475e96c7fb",
+  },
+  {
+    id: "1335099739",
+    fullName: "seorilabs/saju-reader",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "cc1f7ea5f62d5fe764cc4fa15c6a20158326aed2",
+  },
+  {
+    id: "1343365820",
+    fullName: "seorilabs/starlit-apprentice",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "c81ba868b7c6a23aaf7ec9cb38ade197ce0f6d06",
+  },
+  {
+    id: "1343800757",
+    fullName: "seorilabs/immunity-war",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "aba06ed625d0ef98258427f010db074508e8f39b",
+  },
+  {
+    id: "1344321722",
+    fullName: "seorilabs/animal-chess",
+    defaultBranch: "main",
+    private: true,
+    sourceSha: "55661bb07debbfb9dc3acd90d13238151e7f7382",
+  },
+]);
 export const REQUIRED_PERMISSIONS = Object.freeze([
   { name: "actions", access: "write" },
   { name: "administration", access: "write" },
@@ -364,6 +632,7 @@ export function repositoryIdentity(index) {
     sourceSha: sha(`source:${index}`),
     treeSha: sha(`tree:${index}`),
     archived: false,
+    private: true,
     fork: false,
     classification: index === 0 ? "PLATFORM_PRODUCER" : "PRODUCT_APP",
     classificationDecisionRevision: 1,
@@ -371,11 +640,15 @@ export function repositoryIdentity(index) {
   };
 }
 
+function appIdForRepository(repository) {
+  if (repository.classification !== "PRODUCT_APP") return null;
+  return repository.fullName === "seorilabs/.github"
+    ? "dot-github"
+    : repository.fullName.slice("seorilabs/".length);
+}
+
 function subjectForRepository(repository, { platformAppId = null } = {}) {
-  const appId =
-    repository.classification === "PRODUCT_APP"
-      ? repository.fullName.slice("seorilabs/".length)
-      : null;
+  const appId = appIdForRepository(repository);
   return {
     kind: appId === null ? "REPOSITORY" : "PRODUCT_APP",
     appId,
@@ -793,9 +1066,7 @@ function candidateForDetection(context, sourceRepository, scanned) {
 
 function publicBackofficeEvidence(context, repository) {
   const isProduct = repository.classification === "PRODUCT_APP";
-  const appId = isProduct
-    ? repository.fullName.slice("seorilabs/".length)
-    : null;
+  const appId = appIdForRepository(repository);
   const config = isProduct ? configContext(repository, appId) : null;
   const platformRepository =
     context.repositories.find(
@@ -891,7 +1162,7 @@ function addBlob(repositoryBlobs, index, path, text) {
   repositoryBlobs[index].push({ path, text });
 }
 
-function fullBlobSet(count) {
+function fullBlobSet(count, repositories) {
   const repositoryBlobs = Array.from({ length: count }, () => []);
   if (count !== 38) {
     for (let index = 0; index < count; index += 1) {
@@ -941,11 +1212,15 @@ function fullBlobSet(count) {
   ];
   for (const [path, total] of legacyGroups) {
     for (let index = 1; index <= total; index += 1) {
+      const document = legacyDocumentForPath(path, index);
+      if (path === "release/market-launch-state.json") {
+        document.app.repo = repositories[index].fullName;
+      }
       addBlob(
         repositoryBlobs,
         index,
         path,
-        `${JSON.stringify(legacyDocumentForPath(path, index))}\n`,
+        `${JSON.stringify(document)}\n`,
       );
     }
   }
@@ -986,10 +1261,10 @@ function fullBlobSet(count) {
       "",
     ].join("\n"),
   );
-  for (let finding = 0; finding < 108; finding += 1) {
+  for (let finding = 0; finding < 107; finding += 1) {
     const index = 1 + (finding % 37);
     const sequence = 1 + Math.floor(finding / 37);
-    const floating = finding < 87;
+    const floating = finding < 86;
     addBlob(
       repositoryBlobs,
       index,
@@ -1087,6 +1362,15 @@ export function makeCollectorFixture({
 } = {}) {
   const repositories = Array.from({ length: count }, (_, index) => {
     const repository = repositoryIdentity(index);
+    if (count === 38) {
+      const ratified = RATIFIED_COHORT[index];
+      repository.id = ratified.id;
+      repository.fullName = ratified.fullName;
+      repository.defaultBranch = ratified.defaultBranch;
+      repository.defaultRef = `refs/heads/${ratified.defaultBranch}`;
+      repository.private = ratified.private;
+      repository.sourceSha = ratified.sourceSha;
+    }
     if (count === 2) {
       repository.fullName =
         index === 0 ? "seorilabs/happy-farm" : "seorilabs/lizard-tycoon";
@@ -1097,7 +1381,7 @@ export function makeCollectorFixture({
   const repositoriesById = new Map(
     repositories.map((repository) => [repository.id, repository]),
   );
-  const blobs = fullBlobSet(count);
+  const blobs = fullBlobSet(count, repositories);
   const context = {
     nowMs,
     proofBaseMs: nowMs - 20 * 60_000,
@@ -1152,6 +1436,7 @@ export function makeCollectorFixture({
           fullName: repository.fullName,
           defaultBranch: repository.defaultBranch,
           archived: false,
+          private: repository.private,
           fork: false,
         })),
       };

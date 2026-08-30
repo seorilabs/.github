@@ -8,7 +8,10 @@ import {
   computeFleetEvidenceDigest,
   computeFleetFindingsDigest,
   computeFleetMigrationInventoryDigest,
+  computeFleetMigrationRatifiedCohortDigest,
+  computeFleetMigrationShadowCohortDigest,
   computeFleetRepositoryReadbackDigest,
+  fleetMigrationContract,
   validateFleetMigrationInventory,
 } from "./fleet-migration.mjs";
 
@@ -489,10 +492,12 @@ function validatePageRepository(value, configuration) {
       "fork",
       "fullName",
       "id",
+      "private",
     ]) ||
     !NUMERIC_ID_PATTERN.test(value.id ?? "") ||
     !FULL_NAME_PATTERN.test(value.fullName ?? "") ||
     value.archived !== false ||
+    typeof value.private !== "boolean" ||
     typeof value.fork !== "boolean" ||
     typeof value.defaultBranch !== "string" ||
     !SOURCE_REF_PATTERN.test(`refs/heads/${value.defaultBranch}`) ||
@@ -1546,6 +1551,7 @@ async function collectRepository(configuration, pageRepository) {
       defaultRef: firstHead.defaultRef,
       sourceSha: firstHead.sourceSha,
       archived: false,
+      private: pageRepository.private,
       fork: pageRepository.fork,
       classification: publicEvidence.classification,
       classificationDecisionRevision:
@@ -1788,8 +1794,11 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
   const trustedConfiguration = Object.freeze({ ...configuration });
   return Object.freeze({
     async collect(input = {}) {
+      const baselineRatification =
+        fleetMigrationContract.initialBaseline.ratification;
       if (
         !exactKeys(input, [
+          "baselineRatification",
           "deliveryId",
           "inventoryId",
           "mode",
@@ -1798,7 +1807,13 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
         !EVIDENCE_ID_PATTERN.test(input.deliveryId ?? "") ||
         !EVIDENCE_ID_PATTERN.test(input.inventoryId ?? "") ||
         !EVIDENCE_ID_PATTERN.test(input.requestedRunId ?? "") ||
-        !MODES.includes(input.mode)
+        !MODES.includes(input.mode) ||
+        (input.mode === "FIXTURE"
+          ? input.baselineRatification !== null
+          : canonicalJson(input.baselineRatification) !==
+              canonicalJson(baselineRatification) ||
+            trustedConfiguration.detectorRepositoryId !==
+              baselineRatification.detector.repositoryId)
       ) {
         throw new Error("FLEET_MIGRATION_COLLECTION_REQUEST_INVALID");
       }
@@ -1841,6 +1856,20 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
         ({ repositoryObservation }) =>
           structuredClone(repositoryObservation),
       );
+      const detectorRepositories = repositories.filter(
+        ({ repository }) =>
+          repository.id === trustedConfiguration.detectorRepositoryId,
+      );
+      if (
+        input.mode === "READ_ONLY_SHADOW" &&
+        (detectorRepositories.length !== 1 ||
+          detectorRepositories[0].repository.fullName !== "seorilabs/.github" ||
+          detectorRepositories[0].repository.defaultRef !== "refs/heads/main" ||
+          detectorRepositories[0].repository.sourceSha !==
+            trustedConfiguration.detectorSourceSha)
+      ) {
+        throw new Error("FLEET_MIGRATION_DETECTOR_SOURCE_MISMATCH");
+      }
       const providerVectorDigest = sha256(
         canonicalJson({
           contract: "seorilabs-fleet-migration-provider-vector-v1",
@@ -1849,6 +1878,7 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
           installationId: trustedConfiguration.installationId,
           detectorRepositoryId: trustedConfiguration.detectorRepositoryId,
           detectorSourceSha: trustedConfiguration.detectorSourceSha,
+          baselineRatification: structuredClone(input.baselineRatification),
           githubAppCapabilityDigest: githubAppCapability.evidenceDigest,
           query: {
             organizationLogin: ORGANIZATION_LOGIN,
@@ -1894,6 +1924,29 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
         }),
         pages: structuredClone(pageCollection.pages),
       };
+      const collectedExpectedCounts = expectedCounts(repositories);
+      let collectedCohortDigest;
+      try {
+        const cohortInput = {
+          installationId: trustedConfiguration.installationId,
+          repositories: repositories.map(({ repository }) => repository),
+          detectorSourceSha: trustedConfiguration.detectorSourceSha,
+        };
+        collectedCohortDigest =
+          input.mode === "READ_ONLY_SHADOW"
+            ? computeFleetMigrationRatifiedCohortDigest(cohortInput)
+            : computeFleetMigrationShadowCohortDigest(cohortInput);
+      } catch {
+        throw new Error("FLEET_MIGRATION_BASELINE_RATIFICATION_MISMATCH");
+      }
+      if (
+        input.mode === "READ_ONLY_SHADOW" &&
+        (canonicalJson(collectedExpectedCounts) !==
+          canonicalJson(baselineRatification.expectedCounts) ||
+          collectedCohortDigest !== baselineRatification.cohortDigest)
+      ) {
+        throw new Error("FLEET_MIGRATION_BASELINE_RATIFICATION_MISMATCH");
+      }
       const inventory = {
         schemaVersion: 1,
         inventoryId: input.inventoryId,
@@ -1911,7 +1964,11 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
           contract: "fleet-migration-v1",
         },
         coverage,
-        expectedCounts: expectedCounts(repositories),
+        expectedCounts: collectedExpectedCounts,
+        baselineRatification:
+          input.mode === "FIXTURE"
+            ? null
+            : structuredClone(input.baselineRatification),
         lineage: {
           mode: "BOOTSTRAP",
           waveNumber: 0,
@@ -2042,6 +2099,21 @@ export const fleetMigrationCollectorContract = deepFreeze({
   }),
   authoritativeIssuanceRequiresSeparateIssuer: true,
   modes: MODES,
+  detectorSource: Object.freeze({
+    repositoryId:
+      fleetMigrationContract.initialBaseline.ratification.detector.repositoryId,
+    fullName: "seorilabs/.github",
+    defaultRef: "refs/heads/main",
+    runtimeBinding: "TRUSTED_CONFIGURATION_MATCHES_LIVE_DEFAULT_HEAD",
+    signedInventoryField: "detector.sourceSha",
+    historicalCohortNormalization: "DETECTOR_REPOSITORY_ONLY",
+  }),
+  baselineRatification: Object.freeze({
+    requiredMode: "READ_ONLY_SHADOW",
+    fixtureValue: null,
+    reason:
+      fleetMigrationContract.initialBaseline.ratification.reason,
+  }),
   maximumInventoryTtlSeconds: MAX_INVENTORY_TTL_MS / 1000,
   maximumRelevantBlobBytes: MAX_BLOB_BYTES,
   maximumScannedBlobsPerRepository: MAX_SCANNED_BLOBS_PER_REPOSITORY,

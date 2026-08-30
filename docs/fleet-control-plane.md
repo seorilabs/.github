@@ -221,16 +221,38 @@ submodule, traversal, 대소문자 path 충돌은 허용하지 않는다. 두 ga
 삭제나 rewrite를 실행하지 않고 검토 가능한 plan만 만든다. parity `expiresAt`은 inventory 수집
 시각이 아니라 실제 plan 생성·검증 시각과 비교하므로, 그 사이 만료된 readback은 재사용하지 않는다.
 
-2026-08-29 기준선의 예상 입력은 active repository 38개, legacy 운영 JSON 73개,
-`secrets: inherit` 파일 108개, floating 중앙 workflow ref 파일 87개다. 이 수치는 실행 허가가
-아니며 최초 `BOOTSTRAP` inventory에만 적용한다. 이후 `WAVE` inventory는 직전 신뢰 inventory의
+2026-08-30 ratified 기준선의 예상 입력은 active repository 38개, legacy 운영 JSON 73개,
+`secrets: inherit` 파일 107개, floating 중앙 workflow ref 파일 86개다. 최초 권위 inventory가
+발급되기 전에 Platform의 security remediation이 기존 108/87 기준선을 107/86으로 바꿨으므로,
+collector는 `PRE_AUTHORITATIVE_SECURITY_REMEDIATION` ratification 입력을 요구한다. 이 입력은
+당시 `.github` detector source SHA, provider cohort digest, Platform commit/blob과 108/87 → 108/88 →
+107/86 전이를 고정하지만 inventory ID/digest, collection digest, key ID, 서명, timestamp는
+포함하지 않는다. 이 값들은 collector와 trusted issuer가 현재 실행에서 생성하고 ratification은
+inventory digest와 Ed25519 payload 양쪽에 결합한다. cohort digest의 산식 정본은 Backoffice
+`f68b044263422bb1a25785faac864f86557d3d4f`의
+`src/lib/control-plane/fleet-migration-shadow-readiness.ts`와
+`src/lib/control-plane/json.ts`다. `fleet-migration-shadow-readiness/v2`, 조직 `seorilabs`,
+installation `142120077`, 그리고 numeric repository ID 순으로 정렬한 active 38개 repository의
+ID, full name, default branch, archived/private/fork, exact default HEAD SHA를 canonical JSON으로
+만든 뒤 SHA-256 raw hex를 계산하면
+`6b940f78bf810b5f725ff6c2d71af14fe2127d0de98c893e180594eeae29460d`가 재현되어야 한다.
+이 historical digest를 다시 계산할 때만 detector repository `1241442018`의 HEAD를 ratification의
+`cd13b325918cb10401e089074461ba11042c154e`로 정규화한다. 이는 detector가 들어 있는 `.github`
+자체를 반영하면 ratification 검증식이 자기 참조가 되기 때문이다. collector는 별도로 현재
+`.github` default HEAD를 trusted runtime `detectorSourceSha`와 exact 대조하고, 그 실제 SHA를
+`inventory.detector.sourceSha`, 모든 detection, provider vector와 최종 서명 payload에 결합한다.
+issuer도 durable collection에서 actual detector SHA와 같은 repository HEAD를 다시 대조한다.
+따라서 detector repo의 코드 반영만 historical provenance를 유지한 채 이동할 수 있고, 다른
+repository identity/HEAD drift 또는 claimed runtime SHA와 live detector HEAD 불일치는 authoritative
+inventory가 될 수 없다. 이 수치는 실행 허가가 아니며 최초
+`BOOTSTRAP` inventory에만 적용한다. 이후 `WAVE` inventory는 직전 신뢰 inventory의
 ID/digest/capturedAt/count를 이어야 하고 세 cleanup count가 하나 이상 감소하며 어느 것도 증가하지
 않아야 한다. 매 wave의 GitHub App coverage와 repository tree observation은 직전 inventory보다
 새로워야 하며, 현재 provider total, pagination, exact source와 non-truncated canonical 전체 tree
 digest, detector 관련 BLOB, parity 증거가 새
 inventory와 일치해야 한다. 또한 각 `WAVE`는 최초 `BOOTSTRAP`부터 직전 `WAVE`까지의 서명된
 compact checkpoint를 `ancestry`에 순서대로 포함하고 `chainDigest`로 전체 순서를 고정한다.
-각 checkpoint의 Ed25519 attestation, root의 38/73/108/87, wave 번호, 직전 ID/digest/count,
+각 checkpoint의 Ed25519 attestation, root의 ratified 38/73/107/86과 baseline ratification, wave 번호, 직전 ID/digest/count,
 수집 시각과 단조 감소를 전부 다시 검증한다. 따라서 유효한 키로 서명됐더라도 존재하지 않는
 parent를 주장하거나 중간 checkpoint를 바꾼 `WAVE`는 다음 wave의 trusted anchor가 될 수 없다.
 inventory 자체 chain이나 signed artifact의 TTL만으로는 최신 head rollback과 동일 parent의

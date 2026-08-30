@@ -16,6 +16,7 @@ import {
   computeFleetMigrationInventoryDigest,
   createFleetMigrationAttestationPayload,
   fleetMigrationContract,
+  isFleetMigrationBaselineRatificationBound,
   loadTrustedFleetMigrationInventoryBinding,
   validateFleetMigrationInventory,
 } from "./fleet-migration.mjs";
@@ -286,6 +287,9 @@ function assertAuthoritativeBaseline(collection) {
     collection.inventory.attestation !== null ||
     canonicalJson(collection.inventory.expectedCounts) !==
       canonicalJson(expected) ||
+    canonicalJson(collection.inventory.baselineRatification) !==
+      canonicalJson(fleetMigrationContract.initialBaseline.ratification) ||
+    !isFleetMigrationBaselineRatificationBound(collection.inventory) ||
     collection.inventory.repositories.length !== expected.activeRepositories
   ) {
     throw new Error("FLEET_MIGRATION_INVENTORY_NOT_AUTHORITATIVE");
@@ -641,6 +645,9 @@ export const fleetMigrationInventoryIssuerContract = deepFreeze({
   authoritativeIssuanceEnabled: true,
   liveCapabilityReadbackRequired: true,
   durableCollectionReadbackRequired: true,
+  baselineRatificationRequired: true,
+  actualDetectorCollectionBindingRequired: true,
+  historicalDetectorProvenanceRequired: true,
   privateKeyInputAllowed: false,
   rawKeyExportAllowed: false,
 });

@@ -41,6 +41,10 @@ const validatePlanSchema = ajv.compile(
 );
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
+const NUMERIC_ID_PATTERN = /^[1-9][0-9]{0,31}$/u;
+const REPOSITORY_FULL_NAME_PATTERN = /^seorilabs\/[A-Za-z0-9._-]+$/u;
+const SOURCE_REF_PATTERN =
+  /^refs\/heads\/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,126}[A-Za-z0-9])?$/u;
 const WORKFLOW_PATH_PATTERN = /^\.github\/workflows\/[A-Za-z0-9._-]+\.ya?ml$/u;
 const INVENTORY_BINDINGS = new WeakSet();
 const HISTORICAL_INVENTORY_BINDINGS = new WeakSet();
@@ -54,8 +58,53 @@ const CHAIN_HEAD_RESERVATION_CONTRACT =
 const INITIAL_BASELINE = Object.freeze({
   activeRepositories: 38,
   legacyOperationJson: 73,
-  workflowSecretsInherit: 108,
-  workflowFloatingRef: 87,
+  workflowSecretsInherit: 107,
+  workflowFloatingRef: 86,
+});
+const SHADOW_READINESS_CONTRACT_VERSION =
+  "fleet-migration-shadow-readiness/v2";
+const BASELINE_RATIFICATION = deepFreeze({
+  reason: "PRE_AUTHORITATIVE_SECURITY_REMEDIATION",
+  expectedCounts: structuredClone(INITIAL_BASELINE),
+  detector: {
+    repositoryId: "1241442018",
+    sourceSha: "cd13b325918cb10401e089074461ba11042c154e",
+  },
+  cohortDigest:
+    "6b940f78bf810b5f725ff6c2d71af14fe2127d0de98c893e180594eeae29460d",
+  platform: {
+    repositoryId: "1317999271",
+    fullName: "seorilabs/platform",
+    checksWorkflowPath: ".github/workflows/checks-sdk.yml",
+    publishWorkflowPath: ".github/workflows/publish-sdk-gdscript.yml",
+    baselineSourceSha: "392f4ea528850ec07d71aa1bfb12670fc90a77a1",
+    baselineChecksBlobSha: "7bb5f0664d11015c2c6730ac78084fd234a24223",
+    additionCommitSha: "33f6b568d34ff8885c78abe8e7119382bcfb189d",
+    additionPublishBlobSha: "abea72ccd670969f9fce3d851528bf4acf46c3a9",
+    remediationParentSha: "186d8bcd83ab4a0daec1ca307ee7448c1d72c04f",
+    remediationCommitSha: "c23e7717286bd34c2a89eba2f3f445f3989be6f2",
+    remediationChecksBlobSha: "104d491c6c67d14639d820a9c8839756c24b812f",
+    remediationPublishBlobSha: "4b0eeca5ab83585b9c63f0302218a5c3eb604e25",
+    pinnedWorkflowSha: "97e16ce4cbdfb20d6a2a7872782cc34ecef022c3",
+    currentSourceSha: "a0a2e37ebbbd7490d1928ad95aac82fa1ad8d9c4",
+    currentChecksBlobSha: "27260d352e95287287a454206dc2a3cef5523d92",
+    currentPublishBlobSha: "f6ba06620e0b26868fb141b63a5dc237a590b1f9",
+    countTransition: {
+      baseline: {
+        activeRepositories: 38,
+        legacyOperationJson: 73,
+        workflowSecretsInherit: 108,
+        workflowFloatingRef: 87,
+      },
+      transient: {
+        activeRepositories: 38,
+        legacyOperationJson: 73,
+        workflowSecretsInherit: 108,
+        workflowFloatingRef: 88,
+      },
+      ratified: structuredClone(INITIAL_BASELINE),
+    },
+  },
 });
 const BUILD_TARGET_ORDER = Object.freeze([
   "ORG_CONTRACT_STATIC",
@@ -331,7 +380,7 @@ function normalizeCandidate(candidate) {
 }
 
 function normalizedRepositoryIdentity(repository) {
-  return {
+  const normalized = {
     id: repository.id,
     fullName: repository.fullName,
     defaultRef: repository.defaultRef,
@@ -339,6 +388,151 @@ function normalizedRepositoryIdentity(repository) {
     archived: repository.archived,
     fork: repository.fork,
   };
+  if (Object.hasOwn(repository, "private")) {
+    normalized.private = repository.private;
+  }
+  return normalized;
+}
+
+function shadowCohortRepositoryVector(repository) {
+  if (
+    !NUMERIC_ID_PATTERN.test(repository?.id ?? "") ||
+    !REPOSITORY_FULL_NAME_PATTERN.test(repository?.fullName ?? "") ||
+    !SOURCE_REF_PATTERN.test(repository?.defaultRef ?? "") ||
+    !SHA_PATTERN.test(repository?.sourceSha ?? "") ||
+    typeof repository.archived !== "boolean" ||
+    typeof repository.private !== "boolean" ||
+    typeof repository.fork !== "boolean"
+  ) {
+    throw new Error("FLEET_MIGRATION_SHADOW_COHORT_INVALID");
+  }
+  return {
+    repoId: repository.id,
+    repoFullName: repository.fullName,
+    defaultBranch: repository.defaultRef.slice("refs/heads/".length),
+    archived: repository.archived,
+    private: repository.private,
+    fork: repository.fork,
+    sourceSha: repository.sourceSha,
+  };
+}
+
+export function computeFleetMigrationShadowCohortDigest({
+  installationId,
+  repositories,
+}) {
+  if (
+    !NUMERIC_ID_PATTERN.test(installationId ?? "") ||
+    !Array.isArray(repositories) ||
+    repositories.length < 1 ||
+    repositories.length > 10000
+  ) {
+    throw new Error("FLEET_MIGRATION_SHADOW_COHORT_INVALID");
+  }
+  const vectors = repositories
+    .map(shadowCohortRepositoryVector)
+    .sort((left, right) => compareNumericIds(left.repoId, right.repoId));
+  if (
+    new Set(vectors.map(({ repoId }) => repoId)).size !== vectors.length ||
+    new Set(vectors.map(({ repoFullName }) => repoFullName.toLowerCase()))
+      .size !== vectors.length
+  ) {
+    throw new Error("FLEET_MIGRATION_SHADOW_COHORT_INVALID");
+  }
+  return createHash("sha256")
+    .update(
+      canonicalJson({
+        contractVersion: SHADOW_READINESS_CONTRACT_VERSION,
+        organization: "seorilabs",
+        installationId,
+        repositories: vectors,
+      }),
+    )
+    .digest("hex");
+}
+
+function hasExactFleetMigrationBaselineRatification(inventory) {
+  return (
+    canonicalJson(inventory?.baselineRatification) ===
+    canonicalJson(BASELINE_RATIFICATION)
+  );
+}
+
+function fleetMigrationDetectorRepository(inventory) {
+  try {
+    const matches = inventory.repositories.filter(
+      ({ repository }) =>
+        repository.id === BASELINE_RATIFICATION.detector.repositoryId,
+    );
+    if (matches.length !== 1) return null;
+    const repository = matches[0].repository;
+    if (
+      inventory.detector.repositoryId !== repository.id ||
+      inventory.detector.fullName !== repository.fullName ||
+      inventory.detector.sourceRef !== repository.defaultRef ||
+      inventory.detector.sourceSha !== repository.sourceSha ||
+      repository.fullName !== "seorilabs/.github" ||
+      repository.defaultRef !== "refs/heads/main"
+    ) {
+      return null;
+    }
+    return repository;
+  } catch {
+    return null;
+  }
+}
+
+export function computeFleetMigrationRatifiedCohortDigest({
+  installationId,
+  repositories,
+  detectorSourceSha,
+}) {
+  const detectorRepositories = repositories.filter(
+    (repository) =>
+      repository.id === BASELINE_RATIFICATION.detector.repositoryId,
+  );
+  if (
+    detectorRepositories.length !== 1 ||
+    detectorRepositories[0].fullName !== "seorilabs/.github" ||
+    detectorRepositories[0].defaultRef !== "refs/heads/main" ||
+    !SHA_PATTERN.test(detectorSourceSha ?? "") ||
+    detectorRepositories[0].sourceSha !== detectorSourceSha
+  ) {
+    throw new Error("FLEET_MIGRATION_DETECTOR_SOURCE_MISMATCH");
+  }
+  const historicalRepositories = repositories.map((repository) =>
+    repository.id === BASELINE_RATIFICATION.detector.repositoryId
+      ? {
+          ...structuredClone(repository),
+          sourceSha: BASELINE_RATIFICATION.detector.sourceSha,
+        }
+      : structuredClone(repository),
+  );
+  return computeFleetMigrationShadowCohortDigest({
+    installationId,
+    repositories: historicalRepositories,
+  });
+}
+
+export function isFleetMigrationBaselineRatificationBound(inventory) {
+  try {
+    return (
+      hasExactFleetMigrationBaselineRatification(inventory) &&
+      canonicalJson(inventory.expectedCounts) ===
+        canonicalJson(BASELINE_RATIFICATION.expectedCounts) &&
+      fleetMigrationDetectorRepository(inventory) !== null &&
+      computeFleetMigrationRatifiedCohortDigest({
+        installationId: inventory.coverage.installationId,
+        repositories: inventory.repositories.map(({ repository }) =>
+          repository,
+        ),
+        detectorSourceSha: inventory.detector.sourceSha,
+      }) ===
+        BASELINE_RATIFICATION.cohortDigest
+    );
+  } catch {
+    return false;
+  }
 }
 
 function normalizedInventoryForDigest(inventory) {
@@ -567,6 +761,7 @@ function attestationPayloadFields({
   detectorSourceSha,
   repositoriesDigest,
   expectedCounts,
+  baselineRatification,
   lineage: committedLineage,
 }) {
   return {
@@ -591,6 +786,9 @@ function attestationPayloadFields({
     detectorSourceSha,
     repositoriesDigest,
     expectedCounts: structuredClone(expectedCounts),
+    ...(baselineRatification === undefined
+      ? {}
+      : { baselineRatification: structuredClone(baselineRatification) }),
     lineage: structuredClone(committedLineage),
   };
 }
@@ -619,6 +817,7 @@ function attestationPayloadObject(
     detectorSourceSha: inventory.detector.sourceSha,
     repositoriesDigest: inventory.coverage.repositoriesDigest,
     expectedCounts: inventory.expectedCounts,
+    baselineRatification: inventory.baselineRatification,
     lineage: lineageCommitment(inventory.lineage),
   });
 }
@@ -644,6 +843,7 @@ function checkpointAttestationPayloadObject(checkpoint) {
     detectorSourceSha: checkpoint.detectorSourceSha,
     repositoriesDigest: checkpoint.repositoriesDigest,
     expectedCounts: checkpoint.expectedCounts,
+    baselineRatification: checkpoint.baselineRatification,
     lineage: checkpoint.lineageCommitment,
   });
 }
@@ -703,6 +903,13 @@ export function deriveFleetMigrationInventoryCheckpoint(inventory) {
     detectorSourceSha: inventory.detector.sourceSha,
     repositoriesDigest: inventory.coverage.repositoriesDigest,
     expectedCounts: structuredClone(inventory.expectedCounts),
+    ...(Object.hasOwn(inventory, "baselineRatification")
+      ? {
+          baselineRatification: structuredClone(
+            inventory.baselineRatification,
+          ),
+        }
+      : {}),
     lineageCommitment: lineageCommitment(inventory.lineage),
     attestation: structuredClone(attestation),
   });
@@ -1062,6 +1269,18 @@ function inventoryAuthorityReasons(
     ...paginationReasons(inventory),
     ...repositoryClassificationReasons(inventory.repositories),
   ];
+  if (!hasExactFleetMigrationBaselineRatification(inventory)) {
+    reasons.push("INITIAL_BASELINE_MISMATCH");
+  }
+  if (fleetMigrationDetectorRepository(inventory) === null) {
+    reasons.push("DETECTOR_SOURCE_MISMATCH");
+  }
+  if (
+    inventory.lineage.mode === "BOOTSTRAP" &&
+    !isFleetMigrationBaselineRatificationBound(inventory)
+  ) {
+    reasons.push("INITIAL_BASELINE_MISMATCH");
+  }
   if (
     inventory.lineage.mode === "BOOTSTRAP" &&
     (canonicalJson(inventory.expectedCounts) !==
@@ -1213,6 +1432,7 @@ function sameCheckpointFleet(left, right) {
 
 function embeddedLineageMatches(inventory, trustedInventoryKeys) {
   const { lineage } = inventory;
+  if (!hasExactFleetMigrationBaselineRatification(inventory)) return false;
   if (lineage.mode === "BOOTSTRAP") {
     return (
       canonicalJson(lineageCommitment(lineage)) ===
@@ -1229,6 +1449,8 @@ function embeddedLineageMatches(inventory, trustedInventoryKeys) {
     if (
       seenInventoryIds.has(checkpoint.inventoryId) ||
       seenInventoryDigests.has(checkpoint.inventoryDigest) ||
+      canonicalJson(checkpoint.baselineRatification) !==
+        canonicalJson(BASELINE_RATIFICATION) ||
       !verifyCheckpointSignature(checkpoint, trustedInventoryKeys)
     ) {
       return false;
@@ -3333,8 +3555,9 @@ export const fleetMigrationContract = deepFreeze({
   executionAllowed: false,
   initialBaseline: {
     mode: "BOOTSTRAP_ONLY",
-    observedDate: "2026-08-29",
+    observedDate: "2026-08-30",
     expectedCounts: INITIAL_BASELINE,
+    ratification: BASELINE_RATIFICATION,
   },
   inventoryAttestation: {
     algorithm: "Ed25519",
