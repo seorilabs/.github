@@ -78,7 +78,7 @@ node_root="/opt/seorilabs/node-v24.16.0-linux-${node_arch}"
 for command in node npm npx corepack; do
   link="/usr/local/bin/${command}"
   target="${node_root}/bin/${command}"
-  if [[ ! -L "$link" ]] || [[ "$(/usr/bin/readlink -f "$link")" != "$target" ]]; then
+  if [[ ! -L "$link" ]] || [[ "$(/usr/bin/readlink "$link")" != "$target" ]]; then
     exit 126
   fi
 done

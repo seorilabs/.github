@@ -873,6 +873,18 @@ test('source bootstrap remote fixture is exact-SHA and readback-first', async ()
   }
 });
 
+test('source bootstrap validates the outer Node command symlink without collapsing package links', async () => {
+  const source = await readFile('scripts/fleet/bootstrap-p2-stage1-host.sh', 'utf8');
+  assert.match(
+    source,
+    /\$\(\/usr\/bin\/readlink "\$link"\)" != "\$target"/u,
+  );
+  assert.doesNotMatch(
+    source,
+    /\$\(\/usr\/bin\/readlink -f "\$link"\)" != "\$target"/u,
+  );
+});
+
 test('local hardening bootstrap is current-user, crash-recoverable, exact, and outside credential backup', {
   timeout: 240_000,
 }, async () => {
