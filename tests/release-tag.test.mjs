@@ -22,6 +22,8 @@ const WORKFLOW_PATH = resolve(REPOSITORY_ROOT, '.github/workflows/release-tag.ym
 const WORKFLOW = readFileSync(WORKFLOW_PATH, 'utf8');
 const WORKFLOW_SHA = 'c'.repeat(40);
 const AUTHORITY_ENV = {
+  RELEASE_EVENT_NAME: 'workflow_dispatch',
+  RELEASE_EVENT_REF: 'refs/heads/main',
   JOB_WORKFLOW_REPOSITORY: 'seorilabs/.github',
   JOB_WORKFLOW_SHA: WORKFLOW_SHA,
   JOB_WORKFLOW_REF: `seorilabs/.github/.github/workflows/release-tag.yml@${WORKFLOW_SHA}`,
