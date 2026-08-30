@@ -153,6 +153,9 @@ v5 정본(`rn-build-android-cloud-v2.yml`, `godot-build-android-cloud-v2.yml`,
 
 Apple archive는 Xcode Cloud가 표준 실행 환경이다. run envelope 계약은
 [`contracts/xcode-cloud-run-v5.schema.json`](../../contracts/xcode-cloud-run-v5.schema.json)이며
+`ci_pre_xcodebuild.sh`는 불변 중앙 commit의
+`scripts/release/xcode-cloud-apply-tag-version.mjs`와 `tag-version-authority.mjs`를
+각각 checksum 검증한 뒤 실행한다. 앱 저장소에 별도 version resolver를 두지 않는다.
 `sourceRef`가 exact stable 태그 ref, `sourceReference.kind`가 `TAG`, `immutable`이 `true`여야 한다.
 `requiredReadback`에는 기대 commit, reference, workflow, marketing version, build number가 들어가고
 build run readback이 하나라도 다르면 그 archive를 마켓 경로로 넘기지 않는다. run 생성은
