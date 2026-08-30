@@ -100,6 +100,16 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
     integrity: "HMAC_SHA256_CHAIN",
     writeValidation: "FAIL_CLOSED_BEFORE_SERIALIZATION",
     logicalCredentialId: "shared/seori-auth/journal-mac",
+    checkpoint: {
+      schemaVersion: 1,
+      journalId: "seori-auth-production",
+      authoritySpiffeId:
+        "spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer",
+      mode: "TRUSTED_CONTROL_PLANE_CAS",
+      persistence: "BACKOFFICE_DURABLE_CAS",
+      commitOrder: "JOURNAL_FSYNC_THEN_CHECKPOINT_CAS",
+      unknownOutcomePolicy: "READBACK_FIRST",
+    },
   });
   assert.deepEqual(contract.authBroker.state.protection.browserVault, {
     envelopeVersion: 1,

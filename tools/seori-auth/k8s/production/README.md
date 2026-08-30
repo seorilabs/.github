@@ -38,6 +38,12 @@ provider control-plane의 SPIFFE ID와 endpoint scope도 runtime config, immutab
 argument, Pod annotation에 각각 고정합니다. broker client allowlist에 exact Backoffice
 SPIFFE가 없거나 scope가 `/auth/*`로 바뀌면 readiness 전에 중단합니다. 이 binding은
 ServiceAccount에 Kubernetes API 권한을 추가하지 않으며 생성되는 Role은 계속 `rules: []`입니다.
+broker `runtime.json`은 breaking `schemaVersion: 2`와 public `journalCheckpoint` binding을
+사용합니다. checkpoint authority는 기존
+`spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer` identity로 exact 고정하며,
+임의 origin이나 bearer secret을 ConfigMap에 추가하지 않습니다. 실제 Backoffice durable
+read/CAS adapter가 runtime에 주입되지 않으면 broker는 Secret Manager bootstrap key를 읽기 전에
+fail-closed하고 readiness를 만들지 않습니다. factor runtime은 계속 schemaVersion 1입니다.
 
 Registry binding은 다음 두 모드 외에는 허용하지 않습니다.
 

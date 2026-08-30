@@ -931,7 +931,6 @@ test('broker-held HMAC journal detects wrong keys, record tampering, and trusted
       directory,
       journalMacKey,
       requireIntegrity: true,
-      expectedJournalHeadMac: checkpoint.headMac,
       idFactory: idFactory(),
     });
     assert.equal(state.snapshot().credentialCheckouts.length, 1);
@@ -955,9 +954,8 @@ test('broker-held HMAC journal detects wrong keys, record tampering, and trusted
         directory,
         journalMacKey,
         requireIntegrity: true,
-        expectedJournalHeadMac: checkpoint.headMac,
       }),
-      (error) => error instanceof SeoriAuthError && error.code === 'invalid_state_journal',
+      (error) => error instanceof SeoriAuthError && error.code === 'state_checkpoint_rollback',
     );
   } finally {
     if (state) await state.close();

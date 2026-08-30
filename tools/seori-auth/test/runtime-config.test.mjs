@@ -60,7 +60,7 @@ function passwordConfig() {
 
 function brokerConfig() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     role: 'broker',
     nativeHelperPath: '/opt/seori-auth/bin/seori-auth-native',
     nativeHelperSha256: 'a'.repeat(64),
@@ -114,7 +114,15 @@ function brokerConfig() {
       },
     },
     browserRuntimeDirectory: '/run/seori-auth/browser-runtime',
-    expectedJournalHeadMac: 'e'.repeat(64),
+    journalCheckpoint: {
+      schemaVersion: 1,
+      journalId: 'seori-auth-production',
+      authoritySpiffeId: backofficeSpiffeId,
+      mode: 'TRUSTED_CONTROL_PLANE_CAS',
+      persistence: 'BACKOFFICE_DURABLE_CAS',
+      commitOrder: 'JOURNAL_FSYNC_THEN_CHECKPOINT_CAS',
+      unknownOutcomePolicy: 'READBACK_FIRST',
+    },
     policyPath: '/etc/seori-auth/policy.json',
     runAttestationPublicKeyPath: '/etc/seori-auth/run-attestation.pub',
     stateDirectory: '/var/lib/seori-auth/state',
@@ -191,7 +199,7 @@ test('broker runtime exact-binds the Backoffice SPIFFE identity and internal pro
     googleServiceAccount: 'seori-auth-broker@example-project.iam.gserviceaccount.com',
   });
   assert.equal(result.stderr, '');
-  assert.deepEqual(JSON.parse(result.stdout), { valid: true, schemaVersion: 1, role: 'broker' });
+  assert.deepEqual(JSON.parse(result.stdout), { valid: true, schemaVersion: 2, role: 'broker' });
 
   const driftedSpiffe = brokerConfig();
   driftedSpiffe.providerControlPlane.backofficeClientSpiffeId =
@@ -206,5 +214,30 @@ test('broker runtime exact-binds the Backoffice SPIFFE identity and internal pro
       assert.doesNotMatch(error.stderr, /other-worker|provider-execution-signer/);
       return true;
     },
+  );
+
+  const driftedCheckpointAuthority = brokerConfig();
+  driftedCheckpointAuthority.journalCheckpoint.authoritySpiffeId =
+    'spiffe://seorilabs.local/ns/platform/sa/other-worker';
+  await assert.rejects(
+    validate(driftedCheckpointAuthority, {
+      googleServiceAccount: 'seori-auth-broker@example-project.iam.gserviceaccount.com',
+    }),
+    (error) => {
+      assert.equal(error.code, 1);
+      assert.doesNotMatch(error.stderr, /other-worker|provider-execution-signer/);
+      return true;
+    },
+  );
+
+  const legacyStaticHead = brokerConfig();
+  legacyStaticHead.schemaVersion = 1;
+  legacyStaticHead.expectedJournalHeadMac = 'e'.repeat(64);
+  delete legacyStaticHead.journalCheckpoint;
+  await assert.rejects(
+    validate(legacyStaticHead, {
+      googleServiceAccount: 'seori-auth-broker@example-project.iam.gserviceaccount.com',
+    }),
+    (error) => error.code === 1,
   );
 });

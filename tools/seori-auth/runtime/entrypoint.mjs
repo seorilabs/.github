@@ -13,6 +13,7 @@ import {
   CanonicalAccountRegistry,
   FactorHttpApplication,
   HUMAN_REAUTH_REQUIRED,
+  normalizeJournalCheckpointBinding,
   LocalAuthDaemon,
   MtlsAuthDaemon,
   MtlsRunAttestor,
@@ -20,6 +21,7 @@ import {
   NativeSecretManagerExecutionStore,
   PROVIDER_CONTROL_PLANE_CLIENT_SPIFFE_ID,
   PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE,
+  requireTrustedJournalCheckpointControlPlane,
   requireExactMtlsPeer,
   SecretManagerPasswordLoader,
   SecretManagerTotpSigner,
@@ -104,7 +106,10 @@ function validateAdapters(adapters) {
 }
 
 function validateCommonRuntime(config) {
-  if (config.schemaVersion !== 1 || !ROLE.has(config.role)) fail('runtime config role is invalid');
+  if (
+    !ROLE.has(config.role) ||
+    config.schemaVersion !== (config.role === 'broker' ? 2 : 1)
+  ) fail('runtime config role is invalid');
   if (config.nativeHelperPath !== '/opt/seori-auth/bin/seori-auth-native' || !SHA256.test(config.nativeHelperSha256 ?? '')) {
     fail('native helper binding is invalid');
   }
@@ -145,7 +150,7 @@ function validateFactorRuntime(config, credentials) {
 }
 
 function validateBrokerRuntime(config, credentials) {
-  if (!SHA256.test(config.expectedJournalHeadMac ?? '')) fail('expected journal head MAC is invalid');
+  normalizeJournalCheckpointBinding(config.journalCheckpoint);
   uniqueStrings(config.allowedClientSpiffeIds, SPIFFE_ID, 'allowed client SPIFFE ids');
   if (
     !exactKeys(config.providerControlPlane, ['backofficeClientSpiffeId', 'endpointScope']) ||
@@ -184,7 +189,7 @@ function validateRuntimeConfig(config) {
   const roleFields = config?.role === 'broker'
     ? [
         'allowedClientSpiffeIds', 'bootstrapCredentials', 'browserRuntimeDirectory',
-        'expectedJournalHeadMac', 'policyPath', 'runAttestationPublicKeyPath',
+        'journalCheckpoint', 'policyPath', 'runAttestationPublicKeyPath',
         'stateDirectory', 'vaultDirectory', 'providerControlPlane',
       ]
     : ['allowedBrokerSpiffeIds', 'factorBindings'];
@@ -382,8 +387,11 @@ async function serveFactor(config, nativeBoundary) {
   return { daemon, close: async () => daemon.stop() };
 }
 
-async function serveBroker(config, nativeBoundary) {
-  if (!SHA256.test(config.expectedJournalHeadMac ?? '')) fail('expected journal head MAC is invalid');
+async function serveBroker(config, nativeBoundary, journalCheckpointControlPlane) {
+  const checkpointControlPlane = requireTrustedJournalCheckpointControlPlane(
+    journalCheckpointControlPlane,
+    config.journalCheckpoint,
+  );
   const store = await workloadStore(config, nativeBoundary);
   let journalMacKey;
   let vaultKey;
@@ -403,7 +411,8 @@ async function serveBroker(config, nativeBoundary) {
       directory: config.stateDirectory,
       journalMacKey,
       requireIntegrity: true,
-      expectedJournalHeadMac: config.expectedJournalHeadMac,
+      journalCheckpointBinding: config.journalCheckpoint,
+      journalCheckpointControlPlane: checkpointControlPlane,
       writerLockProvider: nativeBoundary.lockProvider(),
     });
     vault = await EncryptedBrowserVault.open({
@@ -873,7 +882,7 @@ try {
     const binding = deploymentBinding(options);
     const config = validateRuntimeConfig(await readConfig(binding.configPath));
     validateRuntimeDeploymentBinding(config, binding);
-    process.stdout.write(`${JSON.stringify({ valid: true, schemaVersion: 1, role: config.role })}\n`);
+    process.stdout.write(`${JSON.stringify({ valid: true, schemaVersion: config.schemaVersion, role: config.role })}\n`);
   } else if (command === 'healthcheck' && options.size === 1 && options.has('readiness-file')) {
     await healthcheck(options.get('readiness-file'));
   } else if (command === 'canary' && options.size === 1 && options.has('native-helper')) {

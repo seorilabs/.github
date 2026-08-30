@@ -468,7 +468,6 @@ test('provider grant is one-use with generation CAS and survives HMAC journal re
       event.credentialRef === raw.grant.command.credential.logicalId &&
       event.bindingHash === bindingHash));
     assert.doesNotMatch(JSON.stringify(audit), /canary-secret|secret-value/);
-    const checkpoint = state.integrityCheckpoint();
     await state.close();
     state = undefined;
 
@@ -484,7 +483,6 @@ test('provider grant is one-use with generation CAS and survives HMAC journal re
       directory,
       journalMacKey,
       requireIntegrity: true,
-      expectedJournalHeadMac: checkpoint.headMac,
     });
     assert.equal(state.snapshot().providerGrants[0].state, 'COMPLETED');
   } finally {

@@ -13,8 +13,8 @@
 - logical credential ID를 실행 복제본으로 해석하는 `loadSecret` callback
 - 코드 리뷰를 통과한 adapter executable과 `buildArgs`
 - workload identity와 generation source
-- owner-only Unix socket, broker-held journal MAC key/head checkpoint, encrypted Browser
-  Vault key를 관리하는 broker process
+- owner-only Unix socket, broker-held journal MAC key, trusted control-plane checkpoint adapter,
+  encrypted Browser Vault key를 관리하는 broker process
 - 검토된 native helper binary와 UID/GID/PID를 scheduler principal로 해석하는 resolver
 - 서로 다른 workload identity의 password loader와 TOTP signer
 - Kubernetes mTLS CA, exact SPIFFE URI SAN, scheduler Ed25519 run-attestation signer
@@ -46,8 +46,9 @@
 - CAPTCHA/MFA/약관 등 interactive gate는 durable `ReauthRequest`와 연결하고 exact trusted
   resolution 전까지 같은 run/provider/account/app의 새 checkout을 차단
 - browser HTTP 응답에는 opaque capability ID와 공개 identity만 포함
-- schema v2 journal의 record 순서, mutation, audit를 HMAC chain으로 인증하고 외부 head
-  checkpoint가 주어지면 tail 삭제/rollback도 startup에서 거부. append 전에 strict public
+- schema v2 journal의 record 순서, mutation, audit를 HMAC chain으로 인증하고, 각 fsync 뒤
+  public head를 trusted control-plane CAS와 exact readback으로 확정해 tail 삭제/rollback을
+  startup에서 거부. append 전에 strict public
   control/audit schema를 검증해 secret-bearing 필드나 비-JSON 객체를 먼저 디스크에 쓰지 않음
 - provider/account/role별 profile을 AES-256-GCM으로 저장하고 clone은 owner-only runtime
   directory에만 생성하며 provider/account별 filesystem lock으로 프로세스 간 동시 실행 1개.
@@ -84,7 +85,8 @@
 - provider가 session을 조기 폐기하거나 새 MFA challenge를 요구하지 않는 것
 - opaque capability 밖에서 browser profile을 복사하거나 cookie를 탈취한 같은 host 공격
 - Kubernetes의 다른 binding이 부여한 권한을 이 패키지의 Role로 취소하는 것
-- 외부 trusted head checkpoint 없이 journal 전체를 과거의 유효한 snapshot으로 되돌린 공격
+- trusted checkpoint control plane 자체가 손상되어 journal과 checkpoint를 함께 과거 상태로
+  되돌린 공격
 - NetworkPolicy만으로 DNS 이름이나 TLS provider identity를 검증하는 것
 
 따라서 broker는 전용 host/container, read-only root filesystem, 분리된 PID namespace,
@@ -140,9 +142,13 @@ append하고 각 envelope에 `ProviderGrant`를 포함한 non-secret state mutat
 broker-held key와 `requireIntegrity: true`를 사용해 schema v2 HMAC/hash chain만
 허용합니다. record는 append 전에 같은 strict validator로 plain JSON, exact mutation/audit schema를
 확인합니다. 중간에 잘린 record, sequence 역행, MAC/previous-MAC 불일치, symlink,
-group/other-readable mode는 fail-closed입니다. control plane에 보관한 마지막 head MAC을
-`expectedJournalHeadMac`으로 주면 journal tail rollback도 거부합니다. MAC key와 secret
-실행 복제본은 journal에 쓰지 않습니다.
+group/other-readable mode는 fail-closed입니다. static expected head 설정은 허용하지 않습니다.
+startup은 trusted control plane의 current checkpoint를 읽고 local exact head와 비교합니다.
+append는 fsync, deterministic generation CAS, exact readback 순서이며 readback으로 next head를
+증명하기 전에는 mutation을 메모리에 적용하지 않습니다. CAS 결과가 불명이더라도 next head
+readback이 exact하면 성공이고, 그렇지 않으면 state를 닫습니다. 재시작 시 local이 trusted
+head의 HMAC-valid 직계 자식 하나인 crash window만 같은 idempotency CAS로 복구합니다. MAC key와
+secret 실행 복제본은 journal이나 checkpoint에 쓰지 않습니다.
 journal을 열기 전 native helper가 broker 소유 FD에 non-blocking advisory writer lock을
 걸고, broker가 그 FD를 닫을 때까지 같은 open file description을 보유합니다. 따라서 각
 process의 메모리 queue만으로는

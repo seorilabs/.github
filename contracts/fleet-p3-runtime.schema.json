@@ -591,13 +591,30 @@
                 "journal": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schemaVersion", "contentPolicy", "integrity", "writeValidation", "logicalCredentialId"],
+                  "required": ["schemaVersion", "contentPolicy", "integrity", "writeValidation", "logicalCredentialId", "checkpoint"],
                   "properties": {
                     "schemaVersion": { "const": 2 },
                     "contentPolicy": { "const": "SECRET_FREE_PUBLIC_CONTROL_AND_AUDIT_ONLY" },
                     "integrity": { "const": "HMAC_SHA256_CHAIN" },
                     "writeValidation": { "const": "FAIL_CLOSED_BEFORE_SERIALIZATION" },
-                    "logicalCredentialId": { "const": "shared/seori-auth/journal-mac" }
+                    "logicalCredentialId": { "const": "shared/seori-auth/journal-mac" },
+                    "checkpoint": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion", "journalId", "authoritySpiffeId", "mode", "persistence",
+                        "commitOrder", "unknownOutcomePolicy"
+                      ],
+                      "properties": {
+                        "schemaVersion": { "const": 1 },
+                        "journalId": { "const": "seori-auth-production" },
+                        "authoritySpiffeId": { "const": "spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer" },
+                        "mode": { "const": "TRUSTED_CONTROL_PLANE_CAS" },
+                        "persistence": { "const": "BACKOFFICE_DURABLE_CAS" },
+                        "commitOrder": { "const": "JOURNAL_FSYNC_THEN_CHECKPOINT_CAS" },
+                        "unknownOutcomePolicy": { "const": "READBACK_FIRST" }
+                      }
+                    }
                   }
                 },
                 "browserVault": {

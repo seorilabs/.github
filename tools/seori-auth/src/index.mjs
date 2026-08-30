@@ -29,6 +29,15 @@ export {
   NativeSecretManagerExecutionStore,
 } from './google-secret-manager.mjs';
 export { LEASE_TTL_MS, LeaseStore } from './lease-store.mjs';
+export {
+  buildJournalCheckpointTransition,
+  createTrustedJournalCheckpointControlPlane,
+  JOURNAL_CHECKPOINT_CONTRACT,
+  JOURNAL_CHECKPOINT_GENESIS_MAC,
+  normalizeJournalCheckpoint,
+  normalizeJournalCheckpointBinding,
+  requireTrustedJournalCheckpointControlPlane,
+} from './journal-checkpoint.mjs';
 export { LocalAuthDaemon } from './local-daemon.mjs';
 export { MtlsAuthDaemon } from './mtls-daemon.mjs';
 export { MtlsRunAttestor, requireExactMtlsPeer } from './mtls-identity.mjs';

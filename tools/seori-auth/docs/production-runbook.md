@@ -14,7 +14,8 @@
 - 공개 provider/account/team/workspace/app ID
 - exact primary origin, 순서가 고정된 redirect origin, egress-proxy hostname allowlist
 - 순서가 고정된 exact auth factor fallback strategy, signed `actionClass`, action별 approval mode
-- journal MAC logical ID/generation과 직전 trusted head MAC
+- journal MAC logical ID/generation과 public checkpoint binding
+  (`seori-auth-production`, exact Backoffice SPIFFE, durable CAS, READBACK_FIRST)
 - Browser Vault key logical ID/generation과 Retain PVC snapshot ID
 - Backoffice provider worker의 exact SPIFFE ID와 고정 internal endpoint scope
 - provider native adapter executable/fixed argv digest와 logical credential generation partition
@@ -77,17 +78,23 @@ await DurableAuthState.open({
   writerLockProvider: nativeBoundary.lockProvider(),
   journalMacKey,
   requireIntegrity: true,
-  expectedJournalHeadMac,
+  journalCheckpointBinding,
+  journalCheckpointControlPlane,
 });
 ```
 
 MAC/Vault key는 broker 전용 workload identity가 Secret Manager API로 읽어 process
 memory에만 유지합니다. argv, env, 일반 파일, Kubernetes Secret, log로 전달하지 않습니다.
 strict public control/audit schema 검증은 append보다 먼저 실행되며 secret-bearing field나
-비-JSON 객체가 있으면 journal bytes를 쓰지 않습니다. 각 성공 append 후
-`integrityCheckpoint()`의 public sequence/head MAC을 control plane에
-CAS로 보관합니다. startup 시 wrong key, MAC chain 오류, incomplete line, head mismatch는
-새 lease를 발급하지 않고 incident로 전환합니다.
+비-JSON 객체가 있으면 journal bytes를 쓰지 않습니다. mutation은 journal append와 fsync를
+먼저 완료하고, trusted control plane의 current `{generation,sequence,headMac}`에서 다음
+checkpoint로 deterministic CAS한 뒤 exact readback이 일치할 때만 메모리에 적용됩니다.
+CAS가 실패하거나 결과가 불명이면 같은 process의 발급을 즉시 닫고 lock과 key를 해제합니다.
+재시작은 control plane을 먼저 읽습니다. local journal이 trusted head의 HMAC-valid한 직계
+자식 하나일 때만 동일 idempotency CAS로 crash window를 복구하고 다시 exact readback합니다.
+local이 뒤에 있거나, 같은 sequence의 head가 다르거나, 둘 이상 앞서면 자동 복구하지 않습니다.
+wrong key, MAC chain 오류, incomplete line, checkpoint readback 실패도 새 lease 전에 중단합니다.
+static `expectedJournalHeadMac` 설정은 사용하지 않습니다.
 같은 state directory는 native advisory writer lock을 획득한 broker process 하나만 열 수
 있습니다. lock file은 삭제하지 않아도 되며 crash 뒤 OS ownership이 해제된 경우에만 새
 broker가 같은 inode를 잠그고 replay합니다. native acquisition helper가 inherited FD에
@@ -247,9 +254,9 @@ projected token의 one-read FD close, symlink escape 거부, 같은 resource의 
 ## 7. 중단과 rollback
 
 이상 상태에서는 새 lease를 멈추고 기존 browser clone/session capability를 폐기합니다.
-배포 rollback은 이전 승인 image digest와 **그 image가 기록한 trusted journal head**가
-일치할 때만 수행합니다. Retain PVC snapshot과 control-plane checkpoint를 함께
-복원하며 journal만 잘라내거나 head MAC을 임의로 낮추지 않습니다. PVC snapshot 자체는
+배포 rollback은 이전 승인 image digest와 **control plane에서 exact readback한 trusted
+journal checkpoint**가 일치할 때만 수행합니다. Retain PVC snapshot과 control-plane checkpoint를
+함께 복원하며 journal만 잘라내거나 checkpoint generation/head MAC을 임의로 낮추지 않습니다. PVC snapshot 자체는
 secret 보호 경계가 아니며, secret-bearing 파일은 AES-256-GCM application envelope여야 합니다.
 
 credential/key 회전·폐기는 이 rollback이 아닙니다. backup과 임시 복원 검증, provider

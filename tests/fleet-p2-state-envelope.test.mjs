@@ -73,6 +73,15 @@ test('P2 runtime v2는 application envelope와 secret-free journal을 actual imp
       contentPolicy: 'SECRET_FREE_PUBLIC_CONTROL_AND_AUDIT_ONLY',
       integrity: 'HMAC_SHA256_CHAIN',
       writeValidation: 'FAIL_CLOSED_BEFORE_SERIALIZATION',
+      checkpoint: {
+        schemaVersion: 1,
+        journalId: 'seori-auth-production',
+        authoritySpiffeId: 'spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer',
+        mode: 'TRUSTED_CONTROL_PLANE_CAS',
+        persistence: 'BACKOFFICE_DURABLE_CAS',
+        commitOrder: 'JOURNAL_FSYNC_THEN_CHECKPOINT_CAS',
+        unknownOutcomePolicy: 'READBACK_FIRST',
+      },
     },
     browserVault: {
       envelopeVersion: 1,
@@ -83,6 +92,7 @@ test('P2 runtime v2는 application envelope와 secret-free journal을 actual imp
   assert.deepEqual(contract.authBroker.state.protection.journal, {
     ...DURABLE_JOURNAL_ENVELOPE,
     logicalCredentialId: 'shared/seori-auth/journal-mac',
+    checkpoint: result.journal.checkpoint,
   });
   assert.deepEqual(contract.authBroker.state.protection.browserVault, {
     envelopeVersion: BROWSER_VAULT_ENVELOPE.version,

@@ -391,6 +391,14 @@ authBroker:
         integrity: HMAC_SHA256_CHAIN
         writeValidation: FAIL_CLOSED_BEFORE_SERIALIZATION
         logicalCredentialId: shared/seori-auth/journal-mac
+        checkpoint:
+          schemaVersion: 1
+          journalId: seori-auth-production
+          authoritySpiffeId: spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer
+          mode: TRUSTED_CONTROL_PLANE_CAS
+          persistence: BACKOFFICE_DURABLE_CAS
+          commitOrder: JOURNAL_FSYNC_THEN_CHECKPOINT_CAS
+          unknownOutcomePolicy: READBACK_FIRST
       browserVault:
         envelopeVersion: 1
         algorithm: aes-256-gcm

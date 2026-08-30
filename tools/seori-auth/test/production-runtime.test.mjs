@@ -117,14 +117,12 @@ test('mTLS run attestation exact-binds the client SPIFFE id and durable nonce CA
       (error) => error instanceof SeoriAuthError && error.code === 'principal_unauthenticated',
     );
 
-    const checkpoint = state.integrityCheckpoint();
     await state.close();
     state = undefined;
     state = await openDurableAuthState({
       directory,
       journalMacKey,
       requireIntegrity: true,
-      expectedJournalHeadMac: checkpoint.headMac,
       clock: () => now,
     });
     await assert.rejects(

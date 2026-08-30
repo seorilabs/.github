@@ -219,3 +219,11 @@ PV/PVC를 `kubectl get`으로만 읽어 exact Bound identity, RPI5 node affinity
 missing/partial/drift/`Delete`는 mutation 없이 fail-closed하며 create/delete/patch는 별도 승인이다.
 실제 live PV/PVC readback은 아직 수행하지 않았으므로 rollout status는
 `protection.status: blocked_unverified`로 유지한다.
+
+같은 application envelope 계약의 journal checkpoint는 static head 설정에서 Backoffice durable
+CAS로 전환했다. public binding은 `seori-auth-production`, exact provider-control-plane SPIFFE,
+`JOURNAL_FSYNC_THEN_CHECKPOINT_CAS`, `READBACK_FIRST`로 고정한다. local journal append가 fsync된 뒤
+next checkpoint exact readback까지 확인되어야 mutation이 완료되며, 불명 결과 뒤 재시작은 trusted
+head의 직계 자식 한 건만 deterministic idempotent CAS로 복구한다. 실제 Backoffice DB/API와 mTLS
+transport는 후속 코드 gate이며, adapter가 없는 현재 production serve는 credential 접근과 lease
+발급 전에 fail-closed한다. 이를 사람 승인이나 리소스 부재로 분류하지 않는다.

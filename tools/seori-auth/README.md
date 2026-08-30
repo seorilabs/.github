@@ -34,7 +34,9 @@ daemon, MAC-chain durable state, native OS 경계, encrypted Browser Vault를 �
 - `CredentialCheckout`, `BrowserSessionBinding`, `ReauthRequest`, `ProviderGrant`, `AuthAuditEvent`는
   권한 `0600` append-only journal에 기록되고 재시작 시 replay됩니다. 운영 모드의
   schema v2 record는 broker-held 32-byte key의 HMAC-SHA256 chain으로 인증하며,
-  외부에 보관한 head MAC을 함께 주면 tail rollback도 탐지합니다.
+  각 fsync 뒤 public `{sequence, headMac}`을 trusted control plane의 generation CAS로
+  확정합니다. 재시작은 static head 설정을 믿지 않고 control plane의 exact current를 먼저
+  읽어 tail rollback과 checkpoint drift를 탐지합니다.
 - Backoffice의 provider 실행은 일반 `/auth/*` surface를 늘리지 않습니다. exact Backoffice
   SPIFFE mTLS peer와 Ed25519 run attestation을 모두 통과한 내부 경계에서만 5분·1회용
   `ProviderGrant`를 등록합니다. grant는 run/repo/source/provider/resource/action/environment,
@@ -112,7 +114,8 @@ const state = await DurableAuthState.open({
   writerLockProvider: nativeBoundary.lockProvider(),
   journalMacKey,
   requireIntegrity: true,
-  expectedJournalHeadMac,
+  journalCheckpointBinding,
+  journalCheckpointControlPlane,
 });
 const daemon = new LocalAuthDaemon({
   socketPath: '/run/seori-auth/broker.sock',
@@ -223,7 +226,9 @@ credential을 연결하거나 manifest를 apply하지 않습니다.
 - broker process 자체와 adapter를 native helper로 시작하는 immutable image/launchd unit
 - broker→factor production mTLS client 구현, client/server CA, exact SPIFFE identity와 scheduler
   run-attestation signing key
-- journal MAC key, 외부 head checkpoint, Vault key의 Secret Manager logical binding
+- journal MAC key와 Vault key의 Secret Manager logical binding, Backoffice durable checkpoint
+  read/CAS transport. production entrypoint는 이 transport가 주입되지 않으면 secret을 읽거나
+  lease를 발급하기 전에 `state_checkpoint_control_plane_required`로 중단합니다.
 - provider별 정확한 origin/redirect/public account identity와 egress-proxy allowlist
 - provider별 browser 실행·종료·identity readback·crash reconciliation을 구현한 immutable
   adapter 계약. 현재 production entrypoint는 이 계약이 없으므로 해당 callback을 명시적으로

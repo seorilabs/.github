@@ -5,6 +5,12 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import { fail, SeoriAuthError } from './errors.mjs';
+import {
+  buildJournalCheckpointTransition,
+  JOURNAL_CHECKPOINT_GENESIS_MAC,
+  normalizeJournalCheckpointBinding,
+  requireTrustedJournalCheckpointControlPlane,
+} from './journal-checkpoint.mjs';
 import { LEASE_TTL_MS } from './lease-store.mjs';
 import { NATIVE_FILE_LOCK_BRAND } from './native-lock-brand.mjs';
 import {
@@ -27,7 +33,6 @@ const CREDENTIAL_REF = /^(shared|app)\/[a-z0-9][a-z0-9-]*(\/[a-z0-9][a-z0-9-]*)+
 const BROWSER_ROLE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const JOURNAL_FILE = 'auth-journal.jsonl';
 const JOURNAL_WRITER_LOCK_FILE = '.auth-journal.writer.lock';
-const JOURNAL_GENESIS_MAC = '0'.repeat(64);
 const JOURNAL_MAC = /^[0-9a-f]{64}$/;
 export const DURABLE_JOURNAL_ENVELOPE = Object.freeze({
   schemaVersion: 2,
@@ -537,7 +542,7 @@ function validateEnvelope(envelope, expectedSequence, journalMacKey, previousMac
     fail('invalid_state_journal', 'durable auth journal is malformed');
   }
   if (integrityEnabled) {
-    const expectedPreviousMac = previousMac ?? JOURNAL_GENESIS_MAC;
+    const expectedPreviousMac = previousMac ?? JOURNAL_CHECKPOINT_GENESIS_MAC;
     if (
       envelope.previousMac !== expectedPreviousMac ||
       !JOURNAL_MAC.test(envelope.mac ?? '')
@@ -655,7 +660,10 @@ export class DurableAuthState {
   #sequence = 0;
   #journalMacKey;
   #lastMac;
-  #expectedJournalHeadMac;
+  #lastEnvelopePreviousMac;
+  #journalCheckpointBinding;
+  #journalCheckpointControlPlane;
+  #trustedCheckpoint;
   #queue = Promise.resolve();
   #closed = false;
   #credentialCheckouts = new Map();
@@ -673,7 +681,8 @@ export class DurableAuthState {
     idFactory = () => randomUUID(),
     journalMacKey,
     requireIntegrity = false,
-    expectedJournalHeadMac,
+    journalCheckpointBinding,
+    journalCheckpointControlPlane,
     writerLockProvider,
   }) {
     if (typeof directory !== 'string' || !isAbsolute(directory)) {
@@ -688,11 +697,20 @@ export class DurableAuthState {
     if (requireIntegrity && !Buffer.isBuffer(journalMacKey)) {
       fail('state_integrity_required', 'durable auth journal integrity key is required');
     }
-    if (expectedJournalHeadMac !== undefined && !JOURNAL_MAC.test(expectedJournalHeadMac)) {
-      fail('invalid_state_integrity', 'expected journal head MAC is invalid');
-    }
-    if (expectedJournalHeadMac !== undefined && !Buffer.isBuffer(journalMacKey)) {
-      fail('invalid_state_integrity', 'expected journal head MAC requires journal integrity');
+    const checkpointBinding = Buffer.isBuffer(journalMacKey)
+      ? normalizeJournalCheckpointBinding(journalCheckpointBinding)
+      : undefined;
+    const checkpointControlPlane = Buffer.isBuffer(journalMacKey)
+      ? requireTrustedJournalCheckpointControlPlane(
+          journalCheckpointControlPlane,
+          checkpointBinding,
+        )
+      : undefined;
+    if (
+      !Buffer.isBuffer(journalMacKey) &&
+      (journalCheckpointBinding !== undefined || journalCheckpointControlPlane !== undefined)
+    ) {
+      fail('invalid_state_integrity', 'journal checkpoint control plane requires journal integrity');
     }
     const lockProvider = validateWriterLockProvider(writerLockProvider);
     const opened = await openSecureJournal(directory);
@@ -718,11 +736,13 @@ export class DurableAuthState {
       clock,
       idFactory,
       journalMacKey: journalMacKey === undefined ? undefined : Buffer.from(journalMacKey),
-      expectedJournalHeadMac,
+      journalCheckpointBinding: checkpointBinding,
+      journalCheckpointControlPlane: checkpointControlPlane,
       writerLock,
     });
     try {
       await state.#replay();
+      await state.#synchronizeCheckpointAtOpen();
       state.#pruneExpiredRunAttestationNonces(state.#clock());
       await state.#reconcileBrowserSessionsAtStartup();
     } catch (error) {
@@ -735,7 +755,16 @@ export class DurableAuthState {
     return state;
   }
 
-  constructor({ journalPath, handle, clock, idFactory, journalMacKey, expectedJournalHeadMac, writerLock }) {
+  constructor({
+    journalPath,
+    handle,
+    clock,
+    idFactory,
+    journalMacKey,
+    journalCheckpointBinding,
+    journalCheckpointControlPlane,
+    writerLock,
+  }) {
     this.#journalPath = journalPath;
     this.#journalHandle = handle;
     this.#writerLock = writerLock;
@@ -743,20 +772,15 @@ export class DurableAuthState {
     this.#idFactory = idFactory;
     this.#journalMacKey = journalMacKey;
     this.#lastMac = undefined;
-    this.#expectedJournalHeadMac = expectedJournalHeadMac;
+    this.#lastEnvelopePreviousMac = undefined;
+    this.#journalCheckpointBinding = journalCheckpointBinding;
+    this.#journalCheckpointControlPlane = journalCheckpointControlPlane;
+    this.#trustedCheckpoint = undefined;
   }
 
   async #replay() {
     const contents = await readFile(this.#journalPath, 'utf8');
-    if (contents.length === 0) {
-      if (
-        this.#expectedJournalHeadMac !== undefined &&
-        this.#expectedJournalHeadMac !== JOURNAL_GENESIS_MAC
-      ) {
-        fail('invalid_state_journal', 'durable auth journal head does not match the trusted checkpoint');
-      }
-      return;
-    }
+    if (contents.length === 0) return;
     if (!contents.endsWith('\n')) {
       fail('invalid_state_journal', 'durable auth journal has an incomplete record');
     }
@@ -769,11 +793,92 @@ export class DurableAuthState {
         fail('invalid_state_journal', 'durable auth journal contains invalid JSON');
       }
       validateEnvelope(envelope, this.#sequence + 1, this.#journalMacKey, this.#lastMac);
+      this.#lastEnvelopePreviousMac = envelope.previousMac;
       this.#applyEnvelope(envelope);
     }
-    if (this.#expectedJournalHeadMac !== undefined && this.#lastMac !== this.#expectedJournalHeadMac) {
-      fail('invalid_state_journal', 'durable auth journal head does not match the trusted checkpoint');
+  }
+
+  #localIntegrityCheckpoint() {
+    return Object.freeze({
+      sequence: this.#sequence,
+      headMac: this.#lastMac ?? JOURNAL_CHECKPOINT_GENESIS_MAC,
+    });
+  }
+
+  async #readTrustedCheckpoint() {
+    try {
+      return await this.#journalCheckpointControlPlane.readCurrent({
+        schemaVersion: 1,
+        journalId: this.#journalCheckpointBinding.journalId,
+      });
+    } catch {
+      fail(
+        'state_checkpoint_readback_required',
+        'trusted journal checkpoint readback is required before state issuance',
+      );
     }
+  }
+
+  async #commitCheckpoint(expected, headMac) {
+    const transition = buildJournalCheckpointTransition({
+      binding: this.#journalCheckpointBinding,
+      expected,
+      headMac,
+    });
+    let outcome = 'UNKNOWN';
+    try {
+      ({ outcome } = await this.#journalCheckpointControlPlane.compareAndSwap(transition));
+    } catch {
+      // Unknown CAS outcomes are never retried blindly. Exact readback below is
+      // the only authority for deciding whether this transition committed.
+    }
+    const observed = await this.#readTrustedCheckpoint();
+    if (
+      observed.generation === transition.next.generation &&
+      observed.sequence === transition.next.sequence &&
+      observed.headMac === transition.next.headMac
+    ) {
+      this.#trustedCheckpoint = observed;
+      return;
+    }
+    if (outcome === 'CONFLICT') {
+      fail('state_checkpoint_conflict', 'trusted journal checkpoint CAS conflicted');
+    }
+    fail(
+      'state_checkpoint_commit_unknown',
+      'trusted journal checkpoint commit could not be proven by exact readback',
+    );
+  }
+
+  async #synchronizeCheckpointAtOpen() {
+    if (!this.#journalMacKey) return;
+    const observed = await this.#readTrustedCheckpoint();
+    const local = this.#localIntegrityCheckpoint();
+    if (observed.sequence === local.sequence && observed.headMac === local.headMac) {
+      this.#trustedCheckpoint = observed;
+      return;
+    }
+    if (
+      local.sequence === observed.sequence + 1 &&
+      this.#lastEnvelopePreviousMac === observed.headMac
+    ) {
+      // This is the only recoverable crash window: fsync completed, but the
+      // checkpoint CAS result was not durably observed. The deterministic CAS
+      // is attempted only after reading the exact trusted predecessor.
+      await this.#commitCheckpoint(observed, local.headMac);
+      return;
+    }
+    if (local.sequence < observed.sequence) {
+      fail('state_checkpoint_rollback', 'durable auth journal is behind its trusted checkpoint');
+    }
+    fail('state_checkpoint_conflict', 'durable auth journal does not match its trusted checkpoint');
+  }
+
+  async #sealAfterCheckpointFailure() {
+    this.#closed = true;
+    await this.#journalHandle.close().catch(() => {});
+    await this.#writerLock.release().catch(() => {});
+    this.#zeroIntegrityKey();
   }
 
   async #reconcileBrowserSessionsAtStartup() {
@@ -868,7 +973,9 @@ export class DurableAuthState {
       schemaVersion: this.#journalMacKey ? DURABLE_JOURNAL_ENVELOPE.schemaVersion : 1,
       sequence: this.#sequence + 1,
       recordedAt: audit.recordedAt,
-      ...(this.#journalMacKey ? { previousMac: this.#lastMac ?? JOURNAL_GENESIS_MAC } : {}),
+      ...(this.#journalMacKey ? {
+        previousMac: this.#lastMac ?? JOURNAL_CHECKPOINT_GENESIS_MAC,
+      } : {}),
       mutation: entityType === null ? null : { entityType, entity },
       audit,
     };
@@ -892,6 +999,14 @@ export class DurableAuthState {
       await this.#writerLock.release().catch(() => {});
       this.#zeroIntegrityKey();
       fail('state_persistence_failed', 'durable auth state could not be persisted');
+    }
+    if (this.#journalMacKey) {
+      try {
+        await this.#commitCheckpoint(this.#trustedCheckpoint, envelope.mac);
+      } catch (error) {
+        await this.#sealAfterCheckpointFailure();
+        throw error;
+      }
     }
     this.#applyEnvelope(envelope);
   }
@@ -2142,7 +2257,7 @@ export class DurableAuthState {
     if (!this.#journalMacKey) {
       fail('state_integrity_disabled', 'durable auth journal integrity is not enabled');
     }
-    return freezeRecord({ sequence: this.#sequence, headMac: this.#lastMac ?? JOURNAL_GENESIS_MAC });
+    return freezeRecord(this.#localIntegrityCheckpoint());
   }
 
   #zeroIntegrityKey() {

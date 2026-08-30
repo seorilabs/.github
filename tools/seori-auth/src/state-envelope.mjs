@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { BROWSER_VAULT_ENVELOPE } from './browser-vault.mjs';
 import { DURABLE_JOURNAL_ENVELOPE } from './durable-state.mjs';
+import { normalizeJournalCheckpointBinding } from './journal-checkpoint.mjs';
 
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const DNS_SUBDOMAIN = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
@@ -12,7 +13,7 @@ const PROTECTION_KEYS = [
   'browserVault', 'journal', 'mode', 'secretPersistencePolicy', 'status',
 ];
 const JOURNAL_KEYS = [
-  'contentPolicy', 'integrity', 'logicalCredentialId', 'schemaVersion',
+  'checkpoint', 'contentPolicy', 'integrity', 'logicalCredentialId', 'schemaVersion',
   'writeValidation',
 ];
 const BROWSER_VAULT_KEYS = [
@@ -62,6 +63,12 @@ function validateStateContract(state) {
   const journal = protection?.journal;
   const browserVault = protection?.browserVault;
   const volume = state?.volume;
+  let checkpoint;
+  try {
+    checkpoint = normalizeJournalCheckpointBinding(journal?.checkpoint);
+  } catch {
+    stop('STATE_ENVELOPE_CONTRACT_INVALID');
+  }
   if (
     !exactKeys(state, STATE_KEYS) || !exactKeys(protection, PROTECTION_KEYS) ||
     protection.mode !== 'APPLICATION_ENVELOPE' ||
@@ -73,6 +80,7 @@ function validateStateContract(state) {
     journal.integrity !== DURABLE_JOURNAL_ENVELOPE.integrity ||
     journal.writeValidation !== DURABLE_JOURNAL_ENVELOPE.writeValidation ||
     journal.logicalCredentialId !== 'shared/seori-auth/journal-mac' ||
+    checkpoint.journalId !== 'seori-auth-production' ||
     !exactKeys(browserVault, BROWSER_VAULT_KEYS) ||
     browserVault.envelopeVersion !== BROWSER_VAULT_ENVELOPE.version ||
     browserVault.algorithm !== BROWSER_VAULT_ENVELOPE.algorithm ||
@@ -122,6 +130,7 @@ export function verifyApplicationEnvelopeContract(state) {
       contentPolicy: state.protection.journal.contentPolicy,
       integrity: state.protection.journal.integrity,
       writeValidation: state.protection.journal.writeValidation,
+      checkpoint: Object.freeze({ ...state.protection.journal.checkpoint }),
     }),
     browserVault: Object.freeze({
       envelopeVersion: state.protection.browserVault.envelopeVersion,
