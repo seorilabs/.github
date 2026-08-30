@@ -291,14 +291,19 @@ function expectedTangOwner(selected) {
   return Object.freeze({ ownerId, groupId });
 }
 
-function readRegular(path, { modes, maxBytes = 4 * 1024 * 1024, rootOwned = false } = {}) {
+function readRegular(path, {
+  modes,
+  maxBytes = 4 * 1024 * 1024,
+  rootOwned = false,
+  linkCounts = [1],
+} = {}) {
   let descriptor;
   try {
     const local = mapped(path);
     const entry = lstatSync(local);
     if (
       !entry.isFile() || entry.isSymbolicLink() || realpathSync(local) !== local ||
-      entry.nlink !== 1 ||
+      !linkCounts.includes(entry.nlink) ||
       (modes !== undefined && !modes.includes(entry.mode & 0o777)) ||
       (rootOwned && fixtureRoot === undefined && (entry.uid !== 0 || entry.gid !== 0)) ||
       entry.size < 1 || entry.size > maxBytes
@@ -418,10 +423,25 @@ function sourceBoundary() {
     const processBoundary = stage1.hostProcessBoundary.moduleExecutable;
     const recordBoundary = stage1.sourceBootstrap.filesystemBoundaryPath;
     const sourceNativeBytes = readRegular(sourceNativeHelper, { modes: [0o755], rootOwned: true });
-    const packageLockBytes = readRegular(packageLock, { modes: [0o644, 0o444], rootOwned: true });
-    const nativeBytes = readRegular(nativeLauncher, { modes: [0o755], rootOwned: true });
-    const processBytes = readRegular(processBoundary, { modes: [0o755], rootOwned: true });
-    const recordBytes = readRegular(recordBoundary, { modes: [0o755], rootOwned: true });
+    const packageLockBytes = readRegular(packageLock, {
+      modes: [0o600, 0o644, 0o444],
+      rootOwned: true,
+    });
+    const nativeBytes = readRegular(nativeLauncher, {
+      modes: [0o755],
+      rootOwned: true,
+      linkCounts: [2],
+    });
+    const processBytes = readRegular(processBoundary, {
+      modes: [0o755],
+      rootOwned: true,
+      linkCounts: [2],
+    });
+    const recordBytes = readRegular(recordBoundary, {
+      modes: [0o755],
+      rootOwned: true,
+      linkCounts: [2],
+    });
     if (
       Object.keys(receipt).toSorted().join('\0') !== expectedReceiptKeys.toSorted().join('\0') ||
       receipt.schemaVersion !== 1 || receipt.state !== 'P2_STAGE1_SOURCE_READY' ||
