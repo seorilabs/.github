@@ -23,7 +23,7 @@
 ## 생성하고 실행하는 작업
 
 - Backoffice repository observation 또는 archive
-- [`fleet-standard-labels.json`](../../contracts/fleet-standard-labels.json)의 고정 12개 label 이름·색상·설명 정합화와 기존 custom label 보존
+- [`fleet-standard-labels.json`](../../contracts/fleet-standard-labels.json)의 고정 20개 label 이름·색상·설명 정합화와 기존 custom label 보존
 - `fleet-managed`, `fleet-profile`, `fleet-state`, `fleet-ruleset=shadow|active` custom property 정합화
 - protected branch만 허용하는 `internal` Environment 정합화
 - `.github/workflows/org-contract.yml` bootstrap PR 생성 또는 기존 PR 갱신
@@ -73,7 +73,7 @@ WIF·Cloud Build IAM readback, Xcode Cloud workflow readback이 끝난 뒤 별�
 
 apply 성공 여부가 불명확하거나 source SHA가 바뀌면 완료하지 않는다. 같은 idempotency key로 provider readback부터 재개한다. 이미 완료한 operation도 provider 상태가 없으면 성공으로 간주하지 않는다.
 
-`github.standard-labels.ensure`는 worker 입력을 받지 않는다. schema와 runtime validator가 catalog version, digest, strategy와 12개 전체 label을 exact 비교하므로 일반 caller가 임의 label을 만들 수 없다. `approval:planning`, `approval:release`, `approval:security`는 각각 기획, 배포, signed dependency-audit exception의 사람 승인 gate이며 generic worker claim을 막는다. trusted adapter는 현재 전체 label을 먼저 읽고 fixed label만 이름 기준으로 upsert한 뒤 다시 읽는다. 기존 custom label의 이름·색상·설명이 하나라도 사라지거나 바뀌거나 case-insensitive duplicate가 있으면 완료하지 않는다. 동시에 새 custom label이 추가되는 것은 허용한다. durable audit witness에는 repository ID, operation kind, catalog version/digest와 `MATCH`만 남기고, custom label을 포함한 전체 상태 변화는 별도 `readbackDigest`로 남긴다.
+`github.standard-labels.ensure`는 worker 입력을 받지 않는다. schema와 runtime validator가 catalog version, digest, strategy와 20개 전체 label을 exact 비교하므로 일반 caller가 임의 label을 만들 수 없다. `autopilot:local`과 `autopilot:cloud`는 자율 이슈의 실행 환경을 분리하고, `evidence:*`와 `instrumentation`은 제목 말머리 대신 근거·유형을 표현한다. `approval:planning`, `approval:release`, `approval:security`는 각각 기획, 배포, signed dependency-audit exception의 사람 승인 gate이며 generic worker claim을 막는다. trusted adapter는 현재 전체 label을 먼저 읽고 fixed label만 이름 기준으로 upsert한 뒤 다시 읽는다. 기존 custom label의 이름·색상·설명이 하나라도 사라지거나 바뀌거나 case-insensitive duplicate가 있으면 완료하지 않는다. 동시에 새 custom label이 추가되는 것은 허용한다. durable audit witness에는 repository ID, operation kind, catalog version/digest와 `MATCH`만 남기고, custom label을 포함한 전체 상태 변화는 별도 `readbackDigest`로 남긴다.
 
 durable receipt는 현재 target의 충족 사실만 고정한다. shared WIF provider/service-account의 etag, 조직 secret의 다른 selected repository, custom property의 다른 key, Environment의 관련 없는 공개 변수처럼 다른 fleet 작업이 늘릴 수 있는 superset 상태는 stable satisfaction witness에서 제외한다. 대신 현재 provider 전체 observation은 별도 `readbackDigest`로 남긴다. 따라서 다른 repo를 추가해도 기존 완료 작업은 mutation 없이 replay되지만 target binding 자체가 사라지면 fail-closed한다.
 

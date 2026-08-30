@@ -171,6 +171,26 @@ function exactGitSourceReadback(requests = []) {
   };
 }
 
+async function exactGitRoot(sourceSha) {
+  const root = await mkdtemp(join(tmpdir(), "fleet-exact-source-"));
+  temporaryRoots.push(root);
+  const archivePath = join(root, "source.tar");
+  const archive = execFileSync(
+    "git",
+    ["archive", "--format=tar", sourceSha],
+    {
+      maxBuffer: 32 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    },
+  );
+  await writeFile(archivePath, archive);
+  execFileSync("tar", ["-xf", archivePath, "-C", root], {
+    stdio: ["ignore", "ignore", "ignore"],
+  });
+  await rm(archivePath, { force: true });
+  return root;
+}
+
 const trustedRunnerImageReadback = async (request) => ({
   ...request,
   state: "READY",
@@ -925,13 +945,16 @@ test("exact remote source의 runtime digest 또는 bytes가 다르면 load를 �
 });
 
 test("P3 bundle은 최신 provenance와 execution c328을 두 exact source로 검증한다", async () => {
+  const provenanceRoot = await exactGitRoot(P3_PROVENANCE_SHA);
   const candidate = await createWorkflowBundle({
+    repoRoot: provenanceRoot,
     sourceSha: P3_PROVENANCE_SHA,
     platformRelease: PLATFORM_RELEASE,
   });
   const requests = [];
   const trustedWorkflowSourceReadback = exactGitSourceReadback(requests);
   const validation = await validateWorkflowBundle(candidate, {
+    repoRoot: provenanceRoot,
     trustedWorkflowSourceReadback,
   });
   assert.equal(validation.ok, true, validation.diagnostics.join(","));
@@ -947,6 +970,7 @@ test("P3 bundle은 최신 provenance와 execution c328을 두 exact source로 �
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const registry = new Map();
   const approved = await promoteWorkflowBundle(candidate, evidence, {
+    repoRoot: provenanceRoot,
     trustedWorkflowSourceReadback,
     evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
     trustedRunnerImageReadback,
@@ -986,6 +1010,7 @@ test("P3 bundle은 최신 provenance와 execution c328을 두 exact source로 �
     return snapshot;
   };
   const tamperedValidation = await validateWorkflowBundle(candidate, {
+    repoRoot: provenanceRoot,
     trustedWorkflowSourceReadback: tamperedExecutionReadback,
   });
   assert.equal(tamperedValidation.ok, false);

@@ -26,6 +26,14 @@ const EXPECTED_LABEL_NAMES = Object.freeze([
   "P3",
   "P4",
   "autopilot",
+  "autopilot:local",
+  "autopilot:cloud",
+  "evidence:ga4",
+  "evidence:console",
+  "evidence:store",
+  "evidence:research",
+  "evidence:csv",
+  "instrumentation",
   "platform",
   "platform-contract",
   "blocked",
@@ -76,10 +84,10 @@ function validateCatalog(value) {
   if (
     !exactKeys(value, ["catalogVersion", "labels", "schemaVersion", "strategy"]) ||
     value.schemaVersion !== 1 ||
-    value.catalogVersion !== "seorilabs-standard-labels/v1" ||
+    value.catalogVersion !== "seorilabs-standard-labels/v2" ||
     value.strategy !== "UPSERT_FIXED_PRESERVE_CUSTOM" ||
     !Array.isArray(value.labels) ||
-    value.labels.length !== 12 ||
+    value.labels.length !== 20 ||
     value.labels.some(
       (label) =>
         !exactKeys(label, ["color", "description", "name"]) ||

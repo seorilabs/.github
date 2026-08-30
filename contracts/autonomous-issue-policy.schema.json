@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/seorilabs/.github/contracts/autonomous-issue-policy.schema.json",
+  "title": "Seorilabs autonomous issue policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "defaults",
+    "schedules",
+    "labels",
+    "titlePolicy",
+    "executionRouting",
+    "issueBody",
+    "repositories"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "const": "seorilabs-autonomous-issue-policy-v1" },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registration", "processing"],
+      "properties": {
+        "registration": { "const": "DISABLED" },
+        "processing": { "const": "DISABLED" }
+      }
+    },
+    "schedules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timezone", "registration", "processing"],
+      "properties": {
+        "timezone": { "const": "Asia/Seoul" },
+        "registration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["localTimes", "maxIssuesPerRun", "openAutopilotIssueLimit", "repositoryTraversal"],
+          "properties": {
+            "localTimes": {
+              "type": "array",
+              "const": ["02:00"]
+            },
+            "maxIssuesPerRun": { "const": 1 },
+            "openAutopilotIssueLimit": { "const": 10 },
+            "repositoryTraversal": { "const": "daily-rotating-config-order" }
+          }
+        },
+        "processing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["localTimes", "maxIssuesPerRun", "priorityOrder", "tieBreakers"],
+          "properties": {
+            "localTimes": {
+              "type": "array",
+              "const": ["06:25", "09:25", "12:25", "15:25", "18:25", "21:25"]
+            },
+            "maxIssuesPerRun": { "const": 1 },
+            "priorityOrder": {
+              "type": "array",
+              "const": ["P1", "P2", "P3", "P4"]
+            },
+            "tieBreakers": {
+              "type": "array",
+              "const": ["createdAt", "number"]
+            }
+          }
+        }
+      }
+    },
+    "labels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "executionExactlyOne",
+        "priorityExactlyOne",
+        "blocking",
+        "blockingPrefixes",
+        "optionalWorkType",
+        "optionalEvidence"
+      ],
+      "properties": {
+        "required": { "type": "array", "const": ["autopilot"] },
+        "executionExactlyOne": {
+          "type": "array",
+          "const": ["autopilot:local", "autopilot:cloud"]
+        },
+        "priorityExactlyOne": {
+          "type": "array",
+          "const": ["P1", "P2", "P3", "P4"]
+        },
+        "blocking": {
+          "type": "array",
+          "const": ["no-autopilot", "blocked"]
+        },
+        "blockingPrefixes": { "type": "array", "const": ["approval:"] },
+        "optionalWorkType": {
+          "type": "array",
+          "items": { "enum": ["bug", "enhancement", "instrumentation"] },
+          "uniqueItems": true
+        },
+        "optionalEvidence": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "evidence:ga4",
+              "evidence:console",
+              "evidence:store",
+              "evidence:research",
+              "evidence:csv"
+            ]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "titlePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "language",
+        "requireCustomerProblemOrOutcome",
+        "forbidRepositoryPrefix",
+        "forbiddenPrefixPatterns",
+        "forbiddenAgentOrderPattern"
+      ],
+      "properties": {
+        "language": { "const": "ko" },
+        "requireCustomerProblemOrOutcome": { "const": true },
+        "forbidRepositoryPrefix": { "const": true },
+        "forbiddenPrefixPatterns": {
+          "type": "array",
+          "minItems": 3,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "forbiddenAgentOrderPattern": { "type": "string", "minLength": 1 }
+      }
+    },
+    "executionRouting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "basis",
+        "defaultLabel",
+        "cloudLabel",
+        "cloudAllowedSources",
+        "localRequirementIndicators"
+      ],
+      "properties": {
+        "basis": { "const": "implementation-and-verification" },
+        "defaultLabel": { "const": "autopilot:local" },
+        "cloudLabel": { "const": "autopilot:cloud" },
+        "cloudAllowedSources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "localRequirementIndicators": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "issueBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requiredSections"],
+      "properties": {
+        "requiredSections": {
+          "type": "array",
+          "const": [
+            "customerValue",
+            "problemAndEvidence",
+            "proposedOutcome",
+            "scope",
+            "acceptanceCriteria",
+            "validation",
+            "executionRequirements"
+          ]
+        }
+      }
+    },
+    "repositories": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repository", "registration", "processing"],
+        "properties": {
+          "repository": {
+            "type": "string",
+            "pattern": "^seorilabs/[A-Za-z0-9._-]+$"
+          },
+          "registration": {
+            "enum": ["ENABLED", "EXCLUDED", "DISABLED"]
+          },
+          "processing": {
+            "enum": ["ENABLED", "EXCLUDED", "DISABLED"]
+          }
+        }
+      }
+    }
+  }
+}

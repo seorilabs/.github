@@ -1,104 +1,110 @@
 # Autonomous Issue Routine
 
-이 문서는 Seorilabs repo의 **클라우드 autopilot 루틴**이 열린 GitHub 이슈를 자동으로 해결할 때 따르는 org 공통 절차다. 리뷰 판정은 `contracts/review-policy.yaml`, 필수 품질 진입점은 `contracts/test-policy.yaml`, 저장소별 실행 명령과 예외는 repo-local `AGENTS.md`를 따른다.
+이 문서는 Seorilabs 자율 이슈를 한 실행에 하나씩 구현하고 검증해 PR과 이슈를 종결하는 조직 공통 계약이다. 로컬 스킬이 없는 클라우드 환경도 [`autonomous-issue-policy.yaml`](../../contracts/autonomous-issue-policy.yaml), 이 문서와 대상 저장소 문서만으로 `autopilot:cloud` 이슈를 처리할 수 있어야 한다.
 
-## 사용 방법
+## 읽기 순서와 실행 환경
 
-- 루틴 프롬프트는 짧게 유지한다. "repo-local 가이드와 이 문서를 읽고 그대로 따르라"만 지시한다.
-- 각 repo는 repo-local 가이드(예: `docs/08-ops/autopilot.md`)에 이 문서가 다루지 않는 stack·repo별 실행 정보를 담는다. 조직 계약과 충돌하면 `contracts/`가 우선하며, repo-local 가이드는 조직 계약을 약화할 수 없다.
-- 이 문서는 [agent-contribution-contract.md](./agent-contribution-contract.md)의 PR 계약과 [seorilabs-agent-contribution-system.md](./seorilabs-agent-contribution-system.md)의 역할 분리를 전제로 한다. 기계 판독 계약과 충돌하면 `contracts/`를 우선한다.
+1. `contracts/autonomous-issue-policy.yaml`
+2. 이 문서
+3. `contracts/review-policy.yaml`, `contracts/test-policy.yaml`, `contracts/release-policy.yaml`
+4. 대상 저장소의 `AGENTS.md`, `.seorilabs/app.yaml`, README와 repo-local 실행 문서
+5. 선택한 이슈 본문과 연결된 PR·review thread
+6. 로컬 환경에 관련 스킬이 있으면 구현·검증 어댑터로 사용
+
+기계 판독 계약과 문서가 충돌하면 계약이 우선한다. repo-local 문서는 stack·명령·제품 고유 제약만 보강하며 조직 계약을 약화할 수 없다.
+
+- 로컬 예약 작업은 `autopilot:local`과 `autopilot:cloud`을 모두 처리할 수 있다.
+- 클라우드 실행은 `autopilot:cloud`만 처리한다. `autopilot:local`을 클라우드 도구로 추측하거나 우회하지 않는다.
+- `processing=EXCLUDED`는 가장 앞선 차단 gate다. 해당 저장소를 clone하거나 이슈·PR을 변경하지 않는다.
+- `processing=DISABLED` 또는 정책에 없는 저장소도 건드리지 않는다.
 
 ## 핵심 모델 — 한 실행 한 이슈
 
-이 루틴은 한 실행에서 **정확히 한 개의 검증 가능한 이슈만** 선택한다. 같은 이슈를 닫는 열린 PR이 있으면 새 이슈를 고르지 않고 그 PR부터 종결한다. 하나의 PR이 머지·종료되면 이번 실행을 끝내고 다음 트리거가 백로그를 다시 평가한다.
+한 실행에서 선택·구현하는 이슈는 최대 한 개다. 같은 자율 이슈를 닫는 열린 PR이 있으면 새 이슈를 고르지 않고 그 PR을 먼저 종결한다. PR이 머지·종료되면 이번 실행을 끝낸다.
 
 ```mermaid
 flowchart LR
-  A["A. 관련 진행 중 PR 확인"] --> B["B. 이슈 한 개 선택"]
-  B --> C["C. 격리 구현·검증·PR"]
-  C --> D["D. 가이드 처리·코드 리뷰·머지"]
-  D --> Stop["E. 상태 확인 후 종료"]
+  A["진행 중인 자율 PR 확인"] --> B["대상과 라벨 gate"]
+  B --> C["이슈 한 개 선택"]
+  C --> D["격리 구현과 검증"]
+  D --> E["Ready PR과 review gate"]
+  E --> F["머지와 상태 확인 후 종료"]
 ```
 
-### A. 관련 진행 중인 PR 먼저 처리
+## 진행 중인 PR 우선
 
-- 열린 PR과 `Closes #N` 연결을 확인한다. 같은 이슈를 닫는 열린 PR이 있으면 새 이슈를 고르지 않는다.
-- 해당 PR을 아래 C·D 절차로 종결하고 이번 실행을 끝낸다.
+- ENABLED 저장소의 열린 PR과 `closingIssuesReferences`를 확인한다.
+- `autopilot` 이슈를 닫는 PR이 있으면 그 PR의 현재 HEAD, CI, Seori·Copilot thread와 mergeability를 먼저 확인한다.
+- 같은 자동화가 새 이슈를 동시에 구현하지 않는다.
+- PR이 사람 승인, 외부 상태 또는 복구 불가능한 실패로 막히면 정확한 blocker를 기록하고 이번 실행을 끝낸다. 근거 없이 다른 PR이나 이슈를 수정하지 않는다.
 
-### B. 새 이슈 선택 (열린 `issue/` PR이 없을 때)
+## 새 이슈 선택
 
-- 원격 기본 브랜치를 fetch하고 최신 `origin/main`을 확인한다. 사용자의 dirty·untracked 변경을 보존하며 `reset`, `clean`, `stash`, `rebase`, `pull`, `checkout`으로 우회하지 않는다.
-- `gh issue list --state open --search "-label:no-autopilot" --limit 100 --json number,title,labels`로 `no-autopilot` 라벨이 없는 모든 열린 이슈를 나열한다. `no-autopilot` 라벨(별도 트랙·보류)이 붙은 이슈는 제외하고 절대 건드리지 않는다.
-- 우선순위: `P1` → `P2` → `P3` → `P4`. 같은 우선순위면 이슈 번호가 작은 것 우선. P 라벨이 없는 이슈는 P 라벨 이슈를 모두 처리한 뒤 번호순. 같은 우선순위대 안의 축 순서는 repo-local 가이드가 정한다.
-- `blocked` 라벨 이슈, 이미 `Closes #N` 열린 PR이 달린 이슈는 SKIP. 선택 가능한 이슈가 없으면 종료(no-op). 최상위 1개만 고른다.
+후보는 다음 조건을 모두 만족해야 한다.
 
-### C. 구현 · 검증 · PR
+- 저장소의 `processing=ENABLED`
+- 이슈가 `OPEN`
+- `autopilot` 포함
+- `autopilot:local` 또는 `autopilot:cloud` 중 정확히 하나
+- `P1`~`P4` 중 정확히 하나
+- `no-autopilot`, `blocked`, `approval:*` 없음
+- 같은 이슈를 닫는 열린 PR 없음
+- 현재 실행 환경이 실행 라벨을 지원
 
-- 맥락을 먼저 읽는다: repo-local 가이드, `README.md`/`AGENTS.md`, 선택한 이슈 본문(인수조건). 구조·경계는 repo-local 가이드를 따른다.
-- 최신 `origin/main`에서 격리 worktree와 `feature/issue-<번호>-<짧은-슬러그>` 브랜치를 만든다. 인수조건을 충족하는 **최소 변경만** 한다(범위 밖 리팩터링 금지). 주변 코드 스타일·타입 규칙을 준수한다. `.gitignore`를 존중해 빌드 산출물·비밀·임시 파일을 커밋하지 않는다.
-- **테스트 동반 의무(범위에 포함)**: 각 인수조건마다 그 동작을 검증하는 테스트를 같은 PR에 추가/갱신한다. 버그 수정은 그 버그를 재현하는 회귀 테스트를 동반한다. 핵심 로직(상태·저장·데이터 처리·완료 판정·이벤트/계약) 변경에 대응 테스트가 없으면 서리봇이 test-gap으로 머지를 차단하므로, 테스트는 "최소 변경"의 예외가 아니라 필수 범위다. 단 순수 config/release/scaffolding/docs/포맷·rename 변경, 생성 파일, 헤드리스로 검증 불가한 GUI/렌더 동작은 테스트 면제(PR에 사유 명시).
-- 검증: repo-local 가이드가 지정한 게이트를 실행하고 결과를 기록한다. 내 변경으로 게이트가 깨지면 PR 전에 고친다. 헤드리스로 실행 불가한 시각·실기기 검증은 "실행 불가(리뷰 위임)"로 명시한다.
-- 한글 커밋·push 후 `gh pr create`로 **Ready**(draft 아님) PR을 base `main`으로 연다. 제목·본문은 **한글**(고유명사·명령어·코드·에러 메시지는 원문 유지). 본문은 아래 섹션을 **분리**해 작성한다 — 봇은 `검증` 섹션을 인수조건으로 해석하지 않으므로 인수조건과 검증을 절대 섞지 않는다:
-  - **개요**: 변경 목적과 범위.
-  - **인수조건**: 선택한 이슈 본문의 인수조건을 **그대로** 체크리스트(`- [ ]`)로 옮긴다. 임의로 줄이거나 새로 발명하지 않는다(heading은 `인수조건`/`요구사항`/`Definition of Done`/`동작`/`기대 동작` 중 적절히).
-  - **검증**: 실행한 test/lint/typecheck/build와 결과, 실행하지 못한 검증과 그 이유(헤드리스 한계 등). 수동·시각·실기기 검증은 자동 test처럼 꾸미지 말고 `수동 검증`으로 표기한다.
-  - 반드시 `Closes #<번호>`.
-  - 변경 구조·흐름 이해에 도움되면 Mermaid를 포함하되, 단순 변경이면 생략한다.
+라벨이 누락되거나 상충하면 자동으로 추측해 고치지 않고 부적격 사유를 보고한다. 제목의 레거시 말머리나 `U숫자`·`N숫자`를 선택 순서로 사용하지 않는다.
 
-상세 PR 계약은 [agent-contribution-contract.md](./agent-contribution-contract.md)를 따른다.
+후보는 P1→P2→P3→P4 순으로 정렬하고, 같은 우선순위에서는 `createdAt`, 이슈 번호 오름차순으로 고른다. 최상위 한 개만 선택한다. 후보가 없으면 no-op으로 종료한다.
 
-### D. 가이드 처리·코드 리뷰·머지
+## 구현 전 재검증
 
-`contracts/review-policy.yaml`과 `seori-pr-workflow` 계약을 따른다. Seori는 PR 최초 턴의 acceptance guide이며 코드 승인자가 아니다.
+1. 원격 기본 브랜치와 exact HEAD를 fetch한다.
+2. 이슈의 고객 가치, 문제·근거, 범위, 인수조건, 검증 방법, 실행 환경 절을 읽는다.
+3. 현재 코드와 이미 반영된 PR을 대조해 이슈가 여전히 유효한지 확인한다.
+4. `autopilot:local`이면 본문에 적힌 로컬 스킬·데이터·기기·콘솔을 실제로 사용할 수 있는지 확인한다. 없으면 구현하지 않고 blocker를 보고한다.
+5. 범위가 기획 결정, 신규 콘텐츠, 일반 밸런스·경제 확장, 배포·심사·공개 출시로 바뀌었으면 자동 구현하지 않는다.
 
-- 각 미해결 Seori thread에 수정 결과 또는 현재 구현이 타당한 근거를 같은 thread에 한글로 답하고 Resolve한다.
-- 새 push 뒤 Seori AI 재리뷰나 Seori approval을 기다리지 않는다. `neutral`은 미해결 thread와 다른 required gate를 직접 확인한 뒤 비차단으로 처리할 수 있다.
-- 미해결 Seori thread가 0개이고 repo CI가 green인 최종 HEAD에서 Copilot review를 최초 한 번 요청한다.
-- Copilot 지적은 수정·소명·후속 이슈 중 하나로 처리하고 모든 thread를 Resolve한다.
-- Copilot이 `unable-to-review`를 남겼거나 1차 리뷰 반영이 새 함수·파일·분기를 만든 경우에만 최종 HEAD에서 한 번 더 요청한다. PR당 총 요청은 최대 2회이고 성공 리뷰는 1~2회다.
-- required check가 통과하고 conflict가 없으면 `gh pr merge <N> --squash --delete-branch`로 병합한다.
-- 최초 가이드가 10분 이상 전혀 없을 때만 복구 `/review`를 한 번 요청한다. Copilot 추가 요청은 위 조건에서만 허용한다.
-- ruleset이나 권한이 병합을 막으면 우회하지 않고 GitHub가 반환한 정확한 blocker를 보고한다.
+이미 해결됐거나 중복이면 현재 근거를 이슈에 남기고 안전하게 종결한다. 인수조건이 모호하거나 제품 결정을 요구하면 임의 구현 대신 `blocked` 또는 적절한 `approval:*` gate로 전환하고 종료한다.
 
-### E. 상태 확인 후 종료
+## 격리 구현과 검증
 
-- PR과 연결 이슈의 최종 상태, merge SHA, 기본 브랜치 반영을 확인한다.
-- 이번 실행에서는 다음 이슈를 선택하지 않는다.
-- 임시 worktree는 병합과 원격 반영이 확인된 뒤 별도의 안전한 정리 절차로 제거한다.
+- 기본 checkout의 dirty·untracked 변경을 보존한다. `reset`, `clean`, `stash`, `rebase`, `checkout`으로 사용자 상태를 바꾸지 않는다.
+- 최신 원격 기본 브랜치에서 이슈 전용 격리 worktree와 브랜치를 만든다.
+- 인수조건을 충족하는 최소 변경만 하고 관련 없는 리팩터링·기능 확장을 하지 않는다.
+- 각 인수조건을 검증하는 테스트를 추가하거나 갱신한다. 버그 수정에는 회귀 테스트를 동반한다.
+- 순수 문서·설정·생성 파일·헤드리스로 검증할 수 없는 시각·실기기 동작은 테스트 면제 사유와 미검증 범위를 PR에 적는다.
+- repo-local 명령과 `contracts/test-policy.yaml`의 필수 진입점을 실행한다. 실행하지 못한 검증은 성공으로 표현하지 않는다.
+- 비밀값, 빌드 산출물과 임시 파일을 커밋하지 않는다.
 
-## 라벨 · 우선순위 규칙
+## Ready PR
 
-| 라벨 | 의미 |
-| --- | --- |
-| `autopilot` | 이 루틴이 처리 대상으로 삼는 이슈(선택) |
-| `P1`~`P4` | 우선순위. 없으면 P 라벨 이슈 뒤 번호순 |
-| `no-autopilot` | **작업 금지**. 아트/SDK/번역/스토어 등 별도 트랙·보류 |
-| `blocked` | 선행 조건 미충족 → SKIP |
+커밋과 PR 제목·본문은 한국어로 작성하고 AI 생성 서명을 넣지 않는다. PR은 Draft가 아닌 Ready로 만든다.
 
-## 승인 게이트
+PR 본문에는 다음을 분리해 기록한다.
 
-- 릴리스/프로덕션 submit, track promotion, public release는 **사람 승인 없이 하지 않는다**.
-- 기획 승인 전 신규 app code/repo/store registration을 만들지 않는다.
-- version impact가 `major`(저장 데이터·economy·core rule·release process 변경)면 사람 승인 전 머지/릴리스를 막는다.
+- `개요`: 고객 문제와 변경 범위
+- `인수조건`: 이슈 체크리스트를 축소하지 않고 그대로 옮김
+- `검증`: 실행한 명령과 결과, 실행하지 못한 검증과 이유
+- `Closes #<번호>`
 
-## 안전 규칙
+단순 변경에는 Mermaid를 넣지 않는다. PR 생성 뒤 current HEAD와 check를 readback한다.
 
-- 모든 PR·커밋·코멘트는 한글로 작성한다(고유명사·명령어·코드·에러 메시지는 원문 유지).
-- AI 도구가 생성했다는 서명이나 홍보 문구("Generated with Claude" 류)를 커밋·PR·문서에 넣지 않는다.
-- 같은 자동화가 소유한 열린 이슈 PR은 최대 1개이고, 한 실행에서 새로 선택하는 이슈도 최대 1개다.
-- `no-autopilot` 라벨 이슈는 작업 금지. `main` force-push 금지. 다른 열린 PR 수정 금지.
-- 머지는 squash + 브랜치 삭제. 미해결 review thread가 없고 required check와 CI가 통과한 current HEAD만 병합한다.
-- 기본 checkout의 dirty 변경을 건드리지 않고 최신 `origin/main` 기반 격리 worktree를 사용한다.
-- 토큰·키·service account를 client/repo에 추가하거나 로그에 노출하지 않는다.
+## Seori·Copilot·머지 gate
 
-## repo-local 가이드가 제공해야 하는 것
+`contracts/review-policy.yaml`을 그대로 따른다.
 
-이 문서는 stack-agnostic하다. 각 repo의 가이드는 다음을 채운다:
+1. Seori는 최초 인수조건 가이드이며 코드 승인자가 아니다. PR 직후 중복 `/review`를 보내지 않는다.
+2. `Seori Review=action_required`이면 각 미해결 Seori thread에 수정 결과 또는 현재 구현이 타당한 근거를 같은 thread에 한국어로 답하고 Resolve한다.
+3. 새 push 뒤 Seori AI 재리뷰나 Seori approval을 기다리지 않는다. 최초 가이드가 10분 넘게 전혀 없을 때만 복구 `/review`를 한 번 요청한다.
+4. 미해결 Seori thread가 없고 repo CI가 green인 최종 HEAD에서 `gh pr edit <PR> --add-reviewer "@copilot"`으로 Copilot review를 한 번 요청한다.
+5. Copilot 지적마다 수정·소명·후속 이슈 중 하나로 답하고 thread를 Resolve한다. `unable to review` 또는 수정이 새 함수·파일·분기를 만든 경우에만 한 번 더 요청한다. 총 요청은 두 번을 넘지 않는다.
+6. Ready, current HEAD, required check·CI green, conflict 없음, 미해결 thread 0개를 직접 확인한다.
+7. 모든 gate가 통과하면 `gh pr merge <PR> --squash --delete-branch`로 병합한다. ruleset이나 권한이 막으면 우회하지 않는다.
 
-- **스택/구조 맵**: 엔진/프레임워크, 핵심 디렉터리, core/adapters 경계.
-- **게이트·검증 명령**: lint/typecheck/test/build의 실제 명령과, 변경 종류별 필수 게이트.
-- **엔진/툴 바이너리 확보법**: 클라우드 샌드박스에서 Godot/Node/pnpm 등을 확보하는 방법.
-- **우선순위 축**: 같은 P 라벨대 안에서의 정렬 기준(예: 잔존율 > 수익화 > 기능).
-- **i18n 규칙**: 지원 로케일, 문자열 추가 시 함께 갱신할 파일.
-- **IA/화면 밀도 제약**: 신규 UI를 상시 HUD에 쌓지 말고 뎁스로 분리하는 규칙 등.
-- **source-of-truth 경로**: 스펙·작업 로그·릴리스 상태를 남길 위치.
+## 종료와 승인 경계
+
+- PR 상태, merge SHA, 연결 이슈 close, 원격 기본 브랜치 반영을 확인한다.
+- 병합과 원격 반영 뒤에만 격리 worktree를 안전하게 정리한다.
+- 이번 실행에서는 다음 이슈를 고르지 않는다.
+- 릴리스 생성, artifact upload, 실기기 QA, 마켓 심사, 승인, 배포와 공개 상태는 별도 단계다. 이 루틴은 사람 승인 없이 이를 수행하거나 완료로 표현하지 않는다.
+
+실행 보고에는 선택한 저장소·이슈·실행 라벨, 구현·검증·PR·review·merge 상태, 남은 gate 또는 no-op 사유를 한국어로 구분해 남긴다.
