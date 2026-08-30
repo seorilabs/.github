@@ -1567,6 +1567,12 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   const releaseTag = parse(workflowText('release-tag.yml'));
   assert.deepEqual(releaseTag.permissions, { contents: 'write' });
   assert.equal(releaseTag.jobs.create['runs-on'], 'seorilabs-rpi-arm64');
+  const resolveTagStep = releaseTag.jobs.create.steps.find(
+    (step) => step.name === 'Resolve and create tag',
+  );
+  assert.equal(resolveTagStep.env.RELEASE_EVENT_NAME, '${{ github.event_name }}');
+  assert.equal(resolveTagStep.env.RELEASE_EVENT_REF, '${{ github.ref }}');
+  assert.equal(resolveTagStep.env.RELEASE_EVENT_SHA, '${{ github.sha }}');
   const godotPlay = parse(workflowText('godot-deploy-google-play.yml'));
   assert.equal(godotPlay.jobs['build-aab']['runs-on'], 'seorilabs-x64-android');
   for (const [name, definition] of [

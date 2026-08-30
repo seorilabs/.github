@@ -108,6 +108,9 @@ jobs:
         id: tag
         shell: bash
         env:
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
           JOB_WORKFLOW_REPOSITORY: ${{ steps.authority.outputs.repository }}
           JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
           JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
