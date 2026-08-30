@@ -883,6 +883,10 @@ test('source bootstrap validates the outer Node command symlink without collapsi
     source,
     /\$\(\/usr\/bin\/readlink -f "\$link"\)" != "\$target"/u,
   );
+  assert.match(
+    source,
+    /npm ci --ignore-scripts --no-bin-links --workspaces=false/u,
+  );
 });
 
 test('local hardening bootstrap is current-user, crash-recoverable, exact, and outside credential backup', {

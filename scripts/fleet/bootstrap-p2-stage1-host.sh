@@ -183,7 +183,8 @@ if [[ "$(/usr/bin/sha256sum "$staging/package-lock.json" | /usr/bin/awk '{print 
   exit 126
 fi
 
-(cd "$staging" && /usr/local/bin/npm ci --ignore-scripts --audit=false --fund=false)
+(cd "$staging" && /usr/local/bin/npm ci --ignore-scripts --no-bin-links --workspaces=false \
+  --audit=false --fund=false)
 /usr/local/bin/node "$staging/tools/seori-auth/scripts/build-native.mjs" \
   "$staging/tools/seori-auth/.build/seori-auth-native"
 /usr/local/bin/node "$staging/scripts/fleet/build-p2-process-hardening-boundary.mjs" \
