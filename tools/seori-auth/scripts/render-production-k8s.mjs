@@ -110,10 +110,12 @@ async function loadFleetRuntimeContract() {
 }
 
 function roleConfig(value, role) {
-  if (!exactKeys(value, [
+  const fields = [
     'allowedSecretManagerResources', 'configMapName', 'egressTlsSecretName', 'googleServiceAccount',
     'secretAccessConfigSha256', 'tlsSecretName', 'wifAudience',
-  ])) fail(`${role} binding fields are invalid`);
+    ...(role === 'broker' ? ['journalCheckpointTlsSecretName'] : []),
+  ];
+  if (!exactKeys(value, fields)) fail(`${role} binding fields are invalid`);
   if (
     !GOOGLE_IDENTITY.test(value.googleServiceAccount ?? '') ||
     !WIF_AUDIENCE.test(value.wifAudience ?? '') ||
@@ -126,6 +128,10 @@ function roleConfig(value, role) {
     value.allowedSecretManagerResources.toSorted().join('\0') !==
       SECRET_MANAGER_RESOURCES[role].join('\0')
   ) fail(`${role} Secret Manager partition is invalid`);
+  if (
+    role === 'broker' &&
+    value.journalCheckpointTlsSecretName !== 'seori-auth-journal-checkpoint-client-tls'
+  ) fail('broker journal checkpoint mTLS binding is invalid');
   return Object.freeze({
     allowedSecretManagerResources: Object.freeze([
       ...value.allowedSecretManagerResources,
@@ -133,6 +139,9 @@ function roleConfig(value, role) {
     configMapName: dns(value.configMapName, `${role}.configMapName`),
     egressTlsSecretName: dns(value.egressTlsSecretName, `${role}.egressTlsSecretName`),
     googleServiceAccount: value.googleServiceAccount,
+    ...(role === 'broker' ? {
+      journalCheckpointTlsSecretName: value.journalCheckpointTlsSecretName,
+    } : {}),
     secretAccessConfigSha256: value.secretAccessConfigSha256,
     tlsSecretName: dns(value.tlsSecretName, `${role}.tlsSecretName`),
     wifAudience: value.wifAudience,
@@ -312,6 +321,10 @@ function roleVolumes(role, binding, config) {
   ];
   if (role === 'broker') {
     volumes.push(
+      {
+        name: 'journal-checkpoint-tls',
+        secret: { secretName: binding.journalCheckpointTlsSecretName, defaultMode: 0o440 },
+      },
       { name: 'state', persistentVolumeClaim: { claimName: config.state.volume.claimName } },
       {
         name: 'state-attestor-config',
@@ -356,6 +369,24 @@ function configMounts(role) {
   ];
   if (role === 'broker') {
     mounts.push(
+      {
+        name: 'journal-checkpoint-tls',
+        mountPath: '/etc/seori-auth/journal-checkpoint-tls/ca.crt',
+        subPath: 'ca.crt',
+        readOnly: true,
+      },
+      {
+        name: 'journal-checkpoint-tls',
+        mountPath: '/etc/seori-auth/journal-checkpoint-tls/tls.crt',
+        subPath: 'tls.crt',
+        readOnly: true,
+      },
+      {
+        name: 'journal-checkpoint-tls',
+        mountPath: '/etc/seori-auth/journal-checkpoint-tls/tls.key',
+        subPath: 'tls.key',
+        readOnly: true,
+      },
       { name: 'config', mountPath: '/etc/seori-auth/policy.json', subPath: 'policy.json', readOnly: true },
       { name: 'config', mountPath: '/etc/seori-auth/run-attestation.pub', subPath: 'run-attestation.pub', readOnly: true },
       { name: 'state', mountPath: '/var/lib/seori-auth' },
@@ -537,6 +568,13 @@ function networkPolicies(config) {
     to: [{ ipBlock: { cidr: config.kubernetesApi.egressCidr } }],
     ports: [{ protocol: 'TCP', port: config.kubernetesApi.port }],
   };
+  const journalCheckpointAuthority = {
+    to: [{
+      namespaceSelector: { matchLabels: config.providerControlPlane.namespaceSelector },
+      podSelector: { matchLabels: config.providerControlPlane.podSelector },
+    }],
+    ports: [{ protocol: 'TCP', port: 9443 }],
+  };
   return [
     {
       apiVersion: 'networking.k8s.io/v1', kind: 'NetworkPolicy', metadata: metadata('default-deny'),
@@ -557,7 +595,7 @@ function networkPolicies(config) {
           }],
           ports: [{ protocol: 'TCP', port: 8443 }],
         }],
-        egress: [dns, proxy, kubernetesApi, {
+        egress: [dns, proxy, kubernetesApi, journalCheckpointAuthority, {
           to: [{ podSelector: { matchExpressions: [{
             key: 'app.kubernetes.io/name', operator: 'In', values: ['seori-password-loader', 'seori-totp-signer'],
           }] } }],

@@ -36,7 +36,13 @@ daemon, MAC-chain durable state, native OS 경계, encrypted Browser Vault를 �
   schema v2 record는 broker-held 32-byte key의 HMAC-SHA256 chain으로 인증하며,
   각 fsync 뒤 public `{sequence, headMac}`을 trusted control plane의 generation CAS로
   확정합니다. 재시작은 static head 설정을 믿지 않고 control plane의 exact current를 먼저
-  읽어 tail rollback과 checkpoint drift를 탐지합니다.
+  읽어 tail rollback과 checkpoint drift를 탐지합니다. production client는 고정 signer
+  origin과 `/v1/auth-broker/journal-checkpoints/{genesis,read,advance}`만 TLS 1.3 mTLS로
+  호출하고 exact DNS/SPIFFE peer가 아니면 요청 전에 중단합니다. outbound client certificate는
+  inbound broker service certificate와 별도 실행 복제본이며 exact broker SPIFFE URI SAN 하나와
+  matching key, `0440` mode를 요구합니다. 불명 advance는 authority/journal/expected/next 전체에
+  고정된 pending transition으로 보존하고 재전송하지 않습니다. exact pending-next readback만 latch와
+  readiness를 다시 열며 predecessor나 mismatch는 broker health를 계속 fail-closed로 유지합니다.
 - Backoffice의 provider 실행은 일반 `/auth/*` surface를 늘리지 않습니다. exact Backoffice
   SPIFFE mTLS peer와 Ed25519 run attestation을 모두 통과한 내부 경계에서만 5분·1회용
   `ProviderGrant`를 등록합니다. grant는 run/repo/source/provider/resource/action/environment,
@@ -227,8 +233,9 @@ credential을 연결하거나 manifest를 apply하지 않습니다.
 - broker→factor production mTLS client 구현, client/server CA, exact SPIFFE identity와 scheduler
   run-attestation signing key
 - journal MAC key와 Vault key의 Secret Manager logical binding, Backoffice durable checkpoint
-  read/CAS transport. production entrypoint는 이 transport가 주입되지 않으면 secret을 읽거나
-  lease를 발급하기 전에 `state_checkpoint_control_plane_required`로 중단합니다.
+  authority의 배포·DB migration과 broker client certificate readback. read/CAS production
+  transport는 구현되어 있고 고정 mTLS material이나 exact identity가 없으면 bootstrap secret을
+  읽거나 lease를 발급하기 전에 중단합니다.
 - provider별 정확한 origin/redirect/public account identity와 egress-proxy allowlist
 - provider별 browser 실행·종료·identity readback·crash reconciliation을 구현한 immutable
   adapter 계약. 현재 production entrypoint는 이 계약이 없으므로 해당 callback을 명시적으로

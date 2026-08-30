@@ -89,12 +89,30 @@ strict public control/audit schema 검증은 append보다 먼저 실행되며 se
 비-JSON 객체가 있으면 journal bytes를 쓰지 않습니다. mutation은 journal append와 fsync를
 먼저 완료하고, trusted control plane의 current `{generation,sequence,headMac}`에서 다음
 checkpoint로 deterministic CAS한 뒤 exact readback이 일치할 때만 메모리에 적용됩니다.
-CAS가 실패하거나 결과가 불명이면 같은 process의 발급을 즉시 닫고 lock과 key를 해제합니다.
+CAS 결과가 불명이면 authority identity와 expected/current/next 전체를 pending transition으로
+고정하고 readiness marker를 제거합니다. read route가 pending next를 exact하게 증명하면 latch와
+readiness를 해제해 다음 독립 CAS를 한 번 허용합니다. predecessor, 다른 digest 또는 더 앞선 상태는
+증명이 아니므로 readiness를 복구하지 않고 같은 process의 발급을 닫아 lock과 key를 해제합니다.
+pending이 해소되기 전에는 같은 advance와 다른 advance를 모두 authority에 재전송하지 않습니다.
 재시작은 control plane을 먼저 읽습니다. local journal이 trusted head의 HMAC-valid한 직계
 자식 하나일 때만 동일 idempotency CAS로 crash window를 복구하고 다시 exact readback합니다.
 local이 뒤에 있거나, 같은 sequence의 head가 다르거나, 둘 이상 앞서면 자동 복구하지 않습니다.
 wrong key, MAC chain 오류, incomplete line, checkpoint readback 실패도 새 lease 전에 중단합니다.
 static `expectedJournalHeadMac` 설정은 사용하지 않습니다.
+production transport는
+`https://provider-execution-signer.platform.svc.cluster.local:9443`의 고정
+`/v1/auth-broker/journal-checkpoints/{genesis,read,advance}` route만 POST합니다. TLS는 1.3으로
+고정하고 server certificate의 exact DNS SAN과
+`spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer` URI SAN을 함께 검증합니다.
+client certificate는 `spiffe://seorilabs.local/ns/auth-broker/sa/seori-auth-broker` URI SAN
+하나여야 합니다. inbound broker service certificate와 재사용하지 않고 고정
+`seori-auth-journal-checkpoint-client-tls` 실행 복제본을 `0440` read-only subPath로만 mount합니다.
+renderer와 runtime은 이 Secret을 생성·동기화하지 않습니다. bearer, cookie, 사용자 지정
+header/origin/redirect 인터페이스는 없습니다.
+Backoffice genesis의 opaque `checkpointDigest`는 local empty journal의 zero head와 섞지 않고
+첫 advance의 `expectedDigest`로 별도 보존합니다. 이후 generation부터 authority digest와 local
+HMAC head가 일치합니다. genesis나 advance 결과가 불명이면 mutation을 반복하지 않고 read route로만
+판정합니다.
 같은 state directory는 native advisory writer lock을 획득한 broker process 하나만 열 수
 있습니다. lock file은 삭제하지 않아도 되며 crash 뒤 OS ownership이 해제된 경우에만 새
 broker가 같은 inode를 잠그고 replay합니다. native acquisition helper가 inherited FD에

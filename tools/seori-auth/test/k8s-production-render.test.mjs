@@ -83,6 +83,7 @@ function deploymentConfig() {
         configMapName: 'seori-auth-broker-config',
         tlsSecretName: 'seori-auth-broker-tls',
         egressTlsSecretName: 'seori-auth-broker-egress-tls',
+        journalCheckpointTlsSecretName: 'seori-auth-journal-checkpoint-client-tls',
         googleServiceAccount: 'seori-auth-broker@example-project.iam.gserviceaccount.com',
         secretAccessConfigSha256: 'b'.repeat(64),
         wifAudience: audience,
@@ -138,6 +139,14 @@ function ingressAllows(policy, namespaceLabels, podLabels, port) {
   return (policy.spec.ingress ?? []).some((rule) =>
     rule.ports?.some((entry) => entry.protocol === 'TCP' && entry.port === port) &&
     rule.from?.some((peer) =>
+      labelsMatch(peer.namespaceSelector, namespaceLabels) && labelsMatch(peer.podSelector, podLabels)));
+}
+
+function egressAllows(policy, namespaceLabels, podLabels, port) {
+  return (policy.spec.egress ?? []).some((rule) =>
+    rule.ports?.some((entry) => entry.protocol === 'TCP' && entry.port === port) &&
+    rule.to?.some((peer) =>
+      peer.namespaceSelector?.matchLabels && peer.podSelector?.matchLabels &&
       labelsMatch(peer.namespaceSelector, namespaceLabels) && labelsMatch(peer.podSelector, podLabels)));
 }
 
@@ -251,7 +260,9 @@ test('production renderer exact-binds startup readback without Secret access or 
     assert.equal(pod.securityContext.seccompProfile.type, 'RuntimeDefault');
     assert.equal(container.startupProbe.failureThreshold, 30);
 
-    for (const mount of container.volumeMounts.filter((value) => ['config', 'service-tls', 'egress-tls'].includes(value.name))) {
+    for (const mount of container.volumeMounts.filter((value) => [
+      'config', 'service-tls', 'egress-tls', 'journal-checkpoint-tls',
+    ].includes(value.name))) {
       assert.equal(typeof mount.subPath, 'string');
       assert.equal(mount.readOnly, true);
     }
@@ -266,6 +277,31 @@ test('production renderer exact-binds startup readback without Secret access or 
   assert.ok(broker.spec.template.spec.volumes.some((volume) => volume.name === 'state' && volume.persistentVolumeClaim));
   assert.ok(factors.every((item) => !item.spec.template.spec.volumes.some((volume) => volume.name === 'state')));
   assert.equal(brokerPod.initContainers.length, 1);
+  const checkpointTlsVolume = brokerPod.volumes.find(({ name }) => name === 'journal-checkpoint-tls');
+  assert.deepEqual(checkpointTlsVolume, {
+    name: 'journal-checkpoint-tls',
+    secret: { secretName: 'seori-auth-journal-checkpoint-client-tls', defaultMode: 0o440 },
+  });
+  const serviceTlsVolume = brokerPod.volumes.find(({ name }) => name === 'service-tls');
+  assert.equal(serviceTlsVolume.secret.defaultMode, 0o440);
+  assert.notEqual(
+    checkpointTlsVolume.secret.secretName,
+    serviceTlsVolume.secret.secretName,
+    'outbound checkpoint와 inbound broker service identity는 별도 Secret이어야 한다',
+  );
+  assert.deepEqual(
+    brokerContainer.volumeMounts
+      .filter(({ name }) => name === 'journal-checkpoint-tls')
+      .map(({ mountPath, subPath, readOnly }) => ({ mountPath, subPath, readOnly })),
+    [
+      { mountPath: '/etc/seori-auth/journal-checkpoint-tls/ca.crt', subPath: 'ca.crt', readOnly: true },
+      { mountPath: '/etc/seori-auth/journal-checkpoint-tls/tls.crt', subPath: 'tls.crt', readOnly: true },
+      { mountPath: '/etc/seori-auth/journal-checkpoint-tls/tls.key', subPath: 'tls.key', readOnly: true },
+    ],
+  );
+  assert.ok(factors.every((item) =>
+    !item.spec.template.spec.volumes.some(({ name }) => name === 'journal-checkpoint-tls') &&
+    !item.spec.template.spec.containers[0].volumeMounts.some(({ name }) => name === 'journal-checkpoint-tls')));
   assert.equal(init.name, 'state-volume-attestor');
   assert.ok(init.command.includes('/opt/seori-auth/runtime/state-volume-attestor.mjs'));
   assert.equal(init.volumeMounts.find(({ name }) => name === 'state').readOnly, true);
@@ -323,6 +359,36 @@ test('production renderer exact-binds startup readback without Secret access or 
   }]);
   const factorTraffic = policies.find((item) => item.metadata.name === 'factor-allowed-traffic');
   assert.equal(JSON.stringify(factorTraffic).includes('ipBlock'), false);
+  assert.equal(egressAllows(
+    brokerTraffic,
+    { 'kubernetes.io/metadata.name': 'platform' },
+    { 'app.kubernetes.io/component': 'provider-execution-signer' },
+    9443,
+  ), true);
+  assert.equal(egressAllows(
+    factorTraffic,
+    { 'kubernetes.io/metadata.name': 'platform' },
+    { 'app.kubernetes.io/component': 'provider-execution-signer' },
+    9443,
+  ), false);
+  assert.equal(egressAllows(
+    brokerTraffic,
+    { 'kubernetes.io/metadata.name': 'platform' },
+    { 'app.kubernetes.io/component': 'provider-execution-signer' },
+    9444,
+  ), false);
+  for (const [namespaceLabels, podLabels] of [
+    [
+      { 'kubernetes.io/metadata.name': 'platform-lookalike' },
+      { 'app.kubernetes.io/component': 'provider-execution-signer' },
+    ],
+    [
+      { 'kubernetes.io/metadata.name': 'platform' },
+      { 'app.kubernetes.io/component': 'provider-execution-signer-lookalike' },
+    ],
+  ]) {
+    assert.equal(egressAllows(brokerTraffic, namespaceLabels, podLabels, 9443), false);
+  }
   assert.equal(ingressAllows(
     brokerTraffic,
     { 'kubernetes.io/metadata.name': 'release-workers' },
@@ -405,6 +471,32 @@ test('production renderer rejects mutable images and shared factor identities', 
   await assert.rejects(render(shared), (error) => {
     assert.equal(error.code, 1);
     assert.match(error.stderr, /must be distinct/);
+    return true;
+  });
+
+  const missingCheckpointIdentity = deploymentConfig();
+  delete missingCheckpointIdentity.roles.broker.journalCheckpointTlsSecretName;
+  await assert.rejects(render(missingCheckpointIdentity), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /broker binding fields are invalid/);
+    return true;
+  });
+
+  const driftedCheckpointIdentity = deploymentConfig();
+  driftedCheckpointIdentity.roles.broker.journalCheckpointTlsSecretName =
+    'seori-auth-broker-tls';
+  await assert.rejects(render(driftedCheckpointIdentity), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /broker journal checkpoint mTLS binding is invalid/);
+    return true;
+  });
+
+  const factorCheckpointIdentity = deploymentConfig();
+  factorCheckpointIdentity.roles.passwordLoader.journalCheckpointTlsSecretName =
+    'seori-auth-journal-checkpoint-client-tls';
+  await assert.rejects(render(factorCheckpointIdentity), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /passwordLoader binding fields are invalid/);
     return true;
   });
 

@@ -453,6 +453,7 @@ authBroker:
       servicePort: 8443
       tlsSecretName: seori-auth-broker-tls
       egressTlsSecretName: seori-auth-broker-egress-tls
+      journalCheckpointTlsSecretName: seori-auth-journal-checkpoint-client-tls
     - name: password-loader
       serviceAccount: password-loader
       googleServiceAccount: seori-auth-password-loader@seorilabs-ci.iam.gserviceaccount.com

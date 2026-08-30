@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { createHash, randomBytes } from 'node:crypto';
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -11,6 +11,7 @@ import {
   EncryptedBrowserVault,
   BrowserLoginBoundary,
   CanonicalAccountRegistry,
+  createProductionJournalCheckpointClient,
   FactorHttpApplication,
   HUMAN_REAUTH_REQUIRED,
   normalizeJournalCheckpointBinding,
@@ -30,6 +31,7 @@ import {
   TrustedAdapterRegistry,
   isLogicalCredentialRef,
 } from '../src/index.mjs';
+import { createRuntimeReadinessGate } from '../src/runtime-readiness.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const ROLE = new Set(['broker', 'password-loader', 'totp-signer']);
@@ -376,16 +378,6 @@ async function workloadStore(config, nativeBoundary) {
   });
 }
 
-async function readiness(path, role) {
-  if (typeof path !== 'string' || !isAbsolute(path)) fail('readiness file path must be absolute');
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await unlink(path).catch((error) => {
-    if (error.code !== 'ENOENT') throw error;
-  });
-  await writeFile(path, `${JSON.stringify({ pid: process.pid, role })}\n`, { flag: 'wx', mode: 0o600 });
-  await chmod(path, 0o600);
-}
-
 async function healthcheck(path, stateBinding) {
   const state = await readConfig(path);
   if (!exactKeys(state, ['pid', 'role']) || !Number.isSafeInteger(state.pid) || !ROLE.has(state.role)) fail('runtime is not ready');
@@ -432,18 +424,27 @@ async function serveFactor(config, nativeBoundary) {
   return { daemon, close: async () => daemon.stop() };
 }
 
-async function serveBroker(config, nativeBoundary, journalCheckpointControlPlane) {
-  const checkpointControlPlane = requireTrustedJournalCheckpointControlPlane(
-    journalCheckpointControlPlane,
+async function serveBroker(config, nativeBoundary, readinessGate) {
+  // Production은 Backoffice authority의 exact mTLS transport만 주입한다. 누락되거나
+  // certificate/origin/SPIFFE binding이 어긋나면 bootstrap secret을 읽기 전에 중단한다.
+  const checkpointClient = await createProductionJournalCheckpointClient(
     config.journalCheckpoint,
+    {
+      onHealthStateChange: ({ state: checkpointHealth }) =>
+        readinessGate.setCheckpointHealth(checkpointHealth),
+    },
   );
-  const store = await workloadStore(config, nativeBoundary);
   let journalMacKey;
   let vaultKey;
   let state;
   let vault;
   let daemon;
   try {
+    const checkpointControlPlane = requireTrustedJournalCheckpointControlPlane(
+      checkpointClient.controlPlane,
+      config.journalCheckpoint,
+    );
+    const store = await workloadStore(config, nativeBoundary);
     journalMacKey = await store.loadSecret(config.bootstrapCredentials.journalMac);
     vaultKey = await store.loadSecret(config.bootstrapCredentials.browserVault);
     if (
@@ -510,7 +511,11 @@ async function serveBroker(config, nativeBoundary, journalCheckpointControlPlane
           try {
             await vault.close();
           } finally {
-            await state.close();
+            try {
+              await state.close();
+            } finally {
+              checkpointClient.close();
+            }
           }
         }
       },
@@ -519,6 +524,7 @@ async function serveBroker(config, nativeBoundary, journalCheckpointControlPlane
     await daemon?.stop().catch(() => {});
     await vault?.close().catch(() => {});
     await state?.close().catch(() => {});
+    checkpointClient.close();
     throw error;
   } finally {
     if (Buffer.isBuffer(journalMacKey)) journalMacKey.fill(0);
@@ -535,18 +541,25 @@ async function serve(config, binding) {
     expectedSha256: config.nativeHelperSha256,
     resolvePrincipal: async () => fail('Unix principal resolution is disabled in Kubernetes mTLS mode'),
   });
+  const readinessGate = createRuntimeReadinessGate({
+    path: config.readinessFile,
+    role: config.role,
+  });
   const runtime = config.role === 'broker'
-    ? await serveBroker(config, nativeBoundary)
+    ? await serveBroker(config, nativeBoundary, readinessGate)
     : await serveFactor(config, nativeBoundary);
   let stopping = false;
   const stop = async () => {
     if (stopping) return;
     stopping = true;
-    await unlink(config.readinessFile).catch(() => {});
-    await runtime.close();
+    try {
+      await readinessGate.close();
+    } finally {
+      await runtime.close();
+    }
   };
   try {
-    await readiness(config.readinessFile, config.role);
+    await readinessGate.setRuntimeReady();
     process.stdout.write(`${JSON.stringify({ state: 'READY', role: config.role, transport: 'mtls' })}\n`);
     await new Promise((resolve) => {
       for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, resolve);

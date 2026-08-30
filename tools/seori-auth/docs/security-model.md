@@ -146,9 +146,20 @@ group/other-readable mode는 fail-closed입니다. static expected head 설정�
 startup은 trusted control plane의 current checkpoint를 읽고 local exact head와 비교합니다.
 append는 fsync, deterministic generation CAS, exact readback 순서이며 readback으로 next head를
 증명하기 전에는 mutation을 메모리에 적용하지 않습니다. CAS 결과가 불명이더라도 next head
-readback이 exact하면 성공이고, 그렇지 않으면 state를 닫습니다. 재시작 시 local이 trusted
+readback이 exact하면 pending latch와 readiness를 해제해 다음 독립 CAS를 허용하고, 그렇지 않으면
+pending transition을 유지한 채 readiness를 제거하고 state를 닫습니다. pending은 authority
+origin/SPIFFE, journal, expected generation/local head/authority digest, deterministic idempotency key,
+next generation/head 전체에 고정되며 해소 전에는 같은 요청이나 다른 advance를 재전송하지 않습니다.
+재시작 시 local이 trusted
 head의 HMAC-valid 직계 자식 하나인 crash window만 같은 idempotency CAS로 복구합니다. MAC key와
 secret 실행 복제본은 journal이나 checkpoint에 쓰지 않습니다.
+authority transport는 signer의 고정 cluster HTTPS origin, 세 route, TLS 1.3, exact DNS와
+server/client SPIFFE SAN만 허용합니다. genesis authority digest는 공개 CAS predecessor로만
+관리하고 local genesis HMAC head로 해석하지 않습니다. timeout·connection reset·잘못된 JSON은
+원문을 반사하지 않는 stable 오류 또는 `UNKNOWN`으로 축약하고 같은 advance를 재전송하지 않습니다.
+outbound client identity는 inbound broker service identity와 별도 Secret으로 분리하며 exact client
+SPIFFE URI SAN 하나, matching key, `0440` execution copy만 허용합니다. renderer는 복제본을 참조만
+하고 생성·동기화하지 않습니다.
 journal을 열기 전 native helper가 broker 소유 FD에 non-blocking advisory writer lock을
 걸고, broker가 그 FD를 닫을 때까지 같은 open file description을 보유합니다. 따라서 각
 process의 메모리 queue만으로는

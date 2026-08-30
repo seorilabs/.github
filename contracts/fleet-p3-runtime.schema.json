@@ -714,13 +714,29 @@
             "type": "object",
             "additionalProperties": false,
             "required": ["name", "serviceAccount", "googleServiceAccount", "servicePort", "tlsSecretName", "egressTlsSecretName"],
+            "allOf": [{
+              "if": {
+                "properties": { "name": { "const": "broker" } },
+                "required": ["name"]
+              },
+              "then": {
+                "properties": {
+                  "journalCheckpointTlsSecretName": { "const": "seori-auth-journal-checkpoint-client-tls" }
+                },
+                "required": ["journalCheckpointTlsSecretName"]
+              },
+              "else": {
+                "properties": { "journalCheckpointTlsSecretName": false }
+              }
+            }],
             "properties": {
               "name": { "enum": ["broker", "password-loader", "totp-signer"] },
               "serviceAccount": { "enum": ["auth-broker", "password-loader", "totp-signer"] },
               "googleServiceAccount": { "type": "string", "pattern": "^[A-Za-z0-9._%+-]+@seorilabs-ci\\.iam\\.gserviceaccount\\.com$" },
               "servicePort": { "enum": [8443, 9443] },
               "tlsSecretName": { "type": "string", "minLength": 1 },
-              "egressTlsSecretName": { "type": "string", "minLength": 1 }
+              "egressTlsSecretName": { "type": "string", "minLength": 1 },
+              "journalCheckpointTlsSecretName": { "const": "seori-auth-journal-checkpoint-client-tls" }
             }
           }
         }

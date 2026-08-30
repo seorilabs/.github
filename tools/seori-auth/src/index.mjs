@@ -38,6 +38,14 @@ export {
   normalizeJournalCheckpointBinding,
   requireTrustedJournalCheckpointControlPlane,
 } from './journal-checkpoint.mjs';
+export {
+  assertJournalCheckpointClientIdentity,
+  checkJournalCheckpointAuthorityIdentity,
+  createBackofficeJournalCheckpointClient,
+  createJournalCheckpointMtlsTransport,
+  createProductionJournalCheckpointClient,
+  JOURNAL_CHECKPOINT_AUTHORITY,
+} from './journal-checkpoint-authority.mjs';
 export { LocalAuthDaemon } from './local-daemon.mjs';
 export { MtlsAuthDaemon } from './mtls-daemon.mjs';
 export { MtlsRunAttestor, requireExactMtlsPeer } from './mtls-identity.mjs';

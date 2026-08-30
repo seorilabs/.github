@@ -27,6 +27,8 @@ renderer는 secret 값을 읽거나 출력하지 않고 하나의 JSON `List`만
 
 각 role binding은 `configMapName`, `tlsSecretName`, `egressTlsSecretName`, public
 `googleServiceAccount`, WIF `wifAudience`, exact `secretAccessConfigSha256`만 가집니다.
+broker만 inbound service certificate와 분리된 고정
+`journalCheckpointTlsSecretName=seori-auth-journal-checkpoint-client-tls`를 추가로 가집니다.
 `allowedSecretManagerResources`는 broker의 journal MAC/Browser Vault version `1`, password
 loader의 fake password version `1`, TOTP signer의 fake seed version `1`로 exact 분리합니다.
 config/TLS/egress TLS/Google identity/config digest는 세 role 사이에서 반드시 달라야 합니다.
@@ -43,9 +45,17 @@ startup attestor가 고정 PV/PVC를 읽는 `get`만 `resourceNames`로 한정�
 broker `runtime.json`은 breaking `schemaVersion: 2`와 public `journalCheckpoint` binding을
 사용합니다. checkpoint authority는 기존
 `spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer` identity로 exact 고정하며,
-임의 origin이나 bearer secret을 ConfigMap에 추가하지 않습니다. 실제 Backoffice durable
-read/CAS adapter가 runtime에 주입되지 않으면 broker는 Secret Manager bootstrap key를 읽기 전에
-fail-closed하고 readiness를 만들지 않습니다. factor runtime은 계속 schemaVersion 1입니다.
+임의 origin이나 bearer secret을 ConfigMap에 추가하지 않습니다. production runtime은 고정
+`provider-execution-signer.platform.svc.cluster.local:9443` route에 durable read/CAS adapter를
+직접 주입합니다. outbound checkpoint client는 inbound broker service certificate를 재사용하지
+않고 broker 전용 `seori-auth-journal-checkpoint-client-tls` 실행 복제본만 참조합니다. 이 certificate는
+exact `spiffe://seorilabs.local/ns/auth-broker/sa/seori-auth-broker` URI SAN 하나만 가져야 하며 signer
+server CA와 일치해야 합니다. certificate/key/CA 누락, `0440`보다 넓은 mode, key mismatch 또는
+identity drift면 Secret Manager bootstrap key를 읽기 전에 fail-closed하고 readiness를 만들지
+않습니다. renderer는 이 Secret을 생성·동기화하지 않으며 broker에서 exact platform signer Pod의
+9443만 egress로 열고 factor에는 열지 않습니다. runtime 중 checkpoint advance 결과가 불명인 경우도
+broker readiness marker를 즉시 제거하고, exact pending-next readback으로 증명된 경우에만 다시
+게시합니다. factor runtime은 계속 schemaVersion 1입니다.
 
 Registry binding은 다음 두 모드 외에는 허용하지 않습니다.
 
@@ -69,6 +79,9 @@ renderer가 참조하지만 생성하지 않는 외부 객체는 다음뿐입니
   `run-attestation.pub`
 - role별 service mTLS Secret - `ca.crt`, `tls.crt`, `tls.key`
 - role별 egress mTLS Secret - `ca.crt`, `tls.crt`, `tls.key`
+- broker 전용 journal checkpoint client mTLS Secret
+  `seori-auth-journal-checkpoint-client-tls` - `ca.crt`, `tls.crt`, `tls.key`; inbound service
+  certificate와 분리되고 exact client SPIFFE URI SAN 하나만 허용
 - broker 전용 Retain PVC. secret-bearing 파일은 application envelope만 허용하고 journal은 공개 control/audit record만 저장
 - projected Kubernetes API token과 `kube-root-ca.crt`. 이 token은 startup attestor initContainer에만
   mount되고 broker main/factor container에는 mount되지 않음

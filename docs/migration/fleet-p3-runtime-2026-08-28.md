@@ -225,8 +225,12 @@ CAS로 전환했다. public binding은 `seori-auth-production`, exact provider-c
 `JOURNAL_FSYNC_THEN_CHECKPOINT_CAS`, `READBACK_FIRST`로 고정한다. local journal append가 fsync된 뒤
 next checkpoint exact readback까지 확인되어야 mutation이 완료되며, 불명 결과 뒤 재시작은 trusted
 head의 직계 자식 한 건만 deterministic idempotent CAS로 복구한다. 실제 Backoffice DB/API와 mTLS
-transport는 후속 코드 gate이며, adapter가 없는 현재 production serve는 credential 접근과 lease
-발급 전에 fail-closed한다. 이를 사람 승인이나 리소스 부재로 분류하지 않는다.
+transport 중 client 코드는 고정 signer origin/DNS/SPIFFE/route와 genesis opaque expectedDigest
+분리까지 구현했다. production serve는 이 adapter를 직접 주입하며 inbound service certificate와
+분리된 `seori-auth-journal-checkpoint-client-tls` 실행 복제본 또는 Backoffice authority가 없으면
+credential 접근과 lease 발급 전에 fail-closed한다. renderer는 이 Secret을 생성·동기화하지 않는다.
+Backoffice migration 배포와 actual certificate SAN/key/mode/authority readback은 별도 운영 gate이고,
+이를 리소스 부재로 추측하지 않는다.
 
 같은 날 후속 review에서 PV/PVC 실측 결과를 production startup과 결합하기 위해 runtime 계약을
 breaking major `schemaVersion: 3`으로 올렸다. verifier는 ambient kubeconfig나 사용자 HOME을
