@@ -109,6 +109,10 @@ function workspaceFile(root, ...segments) {
   return path;
 }
 
+function findScaleSet(arc, name) {
+  return arc.scaleSets.find((scaleSet) => scaleSet.name === name);
+}
+
 function validateFiles() {
   const root = canonicalWorkspace();
   const arc = contract.workloads.arc;
@@ -117,9 +121,8 @@ function validateFiles() {
     workspaceFile(configRoot, "global-versions.yaml"),
     "RPI_CAPACITY_GLOBAL_CONFIG_INVALID",
   );
-  const expectedScaleSets = Object.fromEntries(
-    arc.scaleSets.map((scaleSet) => [scaleSet.class, scaleSet]),
-  );
+  const generalArm64 = findScaleSet(arc, "seorilabs-rpi-arm64");
+  const dind = findScaleSet(arc, "seorilabs-rpi-arm64-dind");
   if (
     global?.cluster?.context !== contract.cluster.context ||
     !same(
@@ -131,11 +134,11 @@ function validateFiles() {
         maxRunners: global?.runners?.general?.max_runners,
       },
       {
-        scaleSetName: expectedScaleSets.general.name,
-        valuesFile: `${arc.configRoot}/${expectedScaleSets.general.valuesFile}`,
+        scaleSetName: generalArm64.name,
+        valuesFile: `${arc.configRoot}/${generalArm64.valuesFile}`,
         node: contract.cluster.nodes.workload.hostname,
-        minRunners: expectedScaleSets.general.minRunners,
-        maxRunners: expectedScaleSets.general.maxRunners,
+        minRunners: generalArm64.minRunners,
+        maxRunners: generalArm64.maxRunners,
       },
     ) ||
     !same(
@@ -147,11 +150,11 @@ function validateFiles() {
         maxRunners: global?.runners?.dind?.max_runners,
       },
       {
-        scaleSetName: expectedScaleSets.dind.name,
-        valuesFile: `${arc.configRoot}/${expectedScaleSets.dind.valuesFile}`,
+        scaleSetName: dind.name,
+        valuesFile: `${arc.configRoot}/${dind.valuesFile}`,
         node: contract.cluster.nodes.workload.hostname,
-        minRunners: expectedScaleSets.dind.minRunners,
-        maxRunners: expectedScaleSets.dind.maxRunners,
+        minRunners: dind.minRunners,
+        maxRunners: dind.maxRunners,
       },
     )
   ) {
@@ -177,9 +180,10 @@ function validateFiles() {
       values?.maxRunners !== scaleSet.maxRunners ||
       !same(
         values?.listenerTemplate?.spec?.nodeSelector,
-        scaleSet.nodeSelector,
+        scaleSet.listenerNodeSelector,
       ) ||
-      !same(values?.template?.spec?.nodeSelector, scaleSet.nodeSelector)
+      !same(values?.template?.spec?.nodeSelector, scaleSet.nodeSelector) ||
+      !same(values?.template?.spec?.tolerations ?? [], scaleSet.tolerations)
     ) {
       fail("RPI_CAPACITY_ARC_VALUES_DRIFT");
     }
@@ -254,6 +258,16 @@ function isRestrictedPod(pod) {
     (namespace === "platform" &&
       name.startsWith(`${contract.workloads.scheduler.name}-`))
   );
+}
+
+function expectedRestrictedPodNode(pod) {
+  if (pod?.metadata?.namespace === "arc-runners") {
+    const scaleSetName =
+      pod?.metadata?.labels?.["actions.github.com/scale-set-name"];
+    const scaleSet = findScaleSet(contract.workloads.arc, scaleSetName);
+    return scaleSet?.nodeSelector?.["kubernetes.io/hostname"];
+  }
+  return contract.cluster.nodes.workload.hostname;
 }
 
 function liveReadback() {
@@ -336,7 +350,11 @@ function liveReadback() {
       !same(actual?.spec?.template?.spec?.nodeSelector, expected.nodeSelector) ||
       !same(
         actual?.spec?.listenerTemplate?.spec?.nodeSelector,
-        expected.nodeSelector,
+        expected.listenerNodeSelector,
+      ) ||
+      !same(
+        actual?.spec?.template?.spec?.tolerations ?? [],
+        expected.tolerations,
       ) ||
       actual?.status?.phase !== "Running" ||
       ![current, pending, running].every(
@@ -439,7 +457,7 @@ function liveReadback() {
     restrictedActivePods.some(
       (pod) =>
         pod?.spec?.nodeName !== undefined &&
-        pod.spec.nodeName !== contract.cluster.nodes.workload.hostname,
+        pod.spec.nodeName !== expectedRestrictedPodNode(pod),
     )
   ) {
     fail("RPI_CAPACITY_WORKLOAD_PLACEMENT_DRIFT");

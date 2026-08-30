@@ -16,7 +16,7 @@
         "nodes": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["quarantined", "workload"],
+          "required": ["quarantined", "workload", "x64"],
           "properties": {
             "quarantined": {
               "type": "object",
@@ -64,6 +64,34 @@
                   }
                 }
               }
+            },
+            "x64": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["hostname", "arch", "requiredTaint", "allocatable"],
+              "properties": {
+                "hostname": { "const": "seori-m6-01" },
+                "arch": { "const": "amd64" },
+                "requiredTaint": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["key", "value", "effect"],
+                  "properties": {
+                    "key": { "const": "workload" },
+                    "value": { "const": "ci" },
+                    "effect": { "const": "NoSchedule" }
+                  }
+                },
+                "allocatable": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["cpu", "memory"],
+                  "properties": {
+                    "cpu": { "const": "11500m" },
+                    "memory": { "const": "4.97Gi" }
+                  }
+                }
+              }
             }
           }
         }
@@ -106,11 +134,13 @@
             "runnerNamespace": { "const": "arc-runners" },
             "scaleSets": {
               "type": "array",
-              "minItems": 2,
-              "maxItems": 2,
+              "minItems": 4,
+              "maxItems": 4,
               "prefixItems": [
                 { "$ref": "#/$defs/generalScaleSet" },
-                { "$ref": "#/$defs/dindScaleSet" }
+                { "$ref": "#/$defs/dindScaleSet" },
+                { "$ref": "#/$defs/x64GeneralScaleSet" },
+                { "$ref": "#/$defs/x64AndroidScaleSet" }
               ],
               "items": false
             }
@@ -240,27 +270,94 @@
     "generalScaleSet": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "class", "valuesFile", "minRunners", "maxRunners", "nodeSelector"],
+      "required": ["name", "class", "valuesFile", "minRunners", "maxRunners", "nodeSelector", "listenerNodeSelector", "tolerations"],
       "properties": {
         "name": { "const": "seorilabs-rpi-arm64" },
         "class": { "const": "general" },
         "valuesFile": { "const": "rpi-arm64-values.yaml" },
         "minRunners": { "const": 1 },
         "maxRunners": { "const": 3 },
-        "nodeSelector": { "$ref": "#/$defs/rpi5ArcSelector" }
+        "nodeSelector": { "$ref": "#/$defs/rpi5ArcSelector" },
+        "listenerNodeSelector": { "$ref": "#/$defs/rpi5ArcSelector" },
+        "tolerations": { "$ref": "#/$defs/noTolerations" }
       }
     },
     "dindScaleSet": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "class", "valuesFile", "minRunners", "maxRunners", "nodeSelector"],
+      "required": ["name", "class", "valuesFile", "minRunners", "maxRunners", "nodeSelector", "listenerNodeSelector", "tolerations"],
       "properties": {
         "name": { "const": "seorilabs-rpi-arm64-dind" },
         "class": { "const": "dind" },
         "valuesFile": { "const": "rpi-arm64-dind-values.yaml" },
         "minRunners": { "const": 0 },
         "maxRunners": { "const": 1 },
-        "nodeSelector": { "$ref": "#/$defs/rpi5ArcSelector" }
+        "nodeSelector": { "$ref": "#/$defs/rpi5ArcSelector" },
+        "listenerNodeSelector": { "$ref": "#/$defs/rpi5ArcSelector" },
+        "tolerations": { "$ref": "#/$defs/noTolerations" }
+      }
+    },
+    "x64ArcSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kubernetes.io/hostname", "kubernetes.io/os", "kubernetes.io/arch"],
+      "properties": {
+        "kubernetes.io/hostname": { "const": "seori-m6-01" },
+        "kubernetes.io/os": { "const": "linux" },
+        "kubernetes.io/arch": { "const": "amd64" }
+      }
+    },
+    "noTolerations": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "workloadCiToleration": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "operator", "value", "effect"],
+          "properties": {
+            "key": { "const": "workload" },
+            "operator": { "const": "Equal" },
+            "value": { "const": "ci" },
+            "effect": { "const": "NoSchedule" }
+          }
+        }
+      ],
+      "items": false
+    },
+    "x64GeneralScaleSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class", "valuesFile", "minRunners", "maxRunners", "nodeSelector", "listenerNodeSelector", "tolerations"],
+      "properties": {
+        "name": { "const": "seorilabs-x64" },
+        "class": { "const": "general" },
+        "valuesFile": { "const": "x64-values.yaml" },
+        "minRunners": { "const": 1 },
+        "maxRunners": { "const": 6 },
+        "nodeSelector": { "$ref": "#/$defs/x64ArcSelector" },
+        "listenerNodeSelector": { "$ref": "#/$defs/rpi5ArcSelector" },
+        "tolerations": { "$ref": "#/$defs/workloadCiToleration" }
+      }
+    },
+    "x64AndroidScaleSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class", "valuesFile", "minRunners", "maxRunners", "nodeSelector", "listenerNodeSelector", "tolerations"],
+      "properties": {
+        "name": { "const": "seorilabs-x64-android" },
+        "class": { "const": "android" },
+        "valuesFile": { "const": "x64-android-values.yaml" },
+        "minRunners": { "const": 0 },
+        "maxRunners": { "const": 1 },
+        "nodeSelector": { "$ref": "#/$defs/x64ArcSelector" },
+        "listenerNodeSelector": { "$ref": "#/$defs/rpi5ArcSelector" },
+        "tolerations": { "$ref": "#/$defs/workloadCiToleration" }
       }
     }
   }

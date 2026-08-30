@@ -26,6 +26,14 @@ const arcSelector = {
   "kubernetes.io/os": "linux",
   "kubernetes.io/arch": "arm64",
 };
+const x64Selector = {
+  "kubernetes.io/hostname": "seori-m6-01",
+  "kubernetes.io/os": "linux",
+  "kubernetes.io/arch": "amd64",
+};
+const x64Toleration = [
+  { key: "workload", operator: "Equal", value: "ci", effect: "NoSchedule" },
+];
 const authSelector = { "kubernetes.io/hostname": "rpi5" };
 
 if (args.join("\0") === ["config", "current-context"].join("\0")) {
@@ -62,12 +70,18 @@ if (args[0] === "get" && args[1] === "node") {
 }
 
 if (args[0] === "get" && args[1] === "autoscalingrunnersets") {
-  const scaleSet = (name, minRunners, maxRunners, currentRunners) => ({
+  const scaleSet = (
+    name,
+    minRunners,
+    maxRunners,
+    currentRunners,
+    { nodeSelector = arcSelector, tolerations = [] } = {},
+  ) => ({
     metadata: { name },
     spec: {
       minRunners,
       maxRunners,
-      template: { spec: { nodeSelector: arcSelector } },
+      template: { spec: { nodeSelector, tolerations } },
       listenerTemplate: { spec: { nodeSelector: arcSelector } },
     },
     status: {
@@ -85,6 +99,14 @@ if (args[0] === "get" && args[1] === "autoscalingrunnersets") {
       scenario === "arc-over-capacity" ? 4 : 1,
     ),
     scaleSet("seorilabs-rpi-arm64-dind", 0, 1, 0),
+    scaleSet("seorilabs-x64", 1, 6, 1, {
+      nodeSelector: x64Selector,
+      tolerations: x64Toleration,
+    }),
+    scaleSet("seorilabs-x64-android", 0, 1, 0, {
+      nodeSelector: x64Selector,
+      tolerations: x64Toleration,
+    }),
   ];
   if (scenario === "unmanaged-arc") {
     items.push(scaleSet("unmanaged", 0, 1, 0));
@@ -165,6 +187,7 @@ if (args[0] === "get" && args[1] === "pods") {
         name: "seorilabs-rpi-arm64-runner",
         creationTimestamp: "2026-01-01T00:00:00Z",
         ownerReferences: [{ kind: "EphemeralRunner" }],
+        labels: { "actions.github.com/scale-set-name": "seorilabs-rpi-arm64" },
       },
       spec: { nodeName: "rpi5" },
       status: {
@@ -183,6 +206,20 @@ if (args[0] === "get" && args[1] === "pods") {
               ]
             : [],
       },
+    },
+    {
+      metadata: {
+        namespace: "arc-runners",
+        name: "seorilabs-x64-runner",
+        creationTimestamp: "2026-01-01T00:00:00Z",
+        ownerReferences: [{ kind: "EphemeralRunner" }],
+        labels: {
+          "actions.github.com/scale-set-name":
+            scenario === "unlabeled-x64-runner" ? "unmanaged" : "seorilabs-x64",
+        },
+      },
+      spec: { nodeName: "seori-m6-01" },
+      status: { phase: "Running", containerStatuses: [] },
     },
   ];
   if (new Set(["placement-drift", "placement-drift-offset", "invalid-pod-timestamp"]).has(scenario)) {

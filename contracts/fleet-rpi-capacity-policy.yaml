@@ -21,6 +21,16 @@ cluster:
       requiredConditions:
         ready: "True"
         memoryPressure: "False"
+    x64:
+      hostname: seori-m6-01
+      arch: amd64
+      requiredTaint:
+        key: workload
+        value: ci
+        effect: NoSchedule
+      allocatable:
+        cpu: 11500m
+        memory: 4.97Gi
 
 workloads:
   scheduler:
@@ -51,6 +61,11 @@ workloads:
           kubernetes.io/hostname: rpi5
           kubernetes.io/os: linux
           kubernetes.io/arch: arm64
+        listenerNodeSelector:
+          kubernetes.io/hostname: rpi5
+          kubernetes.io/os: linux
+          kubernetes.io/arch: arm64
+        tolerations: []
       - name: seorilabs-rpi-arm64-dind
         class: dind
         valuesFile: rpi-arm64-dind-values.yaml
@@ -60,6 +75,47 @@ workloads:
           kubernetes.io/hostname: rpi5
           kubernetes.io/os: linux
           kubernetes.io/arch: arm64
+        listenerNodeSelector:
+          kubernetes.io/hostname: rpi5
+          kubernetes.io/os: linux
+          kubernetes.io/arch: arm64
+        tolerations: []
+      - name: seorilabs-x64
+        class: general
+        valuesFile: x64-values.yaml
+        minRunners: 1
+        maxRunners: 6
+        nodeSelector:
+          kubernetes.io/hostname: seori-m6-01
+          kubernetes.io/os: linux
+          kubernetes.io/arch: amd64
+        listenerNodeSelector:
+          kubernetes.io/hostname: rpi5
+          kubernetes.io/os: linux
+          kubernetes.io/arch: arm64
+        tolerations:
+          - key: workload
+            operator: Equal
+            value: ci
+            effect: NoSchedule
+      - name: seorilabs-x64-android
+        class: android
+        valuesFile: x64-android-values.yaml
+        minRunners: 0
+        maxRunners: 1
+        nodeSelector:
+          kubernetes.io/hostname: seori-m6-01
+          kubernetes.io/os: linux
+          kubernetes.io/arch: amd64
+        listenerNodeSelector:
+          kubernetes.io/hostname: rpi5
+          kubernetes.io/os: linux
+          kubernetes.io/arch: arm64
+        tolerations:
+          - key: workload
+            operator: Equal
+            value: ci
+            effect: NoSchedule
   authBroker:
     namespace: auth-broker
     workloadNames:

@@ -29,6 +29,14 @@ const arcSelector = {
   "kubernetes.io/os": "linux",
   "kubernetes.io/arch": "arm64",
 };
+const x64Selector = {
+  "kubernetes.io/hostname": "seori-m6-01",
+  "kubernetes.io/os": "linux",
+  "kubernetes.io/arch": "amd64",
+};
+const x64Toleration = [
+  { key: "workload", operator: "Equal", value: "ci", effect: "NoSchedule" },
+];
 
 function globalVersions() {
   return {
@@ -53,13 +61,18 @@ function globalVersions() {
   };
 }
 
-function scaleSetValues(name, minRunners, maxRunners) {
+function scaleSetValues(
+  name,
+  minRunners,
+  maxRunners,
+  { nodeSelector = arcSelector, tolerations = [] } = {},
+) {
   return {
     runnerScaleSetName: name,
     minRunners,
     maxRunners,
     listenerTemplate: { spec: { nodeSelector: { ...arcSelector } } },
-    template: { spec: { nodeSelector: { ...arcSelector } } },
+    template: { spec: { nodeSelector: { ...nodeSelector }, tolerations } },
   };
 }
 
@@ -89,6 +102,24 @@ async function fixtureWorkspace({ generalMax = 3, generalNode = "rpi5" } = {}) {
         scaleSetValues("seorilabs-rpi-arm64-dind", 0, 1),
       ),
     ),
+    writeFile(
+      join(configRoot, "x64-values.yaml"),
+      stringify(
+        scaleSetValues("seorilabs-x64", 1, 6, {
+          nodeSelector: x64Selector,
+          tolerations: x64Toleration,
+        }),
+      ),
+    ),
+    writeFile(
+      join(configRoot, "x64-android-values.yaml"),
+      stringify(
+        scaleSetValues("seorilabs-x64-android", 0, 1, {
+          nodeSelector: x64Selector,
+          tolerations: x64Toleration,
+        }),
+      ),
+    ),
   ]);
   return realpath(root);
 }
@@ -112,6 +143,7 @@ test("RPI capacity contract는 exact node와 ARC 상한을 strict schema로 고�
   assert.equal(validate(contract), true, JSON.stringify(validate.errors));
   assert.equal(contract.cluster.nodes.quarantined.hostname, "rpi4001");
   assert.equal(contract.cluster.nodes.workload.hostname, "rpi5");
+  assert.equal(contract.cluster.nodes.x64.hostname, "seori-m6-01");
   assert.deepEqual(
     contract.workloads.arc.scaleSets.map(
       ({ name, minRunners, maxRunners }) => ({
@@ -123,6 +155,8 @@ test("RPI capacity contract는 exact node와 ARC 상한을 strict schema로 고�
     [
       { name: "seorilabs-rpi-arm64", minRunners: 1, maxRunners: 3 },
       { name: "seorilabs-rpi-arm64-dind", minRunners: 0, maxRunners: 1 },
+      { name: "seorilabs-x64", minRunners: 1, maxRunners: 6 },
+      { name: "seorilabs-x64-android", minRunners: 0, maxRunners: 1 },
     ],
   );
   assert.equal(contract.observation.minimumHours, 24);
@@ -140,6 +174,8 @@ test("운영 복제본은 exact RPI5 selector와 일반 1/3, DIND 0/1일 때만 
     assert.deepEqual(output.arc, [
       { name: "seorilabs-rpi-arm64", minRunners: 1, maxRunners: 3 },
       { name: "seorilabs-rpi-arm64-dind", minRunners: 0, maxRunners: 1 },
+      { name: "seorilabs-x64", minRunners: 1, maxRunners: 6 },
+      { name: "seorilabs-x64-android", minRunners: 0, maxRunners: 1 },
     ]);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -199,6 +235,7 @@ test("24시간 미만 관찰, ARC 실동작 초과와 RPI4 신규 Pod를 거부�
     ["unmanaged-arc", "RPI_CAPACITY_ARC_LIVE_DRIFT"],
     ["placement-drift", "RPI_CAPACITY_WORKLOAD_PLACEMENT_DRIFT"],
     ["placement-drift-offset", "RPI_CAPACITY_WORKLOAD_PLACEMENT_DRIFT"],
+    ["unlabeled-x64-runner", "RPI_CAPACITY_WORKLOAD_PLACEMENT_DRIFT"],
     ["invalid-pod-timestamp", "RPI_CAPACITY_POD_TIMESTAMP_INVALID"],
   ];
   for (const [scenario, code] of cases) {
