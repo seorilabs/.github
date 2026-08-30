@@ -385,6 +385,37 @@ test('scoped Tang inventory encrypts and restores content plus exact 0440 metada
   }
 });
 
+test('isolated Tang restore uses platform-independent code-point filename order', async () => {
+  const restoreParent = await mkdtemp(join(tmpdir(), 'p2-stage1-canonical-order-'));
+  const files = [
+    { name: 'r-lower.jwk', content: Buffer.from('lower').toString('base64') },
+    { name: 'Y-upper.jwk', content: Buffer.from('upper').toString('base64') },
+  ];
+  try {
+    const restored = isolatedRestoreInventory({
+      payload: {
+        schemaVersion: 1,
+        directory: { ownerId: 0, groupId: 0, mode: '0750' },
+        files: files.map(({ name, content }) => ({
+          name,
+          content,
+          ownerId: 0,
+          groupId: 0,
+          mode: '0440',
+        })),
+      },
+      temporaryParent: restoreParent,
+      applyOwnership: false,
+    });
+    assert.equal(restored.contentSha256, canonicalDigest([
+      { name: 'Y-upper.jwk', sha256: sha256(Buffer.from('upper')) },
+      { name: 'r-lower.jwk', sha256: sha256(Buffer.from('lower')) },
+    ]));
+  } finally {
+    await rm(restoreParent, { recursive: true, force: true });
+  }
+});
+
 test('Tang inventory rejects non-JWK scope, symlinks, and non-0440 live keys', async () => {
   for (const scenario of ['extra', 'symlink', 'mode']) {
     const fixture = await createFixture();

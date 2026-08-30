@@ -659,7 +659,8 @@ export function isolatedRestoreInventory({
     const restoredDirectory = lstatSync(tang);
     const contentRecords = [];
     const metadataRecords = [];
-    for (const expected of payload.files.toSorted((left, right) => left.name.localeCompare(right.name))) {
+    for (const expected of payload.files.toSorted((left, right) =>
+      left.name < right.name ? -1 : left.name > right.name ? 1 : 0)) {
       const { bytes, entry } = readHeldRegular(join(tang, expected.name), {
         allowedModes: [Number.parseInt(expected.mode, 8)],
         maximumBytes: 128 * 1024,
