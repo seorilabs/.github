@@ -26,6 +26,10 @@ const AUTHORITY_ENV = {
   JOB_WORKFLOW_SHA: WORKFLOW_SHA,
   JOB_WORKFLOW_REF: `seorilabs/.github/.github/workflows/release-tag.yml@${WORKFLOW_SHA}`,
 };
+// 현재 계약 본문의 revision. receipt 대조 fixture를 만들 때 쓴다.
+const AUTHORITY_REVISION = computeAuthorityRevision(
+  readFileSync(resolve(REPOSITORY_ROOT, 'contracts/release-version-authority.yaml'), 'utf8'),
+);
 
 /** 워크플로우 step의 run 블록만 dedent해 추출한다. */
 function extractRunBlock(stepName) {
@@ -234,6 +238,108 @@ test('같은 태그가 같은 commit을 가리키면 idempotent하게 통과한�
     assert.match(result.output, new RegExp(`^sha=${target}$`, 'mu'));
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('이미 있는 태그도 파생값과 receipt를 먼저 검증한 뒤에만 idempotent 통과한다', () => {
+  // 1) receipt 없는 lightweight 태그: 태그와 commit 자체가 정본이므로 통과한다.
+  let repository = createRepository();
+  try {
+    const target = git(repository.work, 'rev-parse', 'HEAD');
+    git(repository.work, 'tag', 'v1.2.3', target);
+    const result = runCreateTag(repository.work, { tagInput: 'v1.2.3' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.output, /^created=false$/mu);
+  } finally {
+    rmSync(repository.root, { recursive: true, force: true });
+  }
+
+  // 2) GitHub UI에서 만든 annotated 태그처럼 receipt marker가 없는 message도 통과한다.
+  repository = createRepository();
+  try {
+    const target = git(repository.work, 'rev-parse', 'HEAD');
+    git(repository.work, 'tag', '-a', 'v1.2.3', target, '-m', 'Release v1.2.3 from the GitHub UI');
+    const result = runCreateTag(repository.work, { tagInput: 'v1.2.3' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.output, /^created=false$/mu);
+  } finally {
+    rmSync(repository.root, { recursive: true, force: true });
+  }
+
+  // 3) 이미 있는 v0.0.0은 같은 commit이어도 파생 versionCode가 0이라 성공으로 보고하지 않는다.
+  repository = createRepository();
+  try {
+    const target = git(repository.work, 'rev-parse', 'HEAD');
+    git(repository.work, 'tag', 'v0.0.0', target);
+    const result = runCreateTag(repository.work, { tagInput: 'v0.0.0' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /derived-version-code-out-of-range/u);
+    assert.doesNotMatch(result.output, /^created=/mu);
+  } finally {
+    rmSync(repository.root, { recursive: true, force: true });
+  }
+
+  // 4) 다른 source SHA로 찍힌 receipt를 가진 annotated 태그는 idempotent 통과하지 않는다.
+  repository = createRepository();
+  try {
+    const target = git(repository.work, 'rev-parse', 'HEAD');
+    const foreignReceipt = [
+      'Release v1.2.3 (deadbee)',
+      '',
+      'seori-release-binding: 1',
+      'authority: release-version-authority-v1',
+      `authority-revision: ${AUTHORITY_REVISION}`,
+      'tag: v1.2.3',
+      `source-sha: ${'d'.repeat(40)}`,
+      'version-name: 1.2.3',
+      'android-version-code: 1002003',
+      'apple-build-number: 1002003',
+    ].join('\n');
+    git(repository.work, 'tag', '-a', 'v1.2.3', target, '-m', foreignReceipt);
+    const result = runCreateTag(repository.work, { tagInput: 'v1.2.3' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /tag-reuse-with-different-source/u);
+  } finally {
+    rmSync(repository.root, { recursive: true, force: true });
+  }
+
+  // 5) 다른 authority 계약 revision으로 찍힌 receipt도 거부한다.
+  repository = createRepository();
+  try {
+    const target = git(repository.work, 'rev-parse', 'HEAD');
+    const staleReceipt = [
+      'Release v1.2.3',
+      '',
+      'seori-release-binding: 1',
+      'authority: release-version-authority-v1',
+      `authority-revision: ${'0'.repeat(64)}`,
+      'tag: v1.2.3',
+      `source-sha: ${target}`,
+      'version-name: 1.2.3',
+      'android-version-code: 1002003',
+      'apple-build-number: 1002003',
+    ].join('\n');
+    git(repository.work, 'tag', '-a', 'v1.2.3', target, '-m', staleReceipt);
+    const result = runCreateTag(repository.work, { tagInput: 'v1.2.3' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /tag-reuse-with-different-config/u);
+  } finally {
+    rmSync(repository.root, { recursive: true, force: true });
+  }
+
+  // 6) 현재 계약으로 org 정본이 만든 receipt를 가진 태그는 그대로 통과한다.
+  repository = createRepository();
+  try {
+    const target = git(repository.work, 'rev-parse', 'HEAD');
+    const created = runCreateTag(repository.work, { tagInput: 'v1.2.3' });
+    assert.equal(created.status, 0, created.stderr);
+    assert.match(created.output, /^created=true$/mu);
+    const again = runCreateTag(repository.work, { tagInput: 'v1.2.3' });
+    assert.equal(again.status, 0, again.stderr);
+    assert.match(again.output, /^created=false$/mu);
+    assert.equal(git(repository.work, 'rev-parse', 'refs/tags/v1.2.3^{commit}'), target);
+  } finally {
+    rmSync(repository.root, { recursive: true, force: true });
   }
 });
 

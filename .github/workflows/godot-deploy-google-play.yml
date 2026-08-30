@@ -1,6 +1,6 @@
 # Seorilabs org 재사용 워크플로우: Godot 게임 Google Play (서명 AAB + 업로드)
 # 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-google-play.yml@<FULL_COMMIT_SHA>
-# 러너: x64 필수(runs_on, 기본 ubuntu-latest). godot --export-release Android → 서명 AAB → WIF 업로드.
+# 러너: seorilabs-x64-android 고정(x64 필수). godot --export-release → 서명 AAB → WIF 업로드.
 # 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
 # export_presets.cfg와 play-store config JSON은 authority가 아니라 주입 대상이고, AAB manifest
 # readback이 태그 파생값과 다르면 업로드 전에 fail-closed한다.
@@ -67,11 +67,6 @@ on:
         required: false
         default: 30
         type: number
-      runs_on:
-        description: "러너. x64 필요. ubuntu-latest 또는 seorilabs-x64-android만 허용한다."
-        required: false
-        default: "ubuntu-latest"
-        type: string
     secrets:
       FIREBASE_ANDROID_API_KEY:
         required: false
@@ -93,7 +88,8 @@ permissions:
 jobs:
   build-aab:
     name: Godot signed Android App Bundle
-    runs-on: ${{ (inputs.runs_on == 'seorilabs-x64-android' && 'seorilabs-x64-android') || 'ubuntu-latest' }}
+    # 마켓 자격증명을 쓰는 job은 caller가 러너를 고를 수 없다. x64 ARC로 고정한다.
+    runs-on: seorilabs-x64-android
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: google-play
 
@@ -120,19 +116,6 @@ jobs:
       FIREBASE_STORAGE_BUCKET: ${{ vars.FIREBASE_STORAGE_BUCKET }}
 
     steps:
-      # 권한 있는 job의 러너는 caller 입력을 그대로 믿지 않는다. 승인된 라벨만 허용하고,
-      # 그 밖의 값은 요청 자체를 실패시킨다(runs-on은 이미 승인 목록으로 축약돼 있다).
-      - name: Reject unapproved runner routing
-        shell: bash
-        env:
-          REQUESTED_RUNNER: ${{ inputs.runs_on }}
-        run: |
-          set -euo pipefail
-          case "$REQUESTED_RUNNER" in
-            "seorilabs-x64-android" | "ubuntu-latest") ;;
-            *) echo "승인되지 않은 러너 라벨: $REQUESTED_RUNNER" >&2; exit 1 ;;
-          esac
-
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -176,6 +159,11 @@ jobs:
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
+          # 태그 선택은 실행 이벤트에 묶인다. refs/tags 실행은 그 태그가 곧 정본이고,
+          # 최신 태그 폴백은 운영자가 시작한 workflow_dispatch에서만 허용한다.
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           git tag --list > "$RUNNER_TEMP/git-tags.txt"
@@ -188,6 +176,19 @@ jobs:
             echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
             exit 1
           }
+          # refs/tags 이벤트는 그 이벤트가 가리키는 commit만 build한다.
+          case "$RELEASE_EVENT_REF" in
+            refs/tags/*)
+              [ "$tag" = "${RELEASE_EVENT_REF#refs/tags/}" ] || {
+                echo "tag 이벤트 ref와 해석된 태그가 다름: $RELEASE_EVENT_REF != $tag" >&2
+                exit 1
+              }
+              [ "$tag_commit" = "$RELEASE_EVENT_SHA" ] || {
+                echo "tag 이벤트 commit과 태그 commit이 다름: $RELEASE_EVENT_SHA != $tag_commit" >&2
+                exit 1
+              }
+              ;;
+          esac
           { echo "tag=$tag"; echo "sha=$tag_commit"; } >> "$GITHUB_OUTPUT"
 
       - name: Bind release version to the tag
@@ -200,6 +201,9 @@ jobs:
           JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
           JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
           RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then
@@ -516,8 +520,21 @@ jobs:
           # 업로드 대상은 검증된 exact 경로 하나다. 스크립트가 자체 탐색으로 다른 파일을 고르지 않는다.
           VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
           SEORI_EXPECTED_AAB_SHA256: ${{ steps.provenance.outputs.artifact_digest }}
+          # uploader는 태그 파생 versionCode를 필수로 요구한다. 트랙 최신값을 쓰지 않게 한다.
+          SEORI_EXPECTED_ANDROID_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
         run: |
           set -euo pipefail
+          # post-export 검증과 readiness 검사 이후에도 파일이 바뀌지 않았는지 업로드 직전에 다시 본다.
+          [ -f "$VERIFIED_AAB_PATH" ] || { echo "검증된 AAB 경로가 없다: $VERIFIED_AAB_PATH" >&2; exit 1; }
+          observed="$(sha256sum "$VERIFIED_AAB_PATH" | cut -d ' ' -f 1)"
+          [ "$observed" = "$SEORI_EXPECTED_AAB_SHA256" ] || {
+            echo "업로드 직전 AAB digest가 검증값과 다르다: $observed != $SEORI_EXPECTED_AAB_SHA256" >&2
+            exit 1
+          }
+          [[ "$SEORI_EXPECTED_ANDROID_VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || {
+            echo "태그 파생 versionCode가 없다: ${SEORI_EXPECTED_ANDROID_VERSION_CODE:-missing}" >&2
+            exit 1
+          }
           args=(
             --aab-path "$VERIFIED_AAB_PATH"
             --track "${{ inputs.track }}"

@@ -1,6 +1,8 @@
 # WorkflowBundle v5 AIT build-only path. Backoffice binding resolves before app checkout.
 # 이 워크플로우는 caller 입력을 받지 않는다. build profile, 경로, 버전은 모두 서명된
 # resolved manifest와 release tag에서만 나온다(contracts/release-version-authority.yaml).
+# ait-granite/ait-web은 아직 promotionScope에도 canary에도 없다. 승격 전까지 binding 해석이
+# BUILD_PROFILE_NOT_PROMOTED로 fail-closed되며, 그 상태에서는 어떤 artifact도 만들지 않는다.
 name: AIT Build-only v1
 
 on:

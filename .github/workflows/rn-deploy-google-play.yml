@@ -177,6 +177,11 @@ jobs:
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
+          # 태그 선택은 실행 이벤트에 묶인다. refs/tags 실행은 그 태그가 곧 정본이고,
+          # 최신 태그 폴백은 운영자가 시작한 workflow_dispatch에서만 허용한다.
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           git tag --list > "$RUNNER_TEMP/git-tags.txt"
@@ -189,6 +194,19 @@ jobs:
             echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
             exit 1
           }
+          # refs/tags 이벤트는 그 이벤트가 가리키는 commit만 build한다.
+          case "$RELEASE_EVENT_REF" in
+            refs/tags/*)
+              [ "$tag" = "${RELEASE_EVENT_REF#refs/tags/}" ] || {
+                echo "tag 이벤트 ref와 해석된 태그가 다름: $RELEASE_EVENT_REF != $tag" >&2
+                exit 1
+              }
+              [ "$tag_commit" = "$RELEASE_EVENT_SHA" ] || {
+                echo "tag 이벤트 commit과 태그 commit이 다름: $RELEASE_EVENT_SHA != $tag_commit" >&2
+                exit 1
+              }
+              ;;
+          esac
           { echo "tag=$tag"; echo "sha=$tag_commit"; } >> "$GITHUB_OUTPUT"
 
       - name: Bind release version to the tag
@@ -201,6 +219,9 @@ jobs:
           JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
           JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
           RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then
@@ -435,8 +456,21 @@ jobs:
           # 업로드 대상은 검증된 exact 경로 하나다. 스크립트가 자체 탐색으로 다른 파일을 고르지 않는다.
           VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
           SEORI_EXPECTED_AAB_SHA256: ${{ steps.provenance.outputs.artifact_digest }}
+          # uploader는 태그 파생 versionCode를 필수로 요구한다. 트랙 최신값을 쓰지 않게 한다.
+          SEORI_EXPECTED_ANDROID_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
         run: |
           set -euo pipefail
+          # post-export 검증과 readiness 검사 이후에도 파일이 바뀌지 않았는지 업로드 직전에 다시 본다.
+          [ -f "$VERIFIED_AAB_PATH" ] || { echo "검증된 AAB 경로가 없다: $VERIFIED_AAB_PATH" >&2; exit 1; }
+          observed="$(sha256sum "$VERIFIED_AAB_PATH" | cut -d ' ' -f 1)"
+          [ "$observed" = "$SEORI_EXPECTED_AAB_SHA256" ] || {
+            echo "업로드 직전 AAB digest가 검증값과 다르다: $observed != $SEORI_EXPECTED_AAB_SHA256" >&2
+            exit 1
+          }
+          [[ "$SEORI_EXPECTED_ANDROID_VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || {
+            echo "태그 파생 versionCode가 없다: ${SEORI_EXPECTED_ANDROID_VERSION_CODE:-missing}" >&2
+            exit 1
+          }
           args=(
             --aab-path "$VERIFIED_AAB_PATH"
             --release-name "${{ steps.release.outputs.release_name }}"

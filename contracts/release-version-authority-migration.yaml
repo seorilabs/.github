@@ -27,9 +27,11 @@ callerKinds:
         mustAcceptArguments: ["--aab-path", "--release-name", "--release-status", "--track"]
         mustUploadExactly: --aab-path
         mustNotDiscoverArtifact: true
+        mustRequireEnvironment: [SEORI_EXPECTED_AAB_SHA256, SEORI_EXPECTED_ANDROID_VERSION_CODE]
   - id: godot-deploy-google-play
     calledWorkflow: .github/workflows/godot-deploy-google-play.yml
-    removeInputs: [version_name, version_code, version_script]
+    # runs_on은 제거됐다. 러너는 중앙에서 seorilabs-x64-android로 고정한다.
+    removeInputs: [version_name, version_code, version_script, runs_on]
     addOptionalInputs:
       # export preset 이름이 "Android"가 아니면 반드시 명시한다. 주입 대상과 export 대상이
       # 같은 preset이어야 하고, 다르면 org 워크플로우가 fail-closed한다.
@@ -40,6 +42,7 @@ callerKinds:
         mustAcceptArguments: ["--aab-path", "--track", "--release-status", "--release-name"]
         mustUploadExactly: --aab-path
         mustNotDiscoverArtifact: true
+        mustRequireEnvironment: [SEORI_EXPECTED_AAB_SHA256, SEORI_EXPECTED_ANDROID_VERSION_CODE]
   - id: rn-deploy-app-store
     calledWorkflow: .github/workflows/rn-deploy-app-store.yml
     removeInputs: [version_name, version_code, version_script]
@@ -54,7 +57,7 @@ callerKinds:
     removeInputs: [version_name, version_code, version_script]
     requiredRepositoryScripts:
       - path: apps/ait/package.json#scripts.deploy
-        mustForwardArgument: --memo
+        mustForwardArguments: [--memo, --location]
         # memo에는 artifact sha256이 들어간다. 저장소에서 자르거나 다시 만들면 대조가 깨진다.
         mustNotRewriteMemo: true
   - id: godot-deploy-ait
@@ -62,11 +65,23 @@ callerKinds:
     removeInputs: [version_name, version_code, version_script]
     requiredRepositoryScripts:
       - path: ait/apps-in-toss-web/package.json#scripts.deploy
-        mustForwardArgument: --memo
+        mustForwardArguments: [--memo, --location]
         mustNotRewriteMemo: true
   - id: rn-build-android
     calledWorkflow: .github/workflows/rn-build-android.yml
     removeInputs: [version_name, version_code, version_script]
+  - id: release-tag
+    calledWorkflow: .github/workflows/release-tag.yml
+    # runs_on은 제거됐다. 태그를 push하는 job은 seorilabs-rpi-arm64로 고정한다.
+    removeInputs: [runs_on]
+  - id: promote-google-play
+    calledWorkflow: .github/workflows/promote-google-play.yml
+    removeInputs: []
+    requiredRepositoryTools:
+      - path: scripts/upload-google-play-internal.py
+        mustAcceptArguments: ["--promote", "--promote-from-track", "--promote-to-track", "--promote-version-code"]
+        # 트랙의 최신 build가 아니라 태그가 정한 versionCode만 승격한다.
+        mustPromoteExactly: --promote-version-code
   - id: workflow-bundle-v5-ait-build-only
     calledWorkflow: .github/workflows/ait-build-only-v1.yml
     # v5 정본은 caller 입력을 전혀 받지 않는다. 남아 있으면 workflow_call이 실패한다.

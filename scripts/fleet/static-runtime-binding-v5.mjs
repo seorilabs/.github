@@ -834,6 +834,11 @@ function validateBuildManifestResponse(response, request, contracts, nowMs = Dat
   ) {
     fail("BUILD_RUNTIME_READBACK_INVALID");
   }
+  // 승격되지 않은 build profile로는 어떤 artifact도 만들지 않는다. AIT profile은 아직
+  // promotionScope에도 canary에도 없으므로 여기서 명시적으로 fail-closed한다.
+  if (!workflowBundle.buildProfiles.includes(binding.buildProfile)) {
+    fail("BUILD_PROFILE_NOT_PROMOTED");
+  }
   const dependencyAuditException = validateDependencyAuditException(
     manifest.dependencyAuditException,
     request,

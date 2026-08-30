@@ -25,10 +25,12 @@ node scripts/release/collect-caller-migration-inventory.mjs <저장소 경로> \
 | caller kind | 제거 | 추가·확인 |
 |---|---|---|
 | `rn-deploy-google-play` | `version_name`, `version_code`, `version_script` | `scripts/upload-google-play-internal.py`가 `--aab-path`로 받은 파일만 업로드 |
-| `godot-deploy-google-play` | 같음 | `tools/upload_google_play_internal.py`가 `--aab-path` 수용, preset 이름이 `Android`가 아니면 `android_export_preset` 명시 |
+| `godot-deploy-google-play` | 같음 + `runs_on` | `tools/upload_google_play_internal.py`가 `--aab-path` 수용, preset 이름이 `Android`가 아니면 `android_export_preset` 명시. 러너는 `seorilabs-x64-android`로 중앙 고정 |
 | `rn-deploy-app-store` | 같음 | — |
 | `godot-deploy-app-store` | 같음 | `ios_export_preset`이 실제 export 대상 preset 이름과 같아야 함 |
-| `rn-deploy-ait` / `godot-deploy-ait` | 같음 | 저장소 `deploy` 스크립트가 `--memo`를 **그대로** 전달(memo에 artifact sha256이 들어감) |
+| `rn-deploy-ait` / `godot-deploy-ait` | 같음 | 저장소 `deploy` 스크립트가 `--memo`와 `--location`을 **그대로** 전달(memo에 artifact sha256이 들어감) |
+| `release-tag` | `runs_on` | 러너는 `seorilabs-rpi-arm64`로 중앙 고정 |
+| `promote-google-play` | — | 업로드 도구가 `--promote-version-code`를 수용하고 그 build만 승격 |
 | `rn-build-android` | 같음 | — |
 | `ait-build-only-v1` (v5 정본) | caller 입력 **전체** | `scripts/build-ait.sh`가 `SEORI_RELEASE_TAG`, `SEORI_RELEASE_VERSION`을 읽어 주입 |
 | `rn-build-android-cloud-v2` / `godot-build-android-cloud-v2` (v5 정본) | caller 입력 **전체** | `scripts/build-android.sh`가 `SEORI_RELEASE_VERSION_NAME`, `SEORI_RELEASE_VERSION_CODE`를 읽어 주입 |
@@ -50,7 +52,8 @@ node scripts/release/collect-caller-migration-inventory.mjs <저장소 경로> \
 
 1. 모든 caller `uses`가 exact commit SHA로 고정됐다.
 2. caller에 `version_name`, `version_code`, `version_script`가 없다.
-3. 마켓 업로드 도구가 `--aab-path`로 받은 파일만 올린다.
+3. 마켓 업로드 도구가 `--aab-path`로 받은 파일만 올리고, `SEORI_EXPECTED_AAB_SHA256`과
+   `SEORI_EXPECTED_ANDROID_VERSION_CODE`를 필수로 요구한다.
 4. build script가 `SEORI_RELEASE_*` 환경변수를 읽어 주입한다.
 5. exact stable 태그 실행에서 artifact readback이 통과한다.
 

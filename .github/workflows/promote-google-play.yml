@@ -1,17 +1,19 @@
 # Seorilabs org 재사용 워크플로우: Google Play 트랙 승격(재빌드 없이)
 # 호출: uses: seorilabs/.github/.github/workflows/promote-google-play.yml@<FULL_COMMIT_SHA>
-# 러너: seorilabs-rpi-arm64 (WIF keyless, gradle 빌드 없음). from_track 의 최신 versionCode 를
+# 러너: seorilabs-rpi-arm64 (WIF keyless, gradle 빌드 없음). 태그에서 파생한 exact versionCode 를
 #       to_track 으로 복사 + 언어별 노트 반영 + commit(=심사 제출). AAB 재업로드 없음.
+# 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
+# 트랙의 "최신 versionCode"를 그대로 승격하지 않는다. 승격 대상은 태그가 정한 build 하나뿐이다.
 # 표준 contract(템플릿이 구현):
 #   - upload_script --promote --promote-from-track <t> --promote-to-track <t>
-#       --release-status <s> [--release-notes-json <path>] [--rollout <f>]
+#       --promote-version-code <n> --release-status <s> [--release-notes-json <path>] [--rollout <f>]
 name: Promote Google Play (reusable)
 
 on:
   workflow_call:
     inputs:
       release_tag:
-        description: "승격할 릴리즈 태그(노트 조회/체크아웃용). 비우면 최신 vX.Y.Z."
+        description: "승격할 릴리즈 태그 vX.Y.Z. 비우면 workflow_dispatch에서만 최신 stable 태그."
         required: false
         default: ""
         type: string
@@ -64,18 +66,96 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Resolve release tag
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          check-latest: false
+
+      # 승격 대상 versionCode는 org 정본 authority가 태그에서 파생한다. caller 저장소 스크립트나
+      # 트랙의 "최신" 값을 읽지 않기 위해 called workflow identity를 확인하고 exact SHA로 받는다.
+      - name: Validate called reusable workflow identity
+        id: authority
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/promote-google-play.yml
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
+          '
+
+      - name: Checkout exact release version authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.authority.outputs.repository }}
+          ref: ${{ steps.authority.outputs.sha }}
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
+      - name: Resolve exact release tag
         id: tag
         shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          # 태그 선택은 실행 이벤트에 묶인다. refs/tags 실행은 그 태그가 곧 정본이고,
+          # 최신 태그 폴백은 운영자가 시작한 workflow_dispatch에서만 허용한다.
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          tag="${{ inputs.release_tag }}"
-          if [ -z "$tag" ]; then
-            tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
-            [ -n "$tag" ] || { echo "release_tag 비어있고 vX.Y.Z 태그 없음." >&2; exit 1; }
+          git tag --list > "$RUNNER_TEMP/git-tags.txt"
+          tag="$(node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --tag-list-file "$RUNNER_TEMP/git-tags.txt" --print-tag)"
+          git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null
+          git -c advice.detachedHead=false checkout "refs/tags/$tag"
+          tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          head_commit="$(git rev-parse 'HEAD^{commit}')"
+          [ "$tag_commit" = "$head_commit" ] || {
+            echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
+            exit 1
+          }
+          # refs/tags 이벤트는 그 이벤트가 가리키는 commit만 승격한다.
+          case "$RELEASE_EVENT_REF" in
+            refs/tags/*)
+              [ "$tag" = "${RELEASE_EVENT_REF#refs/tags/}" ] || {
+                echo "tag 이벤트 ref와 해석된 태그가 다름: $RELEASE_EVENT_REF != $tag" >&2
+                exit 1
+              }
+              [ "$tag_commit" = "$RELEASE_EVENT_SHA" ] || {
+                echo "tag 이벤트 commit과 태그 commit이 다름: $RELEASE_EVENT_SHA != $tag_commit" >&2
+                exit 1
+              }
+              ;;
+          esac
+          { echo "tag=$tag"; echo "sha=$tag_commit"; } >> "$GITHUB_OUTPUT"
+
+      # 승격 대상은 이 태그가 정한 versionCode 하나다. 트랙의 최신 build를 승격하지 않는다.
+      - name: Bind release version to the tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
+          JOB_WORKFLOW_REPOSITORY: ${{ steps.authority.outputs.repository }}
+          JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
+          JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then
+            git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release-tag-message.txt"
+            export RELEASE_TAG_MESSAGE_FILE="$RUNNER_TEMP/release-tag-message.txt"
           fi
-          git -c advice.detachedHead=false checkout "$tag"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          RELEASE_HEAD_SHA="$(git rev-parse 'HEAD^{commit}')" \
+          RELEASE_LOCAL_TAG_SHA="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" \
+            node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --github-output
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
@@ -126,12 +206,20 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
           # 언어별 노트(전체 언어)는 env 파일 경로로 전달. 스크립트가 등록 언어와 교집합만 반영.
           RELEASE_NOTES_JSON: ${{ steps.notes.outputs.found == 'true' && steps.notes.outputs.path || '' }}
+          # 승격 대상 build는 태그 파생 versionCode 하나뿐이다. 트랙 최신값을 쓰지 않는다.
+          PROMOTE_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
+          SEORI_EXPECTED_ANDROID_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
         run: |
           set -euo pipefail
+          [[ "$PROMOTE_VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || {
+            echo "태그 파생 versionCode가 없다: ${PROMOTE_VERSION_CODE:-missing}" >&2
+            exit 1
+          }
           args=(
             --promote
             --promote-from-track "${{ inputs.from_track }}"
             --promote-to-track "${{ inputs.to_track }}"
+            --promote-version-code "$PROMOTE_VERSION_CODE"
             --release-status "${{ inputs.release_status }}"
             --release-name "$TAG"
           )
@@ -146,7 +234,8 @@ jobs:
         run: |
           {
             echo "### Promote Google Play"; echo ""
-            echo "- tag: ${{ steps.tag.outputs.tag }}"
+            echo "- tag: ${{ steps.tag.outputs.tag }} @ ${{ steps.tag.outputs.sha }}"
+            echo "- promoted versionCode: ${{ steps.release.outputs.android_version_code }}"
             echo "- ${{ inputs.from_track }} → ${{ inputs.to_track }} / status: ${{ inputs.release_status }}"
             echo "- rollout: ${{ inputs.rollout || '(full)' }}"
           } >> "$GITHUB_STEP_SUMMARY"

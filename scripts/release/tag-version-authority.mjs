@@ -171,6 +171,55 @@ export function parseReleaseTagRef(ref) {
   return parseReleaseTag(tag);
 }
 
+/** 어떤 이벤트에서 어떻게 태그를 골랐는지 남기는 값. latest fallback은 하나뿐이다. */
+export const RELEASE_TAG_SOURCES = Object.freeze([
+  'event-tag-ref',
+  'requested-tag',
+  'latest-stable-dispatch',
+]);
+
+/**
+ * 실행 이벤트에 맞는 release 태그 하나를 고른다.
+ *
+ * `refs/tags/vX.Y.Z` 이벤트는 그 태그가 곧 정본이다. 저장소에 더 최신 태그가 있더라도
+ * latest fallback으로 넘어가면 v1.2.0 태그 push가 v1.3.0을 빌드할 수 있으므로 금지한다.
+ * 태그가 없는 실행에서 최신 태그를 고르는 것은 운영자가 명시적으로 시작한 workflow_dispatch
+ * 에서만 허용한다.
+ */
+export function selectReleaseTagForEvent({
+  eventName = '',
+  eventRef = '',
+  requestedTag = '',
+  tagList = '',
+} = {}) {
+  const requested = typeof requestedTag === 'string' ? requestedTag.trim() : '';
+  const ref = typeof eventRef === 'string' ? eventRef.trim() : '';
+
+  if (ref.startsWith(RELEASE_TAG_REF_PREFIX)) {
+    const { tag } = parseReleaseTagRef(ref);
+    if (requested.length > 0 && parseReleaseTag(requested).tag !== tag) {
+      fail(
+        'tag-ref-mismatch',
+        `tag 이벤트에서 다른 태그를 요청할 수 없다: ref=${ref} release_tag=${requested}`,
+      );
+    }
+    return { tag, source: 'event-tag-ref' };
+  }
+
+  if (requested.length > 0) {
+    return { tag: parseReleaseTag(requested).tag, source: 'requested-tag' };
+  }
+
+  if (eventName !== 'workflow_dispatch') {
+    fail(
+      'tag-ref-mismatch',
+      `release_tag가 비어 있으면 최신 태그 폴백은 workflow_dispatch에서만 허용한다: ` +
+        `event=${eventName || 'missing'} ref=${ref || 'missing'}`,
+    );
+  }
+  return { tag: selectLatestStableTag(tagList), source: 'latest-stable-dispatch' };
+}
+
 /**
  * authority 계약 본문의 revision. 워크플로우와 무관하게 같은 값이므로 annotated tag receipt에
  * 넣어, 같은 태그를 다른 version-authority 계약으로 다시 build하는 것을 배포 시점에 막는다.
@@ -680,8 +729,14 @@ export function parseInfoPlistJson(text) {
 // 컨테이너가 자체 version 기록을 갖게 된 것이므로 tag 단일 authority 가정이 깨진다.
 const AIT_KNOWN_BUNDLE_FIELDS = Object.freeze([2, 3]);
 const SEMVER_SHAPED = /^v?\d+\.\d+\.\d+/u;
-// legacy zip .ait의 루트 metadata 후보. 존재하면 version 기록을 담을 수 있으므로 fail-closed한다.
+// .ait zip payload의 루트 metadata 후보. 존재하면 version 기록을 담을 수 있으므로 fail-closed한다.
 const ZIP_METADATA_ENTRY = /^(?:manifest|metadata|version|app)(?:\.(?:json|txt|ya?ml))?$/iu;
+const ZIP_CENTRAL_HEADER = Buffer.from([0x50, 0x4b, 0x01, 0x02]);
+const ZIP_END_OF_CENTRAL_DIRECTORY = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
+// AIT v1 framing: magic(8) + formatVersion(4) + protobuf length(8) + protobuf
+//                 + zip payload length(8) + zip payload
+const AIT_HEADER_LENGTH = 20;
+const AIT_ZIP_LENGTH_FIELD = 8;
 
 function scanAitBundleVersionFields(fields) {
   const found = [];
@@ -699,38 +754,65 @@ function scanAitBundleVersionFields(fields) {
   return found;
 }
 
-function scanZipVersionEntries(bytes) {
-  const found = [];
-  let offset = 0;
-  while (offset + 30 <= bytes.length) {
-    if (!bytes.subarray(offset, offset + 4).equals(ZIP_LOCAL_HEADER)) {
+/**
+ * zip payload의 entry 이름을 central directory에서 읽는다. local header만 훑으면 data
+ * descriptor를 쓰는 entry에서 크기가 0이라 순회가 조용히 끊긴다. 그 경우 "version 기록 없음"과
+ * 구분되지 않으므로, central directory를 읽지 못하면 빈 목록 대신 fail-closed한다.
+ */
+export function readZipEntryNames(payload) {
+  const bytes = Buffer.isBuffer(payload) ? payload : Buffer.from(payload ?? []);
+  if (bytes.length < 22) {
+    fail('artifact-provenance-mismatch', '.ait zip payload가 end-of-central-directory보다 짧다.');
+  }
+  let endOffset = -1;
+  for (let offset = bytes.length - 22; offset >= 0; offset -= 1) {
+    if (bytes.subarray(offset, offset + 4).equals(ZIP_END_OF_CENTRAL_DIRECTORY)) {
+      endOffset = offset;
       break;
     }
-    const compressedSize = bytes.readUInt32LE(offset + 18);
-    const nameLength = bytes.readUInt16LE(offset + 26);
-    const extraLength = bytes.readUInt16LE(offset + 28);
-    const nameStart = offset + 30;
+  }
+  if (endOffset < 0) {
+    fail('artifact-provenance-mismatch', '.ait zip payload에서 end-of-central-directory를 찾지 못했다.');
+  }
+
+  const entryCount = bytes.readUInt16LE(endOffset + 10);
+  const directorySize = bytes.readUInt32LE(endOffset + 12);
+  const directoryOffset = bytes.readUInt32LE(endOffset + 16);
+  if (directoryOffset + directorySize > bytes.length) {
+    fail('artifact-provenance-mismatch', '.ait zip central directory가 payload 밖을 가리킨다.');
+  }
+
+  const names = [];
+  let offset = directoryOffset;
+  for (let index = 0; index < entryCount; index += 1) {
+    if (offset + 46 > bytes.length || !bytes.subarray(offset, offset + 4).equals(ZIP_CENTRAL_HEADER)) {
+      fail('artifact-provenance-mismatch', `.ait zip central directory entry ${index}를 읽지 못했다.`);
+    }
+    const nameLength = bytes.readUInt16LE(offset + 28);
+    const extraLength = bytes.readUInt16LE(offset + 30);
+    const commentLength = bytes.readUInt16LE(offset + 32);
+    const nameStart = offset + 46;
     const nameEnd = nameStart + nameLength;
     if (nameEnd > bytes.length) {
-      fail('artifact-provenance-mismatch', 'zip .ait entry 이름이 잘렸다.');
+      fail('artifact-provenance-mismatch', `.ait zip entry ${index} 이름이 잘렸다.`);
     }
-    const name = bytes.subarray(nameStart, nameEnd).toString('utf8');
-    if (ZIP_METADATA_ENTRY.test(name)) {
-      found.push(`zip:${name}`);
-    }
-    const next = nameEnd + extraLength + compressedSize;
-    if (next <= offset) {
-      break;
-    }
-    offset = next;
+    names.push(bytes.subarray(nameStart, nameEnd).toString('utf8'));
+    offset = nameEnd + extraLength + commentLength;
   }
-  return found;
+  return names;
+}
+
+function scanZipVersionEntries(payload) {
+  return readZipEntryNames(payload)
+    .filter((name) => ZIP_METADATA_ENTRY.test(name))
+    .map((name) => `zip:${name}`);
 }
 
 /**
- * .ait 컨테이너를 읽는다. AIT v1 헤더는 deploymentId와 appName을 담고, legacy zip 번들은
- * entry 목록만 갖는다. 어느 형식도 version 필드를 갖지 않으므로 version authority는 tag다.
- * 이 가정이 깨진 컨테이너를 조용히 통과시키지 않도록 versionFields로 관측 결과를 돌려준다.
+ * .ait 컨테이너를 읽는다. AIT v1은 magic + formatVersion + protobuf 길이 + protobuf +
+ * zip payload 길이 + zip payload로 framing되고, legacy 번들은 zip 자체다. 어느 형식도 내부
+ * version 필드를 갖지 않으므로 version authority는 tag다. 이 가정이 깨진 컨테이너를 조용히
+ * 통과시키지 않도록 framing을 exact length로 검증하고 versionFields로 관측 결과를 돌려준다.
  */
 export function readAitContainer(buffer) {
   const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer ?? []);
@@ -739,28 +821,50 @@ export function readAitContainer(buffer) {
   }
 
   if (bytes.subarray(0, AIT_MAGIC.length).equals(AIT_MAGIC)) {
-    if (bytes.length < 20) {
+    if (bytes.length < AIT_HEADER_LENGTH) {
       fail('artifact-provenance-mismatch', 'AIT 헤더가 잘렸다.');
     }
     const formatVersion = bytes.readUInt32BE(8);
     const bundleLength = Number(bytes.readBigUInt64BE(12));
-    if (!Number.isSafeInteger(bundleLength) || 20 + bundleLength > bytes.length) {
+    const bundleEnd = AIT_HEADER_LENGTH + bundleLength;
+    if (!Number.isSafeInteger(bundleLength) || bundleEnd > bytes.length) {
       fail('artifact-provenance-mismatch', `AIT bundle 길이가 파일 크기를 넘는다: ${bundleLength}`);
     }
-    const fields = readProtobufFields(bytes.subarray(20, 20 + bundleLength));
+    const fields = readProtobufFields(bytes.subarray(AIT_HEADER_LENGTH, bundleEnd));
     const deploymentId = protobufString(fields, 2);
     const appName = protobufString(fields, 3);
     if (appName.length === 0) {
       fail('artifact-provenance-mismatch', 'AIT bundle에서 appName을 읽지 못했다.');
     }
+
+    // protobuf 다음은 zip payload 길이(8바이트)다. 이 값을 건너뛰고 zip을 찾으면 payload 전체를
+    // 스캔하지 못한 채 "version 기록 없음"으로 통과해 버린다.
+    if (bundleEnd + AIT_ZIP_LENGTH_FIELD > bytes.length) {
+      fail('artifact-provenance-mismatch', 'AIT zip payload 길이 필드가 잘렸다.');
+    }
+    const zipLength = Number(bytes.readBigUInt64BE(bundleEnd));
+    const zipStart = bundleEnd + AIT_ZIP_LENGTH_FIELD;
+    const zipEnd = zipStart + zipLength;
+    if (!Number.isSafeInteger(zipLength) || zipEnd !== bytes.length) {
+      fail(
+        'artifact-provenance-mismatch',
+        `AIT zip payload 길이가 파일 크기와 다르다: ${zipStart}+${zipLength} != ${bytes.length}`,
+      );
+    }
+    const zipPayload = bytes.subarray(zipStart, zipEnd);
+    if (!zipPayload.subarray(0, ZIP_LOCAL_HEADER.length).equals(ZIP_LOCAL_HEADER)) {
+      fail('artifact-provenance-mismatch', 'AIT zip payload가 PK local header로 시작하지 않는다.');
+    }
+
     return {
       format: 'ait',
       formatVersion,
       deploymentId,
       appName,
+      zipLength,
       versionFields: Object.freeze([
         ...scanAitBundleVersionFields(fields),
-        ...scanZipVersionEntries(bytes.subarray(20 + bundleLength)),
+        ...scanZipVersionEntries(zipPayload),
       ]),
     };
   }
@@ -771,6 +875,7 @@ export function readAitContainer(buffer) {
       formatVersion: 0,
       deploymentId: '',
       appName: '',
+      zipLength: bytes.length,
       versionFields: Object.freeze(scanZipVersionEntries(bytes)),
     };
   }

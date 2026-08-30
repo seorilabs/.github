@@ -13,6 +13,7 @@ import { parse } from 'yaml';
 
 import {
   AUTHORITY_ID,
+  RELEASE_TAG_SOURCES,
   ReleaseAuthorityError,
   applyGodotExportVersion,
   assertArtifactReceipt,
@@ -32,9 +33,11 @@ import {
   parseReleaseTagRef,
   parseTagReceipt,
   readAitContainer,
+  readZipEntryNames,
   renderArtifactReceipt,
   renderTagReceipt,
   selectLatestStableTag,
+  selectReleaseTagForEvent,
 } from '../scripts/release/tag-version-authority.mjs';
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -521,6 +524,92 @@ test('지원하는 .ait 형식에는 내부 version 필드가 없고 memo가 art
   );
 });
 
+test('AIT v1 framing을 exact length로 읽어 zip payload 스캔을 건너뛰지 않는다', () => {
+  const bytes = readFileSync(join(FIXTURES, 'react-native/ait/trait-test-hub.ait'));
+  // magic(8) + formatVersion(4) + protobuf 길이(8) + protobuf + zip 길이(8) + zip payload
+  const protobufLength = Number(bytes.readBigUInt64BE(12));
+  const zipStart = 20 + protobufLength + 8;
+  assert.equal(Number(bytes.readBigUInt64BE(20 + protobufLength)), bytes.length - zipStart);
+  assert.deepEqual(bytes.subarray(zipStart, zipStart + 4), Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+
+  const container = readAitContainer(bytes);
+  assert.equal(container.zipLength, bytes.length - zipStart);
+  // zip payload를 실제로 열어 entry를 읽었는지 확인한다. 건너뛰면 아래가 비어 있다.
+  assert.ok(readZipEntryNames(bytes.subarray(zipStart)).length > 0);
+  assert.deepEqual([...container.versionFields], []);
+
+  // zip payload 길이 필드를 건너뛴 옛 framing은 길이 검증에서 fail-closed한다.
+  const legacyFraming = Buffer.concat([
+    bytes.subarray(0, 20 + protobufLength),
+    bytes.subarray(zipStart),
+  ]);
+  assert.throws(
+    () => readAitContainer(legacyFraming),
+    (error) => error.code === 'artifact-provenance-mismatch',
+  );
+  // 잘린 길이 필드와 실제 payload보다 큰/작은 길이도 모두 거부한다.
+  assert.throws(
+    () => readAitContainer(bytes.subarray(0, 20 + protobufLength + 4)),
+    (error) => error.code === 'artifact-provenance-mismatch',
+  );
+  for (const delta of [-1, 1]) {
+    const wrongLength = Buffer.from(bytes);
+    wrongLength.writeBigUInt64BE(BigInt(bytes.length - zipStart + delta), 20 + protobufLength);
+    assert.throws(
+      () => readAitContainer(wrongLength),
+      (error) => error.code === 'artifact-provenance-mismatch',
+      `delta ${delta}`,
+    );
+  }
+  // central directory를 읽을 수 없으면 "version 기록 없음"으로 통과시키지 않는다.
+  assert.throws(
+    () => readZipEntryNames(bytes.subarray(zipStart, zipStart + 40)),
+    (error) => error.code === 'artifact-provenance-mismatch',
+  );
+});
+
+test('zip payload에 version metadata가 들어간 .ait은 배포를 거부한다', () => {
+  const injectedPath = join(FIXTURES, 'react-native/ait/trait-test-hub-version-metadata.ait');
+  const injected = readAitContainer(readFileSync(injectedPath));
+  assert.equal(injected.format, 'ait');
+  assert.deepEqual([...injected.versionFields], ['zip:version.json']);
+
+  const current = binding({ workflow: 'rn-deploy-ait.yml' });
+  const digest = createHash('sha256').update(readFileSync(injectedPath)).digest('hex');
+  assert.throws(
+    () =>
+      assertArtifactVersion({
+        kind: 'ait',
+        binding: current,
+        observed: {
+          memo: canonicalReleaseMemo(current, { artifactDigest: digest }),
+          digest,
+          versionFields: injected.versionFields,
+        },
+      }),
+    (error) => error.code === 'ait-internal-version-field-present',
+  );
+
+  // 검증 CLI도 같은 이유로 업로드 전에 fail-closed한다.
+  const root = mkdtempSync(join(tmpdir(), 'release-ait-injected-'));
+  try {
+    const bindingPath = join(root, 'binding.json');
+    writeFileSync(bindingPath, JSON.stringify(current, null, 2));
+    const result = runNode(VERIFY_CLI, [
+      '--kind',
+      'ait',
+      '--binding',
+      bindingPath,
+      '--artifact',
+      injectedPath,
+    ]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /ait-internal-version-field-present/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('artifact receipt는 binding·kind·digest·memo를 한 파일로 묶는다', () => {
   const current = binding({ workflow: 'rn-deploy-ait.yml' });
   const digest = createHash('sha256').update('artifact').digest('hex');
@@ -716,10 +805,122 @@ test('resolver CLI는 태그만으로 GitHub output과 binding 파일을 만든�
 
     const expected = binding();
     assert.deepEqual(JSON.parse(readFileSync(bindingPath, 'utf8')), expected);
-    assert.equal(readFileSync(outputPath, 'utf8'), `${githubOutputLines(expected).join('\n')}\n`);
+    assert.equal(
+      readFileSync(outputPath, 'utf8'),
+      `${[...githubOutputLines(expected), 'tag_source=requested-tag'].join('\n')}\n`,
+    );
     assert.match(readFileSync(outputPath, 'utf8'), /^version_name=1\.2\.3$/mu);
     assert.match(readFileSync(outputPath, 'utf8'), /^android_version_code=1002003$/mu);
     assert.match(readFileSync(outputPath, 'utf8'), /^apple_build_number=1002003$/mu);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('태그 이벤트는 그 태그만 build하고 latest 폴백은 workflow_dispatch에서만 허용한다', () => {
+  const tagList = ['v1.0.0', 'v1.2.3', 'v2.0.0'].join('\n');
+
+  // refs/tags 이벤트는 저장소에 더 최신 태그가 있어도 그 태그가 정본이다.
+  assert.deepEqual(
+    selectReleaseTagForEvent({ eventName: 'push', eventRef: 'refs/tags/v1.2.3', tagList }),
+    { tag: 'v1.2.3', source: 'event-tag-ref' },
+  );
+  // 같은 값을 명시해도 같고, 다른 태그를 요청하면 거부한다.
+  assert.equal(
+    selectReleaseTagForEvent({
+      eventName: 'push',
+      eventRef: 'refs/tags/v1.2.3',
+      requestedTag: 'v1.2.3',
+      tagList,
+    }).tag,
+    'v1.2.3',
+  );
+  assert.throws(
+    () =>
+      selectReleaseTagForEvent({
+        eventName: 'push',
+        eventRef: 'refs/tags/v1.2.3',
+        requestedTag: 'v2.0.0',
+        tagList,
+      }),
+    (error) => error.code === 'tag-ref-mismatch',
+  );
+
+  // 운영자가 시작한 workflow_dispatch에서만 최신 태그 폴백을 허용한다.
+  assert.deepEqual(
+    selectReleaseTagForEvent({ eventName: 'workflow_dispatch', eventRef: 'refs/heads/main', tagList }),
+    { tag: 'v2.0.0', source: 'latest-stable-dispatch' },
+  );
+  for (const eventName of ['push', 'release', 'schedule', '']) {
+    assert.throws(
+      () => selectReleaseTagForEvent({ eventName, eventRef: 'refs/heads/main', tagList }),
+      (error) => error.code === 'tag-ref-mismatch',
+      eventName,
+    );
+  }
+  // 명시한 태그는 이벤트와 무관하게 그대로 쓴다.
+  assert.deepEqual(
+    selectReleaseTagForEvent({ eventName: 'push', eventRef: 'refs/heads/main', requestedTag: 'v1.0.0' }),
+    { tag: 'v1.0.0', source: 'requested-tag' },
+  );
+});
+
+test('resolver CLI는 태그 이벤트에서 latest 폴백과 다른 commit을 거부한다', () => {
+  const root = mkdtempSync(join(tmpdir(), 'release-event-'));
+  try {
+    const tagListPath = join(root, 'tags.txt');
+    writeFileSync(tagListPath, 'v1.2.3\nv2.0.0\n');
+
+    // 태그 push 이벤트: 저장소에 v2.0.0이 있어도 이벤트 태그만 고른다.
+    const pinned = runNode(RESOLVE_CLI, ['--tag-list-file', tagListPath, '--print-tag'], {
+      RELEASE_EVENT_NAME: 'push',
+      RELEASE_EVENT_REF: 'refs/tags/v1.2.3',
+    });
+    assert.equal(pinned.status, 0, pinned.stderr);
+    assert.equal(pinned.stdout.trim(), 'v1.2.3');
+
+    // workflow_dispatch에서만 최신 태그 폴백을 쓴다.
+    const dispatched = runNode(RESOLVE_CLI, ['--tag-list-file', tagListPath, '--print-tag'], {
+      RELEASE_EVENT_NAME: 'workflow_dispatch',
+      RELEASE_EVENT_REF: 'refs/heads/main',
+    });
+    assert.equal(dispatched.stdout.trim(), 'v2.0.0');
+
+    const pushed = runNode(RESOLVE_CLI, ['--tag-list-file', tagListPath, '--print-tag'], {
+      RELEASE_EVENT_NAME: 'push',
+      RELEASE_EVENT_REF: 'refs/heads/main',
+    });
+    assert.notEqual(pushed.status, 0);
+    assert.match(pushed.stderr, /tag-ref-mismatch/u);
+
+    // 태그 이벤트 commit과 해석된 source SHA가 다르면 build하지 않는다.
+    const drifted = runNode(
+      RESOLVE_CLI,
+      ['--source-sha', SHA_A, '--github-output'],
+      {
+        ...authorityEnv(),
+        GITHUB_OUTPUT: join(root, 'output.txt'),
+        RELEASE_EVENT_NAME: 'push',
+        RELEASE_EVENT_REF: 'refs/tags/v1.2.3',
+        RELEASE_EVENT_SHA: SHA_B,
+      },
+    );
+    assert.notEqual(drifted.status, 0);
+    assert.match(drifted.stderr, /source-sha-mismatch/u);
+
+    const aligned = runNode(
+      RESOLVE_CLI,
+      ['--source-sha', SHA_A, '--github-output'],
+      {
+        ...authorityEnv(),
+        GITHUB_OUTPUT: join(root, 'aligned.txt'),
+        RELEASE_EVENT_NAME: 'push',
+        RELEASE_EVENT_REF: 'refs/tags/v1.2.3',
+        RELEASE_EVENT_SHA: SHA_A,
+      },
+    );
+    assert.equal(aligned.status, 0, aligned.stderr);
+    assert.match(readFileSync(join(root, 'aligned.txt'), 'utf8'), /^tag_source=event-tag-ref$/mu);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -961,7 +1162,7 @@ test('워크플로우의 exact tag 해석 블록은 동명 branch와 비정상 �
 
   const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 
-  const runTagBlock = (cwd, releaseTag) => {
+  const runTagBlock = (cwd, releaseTag, event = {}) => {
     const output = join(cwd, 'github-output.txt');
     writeFileSync(output, '');
     return {
@@ -973,6 +1174,10 @@ test('워크플로우의 exact tag 해석 블록은 동명 branch와 비정상 �
           RELEASE_TAG: releaseTag,
           RUNNER_TEMP: cwd,
           GITHUB_OUTPUT: output,
+          // 기본은 운영자가 시작한 dispatch. 태그 이벤트는 호출부에서 명시한다.
+          RELEASE_EVENT_NAME: event.name ?? 'workflow_dispatch',
+          RELEASE_EVENT_REF: event.ref ?? 'refs/heads/main',
+          RELEASE_EVENT_SHA: event.sha ?? '',
         },
       }),
       output: readFileSync(output, 'utf8'),
@@ -1040,6 +1245,50 @@ test('워크플로우의 exact tag 해석 블록은 동명 branch와 비정상 �
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  }
+
+  // refs/tags 이벤트는 더 최신 태그가 있어도 그 태그의 commit만 build한다.
+  root = createRepository();
+  try {
+    const tagCommit = git(root, 'rev-parse', 'HEAD');
+    git(root, 'tag', '-a', 'v1.2.3', '-m', 'annotated stable');
+    writeFileSync(join(root, 'source.txt'), 'newer\n');
+    git(root, 'add', 'source.txt');
+    git(root, 'commit', '-q', '-m', 'newer');
+    git(root, 'tag', '-a', 'v9.9.9', '-m', 'newer stable');
+    const newerCommit = git(root, 'rev-parse', 'HEAD^{commit}');
+
+    const pinned = runTagBlock(root, '', {
+      name: 'push',
+      ref: 'refs/tags/v1.2.3',
+      sha: tagCommit,
+    });
+    assert.equal(pinned.status, 0, pinned.stderr);
+    assert.match(pinned.output, /^tag=v1\.2\.3$/mu);
+    assert.match(pinned.output, new RegExp(`^sha=${tagCommit}$`, 'mu'));
+    assert.doesNotMatch(pinned.output, /v9\.9\.9/u);
+
+    // 태그 이벤트 commit이 태그가 가리키는 commit과 다르면 build하지 않는다.
+    const drifted = runTagBlock(root, '', {
+      name: 'push',
+      ref: 'refs/tags/v1.2.3',
+      sha: newerCommit,
+    });
+    assert.notEqual(drifted.status, 0);
+    assert.match(drifted.stderr, /tag 이벤트 commit과 태그 commit이 다름/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  // 태그도 없고 dispatch도 아닌 실행에서는 최신 태그 폴백을 쓰지 않는다.
+  root = createRepository();
+  try {
+    git(root, 'tag', '-a', 'v1.2.3', '-m', 'annotated stable');
+    const result = runTagBlock(root, '', { name: 'push', ref: 'refs/heads/main' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /tag-ref-mismatch/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -1171,13 +1420,68 @@ test('릴리즈 업로드는 검증한 파일 하나만 올린다', () => {
   }
 });
 
+test('마켓 업로드와 트랙 승격은 태그 파생 exact versionCode를 넘긴다', () => {
+  for (const name of ['rn-deploy-google-play.yml', 'godot-deploy-google-play.yml']) {
+    const workflow = workflowText(name);
+    const stepName = name.startsWith('rn-') ? 'Upload AAB to Google Play' : 'Upload to Google Play';
+    const upload = extractRunBlock(workflow, stepName);
+    // 업로드 직전에 검증한 파일 그대로인지 다시 본다(post-export/readiness 이후 값).
+    assert.match(upload, /sha256sum "\$VERIFIED_AAB_PATH"/u, name);
+    assert.match(upload, /\$observed" = "\$SEORI_EXPECTED_AAB_SHA256/u, name);
+    // uploader가 요구하는 태그 파생 versionCode를 넘기고, 비어 있으면 업로드하지 않는다.
+    assert.match(
+      workflow,
+      /SEORI_EXPECTED_ANDROID_VERSION_CODE: \$\{\{ steps\.release\.outputs\.android_version_code \}\}/u,
+      name,
+    );
+    assert.match(upload, /SEORI_EXPECTED_ANDROID_VERSION_CODE" =~ \^\[1-9\]\[0-9\]\*\$/u, name);
+    assert.match(upload, /--aab-path "\$VERIFIED_AAB_PATH"/u, name);
+  }
+
+  // 트랙 승격은 트랙의 최신 build가 아니라 태그가 정한 build 하나만 올린다.
+  const promote = workflowText('promote-google-play.yml');
+  const promoteBlock = extractRunBlock(promote, 'Promote track');
+  assert.match(promoteBlock, /--promote-version-code "\$PROMOTE_VERSION_CODE"/u);
+  assert.match(promoteBlock, /PROMOTE_VERSION_CODE" =~ \^\[1-9\]\[0-9\]\*\$/u);
+  assert.match(
+    promote,
+    /PROMOTE_VERSION_CODE: \$\{\{ steps\.release\.outputs\.android_version_code \}\}/u,
+  );
+  // 승격도 org 정본 authority를 exact SHA로 받아 태그에서 파생한다.
+  assert.match(promote, /EXPECTED_WORKFLOW_PATH: seorilabs\/\.github\/\.github\/workflows\/promote-google-play\.yml/u);
+  assert.match(promote, /resolve-release-version\.mjs --github-output/u);
+  assert.doesNotMatch(promote, /--sort=-v:refname/u);
+});
+
+test('AppsInToss 배포는 검증한 exact 파일 경로를 CLI에 넘기고 API key를 job 전체에 두지 않는다', () => {
+  for (const name of ['rn-deploy-ait.yml', 'godot-deploy-ait.yml']) {
+    const workflow = workflowText(name);
+    const definition = parse(workflow);
+    const job = Object.values(definition.jobs)[0];
+    // 시크릿은 job 전체가 아니라 검증·배포 step에만 노출한다.
+    assert.equal(Object.hasOwn(job.env ?? {}, 'APPS_IN_TOSS_API_KEY'), false, name);
+    const secretSteps = job.steps
+      .filter((step) => Object.hasOwn(step.env ?? {}, 'APPS_IN_TOSS_API_KEY'))
+      .map(({ name: stepName }) => stepName);
+    assert.deepEqual(secretSteps, ['Validate AppsInToss secret', 'Deploy to AppsInToss'], name);
+
+    const deploy = extractRunBlock(workflow, 'Deploy to AppsInToss');
+    // CLI가 디렉터리에서 다른 번들을 고르지 못하도록 absolute path를 명시한다.
+    assert.match(deploy, /--location "\$artifact"/u, name);
+    assert.match(deploy, /artifact="\$\(cd "\$GITHUB_WORKSPACE"/u, name);
+    // 호출 직전에 digest를 다시 대조한다.
+    assert.match(deploy, /sha256sum "\$artifact"/u, name);
+    assert.match(deploy, /\$observed" = "\$VERIFIED_AIT_DIGEST/u, name);
+  }
+});
+
 test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지한다', () => {
-  // 권한 있는 job의 러너는 caller 입력을 그대로 쓰지 않는다. 승인된 라벨로 축약된 식만 허용한다.
+  // 권한 있는 job의 러너는 caller 입력을 그대로 쓰지 않는다. 승인된 라벨만 허용한다.
   const approvedRunners = new Set([
     'seorilabs-rpi-arm64',
+    'seorilabs-x64-android',
     'ubuntu-latest',
     'macos-26',
-    "${{ (inputs.runs_on == 'seorilabs-x64-android' && 'seorilabs-x64-android') || 'ubuntu-latest' }}",
     "${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}",
   ]);
   const marketPermissions = {
@@ -1202,22 +1506,27 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   }
 
   // 태그 생성만 contents:write를 갖는다.
-  const releaseTagText = workflowText('release-tag.yml');
-  const releaseTag = parse(releaseTagText);
+  // 태그를 push하는 job과 마켓 자격증명을 쓰는 job은 러너를 중앙에서 고정한다.
+  const releaseTag = parse(workflowText('release-tag.yml'));
   assert.deepEqual(releaseTag.permissions, { contents: 'write' });
-  assert.equal(
-    releaseTag.jobs.create['runs-on'],
-    "${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}",
-  );
-  // 승인되지 않은 라벨 요청은 조용히 다른 러너로 흘러가지 않고 실패한다.
-  assert.equal(releaseTag.jobs.create.steps[0].name, 'Reject unapproved runner routing');
-  assert.match(
-    extractRunBlock(releaseTagText, 'Reject unapproved runner routing'),
-    /"seorilabs-rpi-arm64" \| "ubuntu-latest"\) ;;/u,
-  );
+  assert.equal(releaseTag.jobs.create['runs-on'], 'seorilabs-rpi-arm64');
+  const godotPlay = parse(workflowText('godot-deploy-google-play.yml'));
+  assert.equal(godotPlay.jobs['build-aab']['runs-on'], 'seorilabs-x64-android');
+  for (const [name, definition] of [
+    ['release-tag.yml', releaseTag],
+    ['godot-deploy-google-play.yml', godotPlay],
+  ]) {
+    // caller가 러너를 고를 수 없도록 입력 자체를 없앴다.
+    assert.equal(
+      Object.hasOwn(definition.on.workflow_call.inputs ?? {}, 'runs_on'),
+      false,
+      name,
+    );
+    assert.doesNotMatch(workflowText(name), /inputs\.runs_on/u, name);
+  }
 
-  // 권한 있는 다른 재사용 워크플로우도 caller 러너 입력을 그대로 쓰지 않는다.
-  for (const name of ['godot-deploy-google-play.yml', 'cleanup-actions-storage.yml', 'godot-pages.yml']) {
+  // runs_on을 남긴 나머지 권한 workflow는 승인된 라벨로만 라우팅한다.
+  for (const name of ['cleanup-actions-storage.yml', 'godot-pages.yml']) {
     const text = workflowText(name);
     assert.doesNotMatch(text, /runs-on: \$\{\{ inputs\.runs_on \}\}/u, name);
     assert.match(text, /- name: Reject unapproved runner routing/u, name);
@@ -1294,6 +1603,34 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
   assert.equal(contract.uploadBinding.passVerifiedArtifactPath, true);
   assert.equal(contract.uploadBinding.reverifyDigestBeforeUpload, true);
   assert.equal(contract.uploadBinding.singleCandidateInArtifactDirectory, true);
+  assert.deepEqual(contract.uploadBinding.arguments, {
+    'android-app-bundle': '--aab-path',
+    ait: '--location',
+    promote: '--promote-version-code',
+  });
+  assert.deepEqual(contract.uploadBinding.expectedEnvironment, [
+    'SEORI_EXPECTED_AAB_SHA256',
+    'SEORI_EXPECTED_ANDROID_VERSION_CODE',
+  ]);
+  // 트랙 승격은 트랙 최신 build가 아니라 태그가 정한 versionCode만 올린다.
+  assert.equal(contract.trackPromotion.versionCodeSource, 'release-tag-derived');
+  assert.equal(contract.trackPromotion.promotesLatestInTrack, false);
+  assert.equal(contract.trackPromotion.requiredArgument, '--promote-version-code');
+  // 태그 선택은 실행 이벤트에 묶인다.
+  assert.equal(contract.authority.tagSelection.eventTagRef, 'pinned-to-event-ref-and-event-sha');
+  assert.equal(contract.authority.tagSelection.latestStableFallback, 'workflow-dispatch-only');
+  assert.deepEqual(contract.authority.tagSelection.sources, RELEASE_TAG_SOURCES);
+  // .ait framing은 exact length로 검증하고 zip entry는 central directory에서 읽는다.
+  assert.equal(contract.artifactReadback.ait.framing.exactLengthRequired, true);
+  assert.equal(contract.artifactReadback.ait.framing.zipEntrySource, 'central-directory');
+  assert.deepEqual(contract.artifactReadback.ait.framing.layout, [
+    'magic-8',
+    'format-version-4',
+    'protobuf-length-8',
+    'protobuf',
+    'zip-length-8',
+    'zip-payload',
+  ]);
   assert.equal(contract.godotExportPreset.selector, 'explicit-preset-name-or-index');
   assert.equal(contract.godotExportPreset.ambiguousSelector, 'fail-closed');
   // WorkflowBundle v5 정본 경로도 같은 authority를 쓴다.
@@ -1320,6 +1657,14 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
     contract.artifactReadback['android-app-bundle'].manifestPath,
     'base/manifest/AndroidManifest.xml',
   );
+  // 이미 있는 태그도 파생값 검증을 먼저 통과해야 idempotent success다.
+  assert.equal(
+    contract.tagCreation.existingTag.sameCommit,
+    'verify-derivation-then-idempotent-success',
+  );
+  assert.equal(contract.tagCreation.existingTag.receiptPresent, 'exact-match-required');
+  assert.equal(contract.tagCreation.existingTag.receiptAbsent, 'tag-and-commit-are-authority');
+  assert.equal(contract.tagCreation.existingTag.differentCommit, 'fail-closed');
   assert.equal(contract.binding.tagReceiptMarker, 'seori-release-binding: 1');
   assert.deepEqual(contract.binding.tagReceiptFields, [
     'authority',
