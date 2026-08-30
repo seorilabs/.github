@@ -51,7 +51,7 @@ required_executables=(
   /bin/bash /bin/cat /bin/sh /usr/bin/awk /usr/bin/cc /usr/bin/chmod /usr/bin/chown
   /usr/bin/cut /usr/bin/dd /usr/bin/find /usr/bin/grep /usr/bin/hostname /usr/bin/install
   /usr/bin/ln /usr/bin/mkdir /usr/bin/mv /usr/bin/readlink /usr/bin/rm /usr/bin/tar
-  /usr/bin/rmdir /usr/bin/sha256sum /usr/bin/stat /usr/bin/sync /usr/bin/uname /usr/sbin/ip
+  /usr/bin/rmdir /usr/bin/sha256sum /usr/bin/stat /usr/bin/sync /usr/bin/uname /usr/bin/ip
   /usr/local/bin/node /usr/local/bin/npm
 )
 for executable in "${required_executables[@]}"; do
@@ -60,7 +60,7 @@ done
 
 if [[ "$(/usr/bin/hostname --short)" != "$expected_hostname" ]] || \
    [[ "$(/usr/bin/uname --machine)" != "$expected_machine" ]] || \
-   ! /usr/sbin/ip -4 -o address show scope global | /usr/bin/awk '{print $4}' | \
+   ! /usr/bin/ip -4 -o address show scope global | /usr/bin/awk '{print $4}' | \
       /usr/bin/cut -d/ -f1 | /usr/bin/grep -Fxq "$expected_ip"; then
   exit 126
 fi

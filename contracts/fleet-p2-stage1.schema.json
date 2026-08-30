@@ -140,7 +140,7 @@
             { "const": "/usr/bin/rm" }, { "const": "/usr/bin/tar" },
             { "const": "/usr/bin/sha256sum" }, { "const": "/usr/bin/stat" },
             { "const": "/usr/bin/sync" }, { "const": "/usr/bin/uname" },
-            { "const": "/usr/sbin/ip" }, { "const": "/usr/local/bin/node" },
+            { "const": "/usr/bin/ip" }, { "const": "/usr/local/bin/node" },
             { "const": "/usr/local/bin/npm" }
           ], "items": false
         },

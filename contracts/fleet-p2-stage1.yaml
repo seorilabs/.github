@@ -103,7 +103,7 @@ sourceBootstrap:
     - /usr/bin/stat
     - /usr/bin/sync
     - /usr/bin/uname
-    - /usr/sbin/ip
+    - /usr/bin/ip
     - /usr/local/bin/node
     - /usr/local/bin/npm
   nativeLauncherRelativePath: tools/seori-auth/.build/seori-auth-native

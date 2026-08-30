@@ -218,7 +218,7 @@ if (executable === '/usr/bin/hostname' && args.join('\0') === '--short') {
   output(scenario === 'wrong-host' ? 'lookalike-host' : nodeName);
 }
 
-if (executable === '/usr/sbin/ip') {
+if (executable === '/usr/bin/ip') {
   output([{
     ifname: 'eth0',
     addr_info: [{

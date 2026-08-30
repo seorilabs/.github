@@ -344,7 +344,7 @@ function assertRoot() {
 function readHostIdentity(expected) {
   const hostname = read('/usr/bin/hostname', ['--short'], 'P2_TANG_HOST_IDENTITY_READBACK_FAILED');
   const addresses = publicJson(
-    read('/usr/sbin/ip', ['-json', 'address', 'show', 'scope', 'global'], 'P2_TANG_HOST_IDENTITY_READBACK_FAILED'),
+    read('/usr/bin/ip', ['-json', 'address', 'show', 'scope', 'global'], 'P2_TANG_HOST_IDENTITY_READBACK_FAILED'),
     'P2_TANG_HOST_IDENTITY_READBACK_INVALID',
   ).flatMap(({ addr_info: entries = [] }) => entries)
     .filter(({ family, scope }) => family === 'inet' && scope === 'global')

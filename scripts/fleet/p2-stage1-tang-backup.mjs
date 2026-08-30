@@ -217,7 +217,7 @@ function assertHostIdentity(host) {
   const hostname = run('/usr/bin/hostname', ['--short'], 'P2_STAGE1_HOST_IDENTITY_READBACK_FAILED');
   const machine = run('/usr/bin/uname', ['--machine'], 'P2_STAGE1_HOST_IDENTITY_READBACK_FAILED');
   const addresses = JSON.parse(run(
-    '/usr/sbin/ip', ['-json', 'address', 'show', 'scope', 'global'],
+    '/usr/bin/ip', ['-json', 'address', 'show', 'scope', 'global'],
     'P2_STAGE1_HOST_IDENTITY_READBACK_FAILED',
   )).flatMap(({ addr_info: info = [] }) => info)
     .filter(({ family, scope }) => family === 'inet' && scope === 'global')
