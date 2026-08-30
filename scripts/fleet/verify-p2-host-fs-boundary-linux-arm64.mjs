@@ -194,7 +194,13 @@ try {
   assert.equal(lstatSync(recoveredPath).nlink, 1);
 
   const markerBytes = Buffer.from('{"publicMarker":true}\n', 'utf8');
-  run(testBinary, ['publish-record', 'marker'], { input: markerBytes });
+  const markerParent = lstatSync(`${harnessRoot}/var/lib/seori-auth`);
+  run(testBinary, [
+    'publish-record', 'marker', String(markerParent.dev), String(markerParent.ino + 1),
+  ], { input: markerBytes, expectedStatus: 126 });
+  run(testBinary, [
+    'publish-record', 'marker', String(markerParent.dev), String(markerParent.ino),
+  ], { input: markerBytes });
   const markerEntry = lstatSync(
     `${harnessRoot}/var/lib/seori-auth/.seorilabs-host-encrypted-mount.json`,
   );

@@ -331,6 +331,15 @@ if (hostEncryptionReadback !== null) {
               filesystemType: contract.target.filesystemType,
               target: contract.target.mountPath,
             },
+            mountIdentity: {
+              path: contract.target.mountPath,
+              type: 'directory',
+              device: '3',
+              inode: '4',
+              ownerId: 0,
+              groupId: contract.target.markerGroupId,
+              mode: '0750',
+            },
             preBackupDigest: 'd'.repeat(64),
             configurationSha256: 'e'.repeat(64),
           }

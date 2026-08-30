@@ -5,6 +5,7 @@ import {
   chmodSync,
   existsSync,
   fstatSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -134,7 +135,15 @@ if (executable === '/usr/local/libexec/seorilabs-p2-host-fs-boundary') {
     };
     const identifier = args[1];
     const canonical = records[identifier];
-    if (args.length !== 2 || canonical === undefined) process.exit(64);
+    if (canonical === undefined) process.exit(64);
+    if (identifier === 'marker') {
+      const parent = lstatSync(fixturePath('/var/lib/seori-auth'));
+      if (
+        args.length !== 4 || args[2] !== String(parent.dev) || args[3] !== String(parent.ino)
+      ) process.exit(64);
+    } else if (args.length !== 2) {
+      process.exit(64);
+    }
     if (scenario === 'tang-boundary-failure' && identifier === 'tang-socket-override') {
       process.exit(70);
     }

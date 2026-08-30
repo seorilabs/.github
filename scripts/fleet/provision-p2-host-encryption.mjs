@@ -1230,7 +1230,10 @@ function managedConfigurationReadback(preBackupAttestation) {
   return configurationDigest();
 }
 
-function mountedPreMarkerReadback({ kubeconfigPath, tangAttestations, authorityPublicKey }) {
+function mountedPreMarkerReadback(
+  { kubeconfigPath, tangAttestations, authorityPublicKey },
+  { headerBackupIdentity } = {},
+) {
   const current = fullReadback({
     kubeconfigPath,
     tangAttestations,
@@ -1241,9 +1244,24 @@ function mountedPreMarkerReadback({ kubeconfigPath, tangAttestations, authorityP
     stop('P2_HOST_PARTIAL_RESUME_STATE_INVALID');
   }
   const preBackupAttestation = loadPreBackup({ currentMustMatch: false, mounted: true });
+  const headerPath = `${contract.target.backupRoot}/luks-header.bin`;
   for (const path of applyArtifactPaths()) {
-    assertMissingLeaf(path, 'P2_HOST_PARTIAL_RESUME_ARTIFACT_PRESENT');
+    if (path === headerPath && headerBackupIdentity !== undefined) {
+      assertPathIdentity(headerBackupIdentity, 'P2_HOST_HEADER_BACKUP_IDENTITY_DRIFT');
+    } else {
+      assertMissingLeaf(path, 'P2_HOST_PARTIAL_RESUME_ARTIFACT_PRESENT');
+    }
   }
+  const mountBeforeIdentity = readMount();
+  if (canonicalJson(mountBeforeIdentity) !== canonicalJson(current.mount)) {
+    stop('P2_HOST_MOUNT_IDENTITY_DRIFT');
+  }
+  const mountIdentity = readDirectoryIdentity(contract.target.mountPath);
+  const mountAfterIdentity = readMount();
+  if (
+    canonicalJson(mountAfterIdentity) !== canonicalJson(current.mount) ||
+    !samePathIdentity(assertPathIdentity(mountIdentity), mountIdentity)
+  ) stop('P2_HOST_MOUNT_IDENTITY_DRIFT');
   const core = {
     schemaVersion: 1,
     state: 'HOST_ENCRYPTED_MOUNT_PRE_MARKER_RESUME_READY',
@@ -1253,6 +1271,7 @@ function mountedPreMarkerReadback({ kubeconfigPath, tangAttestations, authorityP
     sourceIdentity: current.sourceIdentity,
     mapperBacking: current.mapperBacking,
     mount: current.mount,
+    mountIdentity,
     clevis: current.clevis,
     stateVolumeAttestation: current.stateVolumeAttestation,
     preBackupDigest: preBackupAttestation.observedDigest,
@@ -1402,11 +1421,17 @@ const managedRecordIdentifiers = new Set([
   'reboot-restored',
 ]);
 
-function publishManagedRecord(identifier, bytes) {
+function publishManagedRecord(identifier, bytes, boundaryArguments = []) {
   if (!managedRecordIdentifiers.has(identifier)) stop('P2_HOST_RECORD_IDENTIFIER_INVALID');
+  if (!Array.isArray(boundaryArguments)) stop('P2_HOST_RECORD_BOUNDARY_INVALID');
   const content = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
   if (content.length > 512 * 1024) stop('P2_HOST_RECORD_INPUT_TOO_LARGE');
-  const receipt = mutateFilesystemBoundary('publish-record', [identifier], [], content);
+  const receipt = mutateFilesystemBoundary(
+    'publish-record',
+    [identifier, ...boundaryArguments],
+    [],
+    content,
+  );
   if (
     receipt.record !== identifier || receipt.sizeBytes !== content.length ||
     Object.keys(receipt).toSorted().join('\0') !==
@@ -1710,9 +1735,17 @@ function transitionConfiguration(operation, entry, originalPath, managedPath) {
     ], descriptors));
 }
 
-function writeMarker(attestation) {
+function writeMarker(attestation, mountIdentity) {
   if (exists(contract.target.markerPath)) stop('P2_HOST_MARKER_ALREADY_EXISTS');
-  publishManagedRecord('marker', `${canonicalJson(attestation)}\n`);
+  if (
+    mountIdentity?.path !== contract.target.mountPath || mountIdentity.type !== 'directory'
+  ) stop('P2_HOST_MARKER_MOUNT_IDENTITY_INVALID');
+  assertPathIdentity(mountIdentity, 'P2_HOST_MARKER_MOUNT_IDENTITY_DRIFT');
+  publishManagedRecord(
+    'marker',
+    `${canonicalJson(attestation)}\n`,
+    [mountIdentity.device, mountIdentity.inode],
+  );
 }
 
 function relocatedFileIdentity(identity, path) {
@@ -1885,11 +1918,10 @@ function apply() {
     mutate('/usr/bin/systemctl', ['daemon-reload']);
     mutate('/usr/bin/systemctl', ['enable', '--now', systemdConfiguration.unlockerUnit]);
     mutate('/usr/bin/mount', [contract.target.mountPath]);
-    beforeMarker = fullReadback({
+    beforeMarker = mountedPreMarkerReadback({
       kubeconfigPath,
       tangAttestations,
       authorityPublicKey,
-      markerRequired: false,
     });
   }
   if (
@@ -1917,16 +1949,24 @@ function apply() {
     contract.target.sourcePath,
     headerBackupIdentity,
   );
+  const markerReady = mountedPreMarkerReadback({
+    kubeconfigPath,
+    tangAttestations,
+    authorityPublicKey,
+  }, { headerBackupIdentity });
+  if (markerReady.observedDigest !== beforeMarker.observedDigest) {
+    stop('P2_HOST_PARTIAL_RESUME_STATE_CHANGED');
+  }
   const hostEncryption = buildHostEncryptedMountAttestation({
     state,
-    stateVolumeAttestation: beforeMarker.stateVolumeAttestation,
+    stateVolumeAttestation: markerReady.stateVolumeAttestation,
     luksUuid,
   });
-  writeMarker(hostEncryption);
+  writeMarker(hostEncryption, markerReady.mountIdentity);
   const provisioned = buildProvisionedHostAttestation({
     contract,
     state,
-    stateVolumeAttestation: beforeMarker.stateVolumeAttestation,
+    stateVolumeAttestation: markerReady.stateVolumeAttestation,
     luksUuid,
     tangAttestations,
     authorityPublicKey,
@@ -1934,13 +1974,21 @@ function apply() {
     headerBackupSha256: headerDigest,
     headerBackupIdentity,
     sourceIdentity,
-    mapperBacking: beforeMarker.mapperBacking,
+    mapperBacking: markerReady.mapperBacking,
     bootId: readBootId(),
-    configurationSha256: configurationDigest(),
+    configurationSha256: markerReady.configurationSha256,
   });
   publishManagedRecord('provision', `${canonicalJson(provisioned)}\n`);
   const verified = fullReadback({ kubeconfigPath, tangAttestations, authorityPublicKey });
-  if (verified.hostEncryption.observedDigest !== hostEncryption.observedDigest) {
+  if (
+    verified.hostEncryption.observedDigest !== hostEncryption.observedDigest ||
+    verified.stateVolumeAttestation.observedDigest !==
+      markerReady.stateVolumeAttestation.observedDigest ||
+    !samePathIdentity(verified.sourceIdentity, markerReady.sourceIdentity) ||
+    canonicalJson(verified.mapperBacking) !== canonicalJson(markerReady.mapperBacking) ||
+    canonicalJson(verified.mount) !== canonicalJson(markerReady.mount) ||
+    configurationDigest() !== markerReady.configurationSha256
+  ) {
     stop('P2_HOST_MARKER_READBACK_INVALID');
   }
   return provisioned;

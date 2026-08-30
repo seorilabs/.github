@@ -1876,7 +1876,8 @@ async function remoteHostEncryptionReadback(sourceSha, action = 'readback') {
   const mapperResumeKeys = [...boundResumeKeys, 'mapperBacking'];
   const mountedResumeKeys = [
     'schemaVersion', 'state', 'nodeName', 'contractDigest', 'luksUuid',
-    'sourceIdentity', 'mapperBacking', 'mount', 'clevis', 'stateVolumeAttestation',
+    'sourceIdentity', 'mapperBacking', 'mount', 'mountIdentity', 'clevis',
+    'stateVolumeAttestation',
     'preBackupDigest', 'configurationSha256', 'observedDigest',
   ];
   const resumeState = [

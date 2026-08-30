@@ -426,9 +426,25 @@ static int descriptor_equals_buffer(
   return 1;
 }
 
-static int publish_record(const char *identifier) {
+static int publish_record(int argc, char **argv) {
+  const char *identifier = argv[2];
   const struct record_specification *record = record_specification(identifier);
+  int marker = strcmp(identifier, "marker") == 0;
+  if ((marker && argc != 5) || (!marker && argc != 3)) {
+    fail_closed("record arguments are invalid");
+  }
   int directory = open_record_directory(record->parent_policy, record->parent);
+  if (marker) {
+    unsigned long expected_device = parse_unsigned(argv[3], 10, ULONG_MAX);
+    unsigned long expected_inode = parse_unsigned(argv[4], 10, ULONG_MAX);
+    struct stat parent_entry;
+    if (fstat(directory, &parent_entry) != 0 || !S_ISDIR(parent_entry.st_mode) ||
+        (unsigned long)parent_entry.st_dev != expected_device ||
+        (unsigned long)parent_entry.st_ino != expected_inode) {
+      (void)close(directory);
+      fail_closed("marker mount identity changed");
+    }
+  }
   struct stat existing;
   if (fstatat(directory, record->leaf, &existing, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT) {
     fail_closed("record destination refused");
@@ -839,7 +855,9 @@ int main(int argc, char **argv) {
     (void)printf("{\"operation\":\"verify-namespace\",\"verified\":true}\n");
     return 0;
   }
-  if (strcmp(argv[1], "publish-record") == 0 && argc == 3) return publish_record(argv[2]);
+  if (strcmp(argv[1], "publish-record") == 0 && argc >= 3) {
+    return publish_record(argc, argv);
+  }
   if (strcmp(argv[1], "create-source") == 0 && argc == 2) return create_source();
   if (strcmp(argv[1], "backup-header") == 0 && argc == 2) return backup_header();
   if (strcmp(argv[1], "rollback-source") == 0 && argc == 2) return move_source(0);
