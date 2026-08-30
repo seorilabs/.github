@@ -1317,7 +1317,21 @@ async function runPublicSsh(machine, remoteCommand, input, { privileged = false,
   child.stdin.end();
   const status = await new Promise((resolve) => child.once('close', resolve));
   if (status !== 0 || outputSize > MAX_PUBLIC_OUTPUT) {
+    let publicCode;
+    if (outputSize <= 4096 && chunks.length > 0) {
+      try {
+        const failure = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (
+          failure !== null && typeof failure === 'object' && !Array.isArray(failure) &&
+          Object.keys(failure).toSorted().join('\0') === ['code', 'ok'].join('\0') &&
+          failure.ok === false && /^P2_[A-Z0-9_]+$/u.test(failure.code ?? '')
+        ) publicCode = failure.code;
+      } catch {
+        // Arbitrary remote output is discarded and never reflected.
+      }
+    }
     for (const chunk of chunks) chunk.fill(0);
+    if (publicCode !== undefined) stop(publicCode);
     stop('P2_STAGE1_REMOTE_OUTCOME_UNKNOWN');
   }
   const output = stdoutFd === undefined ? Buffer.concat(chunks).toString('utf8') : '';
@@ -1383,7 +1397,13 @@ function remoteNativeHelper(sourceSha) {
   return stage1.hostProcessBoundary.launcherExecutable;
 }
 
-function nativeNodeCommand(sourceSha, script, arguments_, remoteInputPath) {
+function nativeNodeCommand(
+  sourceSha,
+  script,
+  arguments_,
+  remoteInputPath,
+  { publicErrors = false } = {},
+) {
   const passwordRelay = sshAuthentication() !== null;
   const sudo = passwordRelay ? "sudo -S -p ''" : 'sudo -n';
   const input = remoteInputPath === null
@@ -1391,8 +1411,9 @@ function nativeNodeCommand(sourceSha, script, arguments_, remoteInputPath) {
     : remoteInputPath === undefined && !passwordRelay ? '3<&0'
       : remoteInputPath === undefined ? '3</dev/null' : `3< ${remoteInputPath}`;
   const standardInput = passwordRelay ? ' </dev/null' : '';
+  const errorChannel = publicErrors ? ' 2>&1' : '';
   return `${sudo} /bin/sh -c 'exec ${remoteNativeHelper(sourceSha)} launch -- ` +
-    `/usr/local/bin/node ${script} ${arguments_} ${input}${standardInput}'`;
+    `/usr/local/bin/node ${script} ${arguments_} ${input}${standardInput}${errorChannel}'`;
 }
 
 function privilegedCatCommand(path) {
@@ -1774,7 +1795,13 @@ async function remoteHostEncryptionReadback(sourceSha, action = 'readback') {
   ].join(' ');
   const result = parsePublicJson(await runPublicSsh(
     machine,
-    nativeNodeCommand(sourceSha, remoteHostEncryptionHelper(sourceSha), command),
+    nativeNodeCommand(
+      sourceSha,
+      remoteHostEncryptionHelper(sourceSha),
+      command,
+      undefined,
+      { publicErrors: true },
+    ),
     undefined,
     { privileged: true },
   ), 'P2_STAGE1_HOST_ENCRYPTION_READBACK_INVALID');
@@ -1826,7 +1853,13 @@ async function remoteHostEncryptionBackupState(sourceSha) {
   const command = `backup-state --kubeconfig=${HOST_KUBECONFIG}`;
   const result = parsePublicJson(await runPublicSsh(
     machine,
-    nativeNodeCommand(sourceSha, remoteHostEncryptionHelper(sourceSha), command),
+    nativeNodeCommand(
+      sourceSha,
+      remoteHostEncryptionHelper(sourceSha),
+      command,
+      undefined,
+      { publicErrors: true },
+    ),
     undefined,
     { privileged: true },
   ), 'P2_STAGE1_HOST_ENCRYPTION_BACKUP_READBACK_INVALID');
@@ -1872,7 +1905,13 @@ async function hostEncryptionBackup() {
   const command = `backup --confirmation=${option('confirmation')} --kubeconfig=${HOST_KUBECONFIG}`;
   const result = parsePublicJson(await runPublicSsh(
     machine,
-    nativeNodeCommand(sourceSha, remoteHostEncryptionHelper(sourceSha), command),
+    nativeNodeCommand(
+      sourceSha,
+      remoteHostEncryptionHelper(sourceSha),
+      command,
+      undefined,
+      { publicErrors: true },
+    ),
     undefined,
     { privileged: true },
   ), 'P2_STAGE1_HOST_ENCRYPTION_BACKUP_OUTCOME_UNKNOWN');

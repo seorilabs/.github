@@ -246,7 +246,7 @@ function fixtureHostBackup() {
 }
 
 const hostBackupMarker = join(nodeRoot, 'host-pre-backup.json');
-const hostBackupState = /provision-p2-host-encryption\.mjs backup-state --kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/client\.config 3<&0'$/u
+const hostBackupState = /provision-p2-host-encryption\.mjs backup-state --kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/client\.config 3<&0(?: 2>&1)?'$/u
   .exec(remoteCommand);
 if (hostBackupState !== null) {
   if (nodeName !== contract.target.nodeName) process.exit(126);
@@ -264,7 +264,7 @@ if (hostBackupState !== null) {
   }
 }
 
-const hostBackup = /provision-p2-host-encryption\.mjs backup --confirmation=fleet-p2-host-backup-[a-f0-9]{12} --kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/client\.config 3<&0'$/u
+const hostBackup = /provision-p2-host-encryption\.mjs backup --confirmation=fleet-p2-host-backup-[a-f0-9]{12} --kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/client\.config 3<&0(?: 2>&1)?'$/u
   .exec(remoteCommand);
 if (hostBackup !== null) {
   if (nodeName !== contract.target.nodeName) process.exit(126);
@@ -273,7 +273,7 @@ if (hostBackup !== null) {
   output(attestation);
 }
 
-const hostEncryptionReadback = /provision-p2-host-encryption\.mjs readback --kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/client\.config --tang-attestation=\/var\/lib\/seorilabs\/tang-backup-attestations\/rpi4001\.json --tang-attestation=\/var\/lib\/seorilabs\/tang-backup-attestations\/seori-m6-01\.json 3<&0'$/u
+const hostEncryptionReadback = /provision-p2-host-encryption\.mjs readback --kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/client\.config --tang-attestation=\/var\/lib\/seorilabs\/tang-backup-attestations\/rpi4001\.json --tang-attestation=\/var\/lib\/seorilabs\/tang-backup-attestations\/seori-m6-01\.json 3<&0(?: 2>&1)?'$/u
   .exec(remoteCommand);
 if (hostEncryptionReadback !== null) {
   if (nodeName !== contract.target.nodeName) process.exit(126);
