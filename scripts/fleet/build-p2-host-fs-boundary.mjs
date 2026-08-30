@@ -31,7 +31,7 @@ if (process.platform !== 'linux') {
 if (
   testRoot !== undefined &&
   (!isAbsolute(testRoot) || normalize(testRoot) !== testRoot ||
-    !/^\/run\/seorilabs-p2-native-harness-[a-f0-9-]+$/u.test(testRoot))
+    !/^\/var\/tmp\/seorilabs-p2-native-harness-[a-f0-9-]+$/u.test(testRoot))
 ) {
   throw new Error('filesystem boundary test root is invalid');
 }
