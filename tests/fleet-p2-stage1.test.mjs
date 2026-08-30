@@ -958,6 +958,11 @@ test('local hardening bootstrap is current-user, crash-recoverable, exact, and o
       'utf8',
     );
     assert.doesNotMatch(configNames, /PRIVATE KEY|node_modules/u);
+    const boundaryReceipt = JSON.parse(configNames);
+    assert.deepEqual(Object.keys(boundaryReceipt).toSorted(), [
+      'launcherRelativePath', 'launcherSha256', 'moduleRelativePath', 'moduleSha256',
+      'relayRelativePath', 'relaySha256', 'schemaVersion', 'secretExposed', 'state',
+    ].toSorted());
     await assert.rejects(lstat(join(fixture.credentialRoot, 'runtime')));
     await lstat(join(
       fixture.home,

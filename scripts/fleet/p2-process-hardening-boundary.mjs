@@ -133,7 +133,7 @@ function activateLocalBoundary(processBoundary, context, expectedReceipt) {
   const expectedBoundary = Object.freeze({
     launcherRelativePath: 'bin/seori-auth-native',
     moduleRelativePath: 'bin/seorilabs-p2-process-hardening.node',
-    receiptRelativePath: 'bin/stage1-process-boundary.json',
+    receiptRelativePath: 'bin/stage1-process-boundary-v2.json',
     launcherMode: '0500',
     moduleMode: '0400',
     receiptMode: '0400',

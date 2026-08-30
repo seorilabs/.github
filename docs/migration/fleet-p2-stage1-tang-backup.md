@@ -41,6 +41,8 @@ source bootstrap, Tang provision과 backup은 모두 중단한다.
 - 로컬 source와 dependency는 credential backup에 섞지 않는다. exact git archive, lockfile 기반
   dependency, receipt는 `~/.local/share/seorilabs/fleet-p2/<source-sha>`에 두고,
   `~/.config/seorilabs/bin`에는 작은 launcher, module, install receipt만 둔다.
+- 고정 `stage1-process-boundary-v2.json`은 launcher, module, relay digest만 증명한다. 변경 가능한 계약
+  digest와 controller/source SHA는 source별 `stage1-local-source.json`이 고정한다.
 - host record는 `/usr/local/libexec/seorilabs-p2-host-fs-boundary publish-record <fixed-id>`만 쓴다.
   fixed pending entry를 identity-bound로 복구하고 file과 parent directory를 `fsync`한 뒤
   `renameat2 RENAME_NOREPLACE`로 게시한다. plaintext fallback, caller 지정 path, overwrite, rotate,

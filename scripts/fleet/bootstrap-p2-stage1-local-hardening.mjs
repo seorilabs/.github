@@ -833,7 +833,6 @@ function boundaryReceipt(artifacts) {
   return Object.freeze({
     schemaVersion: 1,
     state: 'P2_STAGE1_LOCAL_PROCESS_BOUNDARY_READY',
-    contractDigest: combinedDigest,
     launcherRelativePath: stage1.localProcessBoundary.launcherRelativePath,
     launcherSha256: artifacts.launcherSha256,
     moduleRelativePath: stage1.localProcessBoundary.moduleRelativePath,

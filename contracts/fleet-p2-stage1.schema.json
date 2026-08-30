@@ -168,7 +168,7 @@
       "properties": {
         "launcherRelativePath": { "const": "bin/seori-auth-native" },
         "moduleRelativePath": { "const": "bin/seorilabs-p2-process-hardening.node" },
-        "receiptRelativePath": { "const": "bin/stage1-process-boundary.json" },
+        "receiptRelativePath": { "const": "bin/stage1-process-boundary-v2.json" },
         "runtimeRootRelativePath": { "const": ".local/share/seorilabs/fleet-p2" },
         "sourceArchiveLeaf": { "const": "source.tar" },
         "sourceReceiptLeaf": { "const": "stage1-local-source.json" },
