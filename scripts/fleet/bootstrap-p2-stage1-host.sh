@@ -184,7 +184,7 @@ if [[ "$(/usr/bin/sha256sum "$staging/package-lock.json" | /usr/bin/awk '{print 
 fi
 
 (cd "$staging" && /usr/local/bin/npm ci --ignore-scripts --no-bin-links --workspaces=false \
-  --audit=false --fund=false)
+  --audit=false --fund=false >/dev/null)
 workspace_parent="$staging/node_modules/@seorilabs"
 for workspace in repo-contract seori-auth; do
   workspace_link="$workspace_parent/$workspace"
@@ -201,11 +201,11 @@ for workspace in repo-contract seori-auth; do
 done
 /usr/bin/rmdir -- "$workspace_parent"
 /usr/local/bin/node "$staging/tools/seori-auth/scripts/build-native.mjs" \
-  "$staging/tools/seori-auth/.build/seori-auth-native"
+  "$staging/tools/seori-auth/.build/seori-auth-native" >/dev/null
 /usr/local/bin/node "$staging/scripts/fleet/build-p2-process-hardening-boundary.mjs" \
-  "$staging/.build/seorilabs-p2-process-hardening.node"
+  "$staging/.build/seorilabs-p2-process-hardening.node" >/dev/null
 /usr/local/bin/node "$staging/scripts/fleet/build-p2-host-fs-boundary.mjs" \
-  "$staging/.build/seorilabs-p2-host-fs-boundary"
+  "$staging/.build/seorilabs-p2-host-fs-boundary" >/dev/null
 
 staging_native="$staging/tools/seori-auth/.build/seori-auth-native"
 staging_process="$staging/.build/seorilabs-p2-process-hardening.node"

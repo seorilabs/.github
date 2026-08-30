@@ -885,12 +885,24 @@ test('source bootstrap validates the outer Node command symlink without collapsi
   );
   assert.match(
     source,
-    /npm ci --ignore-scripts --no-bin-links --workspaces=false/u,
+    /npm ci --ignore-scripts --no-bin-links --workspaces=false[\s\S]*--fund=false >\/dev\/null\)/u,
   );
   assert.match(source, /expected_workspace_target="\.\.\/\.\.\/packages\/repo-contract"/u);
   assert.match(source, /expected_workspace_target="\.\.\/\.\.\/tools\/seori-auth"/u);
   assert.match(source, /\/usr\/bin\/rm -- "\$workspace_link"/u);
   assert.match(source, /\/usr\/bin\/rmdir -- "\$workspace_parent"/u);
+  assert.match(
+    source,
+    /build-native\.mjs"[\s\S]*seori-auth-native" >\/dev\/null/u,
+  );
+  assert.match(
+    source,
+    /build-p2-process-hardening-boundary\.mjs"[\s\S]*process-hardening\.node" >\/dev\/null/u,
+  );
+  assert.match(
+    source,
+    /build-p2-host-fs-boundary\.mjs"[\s\S]*host-fs-boundary" >\/dev\/null/u,
+  );
 });
 
 test('local hardening bootstrap is current-user, crash-recoverable, exact, and outside credential backup', {
