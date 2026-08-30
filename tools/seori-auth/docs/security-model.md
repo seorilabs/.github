@@ -47,7 +47,8 @@
   resolution 전까지 같은 run/provider/account/app의 새 checkout을 차단
 - browser HTTP 응답에는 opaque capability ID와 공개 identity만 포함
 - schema v2 journal의 record 순서, mutation, audit를 HMAC chain으로 인증하고 외부 head
-  checkpoint가 주어지면 tail 삭제/rollback도 startup에서 거부
+  checkpoint가 주어지면 tail 삭제/rollback도 startup에서 거부. append 전에 strict public
+  control/audit schema를 검증해 secret-bearing 필드나 비-JSON 객체를 먼저 디스크에 쓰지 않음
 - provider/account/role별 profile을 AES-256-GCM으로 저장하고 clone은 owner-only runtime
   directory에만 생성하며 provider/account별 filesystem lock으로 프로세스 간 동시 실행 1개.
   capability는 credential lease, expected profile generation, source SHA, exact origin/redirect,
@@ -87,7 +88,7 @@
 - NetworkPolicy만으로 DNS 이름이나 TLS provider identity를 검증하는 것
 
 따라서 broker는 전용 host/container, read-only root filesystem, 분리된 PID namespace,
-egress allowlist, encrypted-at-rest secret store와 함께 운영해야 합니다. worker와
+egress allowlist, application-layer encrypted secret store와 함께 운영해야 합니다. worker와
 broker가 같은 Kubernetes Pod에 있더라도 worker에는 projected API token, credential
 volume, durable state volume을 mount하지 않습니다.
 
@@ -137,7 +138,8 @@ append하고 각 envelope에 `ProviderGrant`를 포함한 non-secret state mutat
 `AuthAuditEvent`를 함께
 기록합니다. 호환 모드 schema v1은 sequence만 검사합니다. production은 32-byte
 broker-held key와 `requireIntegrity: true`를 사용해 schema v2 HMAC/hash chain만
-허용합니다. 중간에 잘린 record, sequence 역행, MAC/previous-MAC 불일치, symlink,
+허용합니다. record는 append 전에 같은 strict validator로 plain JSON, exact mutation/audit schema를
+확인합니다. 중간에 잘린 record, sequence 역행, MAC/previous-MAC 불일치, symlink,
 group/other-readable mode는 fail-closed입니다. control plane에 보관한 마지막 head MAC을
 `expectedJournalHeadMac`으로 주면 journal tail rollback도 거부합니다. MAC key와 secret
 실행 복제본은 journal에 쓰지 않습니다.

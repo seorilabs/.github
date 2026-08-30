@@ -19,7 +19,7 @@ renderer는 secret 값을 읽거나 출력하지 않고 하나의 JSON `List`만
 | `imagePullPolicy` | `Always` 또는 `IfNotPresent` |
 | `registry` | 명시적 `PUBLIC` 또는 `PACKAGES_READER`; mode가 없거나 readback 상태가 미검증이면 중단 |
 | `nodeSelector` | 고정값 `kubernetes.io/hostname: rpi5`. 다른 label이나 RPI4는 거부 |
-| `stateClaimName` | 사전에 검증된 encrypted PVC 이름 |
+| `stateClaimName` | application envelope 계약과 exact Retain readback을 통과한 PVC 이름 |
 | `trustedWorkers` | namespace/pod exact match label을 각각 한 개씩 가진 selector |
 | `providerControlPlane` | signer ServiceAccount의 exact `backofficeClientSpiffeId`, 고정 `/internal/control-plane/provider-grants` scope, Backoffice signer Pod 전용 namespace/pod exact selector |
 | `egressProxy` | namespace/pod exact selector와 TLS proxy port |
@@ -61,7 +61,7 @@ renderer가 참조하지만 생성하지 않는 외부 객체는 다음뿐입니
   `run-attestation.pub`
 - role별 service mTLS Secret - `ca.crt`, `tls.crt`, `tls.key`
 - role별 egress mTLS Secret - `ca.crt`, `tls.crt`, `tls.key`
-- broker 전용 encrypted PVC
+- broker 전용 Retain PVC. secret-bearing 파일은 application envelope만 허용하고 journal은 공개 control/audit record만 저장
 - private GHCR pull Secret - `PACKAGES_READER`일 때만 세 Pod에 동일한 exact
   `imagePullSecrets`로 참조
 
@@ -84,34 +84,34 @@ kubectl apply --dry-run=client --validate=false -f /tmp/seori-auth-rendered.json
 ```
 
 실제 cluster의 server dry-run, 아홉 RBAC `can-i=no`, WIF/IAM readback, egress proxy allowlist,
-PVC encryption과 fake-account login canary를 모두 통과한 뒤에만 별도 승인 작업에서 apply합니다.
+application envelope/PVC Retain readback과 fake-account login canary를 모두 통과한 뒤에만 별도 승인 작업에서 apply합니다.
 private GHCR pull Secret이 namespace에 존재하고 예상 registry identity에서 생성됐다는 공개
 readback이 없으면 workload apply를 중단합니다. renderer가 `imagePullSecrets`를 생략한 manifest는
 `PUBLIC` verified mode가 아닌 한 node image cache가 있더라도 운영 계약에 맞지 않습니다.
 현재 구현 작업은 live RBAC, Secret Manager IAM, TLS material, PVC 또는 provider 계정을
 생성·변경하지 않습니다.
 
-## RPI5 encrypted state 검증 경계
+## RPI5 application envelope state 검증 경계
 
-fleet runtime 계약은 broker state를 RPI5의 exact dm-crypt mapper와 `ext4`, 사전 결합된
-`ReadWriteOnce`/`Filesystem` PVC, `Retain` local PV로 제한합니다. 저장소 루트에서 다음 두
-검증을 순서대로 실행합니다.
+fleet runtime v2 계약은 secret-bearing durable state를 Browser Vault의 AES-256-GCM envelope로
+제한합니다. journal에는 strict public control/audit record만 허용하고 schema 검증을 append보다
+먼저 수행한 뒤 HMAC chain으로 인증합니다. backing disk 형식은 gate가 아닙니다. 저장소 루트에서
+다음 두 검증을 순서대로 실행합니다.
 
 ```sh
-node scripts/fleet/verify-p2-state-encryption.mjs host
-node scripts/fleet/verify-p2-state-encryption.mjs server-dry-run
+node scripts/fleet/verify-p2-state-envelope.mjs contract
+node scripts/fleet/verify-p2-state-envelope.mjs live-readback
 ```
 
-`host`는 exact node와 dm-crypt backing을 검증하고 device mapper 여부, filesystem type,
-backing identity의 SHA-256 fingerprint만 반환합니다. device·mapper 이름이나 mount path는
-반환하지 않습니다. `server-dry-run`은 같은 attestation에 결합된 PV/PVC를 Kubernetes API의
-strict server dry-run으로 검증하고 공개 PV/PVC identity, size, access mode, volume mode,
-reclaim policy, storage class, node만 반환합니다. 실행 명령은 고정 `vzyx-cluster`에서
-`kubectl create --dry-run=server`뿐이며 PV/PVC를 생성하거나 기존 객체를 변경하지 않습니다.
+`contract`는 actual journal serializer와 Browser Vault cipher 상수가 runtime v2 계약과 일치하는지
+검증하고 공개 상태만 반환합니다. `live-readback`은 고정 `vzyx-cluster`에서 existing PV/PVC를
+`kubectl get`으로만 읽어 exact claim UID binding, Bound phase, RPI5 node affinity, size, storage
+class와 `Retain`을 확인합니다. create/apply/delete/patch를 호출하지 않습니다.
+PV/PVC가 모두 없으면 `MISSING`, 한쪽만 관측되면 `PARTIAL`, kubectl 결과가 불명이면 `FAILED`로
+구분하며 모두 `READBACK_FIRST`로 중단합니다. 이를 drift나 provisioning 성공으로 추측하지 않습니다.
 
-두 검증의 성공은 실제 provisioning 승인이 아닙니다. host attestation 공개 결과를 검토한 뒤
-별도 승인으로 Retain PV/PVC를 pre-provision하고, live 객체와 encrypted backing을 다시
-readback하기 전까지 `encryptionStatus: blocked_unverified`를 유지합니다.
+두 검증의 성공은 provisioning 승인이 아닙니다. PV/PVC 생성은 별도 승인 작업이며 삭제는 계약상
+금지됩니다. live exact readback 전까지 `protection.status: blocked_unverified`를 유지합니다.
 
 projected identity volume은 고정 mount
 `/var/run/seori-auth/projected-identity`와 고정 leaf `token`만 제공합니다. Kubernetes의

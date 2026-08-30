@@ -186,7 +186,7 @@ export function normalizeLeaseRequest(request) {
     ),
     capability: request.capability,
     resource: normalizeResource(request.resource),
-    artifact: normalizeArtifact(request.artifact),
+    ...(request.artifact === undefined ? {} : { artifact: normalizeArtifact(request.artifact) }),
     adapterId: request.adapterId,
     accountId: request.accountId,
     authFactors: Object.freeze([...request.authFactors]),

@@ -1,6 +1,6 @@
 # Fleet P3 runtime 전환 기록
 
-P3 WorkflowBundle provenance 기준 source는
+P3 runtime 초기 전환의 WorkflowBundle provenance 기준 source는
 `9583e0d21a4a2b23d0b93c4deedb74b6b467aadf`이다. 이 문서는
 2026-08-28~29 KST live readback과 P3 공개 계약을 분리해 기록한다. secret, capability, 승인
 receipt, lease token은 기록하지 않는다.
@@ -13,8 +13,9 @@ receipt, lease token은 기록하지 않는다.
   account 생성, project IAM 조회·변경, WIF pool 조회·변경 권한이 없었다.
 - Kubernetes에는 `auth-broker` namespace, `provider-execution-signer`,
   `seori-auth-egress-proxy`가 없었다. cert-manager와 sealed-secrets controller는 Ready였다.
-- 유일한 storage class `microk8s-hostpath`의 RPI5 backing path는 NVMe ext4였지만 LUKS 또는
-  dm-crypt mapping이 확인되지 않았다. encrypted-at-rest PVC gate는 미충족이다.
+- 유일한 storage class `microk8s-hostpath`는 RPI5 local volume을 제공한다. block-device 암호화
+  여부는 더 이상 P2 gate가 아니다. secret-bearing durable state는 application envelope로만
+  저장하고, 공개 journal은 비밀 비노출 serializer와 HMAC chain으로 제한한다.
 - 고정 Auth Broker image는 성공한 `Seori Auth Image` run `33157801494`의 private GHCR digest
   `sha256:d8fabaa5e79711d2a4cddd4d70af8d8f17e96143a5b281bccf3f0ee89a1ea457`다.
 - GitHub token에는 `admin:org` scope가 없었다. 조직 custom property schema는 비어 있었고,
@@ -38,8 +39,8 @@ receipt, lease token은 기록하지 않는다.
   process-local memory에서 해제하되 signed native Keychain helper 전에는 write를 차단하는 adapter
 - `scripts/fleet/bootstrap-p3-secret-manager.mjs`: broker/password/TOTP별 네 exact secret version과
   secret-level accessor binding의 기본 dry-run, two-phase apply, readback, provider-disable rollback
-- `scripts/fleet/verify-p2-state-encryption.mjs`: RPI5 dm-crypt host attestation과 exact Retain
-  PV/PVC strict server dry-run. 공개 fingerprint와 PV/PVC identity만 출력하며 provisioning은 하지 않음
+- `scripts/fleet/verify-p2-state-envelope.mjs`: application envelope 구현 계약과 exact Retain
+  PV/PVC의 read-only live readback. host storage를 탐색하거나 provisioning하지 않음
 - `tests/fleet-p3-runtime.test.mjs`: strict schema, 최소 권한 분리, secret 비노출, RBAC 0권한,
   exact pilot과 fail-closed manifest 검증
 
@@ -49,7 +50,8 @@ receipt, lease token은 기록하지 않는다.
    Namespace, ServiceAccount, RBAC, NetworkPolicy, Certificate 상태를 readback한다.
 2. GCP 관리자가 5개 service account와 최소 IAM/WIF binding을 계약대로 생성한다. 정적 key는
    만들지 않고 각 공개 identity와 binding을 API로 readback한다.
-3. RPI5 storage의 encrypted-at-rest를 증명하거나 암호화 storage class를 제공한다.
+3. Browser Vault AES-256-GCM, journal의 쓰기 전 공개-schema 검증/HMAC chain을 검증하고,
+   RPI5 Retain PV/PVC가 exact Bound identity인지 read-only로 확인한다.
 4. 개인 `shared/github/operator`는 desired pull identity로 재사용하지 않는다. 조직 전용
    machine-user packages reader 또는 digest/signature가 검증된 public package 중 하나를 승인한
    뒤, renderer가 세 Pod 모두에 exact `imagePullSecrets`를 고정하는지 확인하고 provider signer와
@@ -151,10 +153,11 @@ workload·PVC도 0개였다. production renderer는 이제 세 Pod에 exact
 `imagePullSecrets`를 필수로 넣어 node cache 의존을 거부하지만, Secret 생성과 workload apply는
 등록 identity·backup/restore 승인 및 공개 readback 뒤 별도 외부 mutation gate로 남아 있다.
 
-GitHub 조직 변경도 기본 dry-run이다. apply confirmation은 reusable workflow execution pin
-`c328d9b`가 아니라 canonical App/operation plan digest에 결합한다. WorkflowBundle provenance는
-1단계 source `a59f5d4`에, reusable workflow execution은 동일 bytes가 검증된 `c328d9b`에 각각
-고정한다. GitHub WIF condition은 numeric owner ID와 Happy Farm/RN, Lizard Tycoon/Godot의
+GitHub 조직 변경도 기본 dry-run이다. apply confirmation은 reusable workflow execution pin이
+아니라 canonical App/operation plan digest에 결합한다. 2026-08-30 v5 전환 뒤 WorkflowBundle
+source와 reusable workflow execution은 모두 exact commit
+`65189aedfa5f5772b190f1cd6a7917b153d9caf7`로 고정한다. GitHub WIF condition은 numeric owner
+ID와 Happy Farm/RN, Lizard Tycoon/Godot의
 `repository_id + job_workflow_ref` 쌍만 허용하며 교차 조합을 허용하지 않는다. `internal`
 Environment에는 중앙 desired state의 공개 WIF provider와 Cloud Build submitter/executor SA를
 같은 binding revision으로 reconcile한다. 조직 owner는 permission expansion approval을 먼저
@@ -208,9 +211,11 @@ node scripts/fleet/bootstrap-p3-secret-manager.mjs rollback '<plan이 반환한 
 않는다. 실제 네 secret/version, secret-level IAM, WIF 활성화, workload와 fake canary는 모두
 미적용·미검증 상태다.
 
-2026-08-30에는 RPI5 state encryption을 mutation 없이 확인하는 attestor와 pre-provisioned
-Retain PV/PVC server-dry-run verifier를 추가했다. fake `mountinfo`/`lsblk`/`kubectl` fixture에서
-dm-crypt ext4만 통과하고 direct ext4, mapper look-alike, 암호화 누락, wrong node/storage class,
-`Delete` reclaim policy, PV/PVC drift는 fail-closed한다. 실제 RPI5 host attestation과 live PV/PVC
-provision/readback은 수행하지 않았으므로 encrypted state gate와
-`encryptionStatus: blocked_unverified`는 그대로다.
+2026-08-30에는 runtime 계약을 breaking major `schemaVersion: 2`로 올리고 block-device 암호화
+의무를 application-layer envelope로 대체했다. Browser Vault는 AES-256-GCM envelope만 저장하고,
+durable journal은 secret-free 공개 control/audit schema를 HMAC chain으로 인증하며 쓰기 전에 같은
+strict validator를 통과해야 한다. volume verifier는 host나 block device를 읽지 않고 existing
+PV/PVC를 `kubectl get`으로만 읽어 exact Bound identity, RPI5 node affinity와 `Retain`을 확인한다.
+missing/partial/drift/`Delete`는 mutation 없이 fail-closed하며 create/delete/patch는 별도 승인이다.
+실제 live PV/PVC readback은 아직 수행하지 않았으므로 rollout status는
+`protection.status: blocked_unverified`로 유지한다.

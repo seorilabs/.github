@@ -73,6 +73,13 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
   );
   assert.equal(validate(contract), true, JSON.stringify(validate.errors));
   assert.equal(
+    schema.$id,
+    "https://seorilabs.github.io/contracts/v2/fleet-p3-runtime.schema.json",
+  );
+  const legacyMajor = structuredClone(contract);
+  legacyMajor.schemaVersion = 1;
+  assert.equal(validate(legacyMajor), false);
+  assert.equal(
     trustedFleetExecutorContract.githubApiVersion,
     contract.github.apiVersion,
   );
@@ -80,32 +87,46 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
     contract.github.pilotValues.map(({ repository }) => repository),
     ["happy-farm", "lizard-tycoon"],
   );
-  assert.equal(contract.authBroker.state.encryptionRequired, true);
-  assert.equal(contract.authBroker.state.encryptionStatus, "blocked_unverified");
+  assert.equal(contract.schemaVersion, 2);
+  assert.equal(contract.authBroker.state.protection.mode, "APPLICATION_ENVELOPE");
+  assert.equal(contract.authBroker.state.protection.status, "blocked_unverified");
+  assert.equal(
+    contract.authBroker.state.protection.secretPersistencePolicy,
+    "ENCRYPTED_ENVELOPE_ONLY",
+  );
+  assert.deepEqual(contract.authBroker.state.protection.journal, {
+    schemaVersion: 2,
+    contentPolicy: "SECRET_FREE_PUBLIC_CONTROL_AND_AUDIT_ONLY",
+    integrity: "HMAC_SHA256_CHAIN",
+    writeValidation: "FAIL_CLOSED_BEFORE_SERIALIZATION",
+    logicalCredentialId: "shared/seori-auth/journal-mac",
+  });
+  assert.deepEqual(contract.authBroker.state.protection.browserVault, {
+    envelopeVersion: 1,
+    algorithm: "aes-256-gcm",
+    logicalCredentialId: "shared/seori-auth/browser-vault",
+    plaintextAtRestAllowed: false,
+  });
   assert.deepEqual(
     {
-      claimName: contract.authBroker.state.claimName,
-      volumeName: contract.authBroker.state.volumeName,
-      nodeName: contract.authBroker.state.nodeName,
-      mapperName: contract.authBroker.state.mapperName,
-      mountFstype: contract.authBroker.state.mountFstype,
-      size: contract.authBroker.state.size,
-      storageClassName: contract.authBroker.state.storageClassName,
-      accessModes: contract.authBroker.state.accessModes,
-      volumeMode: contract.authBroker.state.volumeMode,
-      reclaimPolicy: contract.authBroker.state.reclaimPolicy,
+      ...contract.authBroker.state.volume,
     },
     {
+      kubernetesContext: "vzyx-cluster",
+      namespace: "auth-broker",
       claimName: "seori-auth-state",
       volumeName: "seori-auth-state-rpi5",
       nodeName: "rpi5",
-      mapperName: "seori-auth-state",
-      mountFstype: "ext4",
+      localPath: "/var/lib/seori-auth",
       size: "10Gi",
       storageClassName: "microk8s-hostpath",
       accessModes: ["ReadWriteOnce"],
       volumeMode: "Filesystem",
       reclaimPolicy: "Retain",
+      readbackPolicy: "EXACT_READBACK_ONLY",
+      mutationPolicy: "SEPARATE_APPROVAL",
+      deletionPolicy: "FORBIDDEN",
+      unknownOutcomePolicy: "READBACK_FIRST",
     },
   );
   assert.equal(contract.authBroker.registry.credentialId, "shared/github/packages-reader");
@@ -717,11 +738,11 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   assert.doesNotMatch(output.confirmation, /e86018971183/u);
   assert.equal(
     output.workflowBundleSourceSha,
-    "0b6346713a64f6309fa32d1d3e09747c9db4ccb4",
+    "65189aedfa5f5772b190f1cd6a7917b153d9caf7",
   );
   assert.equal(
     output.workflowExecutionSha,
-    "0b6346713a64f6309fa32d1d3e09747c9db4ccb4",
+    "65189aedfa5f5772b190f1cd6a7917b153d9caf7",
   );
   assert.equal(
     output.workloadIdentity.github.audience,
@@ -731,15 +752,15 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   assert.deepEqual(
     contract.cloudBuild.wif.repositories.map(({ sha256 }) => sha256),
     [
-      "2dc3e759e458071cd438ebe957be90624656f95eb0279cabf2b94dbbe4285824",
+      "7f9c2d66844c0b9aa86f8d67c3e5bf526e3f1bf588544caec4cb2d11f1205e43",
       "11aa0449d5c315066bd7c0223a26c6ff8dde158b37239faf3a9143b3655a25ca",
     ],
   );
   assert.equal(
     output.workloadIdentity.github.attributeCondition,
     "assertion.repository_owner_id == '283115031' && " +
-      "((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@0b6346713a64f6309fa32d1d3e09747c9db4ccb4') || " +
-      "(assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@0b6346713a64f6309fa32d1d3e09747c9db4ccb4'))",
+      "((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@65189aedfa5f5772b190f1cd6a7917b153d9caf7') || " +
+      "(assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@65189aedfa5f5772b190f1cd6a7917b153d9caf7'))",
   );
   const capabilities = contract.cloudBuild.wif.repositories.map(
     ({ repositoryId, workflow }) => ({
@@ -1135,11 +1156,11 @@ test("Secret Manager bootstrap은 role partition을 two-phase 적용하고 rollb
   assert.equal(plan.provisioning.plaintextTransport, "fd3");
   assert.equal(
     plan.workflowBundleSourceSha,
-    "0b6346713a64f6309fa32d1d3e09747c9db4ccb4",
+    "65189aedfa5f5772b190f1cd6a7917b153d9caf7",
   );
   assert.equal(
     plan.workflowExecutionSha,
-    "0b6346713a64f6309fa32d1d3e09747c9db4ccb4",
+    "65189aedfa5f5772b190f1cd6a7917b153d9caf7",
   );
   assert.match(plan.confirmation, /^fleet-p3-secrets-[a-f0-9]{12}$/u);
   assert.doesNotMatch(plan.confirmation, /e86018971183/u);
@@ -1406,7 +1427,15 @@ test("Auth Broker foundation은 RBAC 0권한, exact NetworkPolicy와 cert-manage
   assert.equal(publicBindings.immutable, true);
   assert.match(
     publicBindings.data["bindings.json"],
-    /"encryptionStatus": "blocked_unverified"/u,
+    /"mode": "APPLICATION_ENVELOPE"/u,
+  );
+  assert.match(
+    publicBindings.data["bindings.json"],
+    /"status": "blocked_unverified"/u,
+  );
+  assert.match(
+    publicBindings.data["bindings.json"],
+    /"contentPolicy": "SECRET_FREE_PUBLIC_CONTROL_AND_AUDIT_ONLY"/u,
   );
   assert.match(
     publicBindings.data["bindings.json"],

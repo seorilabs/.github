@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/seorilabs/.github/contracts/fleet-p3-runtime.schema.json",
-  "title": "Seorilabs Fleet P3 runtime bootstrap contract",
+  "$id": "https://seorilabs.github.io/contracts/v2/fleet-p3-runtime.schema.json",
+  "title": "Seorilabs Fleet P3 runtime bootstrap contract v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "github", "cloudBuild", "authBroker"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "github": {
       "type": "object",
       "additionalProperties": false,
@@ -274,8 +274,8 @@
             "kubernetesIssuer": { "const": "https://kubernetes.default.svc" },
             "githubAudience": { "const": "https://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build" },
             "organizationId": { "const": "283115031" },
-            "workflowBundleSourceSha": { "const": "0b6346713a64f6309fa32d1d3e09747c9db4ccb4" },
-            "workflowExecutionSha": { "const": "0b6346713a64f6309fa32d1d3e09747c9db4ccb4" },
+            "workflowBundleSourceSha": { "const": "65189aedfa5f5772b190f1cd6a7917b153d9caf7" },
+            "workflowExecutionSha": { "const": "65189aedfa5f5772b190f1cd6a7917b153d9caf7" },
             "repositories": {
               "type": "array",
               "minItems": 2,
@@ -578,27 +578,70 @@
         "state": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "claimName", "volumeName", "storageClassName", "size", "accessModes",
-            "volumeMode", "reclaimPolicy", "nodeName", "mapperName", "mountFstype",
-            "encryptionRequired", "encryptionStatus"
-          ],
+          "required": ["protection", "volume"],
           "properties": {
-            "claimName": { "const": "seori-auth-state" },
-            "volumeName": { "const": "seori-auth-state-rpi5" },
-            "storageClassName": { "type": "string", "minLength": 1 },
-            "size": { "type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$" },
-            "accessModes": {
-              "type": "array", "minItems": 1, "maxItems": 1,
-              "prefixItems": [{ "const": "ReadWriteOnce" }], "items": false
+            "protection": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mode", "status", "secretPersistencePolicy", "journal", "browserVault"],
+              "properties": {
+                "mode": { "const": "APPLICATION_ENVELOPE" },
+                "status": { "enum": ["verified", "blocked_unverified"] },
+                "secretPersistencePolicy": { "const": "ENCRYPTED_ENVELOPE_ONLY" },
+                "journal": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schemaVersion", "contentPolicy", "integrity", "writeValidation", "logicalCredentialId"],
+                  "properties": {
+                    "schemaVersion": { "const": 2 },
+                    "contentPolicy": { "const": "SECRET_FREE_PUBLIC_CONTROL_AND_AUDIT_ONLY" },
+                    "integrity": { "const": "HMAC_SHA256_CHAIN" },
+                    "writeValidation": { "const": "FAIL_CLOSED_BEFORE_SERIALIZATION" },
+                    "logicalCredentialId": { "const": "shared/seori-auth/journal-mac" }
+                  }
+                },
+                "browserVault": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["envelopeVersion", "algorithm", "logicalCredentialId", "plaintextAtRestAllowed"],
+                  "properties": {
+                    "envelopeVersion": { "const": 1 },
+                    "algorithm": { "const": "aes-256-gcm" },
+                    "logicalCredentialId": { "const": "shared/seori-auth/browser-vault" },
+                    "plaintextAtRestAllowed": { "const": false }
+                  }
+                }
+              }
             },
-            "volumeMode": { "const": "Filesystem" },
-            "reclaimPolicy": { "const": "Retain" },
-            "nodeName": { "const": "rpi5" },
-            "mapperName": { "const": "seori-auth-state" },
-            "mountFstype": { "const": "ext4" },
-            "encryptionRequired": { "const": true },
-            "encryptionStatus": { "enum": ["verified", "blocked_unverified"] }
+            "volume": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kubernetesContext", "namespace", "claimName", "volumeName", "storageClassName",
+                "size", "accessModes", "volumeMode", "reclaimPolicy", "nodeName", "localPath",
+                "readbackPolicy", "mutationPolicy", "deletionPolicy", "unknownOutcomePolicy"
+              ],
+              "properties": {
+                "kubernetesContext": { "const": "vzyx-cluster" },
+                "namespace": { "const": "auth-broker" },
+                "claimName": { "const": "seori-auth-state" },
+                "volumeName": { "const": "seori-auth-state-rpi5" },
+                "storageClassName": { "type": "string", "minLength": 1 },
+                "size": { "type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$" },
+                "accessModes": {
+                  "type": "array", "minItems": 1, "maxItems": 1,
+                  "prefixItems": [{ "const": "ReadWriteOnce" }], "items": false
+                },
+                "volumeMode": { "const": "Filesystem" },
+                "reclaimPolicy": { "const": "Retain" },
+                "nodeName": { "const": "rpi5" },
+                "localPath": { "const": "/var/lib/seori-auth" },
+                "readbackPolicy": { "const": "EXACT_READBACK_ONLY" },
+                "mutationPolicy": { "const": "SEPARATE_APPROVAL" },
+                "deletionPolicy": { "const": "FORBIDDEN" },
+                "unknownOutcomePolicy": { "const": "READBACK_FIRST" }
+              }
+            }
           }
         },
         "trustedWorkers": { "$ref": "#/$defs/peer" },
@@ -815,7 +858,7 @@
         "fullName": { "const": "seorilabs/happy-farm" },
         "repositoryId": { "const": "1250442131" },
         "workflow": { "const": ".github/workflows/rn-build-android-cloud-v2.yml" },
-        "sha256": { "const": "2dc3e759e458071cd438ebe957be90624656f95eb0279cabf2b94dbbe4285824" }
+        "sha256": { "const": "7f9c2d66844c0b9aa86f8d67c3e5bf526e3f1bf588544caec4cb2d11f1205e43" }
       }
     },
     "godotWifRepository": {

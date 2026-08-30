@@ -209,7 +209,7 @@ public command는 fd4로, strict public result는 fd5로 전달합니다. adapte
 
 ## 운영 활성화 gate
 
-native attestor/launcher, HMAC journal, encrypted filesystem Browser Vault, 분리된
+native attestor/launcher, 쓰기 전 공개-schema 검증/HMAC journal, AES-256-GCM Browser Vault, 분리된
 password/TOTP factor service와 mTLS server primitive, Kubernetes renderer는 구현되어 있습니다.
 built-in fake-account canary는 암호화 profile round-trip과 stale clone 정리, 실제 TOTP 생성 뒤
 실행 복사본 zeroize·비반환, `human` 계정의 factor load/injection 0회 stop gate를 같은 process의
@@ -229,7 +229,8 @@ credential을 연결하거나 manifest를 apply하지 않습니다.
   adapter 계약. 현재 production entrypoint는 이 계약이 없으므로 해당 callback을 명시적으로
   fail-closed하며 Browser Vault checkout을 실제 provider에 연결하지 않습니다.
 - password loader와 TOTP signer의 서로 다른 workload identity 및 secret 단위 IAM
-- 암호화 PVC, tmpfs clone, mTLS identity, 실제 image digest가 고정된 K8s render
+- application envelope 계약과 exact Retain readback을 통과한 PVC, tmpfs clone, mTLS identity,
+  실제 image digest가 고정된 K8s render
 - 사전 readback한 `PUBLIC` package 또는 canonical `shared/github/packages-reader` 실행 복제본.
   PUBLIC이면 `imagePullSecrets`가 없어야 하고 PACKAGES_READER이면 세 Pod가 exact Secret만 참조
 - broker journal/Vault, password canary, TOTP canary의 numeric Secret Manager version과
@@ -325,7 +326,7 @@ done
 [`k8s/production/README.md`](k8s/production/README.md)의 절차는 `auth-broker` namespace,
 restricted Pod Security, Kubernetes API 권한이 비어 있는 세 ServiceAccount, default-deny
 NetworkPolicy, mTLS egress proxy 전용 경로, read-only root filesystem,
-`seccompProfile: RuntimeDefault`, `drop: ["ALL"]`, native launcher, encrypted PVC와 tmpfs
+`seccompProfile: RuntimeDefault`, `drop: ["ALL"]`, native launcher, application envelope를 쓰는 Retain PVC와 tmpfs
 clone mount를 하나의 JSON `List`로 render합니다. NetworkPolicy는 FQDN을 검증하지 못하므로
 provider hostname과 TLS identity는 egress proxy가 exact allowlist로 검증해야 합니다.
 

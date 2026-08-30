@@ -30,6 +30,10 @@ const ROLE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
 const ENVELOPE_KEYS = ['algorithm', 'ciphertext', 'iv', 'tag', 'version'];
 const CHECKOUT_DIRECTORY = /^checkout-([0-9a-f]{64})-[A-Za-z0-9_-]+$/;
+export const BROWSER_VAULT_ENVELOPE = Object.freeze({
+  version: 1,
+  algorithm: 'aes-256-gcm',
+});
 
 function exactKeys(value, expected) {
   return value && typeof value === 'object' && !Array.isArray(value) &&
@@ -203,12 +207,15 @@ function decodeProfile(plaintext, expectedIdentity, expectedRole, { maxFiles, ma
 
 function encryptProfile(key, profileKey, payload) {
   const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', key, iv);
-  cipher.setAAD(Buffer.from(`seori-auth-browser-vault-v1\0${profileKey}`, 'utf8'));
+  const cipher = createCipheriv(BROWSER_VAULT_ENVELOPE.algorithm, key, iv);
+  cipher.setAAD(Buffer.from(
+    `seori-auth-browser-vault-v${BROWSER_VAULT_ENVELOPE.version}\0${profileKey}`,
+    'utf8',
+  ));
   const ciphertext = Buffer.concat([cipher.update(payload), cipher.final()]);
   const envelope = {
-    version: 1,
-    algorithm: 'aes-256-gcm',
+    version: BROWSER_VAULT_ENVELOPE.version,
+    algorithm: BROWSER_VAULT_ENVELOPE.algorithm,
     iv: iv.toString('base64'),
     tag: cipher.getAuthTag().toString('base64'),
     ciphertext: ciphertext.toString('base64'),
@@ -226,8 +233,9 @@ function decryptProfile(key, profileKey, encoded) {
     fail('invalid_browser_profile', 'encrypted browser profile envelope is malformed');
   }
   if (
-    !exactKeys(envelope, ENVELOPE_KEYS) || envelope.version !== 1 ||
-    envelope.algorithm !== 'aes-256-gcm'
+    !exactKeys(envelope, ENVELOPE_KEYS) ||
+    envelope.version !== BROWSER_VAULT_ENVELOPE.version ||
+    envelope.algorithm !== BROWSER_VAULT_ENVELOPE.algorithm
   ) {
     fail('invalid_browser_profile', 'encrypted browser profile envelope is invalid');
   }
@@ -241,8 +249,11 @@ function decryptProfile(key, profileKey, encoded) {
     fail('invalid_browser_profile', 'encrypted browser profile envelope is invalid');
   }
   try {
-    const decipher = createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAAD(Buffer.from(`seori-auth-browser-vault-v1\0${profileKey}`, 'utf8'));
+    const decipher = createDecipheriv(BROWSER_VAULT_ENVELOPE.algorithm, key, iv);
+    decipher.setAAD(Buffer.from(
+      `seori-auth-browser-vault-v${BROWSER_VAULT_ENVELOPE.version}\0${profileKey}`,
+      'utf8',
+    ));
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   } catch {

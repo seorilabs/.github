@@ -967,6 +967,37 @@ test('broker-held HMAC journal detects wrong keys, record tampering, and trusted
   }
 });
 
+test('legacy schema v1 replay cannot open production integrity state or resume issuance', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'seori-auth-legacy-journal-'));
+  const journalMacKey = Buffer.alloc(32, 0x6c);
+  let state;
+  try {
+    state = await openDurableAuthState({ directory, idFactory: idFactory() });
+    await state.issueCredentialCheckout({
+      authorized: authorized(),
+      workerId: 'worker-a',
+      idempotencyKey: 'legacy-checkout',
+      currentCredentialGeneration: 3,
+      currentPolicyGeneration: 7,
+    });
+    await state.close();
+    state = undefined;
+
+    const journalPath = join(directory, 'auth-journal.jsonl');
+    const beforeProductionOpen = await readFile(journalPath, 'utf8');
+    assert.equal(JSON.parse(beforeProductionOpen.trimEnd()).schemaVersion, 1);
+    await assert.rejects(
+      openDurableAuthState({ directory, journalMacKey, requireIntegrity: true }),
+      (error) => error instanceof SeoriAuthError && error.code === 'invalid_state_journal',
+    );
+    assert.equal(await readFile(journalPath, 'utf8'), beforeProductionOpen);
+  } finally {
+    await state?.close();
+    journalMacKey.fill(0);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('durable state refuses a directory readable by another OS identity', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'seori-auth-insecure-state-'));
   try {

@@ -276,7 +276,9 @@ function contractDiagnostics(desired) {
     binding.secretManager?.state !== 'ready' ||
     binding.secretManager?.provisioning?.state !== 'ready'
   ) diagnostics.push({ code: 'SECRET_MANAGER_GATE_BLOCKED' });
-  if (binding.state?.encryptionStatus !== 'ready') diagnostics.push({ code: 'STATE_ENCRYPTION_GATE_BLOCKED' });
+  if (binding.state?.protection?.status !== 'verified') {
+    diagnostics.push({ code: 'STATE_APPLICATION_PROTECTION_GATE_BLOCKED' });
+  }
   return diagnostics;
 }
 

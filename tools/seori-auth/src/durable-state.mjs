@@ -29,6 +29,12 @@ const JOURNAL_FILE = 'auth-journal.jsonl';
 const JOURNAL_WRITER_LOCK_FILE = '.auth-journal.writer.lock';
 const JOURNAL_GENESIS_MAC = '0'.repeat(64);
 const JOURNAL_MAC = /^[0-9a-f]{64}$/;
+export const DURABLE_JOURNAL_ENVELOPE = Object.freeze({
+  schemaVersion: 2,
+  contentPolicy: 'SECRET_FREE_PUBLIC_CONTROL_AND_AUDIT_ONLY',
+  integrity: 'HMAC_SHA256_CHAIN',
+  writeValidation: 'FAIL_CLOSED_BEFORE_SERIALIZATION',
+});
 const EXECUTION_OUTCOMES = new Set([
   'SUCCESS',
   'ADAPTER_FAILED',
@@ -549,13 +555,52 @@ function validateEnvelope(envelope, expectedSequence, journalMacKey, previousMac
     if (envelope.mutation !== null) {
       const type = envelope.mutation?.entityType;
       const entity = envelope.mutation?.entity;
-      if (!AUTH_ENTITY_TYPES.has(type) || !entity) {
+      if (
+        !exactRecordKeys(envelope.mutation, ['entityType', 'entity']) ||
+        !AUTH_ENTITY_TYPES.has(type) || !entity
+      ) {
         throw new Error('invalid mutation');
       }
       validateReplayedEntity(type, entity);
     }
   } catch {
     fail('invalid_state_journal', 'durable auth journal record is invalid');
+  }
+}
+
+function assertPlainJournalJson(value, seen = new Set()) {
+  if (
+    value === null || typeof value === 'string' || typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  ) return;
+  if (!value || typeof value !== 'object' || seen.has(value)) {
+    fail('invalid_state_journal', 'durable auth journal record is not plain JSON');
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (
+    !Array.isArray(value) && prototype !== Object.prototype && prototype !== null
+  ) {
+    fail('invalid_state_journal', 'durable auth journal record is not plain JSON');
+  }
+  seen.add(value);
+  for (const nested of Array.isArray(value) ? value : Object.values(value)) {
+    assertPlainJournalJson(nested, seen);
+  }
+  seen.delete(value);
+}
+
+export function serializeSecretFreeJournalEnvelope({
+  envelope,
+  expectedSequence,
+  journalMacKey,
+  previousMac,
+}) {
+  assertPlainJournalJson(envelope);
+  validateEnvelope(envelope, expectedSequence, journalMacKey, previousMac);
+  try {
+    return JSON.stringify(envelope);
+  } catch {
+    fail('invalid_state_journal', 'durable auth journal record could not be serialized');
   }
 }
 
@@ -820,7 +865,7 @@ export class DurableAuthState {
       fail('state_writer_lock_lost', 'durable auth state writer lock was lost');
     }
     const envelope = {
-      schemaVersion: this.#journalMacKey ? 2 : 1,
+      schemaVersion: this.#journalMacKey ? DURABLE_JOURNAL_ENVELOPE.schemaVersion : 1,
       sequence: this.#sequence + 1,
       recordedAt: audit.recordedAt,
       ...(this.#journalMacKey ? { previousMac: this.#lastMac ?? JOURNAL_GENESIS_MAC } : {}),
@@ -830,8 +875,14 @@ export class DurableAuthState {
     if (this.#journalMacKey) {
       envelope.mac = envelopeMac(envelope, this.#journalMacKey);
     }
+    const serialized = serializeSecretFreeJournalEnvelope({
+      envelope,
+      expectedSequence: this.#sequence + 1,
+      journalMacKey: this.#journalMacKey,
+      previousMac: this.#lastMac,
+    });
     try {
-      await this.#journalHandle.appendFile(`${JSON.stringify(envelope)}\n`, 'utf8');
+      await this.#journalHandle.appendFile(`${serialized}\n`, 'utf8');
       await this.#journalHandle.sync();
     } catch {
       // An uncertain append must stop all further mutations. Reusing the old

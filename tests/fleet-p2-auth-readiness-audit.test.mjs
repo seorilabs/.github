@@ -46,15 +46,16 @@ function resourceKey(kind, name) {
   return `${kind}\0${name}`;
 }
 
-function withExternalGateState(source, state) {
+function withExternalGateState(source, ready) {
   const copy = structuredClone(source);
   const configMap = copy.items.find(({ kind }) => kind === 'ConfigMap');
   const binding = JSON.parse(configMap.data['bindings.json']);
-  binding.registry.catalogStatus = state;
-  binding.registry.kubernetesStatus = state;
-  binding.secretManager.state = state;
-  binding.secretManager.provisioning.state = state;
-  binding.state.encryptionStatus = state;
+  const externalState = ready ? 'ready' : 'blocked_unverified';
+  binding.registry.catalogStatus = externalState;
+  binding.registry.kubernetesStatus = externalState;
+  binding.secretManager.state = externalState;
+  binding.secretManager.provisioning.state = externalState;
+  binding.state.protection.status = ready ? 'verified' : 'blocked_unverified';
   configMap.data['bindings.json'] = JSON.stringify(binding);
   return copy;
 }
@@ -112,14 +113,14 @@ function readerFixture({
 }
 
 test('readiness auditor exact-matches live foundation and remains blocked by current external gates', async () => {
-  const blockedDesired = withExternalGateState(desired, 'blocked');
+  const blockedDesired = withExternalGateState(desired, false);
   const reader = readerFixture({ desiredState: blockedDesired });
   const result = await auditFoundationReadiness({ desired: blockedDesired, reader, context });
   assert.equal(result.state, 'BLOCKED');
   assert.deepEqual(result.diagnostics, [
     { code: 'REGISTRY_GATE_BLOCKED' },
     { code: 'SECRET_MANAGER_GATE_BLOCKED' },
-    { code: 'STATE_ENCRYPTION_GATE_BLOCKED' },
+    { code: 'STATE_APPLICATION_PROTECTION_GATE_BLOCKED' },
   ]);
   assert.ok(reader.calls.every((call) => ['get', 'list', 'canI'].includes(call.operation)));
   assert.ok(reader.calls.every((call) =>

@@ -104,7 +104,7 @@ node scripts/fleet/bootstrap-p3-secret-manager.mjs
 
 Auth Broker foundation은 restricted namespace, API 권한이 없는 세 workload identity, exact
 NetworkPolicy, cert-manager 내부 TLS와 공개 binding만 생성한다. GCP service account와 WIF가
-실제 생성·readback되고 encrypted-at-rest storage 및 private GHCR pull identity가 확인되기
+실제 생성·readback되고 application envelope/Retain PVC 및 private GHCR pull identity가 확인되기
 전에는 workload와 PVC를 만들지 않는다. 현재 적용 및 blocker 근거는
 [Fleet P3 runtime 전환 기록](migration/fleet-p3-runtime-2026-08-28.md)에 고정한다.
 rollback renderer는 namespace를 보존하며 foundation이 소유한 객체만 반환한다.

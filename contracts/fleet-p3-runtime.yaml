@@ -1,4 +1,4 @@
-schemaVersion: 1
+schemaVersion: 2
 
 github:
   apiVersion: "2026-03-10"
@@ -190,13 +190,13 @@ cloudBuild:
     kubernetesIssuer: https://kubernetes.default.svc
     githubAudience: https://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
     organizationId: "283115031"
-    workflowBundleSourceSha: 0b6346713a64f6309fa32d1d3e09747c9db4ccb4
-    workflowExecutionSha: 0b6346713a64f6309fa32d1d3e09747c9db4ccb4
+    workflowBundleSourceSha: 65189aedfa5f5772b190f1cd6a7917b153d9caf7
+    workflowExecutionSha: 65189aedfa5f5772b190f1cd6a7917b153d9caf7
     repositories:
       - fullName: seorilabs/happy-farm
         repositoryId: "1250442131"
         workflow: .github/workflows/rn-build-android-cloud-v2.yml
-        sha256: 2dc3e759e458071cd438ebe957be90624656f95eb0279cabf2b94dbbe4285824
+        sha256: 7f9c2d66844c0b9aa86f8d67c3e5bf526e3f1bf588544caec4cb2d11f1205e43
       - fullName: seorilabs/lizard-tycoon
         repositoryId: "1265192029"
         workflow: .github/workflows/godot-build-android-cloud-v2.yml
@@ -381,18 +381,37 @@ authBroker:
         - browser_vault_round_trip_verified
   wifAudience: //iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/microk8s-auth
   state:
-    claimName: seori-auth-state
-    volumeName: seori-auth-state-rpi5
-    storageClassName: microk8s-hostpath
-    size: 10Gi
-    accessModes: [ReadWriteOnce]
-    volumeMode: Filesystem
-    reclaimPolicy: Retain
-    nodeName: rpi5
-    mapperName: seori-auth-state
-    mountFstype: ext4
-    encryptionRequired: true
-    encryptionStatus: blocked_unverified
+    protection:
+      mode: APPLICATION_ENVELOPE
+      status: blocked_unverified
+      secretPersistencePolicy: ENCRYPTED_ENVELOPE_ONLY
+      journal:
+        schemaVersion: 2
+        contentPolicy: SECRET_FREE_PUBLIC_CONTROL_AND_AUDIT_ONLY
+        integrity: HMAC_SHA256_CHAIN
+        writeValidation: FAIL_CLOSED_BEFORE_SERIALIZATION
+        logicalCredentialId: shared/seori-auth/journal-mac
+      browserVault:
+        envelopeVersion: 1
+        algorithm: aes-256-gcm
+        logicalCredentialId: shared/seori-auth/browser-vault
+        plaintextAtRestAllowed: false
+    volume:
+      kubernetesContext: vzyx-cluster
+      namespace: auth-broker
+      claimName: seori-auth-state
+      volumeName: seori-auth-state-rpi5
+      storageClassName: microk8s-hostpath
+      size: 10Gi
+      accessModes: [ReadWriteOnce]
+      volumeMode: Filesystem
+      reclaimPolicy: Retain
+      nodeName: rpi5
+      localPath: /var/lib/seori-auth
+      readbackPolicy: EXACT_READBACK_ONLY
+      mutationPolicy: SEPARATE_APPROVAL
+      deletionPolicy: FORBIDDEN
+      unknownOutcomePolicy: READBACK_FIRST
   trustedWorkers:
     namespaceLabel: release-workers
     podLabel: "true"
