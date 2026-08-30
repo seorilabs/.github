@@ -1,0 +1,310 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.com/schemas/fleet-p2-stage1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "sourceRepository", "credentialRootPolicy", "attestor", "tangBackupEncryption", "nodeRuntime", "sourceBootstrap", "hostProcessBoundary", "localProcessBoundary", "ssh", "hosts", "tangBackup"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "status": { "const": "code_ready_unexecuted" },
+    "sourceRepository": { "const": "seorilabs/.github" },
+    "credentialRootPolicy": { "const": "CANONICAL_HOME_CONFIG_SEORILABS_ONLY" },
+    "attestor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["logicalCredentialId", "identity", "algorithm", "privateKeyRelativePath", "publicKeyRelativePath", "privateKeyMode", "publicKeyMode", "catalogShardRelativePath", "createPolicy", "preBootstrapBackup", "consumers"],
+      "properties": {
+        "logicalCredentialId": { "const": "shared/seori-auth/credential-backup-attestor" },
+        "identity": { "const": "seorilabs-credential-backup-attestor-v1" },
+        "algorithm": { "const": "Ed25519" },
+        "privateKeyRelativePath": { "const": "seori-auth/credential-backup-attestor/private-key.pem" },
+        "publicKeyRelativePath": { "const": "seori-auth/credential-backup-attestor/public-key.pem" },
+        "privateKeyMode": { "const": "0600" },
+        "publicKeyMode": { "const": "0644" },
+        "catalogShardRelativePath": { "const": "catalog/seori-auth-credential-backup-attestor.yaml" },
+        "createPolicy": { "const": "CREATE_ONLY_OR_EXACT_READBACK" },
+        "preBootstrapBackup": {
+          "type": "object", "additionalProperties": false,
+          "required": ["artifactSha256", "fileCount", "isolatedRestoreVerified"],
+          "properties": {
+            "artifactSha256": { "const": "fe37a8fc8f9c975c2583aec56635c0655e34f1b5df51c0686231566c9470826c" },
+            "fileCount": { "const": 8880 },
+            "isolatedRestoreVerified": { "const": true }
+          }
+        },
+        "consumers": {
+          "type": "array", "minItems": 4, "maxItems": 4,
+          "prefixItems": [
+            { "const": "tang-backup-attestor" },
+            { "const": "rpi4001:tang-backup-readback" },
+            { "const": "seori-m6-01:tang-backup-readback" },
+            { "const": "rpi5:clevis-trust-anchor" }
+          ], "items": false
+        }
+      }
+    },
+    "tangBackupEncryption": {
+      "type": "object", "additionalProperties": false,
+      "required": ["logicalCredentialId", "identity", "algorithm", "privateKeyRelativePath", "publicKeyRelativePath", "privateKeyMode", "publicKeyMode", "catalogShardRelativePath", "createPolicy", "consumers"],
+      "properties": {
+        "logicalCredentialId": { "const": "shared/seori-auth/tang-backup-encryption" },
+        "identity": { "const": "seorilabs-tang-backup-encryption-v1" },
+        "algorithm": { "const": "X25519-HKDF-SHA256-AES-256-GCM" },
+        "privateKeyRelativePath": { "const": "seori-auth/tang-backup-encryption/private-key.pem" },
+        "publicKeyRelativePath": { "const": "seori-auth/tang-backup-encryption/public-key.pem" },
+        "privateKeyMode": { "const": "0600" },
+        "publicKeyMode": { "const": "0644" },
+        "catalogShardRelativePath": { "const": "catalog/seori-auth-tang-backup-encryption.yaml" },
+        "createPolicy": { "const": "CREATE_ONLY_OR_EXACT_READBACK" },
+        "consumers": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "prefixItems": [
+            { "const": "tang-backup-encryptor-public-key" },
+            { "const": "tang-backup-isolated-restore-decryptor" }
+          ], "items": false
+        }
+      }
+    },
+    "nodeRuntime": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "npmVersion", "officialBaseUrl", "installPolicy", "architectures", "symlinks"],
+      "properties": {
+        "version": { "const": "24.16.0" },
+        "npmVersion": { "const": "11.13.0" },
+        "officialBaseUrl": { "const": "https://nodejs.org/dist/v24.16.0" },
+        "installPolicy": { "const": "CREATE_ONLY_OR_EXACT_READBACK" },
+        "architectures": {
+          "type": "object", "additionalProperties": false, "required": ["arm64", "x64"],
+          "properties": {
+            "arm64": { "$ref": "#/$defs/arm64Runtime" },
+            "x64": { "$ref": "#/$defs/x64Runtime" }
+          }
+        },
+        "symlinks": {
+          "type": "object", "additionalProperties": false, "required": ["node", "npm", "npx", "corepack"],
+          "properties": {
+            "node": { "const": "/usr/local/bin/node" },
+            "npm": { "const": "/usr/local/bin/npm" },
+            "npx": { "const": "/usr/local/bin/npx" },
+            "corepack": { "const": "/usr/local/bin/corepack" }
+          }
+        }
+      }
+    },
+    "sourceBootstrap": {
+      "type": "object", "additionalProperties": false,
+      "required": ["installRoot", "incomingRoot", "archivePolicy", "dependencyPolicy", "packageLockPath", "receiptName", "receiptMode", "packageInstallCommand", "requiredExecutables", "nativeLauncherRelativePath", "filesystemBoundaryPath", "processBoundaryBuildRelativePath", "localInstallerRelativePath", "localInstallPolicy", "helperPolicy"],
+      "properties": {
+        "installRoot": { "const": "/opt/seorilabs/fleet-p2" },
+        "incomingRoot": { "const": "/var/tmp/seorilabs-fleet-p2" },
+        "archivePolicy": { "const": "EXACT_GIT_ARCHIVE_SHA256" },
+        "dependencyPolicy": { "const": "NPM_CI_LOCKFILE_IGNORE_SCRIPTS" },
+        "packageLockPath": { "const": "package-lock.json" },
+        "receiptName": { "const": "stage1-source.json" },
+        "receiptMode": { "const": "0444" },
+        "packageInstallCommand": {
+          "type": "array", "minItems": 4, "maxItems": 4,
+          "prefixItems": [
+            { "const": "ci" },
+            { "const": "--ignore-scripts" },
+            { "const": "--audit=false" },
+            { "const": "--fund=false" }
+          ], "items": false
+        },
+        "requiredExecutables": {
+          "type": "array", "minItems": 26, "maxItems": 26,
+          "prefixItems": [
+            { "const": "/bin/bash" }, { "const": "/bin/cat" }, { "const": "/bin/sh" },
+            { "const": "/usr/bin/awk" }, { "const": "/usr/bin/cc" },
+            { "const": "/usr/bin/chmod" }, { "const": "/usr/bin/chown" },
+            { "const": "/usr/bin/cut" }, { "const": "/usr/bin/dd" },
+            { "const": "/usr/bin/find" }, { "const": "/usr/bin/grep" },
+            { "const": "/usr/bin/hostname" }, { "const": "/usr/bin/install" },
+            { "const": "/usr/bin/ln" }, { "const": "/usr/bin/mkdir" },
+            { "const": "/usr/bin/mv" }, { "const": "/usr/bin/readlink" },
+            { "const": "/usr/bin/rm" }, { "const": "/usr/bin/tar" },
+            { "const": "/usr/bin/sha256sum" }, { "const": "/usr/bin/stat" },
+            { "const": "/usr/bin/sync" }, { "const": "/usr/bin/uname" },
+            { "const": "/usr/sbin/ip" }, { "const": "/usr/local/bin/node" },
+            { "const": "/usr/local/bin/npm" }
+          ], "items": false
+        },
+        "nativeLauncherRelativePath": { "const": "tools/seori-auth/.build/seori-auth-native" },
+        "filesystemBoundaryPath": { "const": "/usr/local/libexec/seorilabs-p2-host-fs-boundary" },
+        "processBoundaryBuildRelativePath": { "const": ".build/seorilabs-p2-process-hardening.node" },
+        "localInstallerRelativePath": { "const": "scripts/fleet/bootstrap-p2-stage1-local-hardening.mjs" },
+        "localInstallPolicy": { "const": "DARWIN_CURRENT_UID_CREATE_ONLY_EXACT_CONFIRMATION_CRASH_RECOVERABLE" },
+        "helperPolicy": { "const": "SOURCE_BUILT_DIGEST_RECEIPT_CREATE_ONLY_OR_EXACT" }
+      }
+    },
+    "hostProcessBoundary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["launcherExecutable", "moduleExecutable", "launchMarker", "policy"],
+      "properties": {
+        "launcherExecutable": { "const": "/usr/local/libexec/seori-auth-native" },
+        "moduleExecutable": { "const": "/usr/local/libexec/seorilabs-p2-process-hardening.node" },
+        "launchMarker": { "const": "SEORI_AUTH_NATIVE_LAUNCHED" },
+        "policy": { "const": "INHERIT_CORE_NNP_REAPPLY_DUMPABLE_NATIVE_READBACK" }
+      }
+    },
+    "localProcessBoundary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["launcherRelativePath", "moduleRelativePath", "receiptRelativePath", "launcherMode", "moduleMode", "receiptMode", "launchMarker", "launchOperation", "moduleFd", "controllerFd", "sourceReceiptFd", "runtimeRootRelativePath", "sourceArchiveLeaf", "sourceReceiptLeaf", "controllerRelativePath", "directoryMode", "sourceFileMode", "installPolicy", "loadPolicy", "sameUidThreatPolicy"],
+      "properties": {
+        "launcherRelativePath": { "const": "bin/seori-auth-native" },
+        "moduleRelativePath": { "const": "bin/seorilabs-p2-process-hardening.node" },
+        "receiptRelativePath": { "const": "bin/stage1-process-boundary.json" },
+        "runtimeRootRelativePath": { "const": ".local/share/seorilabs/fleet-p2" },
+        "sourceArchiveLeaf": { "const": "source.tar" },
+        "sourceReceiptLeaf": { "const": "stage1-local-source.json" },
+        "controllerRelativePath": { "const": "scripts/fleet/provision-p2-stage1.mjs" },
+        "launcherMode": { "const": "0500" },
+        "moduleMode": { "const": "0400" },
+        "receiptMode": { "const": "0400" },
+        "directoryMode": { "const": "0700" },
+        "sourceFileMode": { "const": "0400" },
+        "launchMarker": { "const": "SEORI_AUTH_NATIVE_LAUNCHED" },
+        "launchOperation": { "const": "launch-local-controller" },
+        "moduleFd": { "const": 5 },
+        "controllerFd": { "const": 6 },
+        "sourceReceiptFd": { "const": 7 },
+        "installPolicy": { "const": "CURRENT_UID_CREATE_ONLY_OR_EXACT" },
+        "loadPolicy": { "const": "NATIVE_FD5_BIND_PROCESS_DLOPEN_CONSUME" },
+        "sameUidThreatPolicy": { "const": "SAME_UID_MUTATION_OUT_OF_SCOPE_AUDITED_BEFORE_EACH_RUN" }
+      }
+    },
+    "ssh": {
+      "type": "object", "additionalProperties": false,
+      "required": ["user", "executable", "authenticationPolicy", "commonOptions", "publicKeyOptions", "relayOptions", "relaySourceRelativePath", "relayBuiltRelativePath", "relayInstallRelativePath", "relayInstalledMode", "passwordFilePolicy", "sudoPasswordTransport"],
+      "properties": {
+        "user": { "const": "erani" },
+        "executable": { "const": "/usr/bin/ssh" },
+        "authenticationPolicy": { "const": "PUBLIC_KEY_OR_TRUSTED_NATIVE_RELAY_PASSWORD_FILE_NO_SECRET_ARGUMENT" },
+        "commonOptions": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "prefixItems": [
+            { "const": "StrictHostKeyChecking=yes" },
+            { "const": "LogLevel=ERROR" }
+          ], "items": false
+        },
+        "publicKeyOptions": {
+          "type": "array", "minItems": 3, "maxItems": 3,
+          "prefixItems": [
+            { "const": "BatchMode=yes" },
+            { "const": "PasswordAuthentication=no" },
+            { "const": "KbdInteractiveAuthentication=no" }
+          ], "items": false
+        },
+        "relayOptions": {
+          "type": "array", "minItems": 4, "maxItems": 4,
+          "prefixItems": [
+            { "const": "BatchMode=no" },
+            { "const": "PasswordAuthentication=yes" },
+            { "const": "KbdInteractiveAuthentication=no" },
+            { "const": "NumberOfPasswordPrompts=1" }
+          ], "items": false
+        },
+        "relaySourceRelativePath": { "const": "scripts/fleet/native/p2-stage1-ssh-relay.c" },
+        "relayBuiltRelativePath": { "const": ".build/seorilabs-p2-stage1-ssh-relay" },
+        "relayInstallRelativePath": { "const": "bin/seorilabs-p2-stage1-ssh-relay" },
+        "relayInstalledMode": { "const": "0500" },
+        "passwordFilePolicy": { "const": "ABSOLUTE_OWNER_ONLY_REGULAR_O_NOFOLLOW_NO_VALUE_IN_ARGV_ENV_LOG" },
+        "sudoPasswordTransport": { "const": "TRUSTED_NATIVE_RELAY_PASSWORD_THEN_PAYLOAD_ROOT_SHELL_FD3" }
+      }
+    },
+    "hosts": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "prefixItems": [
+        { "$ref": "#/$defs/rpi5" },
+        { "$ref": "#/$defs/rpi4001" },
+        { "$ref": "#/$defs/m6" }
+      ], "items": false
+    },
+    "tangBackup": {
+      "type": "object", "additionalProperties": false,
+      "required": ["keyDirectory", "keyFileMode", "remoteRoot", "localRelativeRoot", "archiveSuffix", "evidenceSuffix", "serverAttestationSuffix", "catalogShardSuffix", "hostAttestationRoot", "trustAnchorPath", "format", "cipher", "kdf", "encryptionBoundary", "createPolicy", "restorePolicy", "secretOutputPolicy"],
+      "properties": {
+        "keyDirectory": { "const": "/var/lib/tang" },
+        "keyFileMode": { "const": "0440" },
+        "remoteRoot": { "const": "/var/backups/seori-auth/tang-v1" },
+        "localRelativeRoot": { "const": "seori-auth/tang" },
+        "archiveSuffix": { "const": "server-keys.seori-aes256gcm" },
+        "evidenceSuffix": { "const": "signed-private-backup-evidence.json" },
+        "serverAttestationSuffix": { "const": "tang-server-attestation.json" },
+        "catalogShardSuffix": { "const": "credential-catalog.yaml" },
+        "hostAttestationRoot": { "const": "/var/lib/seorilabs/tang-backup-attestations" },
+        "trustAnchorPath": { "const": "/etc/seorilabs/trust/credential-backup-attestor.ed25519.pem" },
+        "format": { "const": "SEORI_TANG_BACKUP_V1" },
+        "cipher": { "const": "AES-256-GCM" },
+        "kdf": { "const": "HKDF-SHA256" },
+        "encryptionBoundary": {
+          "type": "object", "additionalProperties": false,
+          "required": ["recipientLogicalCredentialId", "algorithm", "recipientPublicKeyTransport", "recipientPrivateKeyPolicy"],
+          "properties": {
+            "recipientLogicalCredentialId": { "const": "shared/seori-auth/tang-backup-encryption" },
+            "algorithm": { "const": "X25519-HKDF-SHA256-AES-256-GCM" },
+            "recipientPublicKeyTransport": { "const": "DIRECT_PUBLIC_INPUT_FD3" },
+            "recipientPrivateKeyPolicy": { "const": "CANONICAL_LOCAL_ONLY_NEVER_REMOTE" }
+          }
+        },
+        "createPolicy": { "const": "CREATE_ONLY_OR_EXACT_READBACK" },
+        "restorePolicy": { "const": "ISOLATED_TEMP_CONTENT_AND_METADATA_EXACT" },
+        "secretOutputPolicy": { "const": "NO_SECRET_STDOUT_ARGV_ENV_LOG_OR_PUBLIC_ARTIFACT" }
+      }
+    }
+  },
+  "$defs": {
+    "runtimeBase": {
+      "type": "object", "additionalProperties": false,
+      "required": ["unameMachine", "archiveName", "archiveSha256", "installRoot"],
+      "properties": {
+        "unameMachine": { "type": "string" },
+        "archiveName": { "type": "string" },
+        "archiveSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "installRoot": { "type": "string", "pattern": "^/opt/seorilabs/node-v24\\.16\\.0-linux-(?:arm64|x64)$" }
+      }
+    },
+    "arm64Runtime": {
+      "allOf": [{ "$ref": "#/$defs/runtimeBase" }, { "type": "object", "properties": {
+        "unameMachine": { "const": "aarch64" },
+        "archiveName": { "const": "node-v24.16.0-linux-arm64.tar.xz" },
+        "archiveSha256": { "const": "524659219d6a207a7400f2bde15d19ba060ffbe0d32a8643319ad67e3bb64c78" },
+        "installRoot": { "const": "/opt/seorilabs/node-v24.16.0-linux-arm64" }
+      }}]
+    },
+    "x64Runtime": {
+      "allOf": [{ "$ref": "#/$defs/runtimeBase" }, { "type": "object", "properties": {
+        "unameMachine": { "const": "x86_64" },
+        "archiveName": { "const": "node-v24.16.0-linux-x64.tar.xz" },
+        "archiveSha256": { "const": "d804845d34eddc21dc1092b519d643ef40b1f58ec5dec5c22b1f4bd8fabde6c9" },
+        "installRoot": { "const": "/opt/seorilabs/node-v24.16.0-linux-x64" }
+      }}]
+    },
+    "hostBase": {
+      "type": "object", "additionalProperties": false,
+      "required": ["nodeName", "hostname", "ipv4", "architecture", "role"],
+      "properties": {
+        "nodeName": { "type": "string" }, "hostname": { "type": "string" },
+        "ipv4": { "type": "string" }, "architecture": { "enum": ["arm64", "x64"] },
+        "role": { "enum": ["state-host", "tang"] },
+        "backupCatalogShardRelativePath": { "type": "string" }
+      }
+    },
+    "rpi5": { "allOf": [{ "$ref": "#/$defs/hostBase" }, { "type": "object", "properties": {
+      "nodeName": { "const": "rpi5" }, "hostname": { "const": "rpi5" },
+      "ipv4": { "const": "192.168.0.99" }, "architecture": { "const": "arm64" },
+      "role": { "const": "state-host" }
+    }}]},
+    "rpi4001": { "allOf": [{ "$ref": "#/$defs/hostBase" }, { "type": "object", "required": ["backupCatalogShardRelativePath"], "properties": {
+      "nodeName": { "const": "rpi4001" }, "hostname": { "const": "rpi4001" },
+      "ipv4": { "const": "192.168.0.100" }, "architecture": { "const": "arm64" },
+      "role": { "const": "tang" },
+      "backupCatalogShardRelativePath": { "const": "catalog/seori-auth-tang-rpi4001.yaml" }
+    }}]},
+    "m6": { "allOf": [{ "$ref": "#/$defs/hostBase" }, { "type": "object", "required": ["backupCatalogShardRelativePath"], "properties": {
+      "nodeName": { "const": "seori-m6-01" }, "hostname": { "const": "seori-m6-01" },
+      "ipv4": { "const": "192.168.0.118" }, "architecture": { "const": "x64" },
+      "role": { "const": "tang" },
+      "backupCatalogShardRelativePath": { "const": "catalog/seori-auth-tang-seori-m6-01.yaml" }
+    }}]}
+  }
+}

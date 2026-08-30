@@ -1,0 +1,191 @@
+schemaVersion: 1
+status: code_ready_unexecuted
+sourceRepository: seorilabs/.github
+credentialRootPolicy: CANONICAL_HOME_CONFIG_SEORILABS_ONLY
+attestor:
+  logicalCredentialId: shared/seori-auth/credential-backup-attestor
+  identity: seorilabs-credential-backup-attestor-v1
+  algorithm: Ed25519
+  privateKeyRelativePath: seori-auth/credential-backup-attestor/private-key.pem
+  publicKeyRelativePath: seori-auth/credential-backup-attestor/public-key.pem
+  privateKeyMode: "0600"
+  publicKeyMode: "0644"
+  catalogShardRelativePath: catalog/seori-auth-credential-backup-attestor.yaml
+  createPolicy: CREATE_ONLY_OR_EXACT_READBACK
+  preBootstrapBackup:
+    artifactSha256: fe37a8fc8f9c975c2583aec56635c0655e34f1b5df51c0686231566c9470826c
+    fileCount: 8880
+    isolatedRestoreVerified: true
+  consumers:
+    - tang-backup-attestor
+    - rpi4001:tang-backup-readback
+    - seori-m6-01:tang-backup-readback
+    - rpi5:clevis-trust-anchor
+tangBackupEncryption:
+  logicalCredentialId: shared/seori-auth/tang-backup-encryption
+  identity: seorilabs-tang-backup-encryption-v1
+  algorithm: X25519-HKDF-SHA256-AES-256-GCM
+  privateKeyRelativePath: seori-auth/tang-backup-encryption/private-key.pem
+  publicKeyRelativePath: seori-auth/tang-backup-encryption/public-key.pem
+  privateKeyMode: "0600"
+  publicKeyMode: "0644"
+  catalogShardRelativePath: catalog/seori-auth-tang-backup-encryption.yaml
+  createPolicy: CREATE_ONLY_OR_EXACT_READBACK
+  consumers:
+    - tang-backup-encryptor-public-key
+    - tang-backup-isolated-restore-decryptor
+nodeRuntime:
+  version: 24.16.0
+  npmVersion: 11.13.0
+  officialBaseUrl: https://nodejs.org/dist/v24.16.0
+  installPolicy: CREATE_ONLY_OR_EXACT_READBACK
+  architectures:
+    arm64:
+      unameMachine: aarch64
+      archiveName: node-v24.16.0-linux-arm64.tar.xz
+      archiveSha256: 524659219d6a207a7400f2bde15d19ba060ffbe0d32a8643319ad67e3bb64c78
+      installRoot: /opt/seorilabs/node-v24.16.0-linux-arm64
+    x64:
+      unameMachine: x86_64
+      archiveName: node-v24.16.0-linux-x64.tar.xz
+      archiveSha256: d804845d34eddc21dc1092b519d643ef40b1f58ec5dec5c22b1f4bd8fabde6c9
+      installRoot: /opt/seorilabs/node-v24.16.0-linux-x64
+  symlinks:
+    node: /usr/local/bin/node
+    npm: /usr/local/bin/npm
+    npx: /usr/local/bin/npx
+    corepack: /usr/local/bin/corepack
+sourceBootstrap:
+  installRoot: /opt/seorilabs/fleet-p2
+  incomingRoot: /var/tmp/seorilabs-fleet-p2
+  archivePolicy: EXACT_GIT_ARCHIVE_SHA256
+  dependencyPolicy: NPM_CI_LOCKFILE_IGNORE_SCRIPTS
+  packageLockPath: package-lock.json
+  receiptName: stage1-source.json
+  receiptMode: "0444"
+  packageInstallCommand:
+    - ci
+    - --ignore-scripts
+    - --audit=false
+    - --fund=false
+  requiredExecutables:
+    - /bin/bash
+    - /bin/cat
+    - /bin/sh
+    - /usr/bin/awk
+    - /usr/bin/cc
+    - /usr/bin/chmod
+    - /usr/bin/chown
+    - /usr/bin/cut
+    - /usr/bin/dd
+    - /usr/bin/find
+    - /usr/bin/grep
+    - /usr/bin/hostname
+    - /usr/bin/install
+    - /usr/bin/ln
+    - /usr/bin/mkdir
+    - /usr/bin/mv
+    - /usr/bin/readlink
+    - /usr/bin/rm
+    - /usr/bin/tar
+    - /usr/bin/sha256sum
+    - /usr/bin/stat
+    - /usr/bin/sync
+    - /usr/bin/uname
+    - /usr/sbin/ip
+    - /usr/local/bin/node
+    - /usr/local/bin/npm
+  nativeLauncherRelativePath: tools/seori-auth/.build/seori-auth-native
+  filesystemBoundaryPath: /usr/local/libexec/seorilabs-p2-host-fs-boundary
+  processBoundaryBuildRelativePath: .build/seorilabs-p2-process-hardening.node
+  localInstallerRelativePath: scripts/fleet/bootstrap-p2-stage1-local-hardening.mjs
+  localInstallPolicy: DARWIN_CURRENT_UID_CREATE_ONLY_EXACT_CONFIRMATION_CRASH_RECOVERABLE
+  helperPolicy: SOURCE_BUILT_DIGEST_RECEIPT_CREATE_ONLY_OR_EXACT
+hostProcessBoundary:
+  launcherExecutable: /usr/local/libexec/seori-auth-native
+  moduleExecutable: /usr/local/libexec/seorilabs-p2-process-hardening.node
+  launchMarker: SEORI_AUTH_NATIVE_LAUNCHED
+  policy: INHERIT_CORE_NNP_REAPPLY_DUMPABLE_NATIVE_READBACK
+localProcessBoundary:
+  launcherRelativePath: bin/seori-auth-native
+  moduleRelativePath: bin/seorilabs-p2-process-hardening.node
+  receiptRelativePath: bin/stage1-process-boundary.json
+  runtimeRootRelativePath: .local/share/seorilabs/fleet-p2
+  sourceArchiveLeaf: source.tar
+  sourceReceiptLeaf: stage1-local-source.json
+  controllerRelativePath: scripts/fleet/provision-p2-stage1.mjs
+  launcherMode: "0500"
+  moduleMode: "0400"
+  receiptMode: "0400"
+  directoryMode: "0700"
+  sourceFileMode: "0400"
+  launchMarker: SEORI_AUTH_NATIVE_LAUNCHED
+  launchOperation: launch-local-controller
+  moduleFd: 5
+  controllerFd: 6
+  sourceReceiptFd: 7
+  installPolicy: CURRENT_UID_CREATE_ONLY_OR_EXACT
+  loadPolicy: NATIVE_FD5_BIND_PROCESS_DLOPEN_CONSUME
+  sameUidThreatPolicy: SAME_UID_MUTATION_OUT_OF_SCOPE_AUDITED_BEFORE_EACH_RUN
+ssh:
+  user: erani
+  executable: /usr/bin/ssh
+  authenticationPolicy: PUBLIC_KEY_OR_TRUSTED_NATIVE_RELAY_PASSWORD_FILE_NO_SECRET_ARGUMENT
+  commonOptions:
+    - StrictHostKeyChecking=yes
+    - LogLevel=ERROR
+  publicKeyOptions:
+    - BatchMode=yes
+    - PasswordAuthentication=no
+    - KbdInteractiveAuthentication=no
+  relayOptions:
+    - BatchMode=no
+    - PasswordAuthentication=yes
+    - KbdInteractiveAuthentication=no
+    - NumberOfPasswordPrompts=1
+  relaySourceRelativePath: scripts/fleet/native/p2-stage1-ssh-relay.c
+  relayBuiltRelativePath: .build/seorilabs-p2-stage1-ssh-relay
+  relayInstallRelativePath: bin/seorilabs-p2-stage1-ssh-relay
+  relayInstalledMode: "0500"
+  passwordFilePolicy: ABSOLUTE_OWNER_ONLY_REGULAR_O_NOFOLLOW_NO_VALUE_IN_ARGV_ENV_LOG
+  sudoPasswordTransport: TRUSTED_NATIVE_RELAY_PASSWORD_THEN_PAYLOAD_ROOT_SHELL_FD3
+hosts:
+  - nodeName: rpi5
+    hostname: rpi5
+    ipv4: 192.168.0.99
+    architecture: arm64
+    role: state-host
+  - nodeName: rpi4001
+    hostname: rpi4001
+    ipv4: 192.168.0.100
+    architecture: arm64
+    role: tang
+    backupCatalogShardRelativePath: catalog/seori-auth-tang-rpi4001.yaml
+  - nodeName: seori-m6-01
+    hostname: seori-m6-01
+    ipv4: 192.168.0.118
+    architecture: x64
+    role: tang
+    backupCatalogShardRelativePath: catalog/seori-auth-tang-seori-m6-01.yaml
+tangBackup:
+  keyDirectory: /var/lib/tang
+  keyFileMode: "0440"
+  remoteRoot: /var/backups/seori-auth/tang-v1
+  localRelativeRoot: seori-auth/tang
+  archiveSuffix: server-keys.seori-aes256gcm
+  evidenceSuffix: signed-private-backup-evidence.json
+  serverAttestationSuffix: tang-server-attestation.json
+  catalogShardSuffix: credential-catalog.yaml
+  hostAttestationRoot: /var/lib/seorilabs/tang-backup-attestations
+  trustAnchorPath: /etc/seorilabs/trust/credential-backup-attestor.ed25519.pem
+  format: SEORI_TANG_BACKUP_V1
+  cipher: AES-256-GCM
+  kdf: HKDF-SHA256
+  encryptionBoundary:
+    recipientLogicalCredentialId: shared/seori-auth/tang-backup-encryption
+    algorithm: X25519-HKDF-SHA256-AES-256-GCM
+    recipientPublicKeyTransport: DIRECT_PUBLIC_INPUT_FD3
+    recipientPrivateKeyPolicy: CANONICAL_LOCAL_ONLY_NEVER_REMOTE
+  createPolicy: CREATE_ONLY_OR_EXACT_READBACK
+  restorePolicy: ISOLATED_TEMP_CONTENT_AND_METADATA_EXACT
+  secretOutputPolicy: NO_SECRET_STDOUT_ARGV_ENV_LOG_OR_PUBLIC_ARTIFACT
