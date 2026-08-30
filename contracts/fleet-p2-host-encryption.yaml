@@ -35,7 +35,8 @@ systemd:
   unlockerUnit: clevis-luks-askpass.path
   mountUnit: var-lib-seori\x2dauth.mount
 filesystemBoundary:
-  executableRelativePath: .build/seorilabs-p2-host-fs-boundary
+  # v1 host-state attestation identity. Stage1 executes the same-named helper from its exact source.
+  executable: /usr/local/libexec/seorilabs-p2-host-fs-boundary
   policy: INITIAL_MOUNT_NAMESPACE_FIXED_DIRFD_NOREPLACE
   operations:
     - verify-namespace

@@ -86,7 +86,7 @@ function loadContract() {
 const contract = loadContract();
 const confirmationSet = confirmations(contract);
 const filesystemBoundaryExecutable = fileURLToPath(
-  new URL(`../../${contract.filesystemBoundary.executableRelativePath}`, import.meta.url),
+  new URL('../../.build/seorilabs-p2-host-fs-boundary', import.meta.url),
 );
 
 function parseOptions() {

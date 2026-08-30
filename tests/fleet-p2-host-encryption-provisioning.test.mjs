@@ -265,8 +265,8 @@ test('P2 host provisioning contract fixes non-sparse LUKS2, exact mount and Tang
   assert.equal(contract.target.mapperPath, '/dev/mapper/seori-auth-state');
   assert.equal(contract.target.mountPath, '/var/lib/seori-auth');
   assert.equal(
-    contract.filesystemBoundary.executableRelativePath,
-    '.build/seorilabs-p2-host-fs-boundary',
+    contract.filesystemBoundary.executable,
+    '/usr/local/libexec/seorilabs-p2-host-fs-boundary',
   );
   assert.equal(
     contract.filesystemBoundary.policy,

@@ -173,7 +173,8 @@ sudo /usr/local/libexec/seori-auth-native launch -- \
 `no`인지 readback한다.
 먼저 Stage1 source bootstrap이 RPI5의 exact source 디렉터리에서 native filesystem boundary를 빌드하고
 `stage1-source.json`에 source-relative path와 digest를 고정한다. 새 source의 helper는 과거 source의
-helper를 덮어쓰지 않는다. production entrypoint는
+helper를 덮어쓰지 않는다. host-state v1 계약의 기존 global executable 값은 이미 생성된 attestation
+digest의 호환 identity로 유지하고 실제 실행 경계는 Stage1 source receipt가 선택한다. production entrypoint는
 `SEORILABS_KUBECTL` override를 거부하고 state와 snap의 동일한 숫자 revision에 있는 exact
 `/snap/microk8s/<revision>/kubectl`만 사용한다.
 `tools/seori-auth/.build/seori-auth-native`도 같은 Linux ARM64 source에서 빌드해

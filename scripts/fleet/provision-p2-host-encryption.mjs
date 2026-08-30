@@ -129,7 +129,7 @@ function loadFleetState() {
 const contract = loadContract();
 const state = loadFleetState();
 const filesystemBoundaryExecutable = fileURLToPath(
-  new URL(`../../${contract.filesystemBoundary.executableRelativePath}`, import.meta.url),
+  new URL('../../.build/seorilabs-p2-host-fs-boundary', import.meta.url),
 );
 const systemdConfiguration = buildSystemdConfiguration(contract);
 const confirmationSet = confirmations(contract);
