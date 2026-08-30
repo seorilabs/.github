@@ -355,6 +355,10 @@ test('MicroK8S current kubeconfig resolves only through a root-equivalent numeri
   assert.ok(snapCalls.length > 1);
   assert.equal(new Set(snapCalls.map(({ recoveryFdIdentity }) => recoveryFdIdentity)).size, 1);
   assert.ok(snapCalls.every(({ recoveryFdIdentity }) => recoveryFdIdentity !== undefined));
+  assert.ok(snapCalls.filter(({ args }) => args.includes('--context')).every(({ args }) => {
+    const contextIndex = args.indexOf('--context');
+    return args[contextIndex + 1] === 'microk8s';
+  }));
 
   const lookalikeRoot = join(lookalike.root, 'var/snap/microk8s');
   await mkdir(join(lookalikeRoot, '7668/credentials'), { recursive: true });

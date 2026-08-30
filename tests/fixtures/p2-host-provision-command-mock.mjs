@@ -547,7 +547,9 @@ if (
   pv.spec.claimRef.resourceVersion = pvc.metadata.resourceVersion;
   pv.status = { phase: 'Bound' };
   if (scenario === 'pv-drift') pv.metadata.uid = 'substituted-pv-uid';
-  if (commandArgs.join('\0') === ['config', 'current-context'].join('\0')) output('vzyx-cluster');
+  if (commandArgs.join('\0') === ['config', 'current-context'].join('\0')) {
+    output(args.includes('--kubeconfig=/proc/self/fd/3') ? 'microk8s' : 'vzyx-cluster');
+  }
   if (commandArgs.includes('statefulset') || commandArgs.includes('deployment')) {
     const kind = commandArgs.includes('statefulset') ? 'StatefulSet' : 'Deployment';
     const resourceIndex = commandArgs.findIndex((value) =>

@@ -65,6 +65,7 @@ const fleetPath = fileURLToPath(
 const kubectl = '/usr/bin/snap';
 const kubectlPrefix = ['run', 'microk8s.kubectl'];
 const MICROK8S_KUBECONFIG = '/var/snap/microk8s/current/credentials/client.config';
+const MICROK8S_CONTEXT = 'microk8s';
 const MICROK8S_STATE_ROOT = '/var/snap/microk8s';
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const mode = process.argv[2] ?? 'plan';
@@ -751,14 +752,14 @@ function pathsOverlap(left, right) {
   return within(canonicalLeft, canonicalRight) || within(canonicalRight, canonicalLeft);
 }
 
-function readConsumerQuiescence(prefix, inputDescriptors) {
+function readConsumerQuiescence(prefix, inputDescriptors, kubernetesContext) {
   const gate = contract.kubernetes.consumerGate;
   for (const expected of gate.workloads) {
     const resource = workloadResource(expected.kind);
     if (resource === undefined) stop('P2_HOST_CONSUMER_GATE_CONTRACT_INVALID');
     const observed = optionalPublicJson(read(kubectl, [
       ...prefix,
-      '--context', contract.kubernetes.context,
+      '--context', kubernetesContext,
       'get', resource, expected.name,
       '--namespace', contract.kubernetes.namespace,
       '--output=json', '--ignore-not-found=true',
@@ -775,7 +776,7 @@ function readConsumerQuiescence(prefix, inputDescriptors) {
   }
   const pods = publicJson(read(kubectl, [
     ...prefix,
-    '--context', contract.kubernetes.context,
+    '--context', kubernetesContext,
     'get', 'pods', '--all-namespaces', '--output=json',
   ], 'P2_HOST_CONSUMER_READBACK_FAILED', { inputDescriptors }),
   'P2_HOST_CONSUMER_READBACK_INVALID');
@@ -808,6 +809,9 @@ function readStateVolume(kubeconfigPath) {
   let boundary;
   try {
     boundary = openHostKubectlReadbackBoundary(kubeconfigPath);
+    const kubernetesContext = kubeconfigPath === MICROK8S_KUBECONFIG
+      ? MICROK8S_CONTEXT
+      : contract.kubernetes.context;
     const prefix = [
       ...kubectlPrefix,
       `--kubeconfig=${boundary.kubeconfig}`,
@@ -819,13 +823,13 @@ function readStateVolume(kubeconfigPath) {
       'P2_HOST_KUBERNETES_READBACK_FAILED',
       { inputDescriptors: boundary.inputDescriptors },
     );
-    if (currentContext !== contract.kubernetes.context) {
+    if (currentContext !== kubernetesContext) {
       stop('P2_HOST_KUBERNETES_CONTEXT_MISMATCH');
     }
-    readConsumerQuiescence(prefix, boundary.inputDescriptors);
+    readConsumerQuiescence(prefix, boundary.inputDescriptors, kubernetesContext);
     const observedPv = publicJson(read(kubectl, [
       ...prefix,
-      '--context', contract.kubernetes.context,
+      '--context', kubernetesContext,
       'get', 'persistentvolume', contract.kubernetes.persistentVolume,
       '--output=json',
     ], 'P2_HOST_KUBERNETES_READBACK_FAILED', {
@@ -833,7 +837,7 @@ function readStateVolume(kubeconfigPath) {
     }), 'P2_HOST_KUBERNETES_READBACK_INVALID');
     const observedPvc = publicJson(read(kubectl, [
       ...prefix,
-      '--context', contract.kubernetes.context,
+      '--context', kubernetesContext,
       'get', 'persistentvolumeclaim', contract.kubernetes.persistentVolumeClaim,
       '--namespace', contract.kubernetes.namespace,
       '--output=json',
