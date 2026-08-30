@@ -18,6 +18,8 @@ const workspaceRoot = resolve(packageRoot, "../..");
 const requiredPackageFiles = [
   ".generated/contracts/agent-policy.yaml",
   ".generated/contracts/app.schema.json",
+  ".generated/contracts/autonomous-issue-policy.schema.json",
+  ".generated/contracts/autonomous-issue-policy.yaml",
   ".generated/contracts/credential-consumer.schema.json",
   ".generated/contracts/fleet-bootstrap-plan.schema.json",
   ".generated/contracts/fleet-standard-labels.json",
@@ -278,7 +280,7 @@ try {
       "--eval",
       [
         'const installed = await import("@seorilabs/repo-contract/standard-labels");',
-        'if (installed.FLEET_STANDARD_LABEL_CATALOG?.labels?.length !== 12) process.exit(1);',
+        'if (installed.FLEET_STANDARD_LABEL_CATALOG?.labels?.length !== 20) process.exit(1);',
         'if (!/^sha256:[0-9a-f]{64}$/.test(installed.FLEET_STANDARD_LABEL_CATALOG_DIGEST ?? "")) process.exit(1);',
         'if (typeof installed.fleetStandardLabelsPayload !== "function") process.exit(1);',
         'if (typeof installed.validateFleetStandardLabelsOperation !== "function") process.exit(1);',

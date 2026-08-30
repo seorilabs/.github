@@ -183,11 +183,11 @@
               "type": "string",
               "pattern": "^sha256:[0-9a-f]{64}$"
             },
-            "catalogVersion": { "const": "seorilabs-standard-labels/v1" },
+            "catalogVersion": { "const": "seorilabs-standard-labels/v2" },
             "labels": {
               "type": "array",
-              "minItems": 12,
-              "maxItems": 12,
+              "minItems": 20,
+              "maxItems": 20,
               "items": {
                 "type": "object",
                 "additionalProperties": false,

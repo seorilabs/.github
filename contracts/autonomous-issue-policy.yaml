@@ -1,0 +1,187 @@
+schemaVersion: 1
+id: seorilabs-autonomous-issue-policy-v1
+
+defaults:
+  registration: DISABLED
+  processing: DISABLED
+
+schedules:
+  timezone: Asia/Seoul
+  registration:
+    localTimes:
+      - "02:00"
+    maxIssuesPerRun: 1
+    openAutopilotIssueLimit: 10
+    repositoryTraversal: daily-rotating-config-order
+  processing:
+    localTimes:
+      - "06:25"
+      - "09:25"
+      - "12:25"
+      - "15:25"
+      - "18:25"
+      - "21:25"
+    maxIssuesPerRun: 1
+    priorityOrder:
+      - P1
+      - P2
+      - P3
+      - P4
+    tieBreakers:
+      - createdAt
+      - number
+
+labels:
+  required:
+    - autopilot
+  executionExactlyOne:
+    - autopilot:local
+    - autopilot:cloud
+  priorityExactlyOne:
+    - P1
+    - P2
+    - P3
+    - P4
+  blocking:
+    - no-autopilot
+    - blocked
+  blockingPrefixes:
+    - "approval:"
+  optionalWorkType:
+    - bug
+    - enhancement
+    - instrumentation
+  optionalEvidence:
+    - evidence:ga4
+    - evidence:console
+    - evidence:store
+    - evidence:research
+    - evidence:csv
+
+titlePolicy:
+  language: ko
+  requireCustomerProblemOrOutcome: true
+  forbidRepositoryPrefix: true
+  forbiddenPrefixPatterns:
+    - '^\s*\[[^\]]+\]\s*'
+    - '^\s*P[1-4]\s*[:\-]\s*'
+    - '^\s*seorilabs\/[A-Za-z0-9._-]+\s*[:\-]\s*'
+  forbiddenAgentOrderPattern: '(^|[^A-Za-z0-9])[UN][0-9]+([^A-Za-z0-9]|$)'
+
+executionRouting:
+  basis: implementation-and-verification
+  defaultLabel: autopilot:local
+  cloudLabel: autopilot:cloud
+  cloudAllowedSources:
+    - target-repository
+    - organization-contracts
+    - repository-documentation
+    - github-issues-and-pull-requests
+    - public-official-documentation
+    - repository-ci
+  localRequirementIndicators:
+    - local-skill
+    - private-data
+    - seorilabs-credential-catalog
+    - bigquery-or-gcp
+    - kubernetes
+    - signed-in-console
+    - physical-device-or-emulator
+    - obsidian
+    - local-assets
+
+issueBody:
+  requiredSections:
+    - customerValue
+    - problemAndEvidence
+    - proposedOutcome
+    - scope
+    - acceptanceCriteria
+    - validation
+    - executionRequirements
+
+repositories:
+  - repository: seorilabs/jomul
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/crossword-puzzle
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/saju-reader
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/lizard-tycoon
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/immunity-war
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/alley-market-match
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/lord-ledger
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/slotmachine-game
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/reascend
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/cycle-pair
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/foam-party
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/lucid-reversi
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/starlit-apprentice
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/matgo
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/match-picture-app
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/daoewo
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/animal-chess
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/minimax-defense
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/merge-battle
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/spiritgate-defenders
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/babycare
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/keeum
+    registration: ENABLED
+    processing: ENABLED
+  - repository: seorilabs/happy-farm
+    registration: EXCLUDED
+    processing: EXCLUDED
+  - repository: seorilabs/lucid-chess
+    registration: EXCLUDED
+    processing: EXCLUDED
+  - repository: seorilabs/trait-test-hub
+    registration: EXCLUDED
+    processing: EXCLUDED
+  - repository: seorilabs/vocab-swipe
+    registration: EXCLUDED
+    processing: EXCLUDED
+  - repository: seorilabs/periodic-table-app
+    registration: EXCLUDED
+    processing: EXCLUDED
+  - repository: seorilabs/dpti-app
+    registration: EXCLUDED
+    processing: EXCLUDED

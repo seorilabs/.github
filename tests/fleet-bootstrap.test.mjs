@@ -966,7 +966,7 @@ test("public repo는 ARC bootstrap 없이 명시적 정책 입력을 요구한�
     ({ kind }) => kind === "github.standard-labels.ensure",
   );
   assert.ok(labels);
-  assert.equal(labels.payload.labels.length, 12);
+  assert.equal(labels.payload.labels.length, 20);
   assert.equal(labels.payload.strategy, "UPSERT_FIXED_PRESERVE_CUSTOM");
 });
 

@@ -1,6 +1,6 @@
 name: Seorilabs execution task
 description: Ticket for scoped Seorilabs work that can be tracked in GitHub Projects.
-title: "[repo] "
+title: ""
 labels:
   - project:seorilabs-exec
 body:
@@ -9,6 +9,7 @@ body:
       value: |
         Use this form for scoped implementation, QA, release-prep, docs, and operations work.
         Planning and release approvals remain human gates.
+        제목에는 [P1], [BUG], 저장소명, U1/N1 같은 말머리를 붙이지 말고 고객 문제와 해결 후 가치를 적습니다.
 
   - type: textarea
     id: goal

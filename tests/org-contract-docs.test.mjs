@@ -20,6 +20,7 @@ const CONTRACT_ENTRYPOINTS = [
 ];
 const JSON_SCHEMAS = [
   "contracts/app.schema.json",
+  "contracts/autonomous-issue-policy.schema.json",
   "contracts/credential-consumer.schema.json",
   "contracts/provider-auth-matrix.schema.json",
   "contracts/fleet-bootstrap-plan.schema.json",
@@ -35,6 +36,7 @@ const JSON_SCHEMAS = [
 ];
 const YAML_CONTRACTS = [
   "contracts/agent-policy.yaml",
+  "contracts/autonomous-issue-policy.yaml",
   "contracts/provider-auth-matrix.yaml",
   "contracts/release-policy.yaml",
   "contracts/review-policy.yaml",
