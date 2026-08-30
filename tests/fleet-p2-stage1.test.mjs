@@ -1087,12 +1087,15 @@ test('host-encryption backup and apply consume the catalog recovery key without 
       provisionedDigest: 'd'.repeat(64),
       secretExposed: false,
     });
+    const beforeResume = (await readFile(fixture.log, 'utf8')).trim().split('\n').length;
     const resumed = JSON.parse((await runController(fixture, 'host-encryption-apply', [
       `--source-sha=${sourceSha}`,
       `--confirmation=${hostConfirmations(hostContract).apply}`,
     ], 'host-clevis-bound-resume')).stdout);
     assert.deepEqual(resumed, applied);
     const commands = await readFile(fixture.log, 'utf8');
+    const resumeCommands = commands.trim().split('\n').slice(beforeResume).join('\n');
+    assert.doesNotMatch(resumeCommands, /provision-p2-host-encryption\.mjs backup-state/u);
     assert.match(commands, /provision-p2-host-encryption\.mjs apply-state/u);
     assert.match(commands, /p2-host-encryption-apply-loader\.mjs/u);
     assert.doesNotMatch(commands, new RegExp(recoveryKeyCanary, 'u'));

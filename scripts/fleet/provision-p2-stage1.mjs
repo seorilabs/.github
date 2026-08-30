@@ -2010,9 +2010,11 @@ async function hostEncryptionApply() {
       secretExposed: false,
     });
   }
-  const backup = await remoteHostEncryptionBackupState(sourceSha);
-  if (backup.state !== 'PRE_PROVISION_BACKUP_RESTORE_VERIFIED') {
-    stop('P2_STAGE1_HOST_ENCRYPTION_BACKUP_REQUIRED');
+  if (current.state !== 'HOST_LUKS_CLEVIS_BOUND_RESUME_READY') {
+    const backup = await remoteHostEncryptionBackupState(sourceSha);
+    if (backup.state !== 'PRE_PROVISION_BACKUP_RESTORE_VERIFIED') {
+      stop('P2_STAGE1_HOST_ENCRYPTION_BACKUP_REQUIRED');
+    }
   }
   const recoveryKey = readLuksRecoveryKey(root);
   try {
