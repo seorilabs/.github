@@ -84,7 +84,7 @@ flowchart LR
 | `minor` | 신규 기능, 새 market target, user-visible behavior 추가 |
 | `major` | 저장 데이터, economy, core rule, public contract, release process의 큰 변경 |
 
-에이전트는 `version impact`를 제안할 수 있지만, release version bump와 배포 승인은 사람이 확정한다.
+에이전트는 `version impact`를 제안할 수 있지만, exact source commit의 release tag 생성과 배포 승인은 사람이 확정한다. 실제 store/build version은 그 GitHub tag에서만 파생한다.
 
 세부 기준은 [spec-versioning-policy.md](./spec-versioning-policy.md)를 따른다.
 

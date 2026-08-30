@@ -13,7 +13,7 @@ Agent가 여러 repo에 PR을 만들 때 스펙과 버전 판단이 흔들리지
 | Release readiness | `docs/release-readiness.md` | QA, policy, market blocker 상태 |
 | Store metadata | `play-store/`, `app-store/`, `apps-in-toss/` | market별 listing, screenshot, review notes |
 | Firebase config | `firebase/` | rules, indexes, remote config, functions contract |
-| Package/app version | repo-local config | 실제 store/build version |
+| Release version | GitHub `refs/tags/vX.Y.Z` | 모든 store/build version 파생, 주입, artifact readback |
 
 ## Spec Version
 
@@ -43,20 +43,20 @@ Spec Version: 확정 필요
 | `minor` | 신규 기능, 신규 market path, user-visible behavior 추가 | product/release spec 갱신, release note 후보 |
 | `major` | 저장 데이터, economy, core rule, public contract, migration 영향 | migration/rollback, human approval gate |
 
-Agent는 `Version Impact`를 제안할 수 있다. 실제 release version bump, store version, build number, production rollout은 사람이 승인하거나 명시 티켓으로 지시해야 한다.
+Agent는 `Version Impact`를 제안할 수 있다. exact source commit의 release tag 생성, 마켓 배포와 production rollout은 사람이 승인하거나 명시 티켓으로 지시해야 한다.
 
 ## Release Version
 
-실제 release version은 repo-local source를 따른다.
+실제 release version의 유일한 정본은 exact source commit을 가리키는 GitHub stable SemVer tag `vX.Y.Z`다. 파생 규칙과 fail-closed 조건은 [`contracts/release-version-authority.yaml`](../../contracts/release-version-authority.yaml)을 따른다.
 
-| Stack | 예시 source |
+| Stack | 태그 파생값 주입 및 readback 대상 |
 | --- | --- |
-| React Native / Web | `package.json`, app config, store config |
-| Godot | `export_presets.cfg`, project metadata, store config |
-| AppsInToss | `granite.config.ts`, `.ait` metadata, console state |
-| Firebase Functions | `package.json`, deploy target, migration docs |
+| React Native / Web | Gradle/Xcode artifact metadata, app config |
+| Godot | `export_presets.cfg`, AAB manifest, Xcode archive |
+| AppsInToss | `granite.config.ts`, `.ait` artifact digest와 배포 memo |
+| Firebase Functions | 배포 대상 source SHA와 release binding |
 
-Agent는 release version을 자동으로 올리지 않는다. 단, 티켓이 명시적으로 release prep 또는 version bump를 요구하면 변경하고 검증한다.
+`package.json`, Gradle, Xcode, Godot, Granite와 마켓 config의 version 값은 정본이 아니다. Agent는 이 로컬 값을 release version 결정에 사용하거나 독립적으로 bump하지 않는다. 승인된 release 작업은 선택된 exact source commit에 tag를 만들고, 중앙 workflow가 tag 파생값을 주입한 뒤 artifact에서 다시 읽어 검증한다.
 
 ## Required PR Fields
 
