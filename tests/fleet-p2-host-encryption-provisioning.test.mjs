@@ -817,6 +817,42 @@ test('Tang trust uses the attested signing thumbprints and fails before volume m
   assert.doesNotMatch(await readFile(fixture.log, 'utf8'), new RegExp(fakeRecoverySecret, 'u'));
 });
 
+test('a verified LUKS and Clevis partial state resumes without formatting or binding again', async (context) => {
+  const fixture = await createFixture({ scenario: 'after-clevis-bind-unknown' });
+  context.after(() => fixture.cleanup());
+  await runHost(fixture, 'backup', [
+    `--confirmation=${confirmationSet.backup}`,
+    `--kubeconfig=${fixture.kubeconfig}`,
+  ]);
+  const applyArguments = [
+    `--confirmation=${confirmationSet.apply}`,
+    `--kubeconfig=${fixture.kubeconfig}`,
+    `--recovery-key-file=${fixture.recoveryKey}`,
+    ...tangFlags(fixture),
+  ];
+  await expectHostFailure(
+    fixture,
+    'apply',
+    applyArguments,
+    'P2_HOST_MUTATION_OUTCOME_UNKNOWN',
+  );
+  const beforeResume = (await readFile(fixture.log, 'utf8')).trim().split('\n').length;
+  const resumed = await runHost(fixture, 'apply', applyArguments, 'missing');
+  assert.equal(JSON.parse(resumed.stdout).state, 'HOST_PROVISIONED_REBOOT_READBACK_REQUIRED');
+  const resumeCalls = (await readFile(fixture.log, 'utf8')).trim().split('\n')
+    .slice(beforeResume)
+    .map((line) => JSON.parse(line));
+  assert.equal(resumeCalls.filter(({ executable, args }) =>
+    executable === contract.filesystemBoundary.executable && args[0] === 'create-source').length, 0);
+  assert.equal(resumeCalls.filter(({ executable, args }) =>
+    executable === '/usr/sbin/cryptsetup' && args[0] === 'luksFormat').length, 0);
+  assert.equal(resumeCalls.filter(({ executable, args }) =>
+    executable === '/usr/bin/clevis' && args[1] === 'bind').length, 0);
+  assert.ok(resumeCalls.some(({ executable, args }) =>
+    executable === '/usr/sbin/cryptsetup' && args.includes('--test-passphrase')));
+  assert.doesNotMatch(await readFile(fixture.log, 'utf8'), new RegExp(fakeRecoverySecret, 'u'));
+});
+
 test('partial, nonempty and identity drift fail before mutation', async (context) => {
   const partial = await createFixture({ scenario: 'partial' });
   const nonempty = await createFixture({ scenario: 'nonempty' });

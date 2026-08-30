@@ -670,9 +670,9 @@ function readMount() {
 function parseClevisList(raw, expectedPolicy) {
   const bindings = raw.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
   if (bindings.length !== 1) stop('P2_HOST_CLEVIS_BINDING_DRIFT');
-  const match = /^\d+:\s+sss\s+(.+)$/u.exec(bindings[0]);
+  const match = /^\d+:\s+sss\s+(?:'(\{.*\})'|(\{.*\}))$/u.exec(bindings[0]);
   if (match === null) stop('P2_HOST_CLEVIS_BINDING_DRIFT');
-  const actual = publicJson(match[1], 'P2_HOST_CLEVIS_BINDING_DRIFT');
+  const actual = publicJson(match[1] ?? match[2], 'P2_HOST_CLEVIS_BINDING_DRIFT');
   if (canonicalJson(actual) !== canonicalJson(expectedPolicy)) {
     stop('P2_HOST_CLEVIS_BINDING_DRIFT');
   }
@@ -931,6 +931,10 @@ function classifyReadback() {
     return { state: 'MISSING', targetEmpty: true };
   }
   if (
+    source && !mapper && mount === null && !marker && crypttab === 0 && fstab === 0 &&
+    targetEmpty
+  ) return { state: 'CLEVIS_BOUND_PARTIAL', targetEmpty: true };
+  if (
     !source || !mapper || mount === null || crypttab !== 1 || fstab !== 1 ||
     (!marker && mode !== 'apply' && mode !== 'restore')
   ) stop('P2_HOST_READBACK_PARTIAL');
@@ -1054,6 +1058,7 @@ function fullReadback({
       targetEmpty: true,
     };
   }
+  if (classification.state === 'CLEVIS_BOUND_PARTIAL') stop('P2_HOST_READBACK_PARTIAL');
   readRequiredPackages();
   if (markerRequired && classification.state !== 'COMPLETE') stop('P2_HOST_MARKER_MISSING');
   sourceAllocation();
@@ -1097,6 +1102,66 @@ function fullReadback({
     stateVolumeAttestation,
     ...(hostEncryption === undefined ? {} : { hostEncryption }),
   };
+}
+
+function applyArtifactPaths() {
+  return [
+    `${contract.target.backupRoot}/luks-header.bin`,
+    `${contract.target.backupRoot}/provision.json`,
+    `${contract.target.backupRoot}/provision.restored.json`,
+    `${contract.target.backupRoot}/reboot.json`,
+    `${contract.target.backupRoot}/reboot.restored.json`,
+    `${contract.target.backupRoot}/rollback.json`,
+  ];
+}
+
+function clevisBoundPartialReadback({ kubeconfigPath, tangAttestations, authorityPublicKey }) {
+  readHostIdentity(contract.target);
+  const classification = classifyReadback();
+  if (classification.state !== 'CLEVIS_BOUND_PARTIAL' || !classification.targetEmpty) {
+    stop('P2_HOST_PARTIAL_RESUME_STATE_INVALID');
+  }
+  readRequiredPackages();
+  sourceAllocation();
+  const sourceIdentity = readRegularFileIdentity(contract.target.sourcePath);
+  run(
+    '/usr/sbin/cryptsetup',
+    ['isLuks', '--type', 'luks2', contract.target.sourcePath],
+    'P2_HOST_LUKS_READBACK_FAILED',
+  );
+  const luksUuid = readLuksUuid();
+  const clevis = parseClevisList(
+    read(
+      '/usr/bin/clevis',
+      ['luks', 'list', '-d', contract.target.sourcePath],
+      'P2_HOST_CLEVIS_READBACK_FAILED',
+    ),
+    buildClevisPolicy(contract, tangAttestations, authorityPublicKey),
+  );
+  loadPreBackup();
+  for (const path of applyArtifactPaths()) {
+    assertMissingLeaf(path, 'P2_HOST_PARTIAL_RESUME_ARTIFACT_PRESENT');
+  }
+  const stateVolumeAttestation = readStateVolume(kubeconfigPath);
+  const core = {
+    schemaVersion: 1,
+    state: 'HOST_LUKS_CLEVIS_BOUND_RESUME_READY',
+    nodeName: contract.target.nodeName,
+    contractDigest: contractDigest(contract),
+    luksUuid,
+    sourceIdentity,
+    clevis,
+    stateVolumeAttestation,
+  };
+  return { ...core, observedDigest: canonicalDigest(core) };
+}
+
+function applyStateReadback({ kubeconfigPath, tangAttestations, authorityPublicKey }) {
+  const classification = classifyReadback();
+  if (classification.state === 'CLEVIS_BOUND_PARTIAL') {
+    return clevisBoundPartialReadback({ kubeconfigPath, tangAttestations, authorityPublicKey });
+  }
+  return fullReadback({ kubeconfigPath, tangAttestations, authorityPublicKey });
 }
 
 function recoveryKeyIdentity(entry) {
@@ -1443,6 +1508,13 @@ function verifyTangTrust(attestations) {
   }
 }
 
+function verifyRecoveryKeyForSource(recoveryKey) {
+  run('/usr/sbin/cryptsetup', [
+    'open', '--test-passphrase', '--type', 'luks2', '--key-file', '/proc/self/fd/3',
+    contract.target.sourcePath,
+  ], 'P2_HOST_RECOVERY_RESTORE_REHEARSAL_FAILED', { recoveryKey });
+}
+
 function headerBackupSha256() {
   const paths = backupPaths();
   const canonicalHeader = `${contract.target.backupRoot}/luks-header.bin`;
@@ -1595,42 +1667,70 @@ function apply() {
   const recoveryKey = openRecoveryKey(option('recovery-key-file'));
   const kubeconfigPath = option('kubeconfig');
   const { authorityPublicKey, tangAttestations } = loadTangAttestations();
-  assertPristine();
+  const applyState = applyStateReadback({
+    kubeconfigPath,
+    tangAttestations,
+    authorityPublicKey,
+  });
+  const resumable = applyState.state === 'HOST_LUKS_CLEVIS_BOUND_RESUME_READY';
+  if (!resumable && applyState.state !== 'HOST_ENCRYPTED_MOUNT_MISSING') {
+    stop('P2_HOST_PRE_PROVISION_STATE_INVALID');
+  }
+  if (!resumable) assertPristine();
   const preBackupAttestation = loadPreBackup();
-  for (const path of [
-    `${contract.target.backupRoot}/provision.json`,
-    `${contract.target.backupRoot}/provision.restored.json`,
-    `${contract.target.backupRoot}/reboot.json`,
-    `${contract.target.backupRoot}/reboot.restored.json`,
-    `${contract.target.backupRoot}/rollback.json`,
-  ]) assertMissingLeaf(path, 'P2_HOST_APPLY_ARTIFACT_ALREADY_EXISTS');
-  const preflightStateVolumeAttestation = readStateVolume(kubeconfigPath);
+  for (const path of applyArtifactPaths()) {
+    assertMissingLeaf(path, 'P2_HOST_APPLY_ARTIFACT_ALREADY_EXISTS');
+  }
+  const preflightStateVolumeAttestation = resumable
+    ? applyState.stateVolumeAttestation
+    : readStateVolume(kubeconfigPath);
   readRequiredPackages({ installMissing: true });
   loadPreBackup();
   verifyTangTrust(tangAttestations);
   const clevisPolicy = buildClevisPolicy(contract, tangAttestations, authorityPublicKey);
 
-  mutate('/usr/bin/install', ['--directory', '--mode=0700', '/data/seori-auth']);
-  assertManagedPathIdentities(preBackupAttestation);
-  mutateFilesystemBoundary('create-source');
-  sourceAllocation();
-  const sourceIdentity = readRegularFileIdentity(contract.target.sourcePath);
-  assertPathIdentity(sourceIdentity, 'P2_HOST_SOURCE_IDENTITY_DRIFT');
-  mutateWithRecoveryKey('/usr/sbin/cryptsetup', [
-    'luksFormat', '--batch-mode', '--type', 'luks2', '--key-file', '/proc/self/fd/3',
-    contract.target.sourcePath,
-  ], recoveryKey);
-  assertPathIdentity(sourceIdentity, 'P2_HOST_SOURCE_IDENTITY_DRIFT');
-  const luksUuid = readLuksUuid();
-  mutateWithRecoveryKey('/usr/bin/clevis', [
-    'luks', 'bind', '-y', '-d', contract.target.sourcePath, '-k', '/proc/self/fd/3',
-    contract.tang.pin, canonicalJson(clevisPolicy),
-  ], recoveryKey);
-  assertPathIdentity(sourceIdentity, 'P2_HOST_SOURCE_IDENTITY_DRIFT');
-  parseClevisList(
-    read('/usr/bin/clevis', ['luks', 'list', '-d', contract.target.sourcePath], 'P2_HOST_CLEVIS_READBACK_FAILED'),
-    clevisPolicy,
-  );
+  let sourceIdentity;
+  let luksUuid;
+  if (resumable) {
+    sourceIdentity = applyState.sourceIdentity;
+    luksUuid = applyState.luksUuid;
+    assertPathIdentity(sourceIdentity, 'P2_HOST_SOURCE_IDENTITY_DRIFT');
+    verifyRecoveryKeyForSource(recoveryKey);
+    parseClevisList(
+      read(
+        '/usr/bin/clevis',
+        ['luks', 'list', '-d', contract.target.sourcePath],
+        'P2_HOST_CLEVIS_READBACK_FAILED',
+      ),
+      clevisPolicy,
+    );
+  } else {
+    mutate('/usr/bin/install', ['--directory', '--mode=0700', '/data/seori-auth']);
+    assertManagedPathIdentities(preBackupAttestation);
+    mutateFilesystemBoundary('create-source');
+    sourceAllocation();
+    sourceIdentity = readRegularFileIdentity(contract.target.sourcePath);
+    assertPathIdentity(sourceIdentity, 'P2_HOST_SOURCE_IDENTITY_DRIFT');
+    mutateWithRecoveryKey('/usr/sbin/cryptsetup', [
+      'luksFormat', '--batch-mode', '--type', 'luks2', '--key-file', '/proc/self/fd/3',
+      contract.target.sourcePath,
+    ], recoveryKey);
+    assertPathIdentity(sourceIdentity, 'P2_HOST_SOURCE_IDENTITY_DRIFT');
+    luksUuid = readLuksUuid();
+    mutateWithRecoveryKey('/usr/bin/clevis', [
+      'luks', 'bind', '-y', '-d', contract.target.sourcePath, '-k', '/proc/self/fd/3',
+      contract.tang.pin, canonicalJson(clevisPolicy),
+    ], recoveryKey);
+    assertPathIdentity(sourceIdentity, 'P2_HOST_SOURCE_IDENTITY_DRIFT');
+    parseClevisList(
+      read(
+        '/usr/bin/clevis',
+        ['luks', 'list', '-d', contract.target.sourcePath],
+        'P2_HOST_CLEVIS_READBACK_FAILED',
+      ),
+      clevisPolicy,
+    );
+  }
   mutateWithRecoveryKey('/usr/sbin/cryptsetup', [
     'open', '--type', 'luks2', '--key-file', '/proc/self/fd/3',
     contract.target.sourcePath, contract.target.mapperName,
@@ -1705,6 +1805,16 @@ function apply() {
     stop('P2_HOST_MARKER_READBACK_INVALID');
   }
   return provisioned;
+}
+
+function applyState() {
+  assertAllowedOptions(['kubeconfig', 'tang-attestation']);
+  const { authorityPublicKey, tangAttestations } = loadTangAttestations();
+  return applyStateReadback({
+    kubeconfigPath: option('kubeconfig'),
+    tangAttestations,
+    authorityPublicKey,
+  });
 }
 
 function readback() {
@@ -2054,6 +2164,7 @@ const handlers = new Map([
   ['plan', plan],
   ['backup-state', backupState],
   ['backup', backup],
+  ['apply-state', applyState],
   ['readback', readback],
   ['apply', apply],
   ['reboot-readback', rebootReadback],

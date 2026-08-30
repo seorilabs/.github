@@ -1869,15 +1869,34 @@ async function remoteHostEncryptionReadback(sourceSha, action = 'readback') {
     'sourceIdentity', 'mapperBacking', 'mount', 'clevis', 'stateVolumeAttestation',
     'hostEncryption',
   ];
+  const resumeKeys = [
+    'schemaVersion', 'state', 'nodeName', 'contractDigest', 'luksUuid',
+    'sourceIdentity', 'clevis', 'stateVolumeAttestation', 'observedDigest',
+  ];
   const expectedKeys = result.state === 'HOST_ENCRYPTED_MOUNT_MISSING'
     ? missingKeys
-    : result.state === 'HOST_ENCRYPTED_MOUNT_VERIFIED' ? verifiedKeys : undefined;
+    : result.state === 'HOST_ENCRYPTED_MOUNT_VERIFIED'
+      ? verifiedKeys
+      : action === 'apply-state' && result.state === 'HOST_LUKS_CLEVIS_BOUND_RESUME_READY'
+        ? resumeKeys
+        : undefined;
+  const resumeCore = result.state === 'HOST_LUKS_CLEVIS_BOUND_RESUME_READY'
+    ? (() => {
+        const value = { ...result };
+        delete value.observedDigest;
+        return value;
+      })()
+    : undefined;
   if (
     expectedKeys === undefined ||
     Object.keys(result).toSorted().join('\0') !== expectedKeys.toSorted().join('\0') ||
     result.schemaVersion !== 1 || result.nodeName !== hostContract.target.nodeName ||
     result.contractDigest !== contractDigest(hostContract) ||
-    (result.state === 'HOST_ENCRYPTED_MOUNT_MISSING' && result.targetEmpty !== true)
+    (result.state === 'HOST_ENCRYPTED_MOUNT_MISSING' && result.targetEmpty !== true) ||
+    (result.state === 'HOST_LUKS_CLEVIS_BOUND_RESUME_READY' && (
+      !SHA256.test(result.observedDigest ?? '') ||
+      canonicalDigest(resumeCore) !== result.observedDigest
+    ))
   ) stop('P2_STAGE1_HOST_ENCRYPTION_READBACK_INVALID');
   return Object.freeze(result);
 }
@@ -1980,7 +1999,7 @@ async function hostEncryptionApply() {
   assertLocalProcessHardening();
   const root = credentialRoot();
   assertPostBootstrapBackup(root);
-  const current = await remoteHostEncryptionReadback(sourceSha);
+  const current = await remoteHostEncryptionReadback(sourceSha, 'apply-state');
   if (current.state === 'HOST_ENCRYPTED_MOUNT_VERIFIED') {
     return Object.freeze({
       schemaVersion: 1,

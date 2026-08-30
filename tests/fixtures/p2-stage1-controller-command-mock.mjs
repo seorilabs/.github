@@ -18,6 +18,7 @@ import { parse } from 'yaml';
 import {
   buildPreProvisionBackupAttestation,
   buildTangServerAttestation,
+  canonicalDigest,
   canonicalJson,
   confirmations,
   contractDigest,
@@ -279,7 +280,7 @@ if (hostBackup !== null) {
   output(attestation);
 }
 
-const hostEncryptionReadback = /provision-p2-host-encryption\.mjs readback --kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/kubelet\.config --tang-attestation=\/var\/lib\/seorilabs\/tang-backup-attestations\/rpi4001\.json --tang-attestation=\/var\/lib\/seorilabs\/tang-backup-attestations\/seori-m6-01\.json --public-error-channel=stdout 3<&0'$/u
+const hostEncryptionReadback = /provision-p2-host-encryption\.mjs (apply-state|readback) --kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/kubelet\.config --tang-attestation=\/var\/lib\/seorilabs\/tang-backup-attestations\/rpi4001\.json --tang-attestation=\/var\/lib\/seorilabs\/tang-backup-attestations\/seori-m6-01\.json --public-error-channel=stdout 3<&0'$/u
   .exec(remoteCommand);
 if (hostEncryptionReadback !== null) {
   if (nodeName !== contract.target.nodeName) process.exit(126);
@@ -288,6 +289,28 @@ if (hostEncryptionReadback !== null) {
   }
   if (scenario === 'host-unapproved-error') {
     output({ ok: false, code: 'SECRET_SHAPED_REMOTE_FAILURE' });
+  }
+  if (hostEncryptionReadback[1] === 'apply-state' && scenario === 'host-clevis-bound-resume') {
+    const core = {
+      schemaVersion: 1,
+      state: 'HOST_LUKS_CLEVIS_BOUND_RESUME_READY',
+      nodeName: contract.target.nodeName,
+      contractDigest: contractDigest(contract),
+      luksUuid: '12345678-1234-1234-1234-123456789abc',
+      sourceIdentity: {
+        path: contract.target.sourcePath,
+        type: 'file',
+        device: '1',
+        inode: '2',
+        ownerId: 0,
+        groupId: 0,
+        mode: '0600',
+        sizeBytes: contract.target.sourceSizeBytes,
+      },
+      clevis: { pin: 'sss', policyDigest: 'a'.repeat(64) },
+      stateVolumeAttestation: { observedDigest: 'b'.repeat(64) },
+    };
+    output({ ...core, observedDigest: canonicalDigest(core) });
   }
   output({
     schemaVersion: 1,

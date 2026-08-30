@@ -377,6 +377,7 @@ if (executable === '/usr/bin/clevis') {
   if (args[1] === 'bind') {
     state.clevis = true;
     saveState();
+    if (scenario === 'after-clevis-bind-unknown') process.exit(70);
     process.exit(0);
   }
   if (args[1] === 'list') {
@@ -390,7 +391,7 @@ if (executable === '/usr/bin/clevis') {
         ],
       },
     };
-    output(`1: sss ${JSON.stringify(policy)}`);
+    output(`1: sss '${JSON.stringify(policy)}'`);
   }
 }
 

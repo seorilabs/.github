@@ -904,7 +904,7 @@ printf '{"stdinBytes":%s}\n' "$count"
   }
 });
 
-test('native SSH relay permits only the exact RPI5 host-encryption readback command', async () => {
+test('native SSH relay permits only the exact RPI5 host-encryption state commands', async () => {
   const fixture = await createFixture();
   const passwordPath = join(fixture.temporary, 'ssh-password');
   const fakeSsh = join(fixture.temporary, 'fake-ssh');
@@ -955,6 +955,15 @@ printf '{"stdinBytes":%s}\n' "$count"
       stdinBytes: Buffer.byteLength(password) + 1,
     });
     assert.doesNotMatch(`${accepted.stdout}${accepted.stderr}`, new RegExp(password, 'u'));
+
+    const applyStateAccepted = await runRelay(
+      'rpi5',
+      readbackCommand.replace(' readback ', ' apply-state '),
+    );
+    assert.equal(applyStateAccepted.status, 0);
+    assert.deepEqual(JSON.parse(applyStateAccepted.stdout), {
+      stdinBytes: Buffer.byteLength(password) + 1,
+    });
 
     const backupStateCommand = "sudo -S -p '' /bin/sh -c 'exec " +
       '/usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node ' +
@@ -1078,7 +1087,13 @@ test('host-encryption backup and apply consume the catalog recovery key without 
       provisionedDigest: 'd'.repeat(64),
       secretExposed: false,
     });
+    const resumed = JSON.parse((await runController(fixture, 'host-encryption-apply', [
+      `--source-sha=${sourceSha}`,
+      `--confirmation=${hostConfirmations(hostContract).apply}`,
+    ], 'host-clevis-bound-resume')).stdout);
+    assert.deepEqual(resumed, applied);
     const commands = await readFile(fixture.log, 'utf8');
+    assert.match(commands, /provision-p2-host-encryption\.mjs apply-state/u);
     assert.match(commands, /p2-host-encryption-apply-loader\.mjs/u);
     assert.doesNotMatch(commands, new RegExp(recoveryKeyCanary, 'u'));
   } finally {
