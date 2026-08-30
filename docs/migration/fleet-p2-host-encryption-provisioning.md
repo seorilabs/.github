@@ -55,10 +55,13 @@ Broker workload를 활성화하지 않는다.
   revision root는 non-writable이며 `credentials`와 `client.config`가 각각 exact `0770`, `0660`, 동일한
   non-root group인 경우에만 canonical revision path를 사용한다. 일반 kubeconfig의 symlink·group write
   거부 정책은 유지한다. 검증한 파일은 `O_NOFOLLOW`로 한 번 연 FD 3으로 kubectl child에만 전달해
-  group-writable parent의 path swap을 차단한다. 실행 파일은 존재하지 않는 `/usr/local/bin/kubectl`을
-  만들지 않고 root-owned `/usr/bin/snap run microk8s.kubectl`로 고정한다. 이 공식 host-local config의
-  context 이름 `microk8s`는 여기서만 요구하고, 조직 desired-state의 논리 cluster 이름
-  `vzyx-cluster`는 PV/PVC UID·resourceVersion·Retain binding과 함께 계속 원장에 유지한다.
+  group-writable parent의 path swap을 차단한다. 실행 파일은 `/snap/microk8s/current`가 위 state
+  revision과 같은 숫자를 가리킬 때만 root-owned exact `0755`
+  `/snap/microk8s/<revision>/kubectl`을 사용한다. worker 노드에서 kubectl을 실행하지 않고 안내만
+  반환하는 `snap run microk8s.kubectl` wrapper와 존재하지 않는 `/usr/local/bin/kubectl`은 사용하지
+  않는다. 이 공식 host-local config의 context 이름 `microk8s`는 여기서만 요구하고, 조직
+  desired-state의 논리 cluster 이름 `vzyx-cluster`는 PV/PVC UID·resourceVersion·Retain binding과
+  함께 계속 원장에 유지한다.
 - 무인 Stage1 controller는 catalog의 `shared/seori-auth/luks-recovery`만 해석한다. source SHA별 sudoers
   rule은 해당 source의 `p2-host-encryption-apply-loader.mjs` 한 명령만 `NOPASSWD:NOSETENV`로 허용한다.
   SSH 로그인 password는 native askpass 경계로, recovery key는 별도 stdin으로 전달한다. loader는 native

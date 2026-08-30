@@ -331,17 +331,27 @@ test('trusted public error channel returns only a stable code without changing f
 test('MicroK8S current kubeconfig resolves only through a root-equivalent numeric revision', async (context) => {
   const exact = await createFixture();
   const lookalike = await createFixture();
-  context.after(async () => Promise.all([exact.cleanup(), lookalike.cleanup()]));
+  const invalidExecutable = await createFixture();
+  context.after(async () => Promise.all([
+    exact.cleanup(),
+    lookalike.cleanup(),
+    invalidExecutable.cleanup(),
+  ]));
   const alias = '/var/snap/microk8s/current/credentials/client.config';
 
   const exactRoot = join(exact.root, 'var/snap/microk8s');
+  const exactSnapRoot = join(exact.root, 'snap/microk8s');
   await mkdir(join(exactRoot, '7668/credentials'), { recursive: true });
+  await mkdir(join(exactSnapRoot, '7668'), { recursive: true });
   await writeFile(join(exactRoot, '7668/credentials/client.config'), 'fixture kubeconfig\n', {
     mode: 0o600,
   });
+  await writeFile(join(exactSnapRoot, '7668/kubectl'), 'fixture kubectl\n', { mode: 0o755 });
   await chmod(join(exactRoot, '7668/credentials'), 0o770);
   await chmod(join(exactRoot, '7668/credentials/client.config'), 0o660);
+  await chmod(join(exactSnapRoot, '7668/kubectl'), 0o755);
   await symlink('7668', join(exactRoot, 'current'));
+  await symlink('7668', join(exactSnapRoot, 'current'));
   await runHost(exact, 'backup', [
     `--confirmation=${confirmationSet.backup}`,
     `--kubeconfig=${alias}`,
@@ -350,12 +360,12 @@ test('MicroK8S current kubeconfig resolves only through a root-equivalent numeri
   assert.match(exactLog, /--kubeconfig=\/proc\/self\/fd\/3/u);
   assert.doesNotMatch(exactLog, /\/var\/snap\/microk8s\/7668\/credentials\/client\.config/u);
   assert.doesNotMatch(exactLog, /\/var\/snap\/microk8s\/current\/credentials\/client\.config/u);
-  const snapCalls = exactLog.trim().split('\n').map((line) => JSON.parse(line))
-    .filter(({ executable }) => executable === '/usr/bin/snap');
-  assert.ok(snapCalls.length > 1);
-  assert.equal(new Set(snapCalls.map(({ recoveryFdIdentity }) => recoveryFdIdentity)).size, 1);
-  assert.ok(snapCalls.every(({ recoveryFdIdentity }) => recoveryFdIdentity !== undefined));
-  assert.ok(snapCalls.filter(({ args }) => args.includes('--context')).every(({ args }) => {
+  const kubectlCalls = exactLog.trim().split('\n').map((line) => JSON.parse(line))
+    .filter(({ executable }) => executable.endsWith('/snap/microk8s/7668/kubectl'));
+  assert.ok(kubectlCalls.length > 1);
+  assert.equal(new Set(kubectlCalls.map(({ recoveryFdIdentity }) => recoveryFdIdentity)).size, 1);
+  assert.ok(kubectlCalls.every(({ recoveryFdIdentity }) => recoveryFdIdentity !== undefined));
+  assert.ok(kubectlCalls.filter(({ args }) => args.includes('--context')).every(({ args }) => {
     const contextIndex = args.indexOf('--context');
     return args[contextIndex + 1] === 'microk8s';
   }));
@@ -378,6 +388,50 @@ test('MicroK8S current kubeconfig resolves only through a root-equivalent numeri
     code: 'KUBECONFIG_PATH_INVALID',
   });
   assert.doesNotMatch(await readFile(lookalike.log, 'utf8'), /fallocate|luksFormat|"mount"/u);
+
+  const invalidRoot = join(invalidExecutable.root, 'var/snap/microk8s');
+  const invalidSnapRoot = join(invalidExecutable.root, 'snap/microk8s');
+  await mkdir(join(invalidRoot, '7668/credentials'), { recursive: true });
+  await mkdir(join(invalidSnapRoot, '7668'), { recursive: true });
+  await writeFile(join(invalidRoot, '7668/credentials/client.config'), 'fixture kubeconfig\n', {
+    mode: 0o600,
+  });
+  await writeFile(join(invalidSnapRoot, '7668/kubectl'), 'fixture kubectl\n', { mode: 0o775 });
+  await chmod(join(invalidRoot, '7668/credentials'), 0o770);
+  await chmod(join(invalidRoot, '7668/credentials/client.config'), 0o660);
+  await chmod(join(invalidSnapRoot, '7668/kubectl'), 0o775);
+  await symlink('7668', join(invalidRoot, 'current'));
+  await symlink('7668', join(invalidSnapRoot, 'current'));
+  const invalidExecutableResult = await runHost(invalidExecutable, 'backup', [
+    `--confirmation=${confirmationSet.backup}`,
+    `--kubeconfig=${alias}`,
+    '--public-error-channel=stdout',
+  ]);
+  assert.deepEqual(JSON.parse(invalidExecutableResult.stdout), {
+    ok: false,
+    code: 'KUBECTL_EXECUTABLE_INVALID',
+  });
+  assert.doesNotMatch(
+    await readFile(invalidExecutable.log, 'utf8'),
+    /fallocate|luksFormat|"mount"/u,
+  );
+
+  await chmod(join(invalidSnapRoot, '7668/kubectl'), 0o755);
+  await mkdir(join(invalidSnapRoot, '7669'), { recursive: true });
+  await writeFile(join(invalidSnapRoot, '7669/kubectl'), 'other revision kubectl\n', {
+    mode: 0o755,
+  });
+  await rm(join(invalidSnapRoot, 'current'));
+  await symlink('7669', join(invalidSnapRoot, 'current'));
+  const mismatchedRevision = await runHost(invalidExecutable, 'backup', [
+    `--confirmation=${confirmationSet.backup}`,
+    `--kubeconfig=${alias}`,
+    '--public-error-channel=stdout',
+  ]);
+  assert.deepEqual(JSON.parse(mismatchedRevision.stdout), {
+    ok: false,
+    code: 'KUBECTL_EXECUTABLE_INVALID',
+  });
 });
 
 test('production native boundary build refuses a non-Linux artifact', {

@@ -96,7 +96,52 @@ export function resolveCanonicalMicrok8sKubeconfig({
   }
 }
 
-function createBoundary(kubeconfig, descriptor) {
+export function resolveCanonicalMicrok8sKubectl({
+  snapRoot,
+  revision,
+  expectedOwner,
+  expectedGroup,
+}) {
+  try {
+    if (
+      typeof snapRoot !== 'string' || !isAbsolute(snapRoot) ||
+      typeof revision !== 'string' || !/^[1-9][0-9]*$/u.test(revision) ||
+      !Number.isSafeInteger(expectedOwner) || expectedOwner < 0 ||
+      !Number.isSafeInteger(expectedGroup) || expectedGroup < 0
+    ) stop('KUBECTL_EXECUTABLE_INVALID');
+    const rootEntry = lstatSync(snapRoot);
+    const current = join(snapRoot, 'current');
+    const currentEntry = lstatSync(current);
+    if (
+      !rootEntry.isDirectory() || rootEntry.isSymbolicLink() ||
+      realpathSync(snapRoot) !== snapRoot || rootEntry.uid !== expectedOwner ||
+      (rootEntry.mode & 0o022) !== 0 || !currentEntry.isSymbolicLink() ||
+      currentEntry.uid !== expectedOwner || currentEntry.nlink !== 1 ||
+      readlinkSync(current) !== revision
+    ) stop('KUBECTL_EXECUTABLE_INVALID');
+    const revisionRoot = join(snapRoot, revision);
+    const executable = join(revisionRoot, 'kubectl');
+    const revisionEntry = lstatSync(revisionRoot);
+    const executableEntry = lstatSync(executable);
+    if (
+      !revisionEntry.isDirectory() || revisionEntry.isSymbolicLink() ||
+      realpathSync(revisionRoot) !== revisionRoot || revisionEntry.uid !== expectedOwner ||
+      (revisionEntry.mode & 0o022) !== 0 || !executableEntry.isFile() ||
+      executableEntry.isSymbolicLink() || realpathSync(executable) !== executable ||
+      executableEntry.uid !== expectedOwner || executableEntry.gid !== expectedGroup ||
+      executableEntry.nlink !== 1 || (executableEntry.mode & 0o7777) !== 0o755 ||
+      executableEntry.size < 1 || executableEntry.size > 256 * 1024 * 1024 ||
+      realpathSync(current) !== revisionRoot || readlinkSync(current) !== revision
+    ) stop('KUBECTL_EXECUTABLE_INVALID');
+    accessSync(executable, fsConstants.X_OK);
+    return executable;
+  } catch (error) {
+    if (error instanceof KubectlReadbackBoundaryError) throw error;
+    stop('KUBECTL_EXECUTABLE_INVALID');
+  }
+}
+
+function createBoundary(kubeconfig, descriptor, kubectlExecutable) {
   const systemTemp = realpathSync('/tmp');
   const root = mkdtempSync(join(systemTemp, TEMP_PREFIX));
   const paths = Object.freeze({
@@ -124,6 +169,7 @@ function createBoundary(kubeconfig, descriptor) {
       XDG_RUNTIME_DIR: paths.runtime,
     }),
     inputDescriptors: Object.freeze(descriptor === undefined ? [] : [descriptor]),
+    ...(kubectlExecutable === undefined ? {} : { kubectlExecutable }),
     kubeconfig,
     close() {
       if (closed) return;
@@ -144,6 +190,24 @@ export function openSecureKubectlReadbackBoundary(kubeconfigPath) {
 
 export function openSecureMicrok8sKubectlReadbackBoundary(options) {
   const canonical = resolveCanonicalMicrok8sKubeconfig(options);
+  const current = join(options.stateRoot, 'current');
+  let revision;
+  try {
+    revision = readlinkSync(current);
+    const revisionRoot = join(options.stateRoot, revision);
+    if (
+      canonical !== join(revisionRoot, 'credentials/client.config') ||
+      realpathSync(current) !== revisionRoot
+    ) stop('KUBECONFIG_PATH_INVALID');
+  } catch {
+    stop('KUBECONFIG_PATH_INVALID');
+  }
+  const kubectlExecutable = resolveCanonicalMicrok8sKubectl({
+    snapRoot: options.snapRoot,
+    revision,
+    expectedOwner: options.expectedOwner,
+    expectedGroup: options.expectedGroup,
+  });
   let descriptor;
   try {
     descriptor = openSync(canonical, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
@@ -152,9 +216,11 @@ export function openSecureMicrok8sKubectlReadbackBoundary(options) {
     if (
       !held.isFile() || held.dev !== current.dev || held.ino !== current.ino ||
       held.uid !== current.uid || held.gid !== current.gid || held.mode !== current.mode ||
-      held.nlink !== current.nlink || held.size !== current.size
+      held.nlink !== current.nlink || held.size !== current.size ||
+      readlinkSync(join(options.stateRoot, 'current')) !== revision ||
+      readlinkSync(join(options.snapRoot, 'current')) !== revision
     ) stop('KUBECONFIG_PATH_INVALID');
-    return createBoundary('/proc/self/fd/3', descriptor);
+    return createBoundary('/proc/self/fd/3', descriptor, kubectlExecutable);
   } catch (error) {
     if (descriptor !== undefined) {
       try {

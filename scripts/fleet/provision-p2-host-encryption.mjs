@@ -62,10 +62,10 @@ const schemaPath = fileURLToPath(
 const fleetPath = fileURLToPath(
   new URL('../../contracts/fleet-p3-runtime.yaml', import.meta.url),
 );
-const kubectl = '/usr/bin/snap';
-const kubectlPrefix = ['run', 'microk8s.kubectl'];
+const kubectl = '/usr/local/bin/kubectl';
 const MICROK8S_KUBECONFIG = '/var/snap/microk8s/current/credentials/client.config';
 const MICROK8S_CONTEXT = 'microk8s';
+const MICROK8S_SNAP_ROOT = '/snap/microk8s';
 const MICROK8S_STATE_ROOT = '/var/snap/microk8s';
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const mode = process.argv[2] ?? 'plan';
@@ -188,8 +188,10 @@ function openHostKubectlReadbackBoundary(requestedPath) {
   }
   return openSecureMicrok8sKubectlReadbackBoundary({
     requestedPath: mappedPath(requestedPath),
+    snapRoot: mappedPath(MICROK8S_SNAP_ROOT),
     stateRoot: mappedPath(MICROK8S_STATE_ROOT),
     expectedOwner: fixtureRuntime === undefined ? 0 : process.geteuid?.(),
+    expectedGroup: fixtureRuntime === undefined ? 0 : process.getegid?.(),
   });
 }
 
@@ -752,12 +754,17 @@ function pathsOverlap(left, right) {
   return within(canonicalLeft, canonicalRight) || within(canonicalRight, canonicalLeft);
 }
 
-function readConsumerQuiescence(prefix, inputDescriptors, kubernetesContext) {
+function readConsumerQuiescence(
+  kubectlExecutable,
+  prefix,
+  inputDescriptors,
+  kubernetesContext,
+) {
   const gate = contract.kubernetes.consumerGate;
   for (const expected of gate.workloads) {
     const resource = workloadResource(expected.kind);
     if (resource === undefined) stop('P2_HOST_CONSUMER_GATE_CONTRACT_INVALID');
-    const observed = optionalPublicJson(read(kubectl, [
+    const observed = optionalPublicJson(read(kubectlExecutable, [
       ...prefix,
       '--context', kubernetesContext,
       'get', resource, expected.name,
@@ -774,7 +781,7 @@ function readConsumerQuiescence(prefix, inputDescriptors, kubernetesContext) {
         .some((field) => ![undefined, 0].includes(observed.status?.[field]))
     ) stop('P2_HOST_LIVE_REPLICAS_NOT_ZERO');
   }
-  const pods = publicJson(read(kubectl, [
+  const pods = publicJson(read(kubectlExecutable, [
     ...prefix,
     '--context', kubernetesContext,
     'get', 'pods', '--all-namespaces', '--output=json',
@@ -812,13 +819,13 @@ function readStateVolume(kubeconfigPath) {
     const kubernetesContext = kubeconfigPath === MICROK8S_KUBECONFIG
       ? MICROK8S_CONTEXT
       : contract.kubernetes.context;
+    const kubectlExecutable = boundary.kubectlExecutable ?? kubectl;
     const prefix = [
-      ...kubectlPrefix,
       `--kubeconfig=${boundary.kubeconfig}`,
       `--cache-dir=${boundary.cacheDirectory}`,
     ];
     const currentContext = read(
-      kubectl,
+      kubectlExecutable,
       [...prefix, 'config', 'current-context'],
       'P2_HOST_KUBERNETES_READBACK_FAILED',
       { inputDescriptors: boundary.inputDescriptors },
@@ -826,8 +833,13 @@ function readStateVolume(kubeconfigPath) {
     if (currentContext !== kubernetesContext) {
       stop('P2_HOST_KUBERNETES_CONTEXT_MISMATCH');
     }
-    readConsumerQuiescence(prefix, boundary.inputDescriptors, kubernetesContext);
-    const observedPv = publicJson(read(kubectl, [
+    readConsumerQuiescence(
+      kubectlExecutable,
+      prefix,
+      boundary.inputDescriptors,
+      kubernetesContext,
+    );
+    const observedPv = publicJson(read(kubectlExecutable, [
       ...prefix,
       '--context', kubernetesContext,
       'get', 'persistentvolume', contract.kubernetes.persistentVolume,
@@ -835,7 +847,7 @@ function readStateVolume(kubeconfigPath) {
     ], 'P2_HOST_KUBERNETES_READBACK_FAILED', {
       inputDescriptors: boundary.inputDescriptors,
     }), 'P2_HOST_KUBERNETES_READBACK_INVALID');
-    const observedPvc = publicJson(read(kubectl, [
+    const observedPvc = publicJson(read(kubectlExecutable, [
       ...prefix,
       '--context', kubernetesContext,
       'get', 'persistentvolumeclaim', contract.kubernetes.persistentVolumeClaim,
