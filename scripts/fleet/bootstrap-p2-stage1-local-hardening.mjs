@@ -339,14 +339,19 @@ function readHeld(
 function artifactPaths(configRoot, homeRoot, source) {
   const boundary = stage1.localProcessBoundary;
   const runtimeRootRelativePath = `${boundary.runtimeRootRelativePath}/${source.sourceSha}`;
+  const sourceBound = (path) => `${path}-${source.sourceSha}`;
   return Object.freeze({
     launcherSource: join(repositoryRoot, stage1.sourceBootstrap.nativeLauncherRelativePath),
     moduleSource: join(repositoryRoot, stage1.sourceBootstrap.processBoundaryBuildRelativePath),
     relaySource: join(repositoryRoot, stage1.ssh.relayBuiltRelativePath),
-    launcherTarget: relativeRootPath(configRoot, boundary.launcherRelativePath),
-    moduleTarget: relativeRootPath(configRoot, boundary.moduleRelativePath),
-    relayTarget: relativeRootPath(configRoot, stage1.ssh.relayInstallRelativePath),
-    boundaryReceiptTarget: relativeRootPath(configRoot, boundary.receiptRelativePath),
+    launcherRelativePath: sourceBound(boundary.launcherRelativePath),
+    moduleRelativePath: sourceBound(boundary.moduleRelativePath),
+    relayRelativePath: sourceBound(stage1.ssh.relayInstallRelativePath),
+    boundaryReceiptRelativePath: sourceBound(boundary.receiptRelativePath),
+    launcherTarget: relativeRootPath(configRoot, sourceBound(boundary.launcherRelativePath)),
+    moduleTarget: relativeRootPath(configRoot, sourceBound(boundary.moduleRelativePath)),
+    relayTarget: relativeRootPath(configRoot, sourceBound(stage1.ssh.relayInstallRelativePath)),
+    boundaryReceiptTarget: relativeRootPath(configRoot, sourceBound(boundary.receiptRelativePath)),
     runtimeRootRelativePath,
     runtimeTarget: relativeRootPath(homeRoot, runtimeRootRelativePath),
     archiveTarget: relativeRootPath(
@@ -833,11 +838,11 @@ function boundaryReceipt(artifacts) {
   return Object.freeze({
     schemaVersion: 1,
     state: 'P2_STAGE1_LOCAL_PROCESS_BOUNDARY_READY',
-    launcherRelativePath: stage1.localProcessBoundary.launcherRelativePath,
+    launcherRelativePath: artifacts.paths.launcherRelativePath,
     launcherSha256: artifacts.launcherSha256,
-    moduleRelativePath: stage1.localProcessBoundary.moduleRelativePath,
+    moduleRelativePath: artifacts.paths.moduleRelativePath,
     moduleSha256: artifacts.moduleSha256,
-    relayRelativePath: stage1.ssh.relayInstallRelativePath,
+    relayRelativePath: artifacts.paths.relayRelativePath,
     relaySha256: artifacts.relaySha256,
     secretExposed: false,
   });

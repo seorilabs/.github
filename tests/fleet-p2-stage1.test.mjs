@@ -1083,7 +1083,10 @@ test('local hardening bootstrap is current-user, crash-recoverable, exact, and o
     assert.equal(exact.moduleState, 'EXACT_READBACK');
     assert.equal(exact.sourceReceiptState, 'EXACT_READBACK');
     const configNames = await readFile(
-      join(fixture.credentialRoot, contract.localProcessBoundary.receiptRelativePath),
+      join(
+        fixture.credentialRoot,
+        `${contract.localProcessBoundary.receiptRelativePath}-${plan.sourceSha}`,
+      ),
       'utf8',
     );
     assert.doesNotMatch(configNames, /PRIVATE KEY|node_modules/u);
@@ -1119,7 +1122,7 @@ test('local hardening bootstrap rejects drift, symlink targets, and production f
     assert.equal(installed.secretExposed, false);
     await chmod(join(
       fixture.credentialRoot,
-      contract.localProcessBoundary.launcherRelativePath,
+      `${contract.localProcessBoundary.launcherRelativePath}-${plan.sourceSha}`,
     ), 0o700);
     await assert.rejects(
       execFileAsync(process.execPath, [localBootstrap, ...arguments_], {

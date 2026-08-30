@@ -88,15 +88,16 @@ digest, inode, mode이면 덮어쓰지 않고 중단한다. `.local`과 `.local/
   --confirmation=<plan-confirmation>
 ```
 
-완료 상태는 `P2_STAGE1_LOCAL_PROCESS_BOUNDARY_READY`다. SSH relay도 같은 apply가
-`~/.config/seorilabs/bin/seorilabs-p2-stage1-ssh-relay`에 create-only로 설치한다. source receipt에는 archive, lockfile,
+완료 상태는 `P2_STAGE1_LOCAL_PROCESS_BOUNDARY_READY`다. launcher, process module, SSH relay와
+boundary receipt는 각각 `~/.config/seorilabs/bin/<helper>-<source-sha>`에 create-only로 설치한다.
+기존 source의 helper는 덮어쓰지 않으므로 새 보안 경계도 exact source 단위로 갱신할 수 있다. source receipt에는 archive, lockfile,
 controller, runtime manifest digest가 고정된다. source와 dependency tree에는 symlink가 없고 file은
 `0400`, private directory는 `0700`이다. power loss로 receipt 이전 partial state가 남으면 같은 exact
 apply가 기존 file을 검증한 뒤 missing file만 create-only로 채운다. SSH relay는 user-owned
 `0500`으로 고정한다. 이후 `<stage1>`은 다음 fixed prefix를 뜻한다.
 
 ```text
-~/.config/seorilabs/bin/seori-auth-native launch-local-controller \
+~/.config/seorilabs/bin/seori-auth-native-<source-sha> launch-local-controller \
   --source-sha=<source-sha> \
   --controller-sha256=<controller-sha256> \
   --receipt-sha256=<source-receipt-sha256> \

@@ -104,8 +104,8 @@ test('Darwin local controller is bound to exact runtime source and inherited FDs
     mkdirExact(join(sourceRoot, 'scripts'), 0o700);
     mkdirExact(controllerRoot, 0o700);
 
-    const installedLauncher = join(binaryRoot, 'seori-auth-native');
-    const installedModule = join(binaryRoot, 'seorilabs-p2-process-hardening.node');
+    const installedLauncher = join(binaryRoot, `seori-auth-native-${sourceSha}`);
+    const installedModule = join(binaryRoot, `seorilabs-p2-process-hardening.node-${sourceSha}`);
     const controller = join(controllerRoot, 'provision-p2-stage1.mjs');
     const archive = join(sourceRoot, 'source.tar');
     const receipt = join(sourceRoot, 'stage1-local-source.json');

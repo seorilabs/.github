@@ -1175,7 +1175,12 @@ function commandEnvironment() {
 function sshAuthentication() {
   const passwordFile = options.get('ssh-password-file');
   if (passwordFile === undefined) return null;
-  const relay = relativeCredentialPath(credentialRoot(), stage1.ssh.relayInstallRelativePath);
+  const sourceSha = localProcessContext?.sourceSha;
+  if (!SHA40.test(sourceSha ?? '')) stop('P2_STAGE1_LOCAL_PROCESS_HARDENING_REQUIRED');
+  const relay = relativeCredentialPath(
+    credentialRoot(),
+    `${stage1.ssh.relayInstallRelativePath}-${sourceSha}`,
+  );
   try {
     if (!isAbsolute(passwordFile)) stop('P2_STAGE1_PASSWORD_FILE_INVALID');
     const passwordEntry = lstatSync(passwordFile);

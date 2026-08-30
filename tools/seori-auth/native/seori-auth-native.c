@@ -46,8 +46,8 @@ extern char **environ;
 #define LOCAL_SOURCE_SHA_MARKER "SEORI_AUTH_LOCAL_SOURCE_SHA"
 #define LOCAL_CONTROLLER_SHA256_MARKER "SEORI_AUTH_LOCAL_CONTROLLER_SHA256"
 #define LOCAL_SOURCE_RECEIPT_SHA256_MARKER "SEORI_AUTH_LOCAL_SOURCE_RECEIPT_SHA256"
-#define LOCAL_LAUNCHER_LEAF "seori-auth-native"
-#define LOCAL_MODULE_LEAF "seorilabs-p2-process-hardening.node"
+#define LOCAL_LAUNCHER_PREFIX "seori-auth-native-"
+#define LOCAL_MODULE_PREFIX "seorilabs-p2-process-hardening.node-"
 #define LOCAL_SOURCE_RECEIPT_LEAF "stage1-local-source.json"
 #define LOCAL_CONTROLLER_RELATIVE "scripts/fleet/provision-p2-stage1.mjs"
 #define SECRET_MANAGER_CONFIG_ARG "--config=/etc/seori-auth/secret-access.json"
@@ -528,11 +528,22 @@ static void bind_local_process_boundary(
   int scripts_directory = open_local_directory(source_directory, "scripts", user, 0700);
   int controller_directory = open_local_directory(scripts_directory, "fleet", user, 0700);
 
+  char launcher_leaf[sizeof(LOCAL_LAUNCHER_PREFIX) + 40];
+  char module_leaf[sizeof(LOCAL_MODULE_PREFIX) + 40];
+  int launcher_length =
+      snprintf(launcher_leaf, sizeof(launcher_leaf), "%s%s", LOCAL_LAUNCHER_PREFIX, source_sha);
+  int module_length =
+      snprintf(module_leaf, sizeof(module_leaf), "%s%s", LOCAL_MODULE_PREFIX, source_sha);
+  if (
+      launcher_length < 0 || (size_t)launcher_length != sizeof(launcher_leaf) - 1 ||
+      module_length < 0 || (size_t)module_length != sizeof(module_leaf) - 1) {
+    fail_closed("local process boundary artifact path is invalid");
+  }
   int installed_launcher = protected_descriptor(openat(
-      binary_directory, LOCAL_LAUNCHER_LEAF, O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
+      binary_directory, launcher_leaf, O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
   int running_launcher = running_executable_descriptor();
   int module = protected_descriptor(openat(
-      binary_directory, LOCAL_MODULE_LEAF, O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
+      binary_directory, module_leaf, O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
   int controller = protected_descriptor(openat(
       controller_directory, "provision-p2-stage1.mjs",
       O_RDONLY | O_NOFOLLOW | O_CLOEXEC));

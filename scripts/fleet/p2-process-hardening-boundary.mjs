@@ -188,7 +188,10 @@ function activateLocalBoundary(processBoundary, context, expectedReceipt) {
     context.controllerExecutable !== expectedController ||
     !sourceRoot.endsWith(`/${expectedRuntimeSuffix}`)
   ) throw new Error('P2_LOCAL_PROCESS_BOUNDARY_SOURCE_INVALID');
-  const modulePath = join(context.trustedRoot, processBoundary.moduleRelativePath);
+  const modulePath = join(
+    context.trustedRoot,
+    `${processBoundary.moduleRelativePath}-${context.sourceSha}`,
+  );
   const receiptPath = join(sourceRoot, processBoundary.sourceReceiptLeaf);
   const user = process.geteuid();
   const exactDirectories = new Map([
