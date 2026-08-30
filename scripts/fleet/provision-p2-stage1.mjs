@@ -41,6 +41,7 @@ import {
   confirmations as hostProvisioningConfirmations,
   contractDigest,
   sha256,
+  validatePreProvisionBackupAttestation,
   validateTangFleetAttestations,
   validateTangServerAttestation,
 } from '../../tools/seori-auth/src/host-encryption-provisioning.mjs';
@@ -80,6 +81,8 @@ const mode = process.argv[2] ?? 'plan';
 const MAX_PUBLIC_OUTPUT = 2 * 1024 * 1024;
 const SHA40 = /^[a-f0-9]{40}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
+const HOST_KUBECONFIG = '/var/snap/microk8s/current/credentials/client.config';
+const LUKS_RECOVERY_LOGICAL_ID = 'shared/seori-auth/luks-recovery';
 
 class Stage1ControllerError extends Error {
   constructor(code) {
@@ -471,6 +474,55 @@ function catalogPreflight(root) {
   } catch {
     stop('P2_STAGE1_CATALOG_PREFLIGHT_FAILED');
   }
+}
+
+function readLuksRecoveryKey(root) {
+  if (fixtureCredentialRoot !== undefined) {
+    return readHeld(relativeCredentialPath(root, 'seori-auth/luks-recovery.key'), {
+      mode: 0o600,
+      maximum: 4096,
+    });
+  }
+  catalogPreflight(root);
+  const resolver = relativeCredentialPath(root, 'scripts/credential-catalog.py');
+  let output;
+  try {
+    output = execFileSync(resolver, ['resolve', '--id', LUKS_RECOVERY_LOGICAL_ID], {
+      encoding: 'utf8',
+      env: { PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' },
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 30_000,
+    });
+  } catch {
+    stop('P2_STAGE1_LUKS_RECOVERY_CREDENTIAL_INVALID');
+  }
+  const entries = output.trim().split('\n').map((line) => {
+    const separator = line.indexOf('=');
+    if (separator < 1) stop('P2_STAGE1_LUKS_RECOVERY_CREDENTIAL_INVALID');
+    return [line.slice(0, separator), line.slice(separator + 1)];
+  });
+  if (entries.length !== 4 || new Set(entries.map(([key]) => key)).size !== entries.length) {
+    stop('P2_STAGE1_LUKS_RECOVERY_CREDENTIAL_INVALID');
+  }
+  const fields = Object.fromEntries(entries);
+  if (
+    Object.keys(fields).toSorted().join('\0') !==
+      ['CREDENTIAL_ID', 'CREDENTIAL_PATH', 'CREDENTIAL_SCOPE', 'CREDENTIAL_STATUS']
+        .toSorted().join('\0') ||
+    fields.CREDENTIAL_ID !== LUKS_RECOVERY_LOGICAL_ID || fields.CREDENTIAL_SCOPE !== 'shared' ||
+    fields.CREDENTIAL_STATUS !== 'active' || !isAbsolute(fields.CREDENTIAL_PATH ?? '')
+  ) stop('P2_STAGE1_LUKS_RECOVERY_CREDENTIAL_INVALID');
+  const relation = relative(root, fields.CREDENTIAL_PATH);
+  if (
+    relation.length === 0 || relation.startsWith('..') || isAbsolute(relation) ||
+    relativeCredentialPath(root, relation) !== fields.CREDENTIAL_PATH
+  ) stop('P2_STAGE1_LUKS_RECOVERY_CREDENTIAL_INVALID');
+  const bytes = readHeld(fields.CREDENTIAL_PATH, { mode: 0o600, maximum: 4096 });
+  if (bytes.length < 32) {
+    bytes.fill(0);
+    stop('P2_STAGE1_LUKS_RECOVERY_CREDENTIAL_INVALID');
+  }
+  return bytes;
 }
 
 function hashHeldRegular(path, { mode: modeValue, maximum = 16 * 1024 * 1024 * 1024 } = {}) {
@@ -1708,18 +1760,17 @@ async function deliverRpi5() {
   }
 }
 
-async function hostEncryptionReadback() {
-  allowedOptions(['source-sha', 'ssh-password-file']);
-  const sourceSha = option('source-sha');
-  if (!SHA40.test(sourceSha)) stop('P2_STAGE1_SOURCE_SHA_INVALID');
-  assertLocalProcessHardening();
-  const machine = host(hostContract.target.nodeName, 'state-host');
-  const tangAttestations = hostContract.tang.servers.map(({ nodeName }) =>
+function tangAttestationPaths() {
+  return hostContract.tang.servers.map(({ nodeName }) =>
     `${stage1.tangBackup.hostAttestationRoot}/${nodeName}.json`);
+}
+
+async function remoteHostEncryptionReadback(sourceSha, action = 'readback') {
+  const machine = host(hostContract.target.nodeName, 'state-host');
   const command = [
-    'readback',
-    '--kubeconfig=/var/snap/microk8s/current/credentials/client.config',
-    ...tangAttestations.map((path) => `--tang-attestation=${path}`),
+    action,
+    `--kubeconfig=${HOST_KUBECONFIG}`,
+    ...tangAttestationPaths().map((path) => `--tang-attestation=${path}`),
   ].join(' ');
   const result = parsePublicJson(await runPublicSsh(
     machine,
@@ -1727,6 +1778,20 @@ async function hostEncryptionReadback() {
     undefined,
     { privileged: true },
   ), 'P2_STAGE1_HOST_ENCRYPTION_READBACK_INVALID');
+  if (action === 'reboot-readback') {
+    const rebootKeys = [
+      'schemaVersion', 'state', 'nodeName', 'contractDigest', 'previousBootId',
+      'currentBootId', 'provisionedDigest', 'hostEncryptionDigest', 'observedDigest',
+    ];
+    if (
+      Object.keys(result).toSorted().join('\0') !== rebootKeys.toSorted().join('\0') ||
+      result.schemaVersion !== 1 || result.state !== 'HOST_ENCRYPTED_MOUNT_REBOOT_VERIFIED' ||
+      result.nodeName !== hostContract.target.nodeName ||
+      result.contractDigest !== contractDigest(hostContract) ||
+      !SHA256.test(result.observedDigest ?? '')
+    ) stop('P2_STAGE1_HOST_ENCRYPTION_REBOOT_READBACK_INVALID');
+    return Object.freeze(result);
+  }
   const missingKeys = [
     'schemaVersion', 'state', 'nodeName', 'contractDigest', 'targetEmpty',
   ];
@@ -1746,6 +1811,144 @@ async function hostEncryptionReadback() {
     (result.state === 'HOST_ENCRYPTED_MOUNT_MISSING' && result.targetEmpty !== true)
   ) stop('P2_STAGE1_HOST_ENCRYPTION_READBACK_INVALID');
   return Object.freeze(result);
+}
+
+async function hostEncryptionReadback() {
+  allowedOptions(['source-sha', 'ssh-password-file']);
+  const sourceSha = option('source-sha');
+  if (!SHA40.test(sourceSha)) stop('P2_STAGE1_SOURCE_SHA_INVALID');
+  assertLocalProcessHardening();
+  return remoteHostEncryptionReadback(sourceSha);
+}
+
+async function remoteHostEncryptionBackupState(sourceSha) {
+  const machine = host(hostContract.target.nodeName, 'state-host');
+  const command = `backup-state --kubeconfig=${HOST_KUBECONFIG}`;
+  const result = parsePublicJson(await runPublicSsh(
+    machine,
+    nativeNodeCommand(sourceSha, remoteHostEncryptionHelper(sourceSha), command),
+    undefined,
+    { privileged: true },
+  ), 'P2_STAGE1_HOST_ENCRYPTION_BACKUP_READBACK_INVALID');
+  if (result.state === 'HOST_PRE_BACKUP_MISSING') {
+    const expected = ['schemaVersion', 'state', 'nodeName', 'contractDigest', 'targetEmpty'];
+    if (
+      Object.keys(result).toSorted().join('\0') !== expected.toSorted().join('\0') ||
+      result.schemaVersion !== 1 || result.nodeName !== hostContract.target.nodeName ||
+      result.contractDigest !== contractDigest(hostContract) || result.targetEmpty !== true
+    ) stop('P2_STAGE1_HOST_ENCRYPTION_BACKUP_READBACK_INVALID');
+    return Object.freeze(result);
+  }
+  try {
+    return validatePreProvisionBackupAttestation(hostContract, result);
+  } catch {
+    stop('P2_STAGE1_HOST_ENCRYPTION_BACKUP_READBACK_INVALID');
+  }
+}
+
+function publicBackupReceipt(attestation) {
+  return Object.freeze({
+    schemaVersion: 1,
+    state: 'P2_STAGE1_HOST_ENCRYPTION_BACKUP_VERIFIED',
+    nodeName: hostContract.target.nodeName,
+    contractDigest: contractDigest(hostContract),
+    preBackupDigest: attestation.observedDigest,
+    secretExposed: false,
+  });
+}
+
+async function hostEncryptionBackup() {
+  allowedOptions(['source-sha', 'confirmation', 'ssh-password-file']);
+  const sourceSha = option('source-sha');
+  if (!SHA40.test(sourceSha)) stop('P2_STAGE1_SOURCE_SHA_INVALID');
+  if (option('confirmation') !== hostProvisioningConfirmations(hostContract).backup) {
+    stop('P2_STAGE1_HOST_ENCRYPTION_BACKUP_CONFIRMATION_REQUIRED');
+  }
+  assertLocalProcessHardening();
+  assertPostBootstrapBackup(credentialRoot());
+  const before = await remoteHostEncryptionBackupState(sourceSha);
+  if (before.state !== 'HOST_PRE_BACKUP_MISSING') return publicBackupReceipt(before);
+  const machine = host(hostContract.target.nodeName, 'state-host');
+  const command = `backup --confirmation=${option('confirmation')} --kubeconfig=${HOST_KUBECONFIG}`;
+  const result = parsePublicJson(await runPublicSsh(
+    machine,
+    nativeNodeCommand(sourceSha, remoteHostEncryptionHelper(sourceSha), command),
+    undefined,
+    { privileged: true },
+  ), 'P2_STAGE1_HOST_ENCRYPTION_BACKUP_OUTCOME_UNKNOWN');
+  let validated;
+  try {
+    validated = validatePreProvisionBackupAttestation(hostContract, result);
+  } catch {
+    stop('P2_STAGE1_HOST_ENCRYPTION_BACKUP_OUTCOME_UNKNOWN');
+  }
+  const after = await remoteHostEncryptionBackupState(sourceSha);
+  if (after.observedDigest !== validated.observedDigest) {
+    stop('P2_STAGE1_HOST_ENCRYPTION_BACKUP_OUTCOME_UNKNOWN');
+  }
+  return publicBackupReceipt(after);
+}
+
+async function hostEncryptionApply() {
+  allowedOptions(['source-sha', 'confirmation', 'ssh-password-file']);
+  const sourceSha = option('source-sha');
+  if (!SHA40.test(sourceSha)) stop('P2_STAGE1_SOURCE_SHA_INVALID');
+  if (option('confirmation') !== hostProvisioningConfirmations(hostContract).apply) {
+    stop('P2_STAGE1_HOST_ENCRYPTION_APPLY_CONFIRMATION_REQUIRED');
+  }
+  assertLocalProcessHardening();
+  const root = credentialRoot();
+  assertPostBootstrapBackup(root);
+  const current = await remoteHostEncryptionReadback(sourceSha);
+  if (current.state === 'HOST_ENCRYPTED_MOUNT_VERIFIED') {
+    return Object.freeze({
+      schemaVersion: 1,
+      state: current.state,
+      nodeName: current.nodeName,
+      contractDigest: current.contractDigest,
+      hostEncryptionDigest: current.hostEncryption.observedDigest,
+      secretExposed: false,
+    });
+  }
+  const backup = await remoteHostEncryptionBackupState(sourceSha);
+  if (backup.state !== 'PRE_PROVISION_BACKUP_RESTORE_VERIFIED') {
+    stop('P2_STAGE1_HOST_ENCRYPTION_BACKUP_REQUIRED');
+  }
+  const recoveryKey = readLuksRecoveryKey(root);
+  try {
+    const machine = host(hostContract.target.nodeName, 'state-host');
+    const command = 'sudo -n /usr/local/libexec/seori-auth-native launch -- ' +
+      `/usr/local/bin/node ${remoteRoot(sourceSha)}/scripts/fleet/` +
+      'p2-host-encryption-apply-loader.mjs';
+    const result = parsePublicJson(await runPublicSsh(
+      machine,
+      command,
+      recoveryKey,
+    ), 'P2_STAGE1_HOST_ENCRYPTION_APPLY_OUTCOME_UNKNOWN');
+    const expected = [
+      'schemaVersion', 'state', 'nodeName', 'contractDigest', 'provisionedDigest',
+      'secretExposed',
+    ];
+    if (
+      Object.keys(result).toSorted().join('\0') !== expected.toSorted().join('\0') ||
+      result.schemaVersion !== 1 ||
+      result.state !== 'HOST_PROVISIONED_REBOOT_READBACK_REQUIRED' ||
+      result.nodeName !== hostContract.target.nodeName ||
+      result.contractDigest !== contractDigest(hostContract) ||
+      !SHA256.test(result.provisionedDigest ?? '') || result.secretExposed !== false
+    ) stop('P2_STAGE1_HOST_ENCRYPTION_APPLY_OUTCOME_UNKNOWN');
+    return Object.freeze(result);
+  } finally {
+    recoveryKey.fill(0);
+  }
+}
+
+async function hostEncryptionRebootReadback() {
+  allowedOptions(['source-sha', 'ssh-password-file']);
+  const sourceSha = option('source-sha');
+  if (!SHA40.test(sourceSha)) stop('P2_STAGE1_SOURCE_SHA_INVALID');
+  assertLocalProcessHardening();
+  return remoteHostEncryptionReadback(sourceSha, 'reboot-readback');
 }
 
 function sourceArchive() {
@@ -1951,7 +2154,10 @@ const handlers = new Map([
   ['provision-tang', provisionTang],
   ['backup-tang', backupTang],
   ['deliver-rpi5-evidence', deliverRpi5],
+  ['host-encryption-backup', hostEncryptionBackup],
+  ['host-encryption-apply', hostEncryptionApply],
   ['host-encryption-readback', hostEncryptionReadback],
+  ['host-encryption-reboot-readback', hostEncryptionRebootReadback],
 ]);
 
 try {

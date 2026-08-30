@@ -1269,6 +1269,34 @@ function backup() {
   return attestation;
 }
 
+function backupState() {
+  assertAllowedOptions(['kubeconfig']);
+  assertRoot();
+  assertPristine();
+  readStateVolume(option('kubeconfig'));
+  const paths = backupPaths();
+  const required = [paths.manifest, paths.crypttab, paths.fstab];
+  const forbidden = [
+    paths.header, paths.provision, paths.restoredProvision, paths.reboot,
+    paths.restoredReboot, paths.rollback,
+  ];
+  const requiredPresent = required.filter((path) => existsSync(path)).length;
+  const forbiddenPresent = forbidden.some((path) => existsSync(path));
+  if (requiredPresent === 0 && !forbiddenPresent) {
+    return {
+      schemaVersion: 1,
+      state: 'HOST_PRE_BACKUP_MISSING',
+      nodeName: contract.target.nodeName,
+      contractDigest: contractDigest(contract),
+      targetEmpty: true,
+    };
+  }
+  if (requiredPresent !== required.length || forbiddenPresent) {
+    stop('P2_HOST_PRE_BACKUP_PARTIAL_OR_DRIFT');
+  }
+  return loadPreBackup();
+}
+
 function loadPreBackup({ currentMustMatch = true, mounted = false } = {}) {
   const paths = backupPaths();
   const attestation = validatePreProvisionBackupAttestation(
@@ -1944,6 +1972,7 @@ function plan() {
 
 const handlers = new Map([
   ['plan', plan],
+  ['backup-state', backupState],
   ['backup', backup],
   ['readback', readback],
   ['apply', apply],

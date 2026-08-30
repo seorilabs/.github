@@ -94,6 +94,35 @@ native_helper="${target}/tools/seori-auth/.build/seori-auth-native"
 native_launcher="/usr/local/libexec/seori-auth-native"
 process_boundary="/usr/local/libexec/seorilabs-p2-process-hardening.node"
 record_boundary="/usr/local/libexec/seorilabs-p2-host-fs-boundary"
+apply_loader="${target}/scripts/fleet/p2-host-encryption-apply-loader.mjs"
+apply_sudoers="/etc/sudoers.d/seorilabs-p2-host-encryption-${source_sha}"
+
+ensure_apply_sudoers() {
+  if [[ "$host_name" != "rpi5" ]]; then return 0; fi
+  if [[ ! -x /usr/sbin/visudo ]] || [[ ! -f "$apply_loader" ]] || [[ -L "$apply_loader" ]]; then
+    exit 126
+  fi
+  local command="${native_launcher} launch -- /usr/local/bin/node ${apply_loader}"
+  local content="erani ALL=(root) NOPASSWD:NOSETENV: ${command}"
+  if [[ -e "$apply_sudoers" ]] || [[ -L "$apply_sudoers" ]]; then
+    if [[ -L "$apply_sudoers" ]] || [[ ! -f "$apply_sudoers" ]] || \
+       [[ "$(/usr/bin/stat -Lc '%u:%g:%a' "$apply_sudoers")" != "0:0:440" ]] || \
+       [[ "$(/bin/cat "$apply_sudoers")" != "$content" ]]; then
+      exit 126
+    fi
+    /usr/sbin/visudo -cf "$apply_sudoers" >/dev/null
+    return 0
+  fi
+  local pending="${apply_sudoers}.pending"
+  if [[ -e "$pending" ]] || [[ -L "$pending" ]]; then exit 126; fi
+  /usr/bin/install -o root -g root -m 0440 /dev/null "$pending"
+  printf '%s\n' "$content" >"$pending"
+  /usr/bin/chown root:root "$pending"
+  /usr/bin/chmod 0440 "$pending"
+  /usr/sbin/visudo -cf "$pending" >/dev/null
+  /usr/bin/mv --no-clobber -T "$pending" "$apply_sudoers"
+  /usr/bin/sync -f /etc/sudoers.d
+}
 
 readback() {
   if [[ ! -d "$target" ]] || [[ -L "$target" ]] || [[ ! -f "$receipt" ]] || \
@@ -144,6 +173,7 @@ verify_process_boundary() {
 
 if [[ -e "$target" ]] || [[ -L "$target" ]]; then
   readback || exit 126
+  ensure_apply_sudoers
   verify_process_boundary || exit 126
   /usr/local/bin/node -e '
     const [nodeName, sourceSha, archiveSha256, packageLockSha256] = process.argv.slice(1);
@@ -255,6 +285,7 @@ install_exact_helper "$staging_record" "$record_boundary" "$record_sha"
 /usr/bin/mv --no-clobber -T "$staging" "$target"
 created_staging=false
 readback || exit 126
+ensure_apply_sudoers
 verify_process_boundary || exit 126
 /usr/bin/sync -f "$install_root"
 /usr/local/bin/node -e '

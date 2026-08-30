@@ -51,6 +51,12 @@ Broker workload를 활성화하지 않는다.
   읽거나 생성하지 않고 `O_NOFOLLOW`로 한 번 연 FD와 최초 `fstat` identity를 고정한다. 모든
   secret-consuming child에는 같은 FD 3만 전달하며 중간에 파일 path를 다시 열지 않는다. 값과 원본
   경로는 child argv, 환경, stdout, stderr, marker, receipt에 남지 않는다.
+- 무인 Stage1 controller는 catalog의 `shared/seori-auth/luks-recovery`만 해석한다. source SHA별 sudoers
+  rule은 해당 source의 `p2-host-encryption-apply-loader.mjs` 한 명령만 `NOPASSWD:NOSETENV`로 허용한다.
+  SSH 로그인 password는 native askpass 경계로, recovery key는 별도 stdin으로 전달한다. loader는 native
+  hardening 확인 후 `/run/seorilabs-p2-host-encryption-apply` tmpfs의 root-only pending file을 만들어
+  host apply child에만 제공하고 종료 전에 unlink와 directory fsync를 수행한다. pending file이 남은
+  crash 상태는 자동 삭제하거나 재시도하지 않고 `P2_HOST_RECOVERY_LOADER_STALE_KEY`로 중단한다.
 - source, rollback destination, mount와 backup parent는 `lstat + realpath + device + inode`로 backup
   receipt에 고정한다. symlink와 broken symlink는 거부한다. source 생성, header backup, source
   rollback/restore와 system config 교환은 고정 경로만 허용하는 root-owned native boundary가 directory
@@ -183,6 +189,15 @@ sudo /usr/local/libexec/seori-auth-native launch -- \
   --kubeconfig=/canonical/path/to/kubeconfig
 ```
 
+Stage1 무인 경로에서는 동일 작업을 exact source와 confirmation으로 수행한다.
+
+```bash
+<stage1> host-encryption-backup \
+  --source-sha=<exact-rpi5-source-sha> \
+  --confirmation=<plan-returned-backup-confirmation> \
+  --ssh-password-file=<canonical-password-file>
+```
+
 그 다음 apply한다. recovery key 값은 prompt, argv, 환경변수로 전달하지 않는다.
 
 ```bash
@@ -193,6 +208,15 @@ sudo /usr/local/libexec/seori-auth-native launch -- \
   --recovery-key-file=/canonical/root-owned/path \
   --tang-attestation=/canonical/path/to/rpi4001.json \
   --tang-attestation=/canonical/path/to/seori-m6-01.json
+```
+
+Stage1 apply는 recovery key 값이나 경로를 인자로 받지 않는다.
+
+```bash
+<stage1> host-encryption-apply \
+  --source-sha=<exact-rpi5-source-sha> \
+  --confirmation=<plan-returned-apply-confirmation> \
+  --ssh-password-file=<canonical-password-file>
 ```
 
 apply 성공은 reboot persistence 완료가 아니다. 먼저 readback한 뒤 RPI5를 승인된 별도 작업으로

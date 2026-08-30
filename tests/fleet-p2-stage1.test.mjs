@@ -23,7 +23,11 @@ import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { parse } from 'yaml';
 
-import { canonicalDigest, sha256 } from '../tools/seori-auth/src/host-encryption-provisioning.mjs';
+import {
+  canonicalDigest,
+  confirmations as hostConfirmations,
+  sha256,
+} from '../tools/seori-auth/src/host-encryption-provisioning.mjs';
 import {
   buildVerifiedPrivateEvidence,
   decryptTangBackup,
@@ -63,6 +67,7 @@ const contract = parse(await readFile('contracts/fleet-p2-stage1.yaml', 'utf8'))
 const schema = JSON.parse(await readFile('contracts/fleet-p2-stage1.schema.json', 'utf8'));
 const hostContract = parse(await readFile('contracts/fleet-p2-host-encryption.yaml', 'utf8'));
 const secretCanary = 'STAGE1_PRIVATE_TANG_JWK_CANARY_MUST_NOT_APPEAR_84017';
+const recoveryKeyCanary = 'STAGE1_LUKS_RECOVERY_KEY_MUST_NOT_APPEAR_17593';
 
 async function createFixture() {
   const temporary = await realpath(await mkdtemp(join(tmpdir(), 'seorilabs-p2-stage1-')));
@@ -74,6 +79,13 @@ async function createFixture() {
     mkdir(remoteRoot, { recursive: true, mode: 0o700 }),
   ]);
   await chmod(credentialRoot, 0o700);
+  await mkdir(join(credentialRoot, 'seori-auth'), { mode: 0o700 });
+  await writeFile(
+    join(credentialRoot, 'seori-auth/luks-recovery.key'),
+    `${recoveryKeyCanary}\n`,
+    { mode: 0o600 },
+  );
+  await chmod(join(credentialRoot, 'seori-auth/luks-recovery.key'), 0o600);
   for (const host of contract.hosts) {
     const root = join(remoteRoot, host.nodeName);
     await mkdir(root, { recursive: true, mode: 0o700 });
@@ -988,6 +1000,99 @@ test('host-encryption readback uses the exact RPI5 source and returns public sta
     ));
     assert.match(commands, /--kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/client\.config/u);
     assert.doesNotMatch(commands, new RegExp(secretCanary, 'u'));
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('host-encryption backup and apply consume the catalog recovery key without exposing it', async () => {
+  const fixture = await createFixture();
+  const sourceSha = 'd'.repeat(40);
+  try {
+    await bootstrapCredentials(fixture);
+    const backup = JSON.parse((await runController(fixture, 'host-encryption-backup', [
+      `--source-sha=${sourceSha}`,
+      `--confirmation=${hostConfirmations(hostContract).backup}`,
+    ])).stdout);
+    assert.equal(backup.state, 'P2_STAGE1_HOST_ENCRYPTION_BACKUP_VERIFIED');
+    assert.equal(backup.secretExposed, false);
+    assert.match(backup.preBackupDigest, /^[a-f0-9]{64}$/u);
+
+    const applied = JSON.parse((await runController(fixture, 'host-encryption-apply', [
+      `--source-sha=${sourceSha}`,
+      `--confirmation=${hostConfirmations(hostContract).apply}`,
+    ])).stdout);
+    assert.deepEqual(applied, {
+      schemaVersion: 1,
+      state: 'HOST_PROVISIONED_REBOOT_READBACK_REQUIRED',
+      nodeName: hostContract.target.nodeName,
+      contractDigest: canonicalDigest(hostContract),
+      provisionedDigest: 'd'.repeat(64),
+      secretExposed: false,
+    });
+    const commands = await readFile(fixture.log, 'utf8');
+    assert.match(commands, /p2-host-encryption-apply-loader\.mjs/u);
+    assert.doesNotMatch(commands, new RegExp(recoveryKeyCanary, 'u'));
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('native SSH relay keeps the recovery key separate from SSH and sudo authentication', async () => {
+  const fixture = await createFixture();
+  const passwordPath = join(fixture.temporary, 'ssh-password');
+  const fakeSsh = join(fixture.temporary, 'fake-ssh');
+  const testRelay = join(fixture.temporary, 'relay-under-test');
+  const password = 'FIXTURE_RECOVERY_RELAY_PASSWORD_CANARY_29314';
+  const sourceSha = 'e'.repeat(40);
+  const applyCommand = 'sudo -n /usr/local/libexec/seori-auth-native launch -- ' +
+    `/usr/local/bin/node /opt/seorilabs/fleet-p2/${sourceSha}/scripts/fleet/` +
+    'p2-host-encryption-apply-loader.mjs';
+  const runRelay = (nodeName, privilegeFlag) => new Promise((resolve, reject) => {
+    const child = spawn(testRelay, [
+      'relay', nodeName, passwordPath, privilegeFlag, applyCommand,
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const stdout = [];
+    const stderr = [];
+    child.stdout.on('data', (chunk) => stdout.push(Buffer.from(chunk)));
+    child.stderr.on('data', (chunk) => stderr.push(Buffer.from(chunk)));
+    child.once('error', reject);
+    child.once('close', (status) => resolve({
+      status,
+      stdout: Buffer.concat(stdout).toString('utf8'),
+      stderr: Buffer.concat(stderr).toString('utf8'),
+    }));
+    child.stdin.end(recoveryKeyCanary);
+  });
+  try {
+    await writeFile(passwordPath, `${password}\n`, { mode: 0o600 });
+    await chmod(passwordPath, 0o600);
+    await writeFile(fakeSsh, `#!/bin/bash
+set -euo pipefail
+count="$(/usr/bin/wc -c | /usr/bin/tr -d ' ')"
+printf '{"stdinBytes":%s}\n' "$count"
+`, { mode: 0o700 });
+    await chmod(fakeSsh, 0o700);
+    await execFileAsync('/usr/bin/cc', [
+      `-DSSH_PATH="${fakeSsh}"`,
+      'scripts/fleet/native/p2-stage1-ssh-relay.c',
+      '-o',
+      testRelay,
+    ]);
+    const accepted = await runRelay('rpi5', '0');
+    assert.equal(accepted.status, 0);
+    assert.deepEqual(JSON.parse(accepted.stdout), {
+      stdinBytes: Buffer.byteLength(recoveryKeyCanary),
+    });
+    assert.doesNotMatch(`${accepted.stdout}${accepted.stderr}`, new RegExp(password, 'u'));
+    assert.doesNotMatch(
+      `${accepted.stdout}${accepted.stderr}`,
+      new RegExp(recoveryKeyCanary, 'u'),
+    );
+    const wrongHost = await runRelay('rpi4001', '0');
+    assert.equal(wrongHost.status, 126);
+    const wrongPrivilegeChannel = await runRelay('rpi5', '1');
+    assert.equal(wrongPrivilegeChannel.status, 126);
   } finally {
     await fixture.cleanup();
   }

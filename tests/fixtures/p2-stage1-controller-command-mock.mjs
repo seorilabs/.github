@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 
 import {
+  buildPreProvisionBackupAttestation,
   buildTangServerAttestation,
   canonicalJson,
   confirmations,
@@ -32,6 +33,7 @@ const hostCli = fileURLToPath(new URL('./p2-stage1-tang-fixture-entrypoint.mjs',
 const contract = parse(readFileSync('contracts/fleet-p2-host-encryption.yaml', 'utf8'));
 const stage1 = parse(readFileSync('contracts/fleet-p2-stage1.yaml', 'utf8'));
 const IP_TO_NODE = Object.freeze(Object.fromEntries(stage1.hosts.map(({ ipv4, nodeName }) => [ipv4, nodeName])));
+const recoveryKeyCanary = 'STAGE1_LUKS_RECOVERY_KEY_MUST_NOT_APPEAR_17593\n';
 
 if (executable !== stage1.ssh.executable || typeof remoteRoot !== 'string' || remoteRoot.length === 0) {
   process.exit(126);
@@ -216,6 +218,61 @@ if (tangReadback !== null) {
   output(canonicalJson(attestation));
 }
 
+function fixtureHostBackup() {
+  return buildPreProvisionBackupAttestation({
+    contract,
+    configuration: [contract.systemd.crypttabPath, contract.systemd.fstabPath].map((path, index) => ({
+      path,
+      existed: false,
+      sha256: String(index + 1).repeat(64),
+      metadata: null,
+    })),
+    pathIdentities: [
+      '/data/seori-auth',
+      '/data/seori-auth/rollback',
+      contract.target.mountPath,
+      contract.target.backupRoot,
+    ].map((path, index) => ({
+      path,
+      type: 'directory',
+      device: String(index + 1),
+      inode: String(index + 11),
+      ownerId: 0,
+      groupId: 0,
+      mode: '0700',
+    })),
+    unlockerState: { enabled: false, active: false },
+  });
+}
+
+const hostBackupMarker = join(nodeRoot, 'host-pre-backup.json');
+const hostBackupState = /provision-p2-host-encryption\.mjs backup-state --kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/client\.config 3<&0'$/u
+  .exec(remoteCommand);
+if (hostBackupState !== null) {
+  if (nodeName !== contract.target.nodeName) process.exit(126);
+  try {
+    output(JSON.parse(readFileSync(hostBackupMarker, 'utf8')));
+  } catch (error) {
+    if (error?.code !== 'ENOENT') process.exit(126);
+    output({
+      schemaVersion: 1,
+      state: 'HOST_PRE_BACKUP_MISSING',
+      nodeName: contract.target.nodeName,
+      contractDigest: contractDigest(contract),
+      targetEmpty: true,
+    });
+  }
+}
+
+const hostBackup = /provision-p2-host-encryption\.mjs backup --confirmation=fleet-p2-host-backup-[a-f0-9]{12} --kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/client\.config 3<&0'$/u
+  .exec(remoteCommand);
+if (hostBackup !== null) {
+  if (nodeName !== contract.target.nodeName) process.exit(126);
+  const attestation = fixtureHostBackup();
+  writeFileSync(hostBackupMarker, `${canonicalJson(attestation)}\n`, { mode: 0o600, flag: 'wx' });
+  output(attestation);
+}
+
 const hostEncryptionReadback = /provision-p2-host-encryption\.mjs readback --kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/client\.config --tang-attestation=\/var\/lib\/seorilabs\/tang-backup-attestations\/rpi4001\.json --tang-attestation=\/var\/lib\/seorilabs\/tang-backup-attestations\/seori-m6-01\.json 3<&0'$/u
   .exec(remoteCommand);
 if (hostEncryptionReadback !== null) {
@@ -226,6 +283,22 @@ if (hostEncryptionReadback !== null) {
     nodeName: contract.target.nodeName,
     contractDigest: contractDigest(contract),
     targetEmpty: true,
+  });
+}
+
+const hostEncryptionApply = /^sudo -n \/usr\/local\/libexec\/seori-auth-native launch -- \/usr\/local\/bin\/node \/opt\/seorilabs\/fleet-p2\/[a-f0-9]{40}\/scripts\/fleet\/p2-host-encryption-apply-loader\.mjs$/u
+  .exec(remoteCommand);
+if (hostEncryptionApply !== null) {
+  if (nodeName !== contract.target.nodeName || input.toString('utf8') !== recoveryKeyCanary) {
+    process.exit(126);
+  }
+  output({
+    schemaVersion: 1,
+    state: 'HOST_PROVISIONED_REBOOT_READBACK_REQUIRED',
+    nodeName: contract.target.nodeName,
+    contractDigest: contractDigest(contract),
+    provisionedDigest: 'd'.repeat(64),
+    secretExposed: false,
   });
 }
 
