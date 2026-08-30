@@ -1313,6 +1313,10 @@ function remoteHostHelper(sourceSha) {
   return `${remoteRoot(sourceSha)}/scripts/fleet/p2-stage1-tang-backup.mjs`;
 }
 
+function remoteHostEncryptionHelper(sourceSha) {
+  return `${remoteRoot(sourceSha)}/scripts/fleet/provision-p2-host-encryption.mjs`;
+}
+
 function remoteTangHelper(sourceSha) {
   return `${remoteRoot(sourceSha)}/scripts/fleet/provision-p2-tang-server.mjs`;
 }
@@ -1699,6 +1703,46 @@ async function deliverRpi5() {
   }
 }
 
+async function hostEncryptionReadback() {
+  allowedOptions(['source-sha', 'ssh-password-file']);
+  const sourceSha = option('source-sha');
+  if (!SHA40.test(sourceSha)) stop('P2_STAGE1_SOURCE_SHA_INVALID');
+  assertLocalProcessHardening();
+  const machine = host(hostContract.target.nodeName, 'state-host');
+  const tangAttestations = hostContract.tang.servers.map(({ nodeName }) =>
+    `${stage1.tangBackup.hostAttestationRoot}/${nodeName}.json`);
+  const command = [
+    'readback',
+    '--kubeconfig=/var/snap/microk8s/current/credentials/client.config',
+    ...tangAttestations.map((path) => `--tang-attestation=${path}`),
+  ].join(' ');
+  const result = parsePublicJson(await runPublicSsh(
+    machine,
+    nativeNodeCommand(sourceSha, remoteHostEncryptionHelper(sourceSha), command),
+    undefined,
+    { privileged: true },
+  ), 'P2_STAGE1_HOST_ENCRYPTION_READBACK_INVALID');
+  const missingKeys = [
+    'schemaVersion', 'state', 'nodeName', 'contractDigest', 'targetEmpty',
+  ];
+  const verifiedKeys = [
+    'schemaVersion', 'state', 'nodeName', 'contractDigest', 'identity', 'luksUuid',
+    'sourceIdentity', 'mapperBacking', 'mount', 'clevis', 'stateVolumeAttestation',
+    'hostEncryption',
+  ];
+  const expectedKeys = result.state === 'HOST_ENCRYPTED_MOUNT_MISSING'
+    ? missingKeys
+    : result.state === 'HOST_ENCRYPTED_MOUNT_VERIFIED' ? verifiedKeys : undefined;
+  if (
+    expectedKeys === undefined ||
+    Object.keys(result).toSorted().join('\0') !== expectedKeys.toSorted().join('\0') ||
+    result.schemaVersion !== 1 || result.nodeName !== hostContract.target.nodeName ||
+    result.contractDigest !== contractDigest(hostContract) ||
+    (result.state === 'HOST_ENCRYPTED_MOUNT_MISSING' && result.targetEmpty !== true)
+  ) stop('P2_STAGE1_HOST_ENCRYPTION_READBACK_INVALID');
+  return Object.freeze(result);
+}
+
 function sourceArchive() {
   if (fixtureCredentialRoot === undefined) {
     const context = assertLocalProcessHardening();
@@ -1902,6 +1946,7 @@ const handlers = new Map([
   ['provision-tang', provisionTang],
   ['backup-tang', backupTang],
   ['deliver-rpi5-evidence', deliverRpi5],
+  ['host-encryption-readback', hostEncryptionReadback],
 ]);
 
 try {

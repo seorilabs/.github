@@ -879,6 +879,68 @@ printf '{"stdinBytes":%s}\n' "$count"
   }
 });
 
+test('native SSH relay permits only the exact RPI5 host-encryption readback command', async () => {
+  const fixture = await createFixture();
+  const passwordPath = join(fixture.temporary, 'ssh-password');
+  const fakeSsh = join(fixture.temporary, 'fake-ssh');
+  const testRelay = join(fixture.temporary, 'relay-under-test');
+  const password = 'FIXTURE_HOST_READBACK_PASSWORD_CANARY_48112';
+  const readbackCommand = "sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native " +
+    'launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/' + 'a'.repeat(40) +
+    '/scripts/fleet/provision-p2-host-encryption.mjs readback ' +
+    '--kubeconfig=/var/snap/microk8s/current/credentials/client.config ' +
+    '--tang-attestation=/var/lib/seorilabs/tang-backup-attestations/rpi4001.json ' +
+    '--tang-attestation=/var/lib/seorilabs/tang-backup-attestations/seori-m6-01.json ' +
+    "3</dev/null </dev/null'";
+  const runRelay = (nodeName) => new Promise((resolve, reject) => {
+    const child = spawn(testRelay, [
+      'relay', nodeName, passwordPath, '1', readbackCommand,
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const stdout = [];
+    const stderr = [];
+    child.stdout.on('data', (chunk) => stdout.push(Buffer.from(chunk)));
+    child.stderr.on('data', (chunk) => stderr.push(Buffer.from(chunk)));
+    child.once('error', reject);
+    child.once('close', (status) => resolve({
+      status,
+      stdout: Buffer.concat(stdout).toString('utf8'),
+      stderr: Buffer.concat(stderr).toString('utf8'),
+    }));
+    child.stdin.end();
+  });
+  try {
+    await writeFile(passwordPath, `${password}\n`, { mode: 0o600 });
+    await chmod(passwordPath, 0o600);
+    await writeFile(fakeSsh, `#!/bin/bash
+set -euo pipefail
+count="$(/usr/bin/wc -c | /usr/bin/tr -d ' ')"
+printf '{"stdinBytes":%s}\n' "$count"
+`, { mode: 0o700 });
+    await chmod(fakeSsh, 0o700);
+    await execFileAsync('/usr/bin/cc', [
+      `-DSSH_PATH="${fakeSsh}"`,
+      'scripts/fleet/native/p2-stage1-ssh-relay.c',
+      '-o',
+      testRelay,
+    ]);
+
+    const accepted = await runRelay('rpi5');
+    assert.equal(accepted.status, 0);
+    assert.deepEqual(JSON.parse(accepted.stdout), {
+      stdinBytes: Buffer.byteLength(password) + 1,
+    });
+    assert.doesNotMatch(`${accepted.stdout}${accepted.stderr}`, new RegExp(password, 'u'));
+
+    const rejected = await runRelay('rpi4001');
+    assert.equal(rejected.status, 126);
+    assert.equal(rejected.stdout, '');
+    assert.equal(rejected.stderr, '');
+    assert.doesNotMatch(`${rejected.stdout}${rejected.stderr}`, new RegExp(password, 'u'));
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test('source bootstrap remote fixture is exact-SHA and readback-first', async () => {
   const fixture = await createFixture();
   try {
@@ -898,6 +960,33 @@ test('source bootstrap remote fixture is exact-SHA and readback-first', async ()
     assert.equal(applied.archiveSha256, sourcePlan.archiveSha256);
     const commands = await readFile(fixture.log, 'utf8');
     assert.match(commands, /\/usr\/bin\/dd of=\/var\/tmp\/seorilabs-fleet-p2/u);
+    assert.doesNotMatch(commands, new RegExp(secretCanary, 'u'));
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('host-encryption readback uses the exact RPI5 source and returns public state only', async () => {
+  const fixture = await createFixture();
+  const sourceSha = 'c'.repeat(40);
+  try {
+    const result = JSON.parse((await runController(fixture, 'host-encryption-readback', [
+      `--source-sha=${sourceSha}`,
+    ])).stdout);
+    assert.deepEqual(result, {
+      schemaVersion: 1,
+      state: 'HOST_ENCRYPTED_MOUNT_MISSING',
+      nodeName: hostContract.target.nodeName,
+      contractDigest: canonicalDigest(hostContract),
+      targetEmpty: true,
+    });
+    const commands = await readFile(fixture.log, 'utf8');
+    assert.match(commands, new RegExp(
+      `/opt/seorilabs/fleet-p2/${sourceSha}/scripts/fleet/` +
+      'provision-p2-host-encryption\\.mjs readback',
+      'u',
+    ));
+    assert.match(commands, /--kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/client\.config/u);
     assert.doesNotMatch(commands, new RegExp(secretCanary, 'u'));
   } finally {
     await fixture.cleanup();

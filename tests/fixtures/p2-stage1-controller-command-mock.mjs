@@ -216,4 +216,17 @@ if (tangReadback !== null) {
   output(canonicalJson(attestation));
 }
 
+const hostEncryptionReadback = /provision-p2-host-encryption\.mjs readback --kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/client\.config --tang-attestation=\/var\/lib\/seorilabs\/tang-backup-attestations\/rpi4001\.json --tang-attestation=\/var\/lib\/seorilabs\/tang-backup-attestations\/seori-m6-01\.json 3<&0'$/u
+  .exec(remoteCommand);
+if (hostEncryptionReadback !== null) {
+  if (nodeName !== contract.target.nodeName) process.exit(126);
+  output({
+    schemaVersion: 1,
+    state: 'HOST_ENCRYPTED_MOUNT_MISSING',
+    nodeName: contract.target.nodeName,
+    contractDigest: contractDigest(contract),
+    targetEmpty: true,
+  });
+}
+
 process.exit(126);
