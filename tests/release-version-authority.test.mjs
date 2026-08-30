@@ -116,6 +116,8 @@ function authorityEnv(workflow = 'rn-deploy-google-play.yml') {
     JOB_WORKFLOW_REPOSITORY: 'seorilabs/.github',
     JOB_WORKFLOW_SHA: WORKFLOW_SHA,
     JOB_WORKFLOW_REF: `seorilabs/.github/.github/workflows/${workflow}@${WORKFLOW_SHA}`,
+    RELEASE_EVENT_NAME: 'workflow_dispatch',
+    RELEASE_EVENT_REF: 'refs/heads/main',
   };
 }
 
@@ -895,11 +897,27 @@ test('태그 이벤트는 그 태그만 build하고 latest 폴백은 workflow_di
       eventName,
     );
   }
-  // 명시한 태그는 이벤트와 무관하게 그대로 쓴다.
+  // 명시한 태그도 운영자가 시작한 workflow_dispatch에서만 허용한다.
   assert.deepEqual(
-    selectReleaseTagForEvent({ eventName: 'push', eventRef: 'refs/heads/main', requestedTag: 'v1.0.0' }),
+    selectReleaseTagForEvent({
+      eventName: 'workflow_dispatch',
+      eventRef: 'refs/heads/main',
+      requestedTag: 'v1.0.0',
+    }),
     { tag: 'v1.0.0', source: 'requested-tag' },
   );
+  for (const eventName of ['push', 'pull_request', 'schedule', '']) {
+    assert.throws(
+      () =>
+        selectReleaseTagForEvent({
+          eventName,
+          eventRef: 'refs/heads/main',
+          requestedTag: 'v1.0.0',
+        }),
+      (error) => error.code === 'tag-ref-mismatch',
+      eventName,
+    );
+  }
 });
 
 test('resolver CLI는 태그 이벤트에서 latest 폴백과 다른 commit을 거부한다', () => {
@@ -989,6 +1007,8 @@ test('resolver CLI는 tag/source/receipt 불일치를 종료 코드로 fail-clos
       JOB_WORKFLOW_REPOSITORY: 'seorilabs/.github',
       JOB_WORKFLOW_SHA: WORKFLOW_SHA,
       JOB_WORKFLOW_REF: 'seorilabs/.github/.github/workflows/rn-deploy-ait.yml@main',
+      RELEASE_EVENT_NAME: 'workflow_dispatch',
+      RELEASE_EVENT_REF: 'refs/heads/main',
     });
     assert.notEqual(floating.status, 0);
     assert.match(floating.stderr, /config-revision-mismatch/u);

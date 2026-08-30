@@ -227,6 +227,13 @@ export function selectReleaseTagForEvent({
   }
 
   if (requested.length > 0) {
+    if (eventName !== 'workflow_dispatch') {
+      fail(
+        'tag-ref-mismatch',
+        `release_tag 지정은 workflow_dispatch에서만 허용한다: ` +
+          `event=${eventName || 'missing'} ref=${ref || 'missing'}`,
+      );
+    }
     return { tag: parseReleaseTag(requested).tag, source: 'requested-tag' };
   }
 
