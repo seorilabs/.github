@@ -91,6 +91,21 @@ canonical memo 뒤에 덧붙고, 길이 때문에 digest가 잘릴 상황이면 
 readback에서 컨테이너가 내부 version 기록을 갖고 있으면 `ait-internal-version-field-present`로
 fail-closed한다. 계약을 갱신하지 않은 채 새 형식을 배포하지 않기 위해서다.
 
+## 태그 선택과 실행 이벤트
+
+태그 선택은 실행 이벤트에 묶인다.
+
+| 이벤트 | `release_tag` | 선택 | source |
+|---|---|---|---|
+| `refs/tags/vX.Y.Z` push/dispatch | 비움 또는 같은 값 | 그 태그 | `event-tag-ref` |
+| `refs/tags/vX.Y.Z` push/dispatch | 다른 태그 | **거부** | — |
+| 그 밖의 ref | 명시 | 명시한 태그 | `requested-tag` |
+| `workflow_dispatch` | 비움 | 최신 stable 태그 | `latest-stable-dispatch` |
+| 그 밖의 ref | 비움 | **거부** | — |
+
+저장소에 더 최신 태그가 있어도 `v1.2.0` 태그 push가 `v1.3.0`을 빌드하지 않는다. 태그 이벤트에서는
+`github.sha`와 태그가 가리키는 commit이 같아야 하고, 다르면 build 전에 fail-closed한다.
+
 ## 업로드 결속
 
 검증한 파일과 실제로 올린 파일이 다르면 안 된다. 업로드 직전에 세 가지를 강제한다.
@@ -99,9 +114,21 @@ fail-closed한다. 계약을 갱신하지 않은 채 새 형식을 배포하지 
 2. 업로드 스텝 직전에 검증된 경로의 sha256을 다시 계산해 대조한다.
 3. workspace에 업로드 후보 파일이 정확히 하나만 있는지 확인한다.
 
-Google Play 업로드 도구에는 검증된 경로를 `--aab-path`로 넘긴다. 도구가 스스로 파일을 찾지 않는다.
+Google Play 업로드 도구에는 검증된 경로를 `--aab-path`로, AppsInToss CLI에는 검증된 absolute
+경로를 `--location`으로 넘긴다. 도구가 스스로 파일을 찾지 않는다. 두 경로 모두 도구를 호출하기
+직전에 digest를 다시 계산해 대조하므로, 검증과 업로드 사이에 파일이 바뀌면 걸린다. 업로드 도구는
+`SEORI_EXPECTED_AAB_SHA256`과 `SEORI_EXPECTED_ANDROID_VERSION_CODE`를 필수로 요구한다.
+
 digest 출처는 kind가 정한다. AAB와 `.ait`은 업로드 대상 파일 자체를, xcarchive는 디렉터리 번들이라
 readback한 `Info.plist`를 쓴다.
+
+트랙 승격(`promote-google-play.yml`)도 같은 authority를 쓴다. 태그에서 파생한 versionCode를
+`--promote-version-code`로 넘기며, 트랙의 "최신 build"를 승격하지 않는다.
+
+`.ait` 컨테이너는 `AITBUNDL` magic(8) + formatVersion(4) + protobuf 길이(8) + protobuf +
+zip payload 길이(8) + zip payload로 framing된다. zip 길이 필드를 건너뛰고 payload를 찾으면
+payload를 열지 못한 채 "version 기록 없음"으로 통과하므로, 전체 길이를 exact로 검증한 뒤
+central directory에서 entry를 읽는다.
 
 ## Godot export preset 주입
 

@@ -78,8 +78,8 @@ jobs:
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: apps-in-toss
 
+    # APPS_IN_TOSS_API_KEY는 job 전체에 두지 않는다. 검증과 배포 step에만 노출한다.
     env:
-      APPS_IN_TOSS_API_KEY: ${{ secrets.APPS_IN_TOSS_API_KEY }}
       AIT_DIR: ${{ inputs.ait_dir }}
       PM: ${{ inputs.package_manager }}
       # 빌드 시 임베드되는 표준 Firebase env (미설정이면 빈 값)
@@ -101,6 +101,8 @@ jobs:
 
       - name: Validate AppsInToss secret
         shell: bash
+        env:
+          APPS_IN_TOSS_API_KEY: ${{ secrets.APPS_IN_TOSS_API_KEY }}
         run: |
           set -euo pipefail
           [ -n "$APPS_IN_TOSS_API_KEY" ] || { echo "APPS_IN_TOSS_API_KEY secret is required." >&2; exit 1; }
@@ -159,6 +161,11 @@ jobs:
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
+          # 태그 선택은 실행 이벤트에 묶인다. refs/tags 실행은 그 태그가 곧 정본이고,
+          # 최신 태그 폴백은 운영자가 시작한 workflow_dispatch에서만 허용한다.
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           git tag --list > "$RUNNER_TEMP/git-tags.txt"
@@ -171,6 +178,19 @@ jobs:
             echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
             exit 1
           }
+          # refs/tags 이벤트는 그 이벤트가 가리키는 commit만 build한다.
+          case "$RELEASE_EVENT_REF" in
+            refs/tags/*)
+              [ "$tag" = "${RELEASE_EVENT_REF#refs/tags/}" ] || {
+                echo "tag 이벤트 ref와 해석된 태그가 다름: $RELEASE_EVENT_REF != $tag" >&2
+                exit 1
+              }
+              [ "$tag_commit" = "$RELEASE_EVENT_SHA" ] || {
+                echo "tag 이벤트 commit과 태그 commit이 다름: $RELEASE_EVENT_SHA != $tag_commit" >&2
+                exit 1
+              }
+              ;;
+          esac
           { echo "tag=$tag"; echo "sha=$tag_commit"; } >> "$GITHUB_OUTPUT"
 
       - name: Bind release version to the tag
@@ -183,6 +203,9 @@ jobs:
           JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
           JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
           RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then
@@ -302,16 +325,29 @@ jobs:
       - name: Deploy to AppsInToss
         shell: bash
         env:
+          APPS_IN_TOSS_API_KEY: ${{ secrets.APPS_IN_TOSS_API_KEY }}
           DEPLOY_MEMO: ${{ steps.provenance.outputs.release_memo }}
+          VERIFIED_AIT_PATH: ${{ steps.provenance.outputs.artifact_path }}
+          VERIFIED_AIT_DIGEST: ${{ steps.provenance.outputs.artifact_digest }}
         run: |
           set -euo pipefail
           memo="$DEPLOY_MEMO"
           [ -n "$memo" ] || { echo "canonical release memo가 비었다." >&2; exit 1; }
+          # 업로드 대상은 검증된 exact 파일 하나다. CLI 호출 직전에 digest를 다시 대조한다.
+          artifact="$(cd "$GITHUB_WORKSPACE" && cd "$(dirname "$VERIFIED_AIT_PATH")" && pwd)/$(basename "$VERIFIED_AIT_PATH")"
+          [ -f "$artifact" ] || { echo "검증된 .ait 경로가 없다: $artifact" >&2; exit 1; }
+          observed="$(sha256sum "$artifact" | cut -d ' ' -f 1)"
+          [ "$observed" = "$VERIFIED_AIT_DIGEST" ] || {
+            echo "배포 직전 .ait digest가 검증값과 다르다: $observed != $VERIFIED_AIT_DIGEST" >&2
+            exit 1
+          }
 
           if [ "$PM" = "npm" ]; then
-            npm --prefix "$AIT_DIR" run deploy -- --api-key "$APPS_IN_TOSS_API_KEY" --memo "$memo"
+            npm --prefix "$AIT_DIR" run deploy -- \
+              --api-key "$APPS_IN_TOSS_API_KEY" --memo "$memo" --location "$artifact"
           else
-            pnpm --dir "$AIT_DIR" run deploy --api-key "$APPS_IN_TOSS_API_KEY" --memo "$memo"
+            pnpm --dir "$AIT_DIR" run deploy \
+              --api-key "$APPS_IN_TOSS_API_KEY" --memo "$memo" --location "$artifact"
           fi
 
       - name: Summary

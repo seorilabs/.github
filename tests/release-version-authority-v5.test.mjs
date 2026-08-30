@@ -183,8 +183,6 @@ test('v5 release 실행은 태그에서 version을 파생하고 source SHA와 co
   for (const [profile, target] of [
     ['react-native-android', 'android'],
     ['godot-android', 'android'],
-    ['ait-granite', 'ait'],
-    ['ait-web', 'ait'],
   ]) {
     const binding = await resolveBuildRuntimeBindingV5(releaseContext({ profile, target }), {
       trustedManifestReadback: async (request) => {
@@ -214,6 +212,41 @@ test('v5 release 실행은 태그에서 version을 파생하고 source SHA와 co
       target === 'android' ? 'android-app-bundle' : 'ait',
     );
     assert.equal(binding.buildProfile, profile);
+  }
+});
+
+test('승격되지 않은 AIT build profile은 release 실행에서도 fail-closed다', async () => {
+  // ait-granite / ait-web은 promotionScope에도 canary에도 없다. Backoffice가 서명된 manifest를
+  // 내려주더라도 승격 전에는 어떤 artifact도 만들지 않는다.
+  const bundleSource = parse(
+    readFileSync(resolve(REPOSITORY_ROOT, 'contracts/workflow-bundle-v5-source.yaml'), 'utf8'),
+  );
+  assert.deepEqual(bundleSource.promotionScope.buildProfiles, [
+    'react-native-android',
+    'godot-android',
+  ]);
+  for (const profile of ['ait-granite', 'ait-web']) {
+    assert.equal(bundleSource.promotionScope.buildProfiles.includes(profile), false, profile);
+    for (const eventRef of [RELEASE_REF, 'refs/heads/main']) {
+      await assert.rejects(
+        resolveBuildRuntimeBindingV5(
+          releaseContext({
+            profile,
+            target: 'ait',
+            eventRef,
+            eventName: eventRef === RELEASE_REF ? 'push' : 'workflow_dispatch',
+          }),
+          {
+            trustedManifestReadback: async (request) =>
+              releaseResponse(request, profile, {
+                sourceRef: eventRef === RELEASE_REF ? RELEASE_REF : 'refs/heads/main',
+              }),
+          },
+        ),
+        /BUILD_PROFILE_NOT_PROMOTED/u,
+        `${profile}@${eventRef}`,
+      );
+    }
   }
 });
 
@@ -439,6 +472,21 @@ test('caller migration inventory는 남은 결함을 기계적으로 찾아낸�
         '    with:',
         '      track: internal',
         '      version_name: 1.2.3',
+        '      runs_on: ubuntu-latest',
+        '',
+      ].join('\n'),
+    );
+    write(
+      '.github/workflows/release-tag.yml',
+      [
+        'name: Release Tag',
+        'on:',
+        '  workflow_dispatch: {}',
+        'jobs:',
+        '  tag:',
+        `    uses: seorilabs/.github/.github/workflows/release-tag.yml@${'b'.repeat(40)}`,
+        '    with:',
+        '      runs_on: seorilabs-rpi-arm64',
         '',
       ].join('\n'),
     );
@@ -468,13 +516,20 @@ test('caller migration inventory는 남은 결함을 기계적으로 찾아낸�
     assert.equal(inventory.status, 'NEEDS_CHANGE');
     assert.deepEqual(
       inventory.callers.map(({ callerKind }) => callerKind).sort(),
-      ['godot-deploy-google-play', 'workflow-bundle-v5-ait-build-only'],
+      ['godot-deploy-google-play', 'release-tag', 'workflow-bundle-v5-ait-build-only'],
+    );
+    // 러너를 중앙에서 고정했으므로 남아 있는 runs_on은 workflow_call을 깨뜨리는 결함이다.
+    const obsolete = inventory.findings.filter(({ id }) => id === 'obsolete-caller-input');
+    assert.deepEqual(
+      obsolete.map(({ path: found }) => found).sort(),
+      ['.github/workflows/deploy-google-play.yml', '.github/workflows/release-tag.yml'],
     );
     const ids = new Set(inventory.findings.map(({ id }) => id));
     for (const expected of [
       'caller-ref-not-pinned',
       'forbidden-version-input',
       'forbidden-caller-input',
+      'obsolete-caller-input',
       'repository-local-version-resolver',
       'market-config-version-authority',
       'upload-tool-missing-verified-path',
@@ -500,7 +555,9 @@ test('Xcode Cloud v5 envelope는 태그 하나를 version authority로 고정한
   );
   assert.equal(validate(envelope), true, JSON.stringify(validate.errors));
 
-  // fixture의 version 값은 태그 파생값과 정확히 같아야 한다.
+  // fixture의 version 값은 태그 파생값과 정확히 같아야 한다. authorityRevision/configRevision은
+  // 계약 본문에서 파생되므로, 계약이 바뀌면 이 fixture도 다시 만들어야 한다(= 같은 태그를
+  // 다른 계약 revision으로 재사용할 수 없다는 성질을 그대로 드러낸다).
   const authorityRevision = computeAuthorityRevision(readFileSync(AUTHORITY_CONTRACT, 'utf8'));
   const expected = createReleaseBinding({
     tag: envelope.release.tag,

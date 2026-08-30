@@ -176,6 +176,11 @@ jobs:
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
+          # 태그 선택은 실행 이벤트에 묶인다. refs/tags 실행은 그 태그가 곧 정본이고,
+          # 최신 태그 폴백은 운영자가 시작한 workflow_dispatch에서만 허용한다.
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           git tag --list > "$RUNNER_TEMP/git-tags.txt"
@@ -188,6 +193,19 @@ jobs:
             echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
             exit 1
           }
+          # refs/tags 이벤트는 그 이벤트가 가리키는 commit만 build한다.
+          case "$RELEASE_EVENT_REF" in
+            refs/tags/*)
+              [ "$tag" = "${RELEASE_EVENT_REF#refs/tags/}" ] || {
+                echo "tag 이벤트 ref와 해석된 태그가 다름: $RELEASE_EVENT_REF != $tag" >&2
+                exit 1
+              }
+              [ "$tag_commit" = "$RELEASE_EVENT_SHA" ] || {
+                echo "tag 이벤트 commit과 태그 commit이 다름: $RELEASE_EVENT_SHA != $tag_commit" >&2
+                exit 1
+              }
+              ;;
+          esac
           { echo "tag=$tag"; echo "sha=$tag_commit"; } >> "$GITHUB_OUTPUT"
 
       - name: Bind release version to the tag
@@ -200,6 +218,9 @@ jobs:
           JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
           JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
           RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then

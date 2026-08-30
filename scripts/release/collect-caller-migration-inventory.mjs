@@ -25,6 +25,8 @@ export const CALLER_KIND_BY_WORKFLOW = Object.freeze({
   '.github/workflows/rn-deploy-ait.yml': 'rn-deploy-ait',
   '.github/workflows/godot-deploy-ait.yml': 'godot-deploy-ait',
   '.github/workflows/rn-build-android.yml': 'rn-build-android',
+  '.github/workflows/release-tag.yml': 'release-tag',
+  '.github/workflows/promote-google-play.yml': 'promote-google-play',
   '.github/workflows/ait-build-only-v1.yml': 'workflow-bundle-v5-ait-build-only',
   '.github/workflows/rn-build-android-cloud-v2.yml': 'workflow-bundle-v5-android-build-only',
   '.github/workflows/godot-build-android-cloud-v2.yml': 'workflow-bundle-v5-android-build-only',
@@ -35,6 +37,15 @@ const NO_INPUT_CALLER_KINDS = Object.freeze([
   'workflow-bundle-v5-ait-build-only',
   'workflow-bundle-v5-android-build-only',
 ]);
+
+/**
+ * 더 이상 존재하지 않는 caller 입력. 권한 있는 job의 러너는 caller가 고를 수 없게 고정했으므로
+ * runs_on을 계속 넘기면 workflow_call이 unknown input으로 실패한다.
+ */
+const OBSOLETE_INPUTS_BY_KIND = Object.freeze({
+  'release-tag': Object.freeze(['runs_on']),
+  'godot-deploy-google-play': Object.freeze(['runs_on']),
+});
 
 const UPLOAD_TOOLS = Object.freeze({
   'rn-deploy-google-play': 'scripts/upload-google-play-internal.py',
@@ -164,6 +175,13 @@ export function collectCallerMigrationInventory(root, fullName) {
             severity: 'blocking',
             path: file.path,
             detail: `caller가 제거된 version 입력 ${input}을 넘긴다.`,
+          });
+        } else if ((OBSOLETE_INPUTS_BY_KIND[callerKind] ?? []).includes(input)) {
+          findings.push({
+            id: 'obsolete-caller-input',
+            severity: 'blocking',
+            path: file.path,
+            detail: `${use.calledWorkflow}에서 제거된 입력 ${input}을 넘긴다. 러너는 중앙에서 고정한다.`,
           });
         } else if (NO_INPUT_CALLER_KINDS.includes(callerKind)) {
           findings.push({
