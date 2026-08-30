@@ -273,10 +273,7 @@ try {
     expectedStatus: 126,
   });
   assert.deepEqual(readFileSync(recordPath), recordBytes);
-  run(testBinary, ['publish-record', '../pre-provision'], {
-    input: Buffer.from(`${replacementCanary}\n`, 'utf8'),
-    expectedStatus: 126,
-  });
+  run(testBinary, ['publish-record', '../pre-provision'], { expectedStatus: 126 });
 
   const sourcePath = `${harnessRoot}/data/seori-auth/seori-auth-state.luks`;
   const rollbackPath = `${harnessRoot}/data/seori-auth/rollback/seori-auth-state.luks`;
