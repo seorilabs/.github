@@ -205,7 +205,9 @@ function runApply(host) {
     try {
       const failure = JSON.parse(result.stderr);
       if (exactKeys(failure, ['ok', 'code']) && failure.ok === false &&
-          /^P2_[A-Z0-9_]+$/u.test(failure.code ?? '')) code = failure.code;
+          /^(?:P2_|KUBECONFIG_|KUBECTL_|STATE_)[A-Z0-9_]+$/u.test(failure.code ?? '')) {
+        code = failure.code;
+      }
     } catch {
       // Only the stable public code is returned; arbitrary child output is discarded.
     }

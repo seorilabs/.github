@@ -277,6 +277,12 @@ const hostEncryptionReadback = /provision-p2-host-encryption\.mjs readback --kub
   .exec(remoteCommand);
 if (hostEncryptionReadback !== null) {
   if (nodeName !== contract.target.nodeName) process.exit(126);
+  if (scenario === 'host-kubeconfig-error') {
+    output({ ok: false, code: 'KUBECONFIG_PATH_INVALID' });
+  }
+  if (scenario === 'host-unapproved-error') {
+    output({ ok: false, code: 'SECRET_SHAPED_REMOTE_FAILURE' });
+  }
   output({
     schemaVersion: 1,
     state: 'HOST_ENCRYPTED_MOUNT_MISSING',

@@ -1324,7 +1324,8 @@ async function runPublicSsh(machine, remoteCommand, input, { privileged = false,
         if (
           failure !== null && typeof failure === 'object' && !Array.isArray(failure) &&
           Object.keys(failure).toSorted().join('\0') === ['code', 'ok'].join('\0') &&
-          failure.ok === false && /^P2_[A-Z0-9_]+$/u.test(failure.code ?? '')
+          failure.ok === false &&
+          /^(?:P2_|KUBECONFIG_|KUBECTL_|STATE_)[A-Z0-9_]+$/u.test(failure.code ?? '')
         ) publicCode = failure.code;
       } catch {
         // Arbitrary remote output is discarded and never reflected.
@@ -1431,7 +1432,8 @@ function parsePublicJson(text, code) {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) stop(code);
     if (
       Object.keys(value).toSorted().join('\0') === ['code', 'ok'].join('\0') &&
-      value.ok === false && /^P2_[A-Z0-9_]+$/u.test(value.code ?? '')
+      value.ok === false &&
+      /^(?:P2_|KUBECONFIG_|KUBECTL_|STATE_)[A-Z0-9_]+$/u.test(value.code ?? '')
     ) stop(value.code);
     return value;
   } catch (error) {

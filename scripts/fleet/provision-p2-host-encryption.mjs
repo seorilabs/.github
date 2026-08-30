@@ -8,6 +8,7 @@ import {
   fstatSync,
   lstatSync,
   openSync,
+  readlinkSync,
   readFileSync,
   realpathSync,
   statSync,
@@ -62,6 +63,8 @@ const fleetPath = fileURLToPath(
   new URL('../../contracts/fleet-p3-runtime.yaml', import.meta.url),
 );
 const kubectl = '/usr/local/bin/kubectl';
+const MICROK8S_KUBECONFIG = '/var/snap/microk8s/current/credentials/client.config';
+const MICROK8S_STATE_ROOT = '/var/snap/microk8s';
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const mode = process.argv[2] ?? 'plan';
 
@@ -175,6 +178,46 @@ function mappedPath(path) {
   if (fixtureRuntime === undefined) return path;
   if (!isAbsolute(fixtureRoot ?? '')) stop('P2_HOST_FIXTURE_BOUNDARY_INVALID');
   return join(fixtureRoot, path.slice(1));
+}
+
+function resolveHostKubeconfigPath(requestedPath) {
+  if (requestedPath !== MICROK8S_KUBECONFIG) return requestedPath;
+  const root = mappedPath(MICROK8S_STATE_ROOT);
+  const current = mappedPath(`${MICROK8S_STATE_ROOT}/current`);
+  const requested = mappedPath(requestedPath);
+  const expectedOwner = fixtureRuntime === undefined ? 0 : process.geteuid?.();
+  try {
+    const rootEntry = lstatSync(root);
+    const currentEntry = lstatSync(current);
+    const revision = readlinkSync(current);
+    if (
+      !rootEntry.isDirectory() || rootEntry.isSymbolicLink() || realpathSync(root) !== root ||
+      rootEntry.uid !== expectedOwner || (rootEntry.mode & 0o022) !== 0 ||
+      !currentEntry.isSymbolicLink() || currentEntry.uid !== expectedOwner ||
+      currentEntry.nlink !== 1 || !/^[1-9][0-9]*$/u.test(revision)
+    ) stop('KUBECONFIG_PATH_INVALID');
+    const revisionRoot = join(root, revision);
+    const credentialsRoot = join(revisionRoot, 'credentials');
+    const canonical = join(credentialsRoot, 'client.config');
+    for (const path of [revisionRoot, credentialsRoot]) {
+      const entry = lstatSync(path);
+      if (
+        !entry.isDirectory() || entry.isSymbolicLink() || realpathSync(path) !== path ||
+        entry.uid !== expectedOwner || (entry.mode & 0o022) !== 0
+      ) stop('KUBECONFIG_PATH_INVALID');
+    }
+    const entry = lstatSync(canonical);
+    if (
+      realpathSync(current) !== revisionRoot || realpathSync(requested) !== canonical ||
+      !entry.isFile() || entry.isSymbolicLink() || realpathSync(canonical) !== canonical ||
+      entry.uid !== expectedOwner || entry.nlink !== 1 || (entry.mode & 0o022) !== 0 ||
+      readlinkSync(current) !== revision
+    ) stop('KUBECONFIG_PATH_INVALID');
+    return canonical;
+  } catch (error) {
+    if (error instanceof HostCommandError) throw error;
+    stop('KUBECONFIG_PATH_INVALID');
+  }
 }
 
 function commandEnvironment() {
@@ -790,7 +833,7 @@ function readConsumerQuiescence(prefix) {
 function readStateVolume(kubeconfigPath) {
   let boundary;
   try {
-    boundary = openSecureKubectlReadbackBoundary(kubeconfigPath);
+    boundary = openSecureKubectlReadbackBoundary(resolveHostKubeconfigPath(kubeconfigPath));
     const prefix = [
       `--kubeconfig=${boundary.kubeconfig}`,
       `--cache-dir=${boundary.cacheDirectory}`,

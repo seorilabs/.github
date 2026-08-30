@@ -1017,6 +1017,29 @@ test('host-encryption readback uses the exact RPI5 source and returns public sta
   }
 });
 
+test('host-encryption readback propagates only allowlisted public boundary codes', async () => {
+  const fixture = await createFixture();
+  const sourceSha = 'c'.repeat(40);
+  try {
+    await expectControllerFailure(
+      fixture,
+      'host-encryption-readback',
+      [`--source-sha=${sourceSha}`],
+      'KUBECONFIG_PATH_INVALID',
+      'host-kubeconfig-error',
+    );
+    await expectControllerFailure(
+      fixture,
+      'host-encryption-readback',
+      [`--source-sha=${sourceSha}`],
+      'P2_STAGE1_HOST_ENCRYPTION_READBACK_INVALID',
+      'host-unapproved-error',
+    );
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test('host-encryption backup and apply consume the catalog recovery key without exposing it', async () => {
   const fixture = await createFixture();
   const sourceSha = 'd'.repeat(40);

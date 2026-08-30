@@ -328,6 +328,44 @@ test('trusted public error channel returns only a stable code without changing f
   assert.doesNotMatch(result.stdout, new RegExp(fakeRecoverySecret, 'u'));
 });
 
+test('MicroK8S current kubeconfig resolves only through a root-equivalent numeric revision', async (context) => {
+  const exact = await createFixture();
+  const lookalike = await createFixture();
+  context.after(async () => Promise.all([exact.cleanup(), lookalike.cleanup()]));
+  const alias = '/var/snap/microk8s/current/credentials/client.config';
+
+  const exactRoot = join(exact.root, 'var/snap/microk8s');
+  await mkdir(join(exactRoot, '7668/credentials'), { recursive: true });
+  await writeFile(join(exactRoot, '7668/credentials/client.config'), 'fixture kubeconfig\n', {
+    mode: 0o600,
+  });
+  await symlink('7668', join(exactRoot, 'current'));
+  await runHost(exact, 'backup', [
+    `--confirmation=${confirmationSet.backup}`,
+    `--kubeconfig=${alias}`,
+  ]);
+  const exactLog = await readFile(exact.log, 'utf8');
+  assert.match(exactLog, /\/var\/snap\/microk8s\/7668\/credentials\/client\.config/u);
+  assert.doesNotMatch(exactLog, /\/var\/snap\/microk8s\/current\/credentials\/client\.config/u);
+
+  const lookalikeRoot = join(lookalike.root, 'var/snap/microk8s');
+  await mkdir(join(lookalikeRoot, '7668/credentials'), { recursive: true });
+  await writeFile(join(lookalikeRoot, '7668/credentials/client.config'), 'fixture kubeconfig\n', {
+    mode: 0o600,
+  });
+  await symlink('../lookalike', join(lookalikeRoot, 'current'));
+  const rejected = await runHost(lookalike, 'backup', [
+    `--confirmation=${confirmationSet.backup}`,
+    `--kubeconfig=${alias}`,
+    '--public-error-channel=stdout',
+  ]);
+  assert.deepEqual(JSON.parse(rejected.stdout), {
+    ok: false,
+    code: 'KUBECONFIG_PATH_INVALID',
+  });
+  assert.doesNotMatch(await readFile(lookalike.log, 'utf8'), /fallocate|luksFormat|"mount"/u);
+});
+
 test('production native boundary build refuses a non-Linux artifact', {
   skip: process.platform === 'linux',
 }, async () => {
@@ -894,7 +932,7 @@ test('native filesystem boundary uses fixed dirfds and atomic no-clobber operati
   assert.match(source, /require_same_entry\(source_parent, SOURCE_LEAF, &source_entry\)/u);
   assert.doesNotMatch(source, /luksHeaderBackup[^\n]*SOURCE_PATH/u);
   assert.doesNotMatch(source, /argv\[[0-9]+\].*SOURCE_PATH/u);
-  assert.doesNotMatch(caller, /linkSync\(|openSync\(temporary|unlinkSync\(temporary/u);
+  assert.doesNotMatch(caller, /\blinkSync\(|openSync\(temporary|unlinkSync\(temporary/u);
 });
 
 test('unknown mutation outcome stops immediately and the next run is readback-first', async (context) => {
