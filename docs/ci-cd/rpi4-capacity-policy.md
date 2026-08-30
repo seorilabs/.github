@@ -50,11 +50,14 @@ workload별 동시성 제한으로 해결해야 할 OOM을 분리한다.
 - ARC live: general `1/3`, DIND `0/1`; controller, listener와 runner는 RPI5
 
 2026-08-30에 `seori-m6-01`(amd64, `workload=ci:NoSchedule` taint, allocatable
-11.5 CPU / 4.97Gi) 노드와 `seorilabs-x64`(general, `1/6`)·`seorilabs-x64-android`
+`11500m` CPU / `5209412Ki` memory - 약 4.97Gi) 노드와 `seorilabs-x64`(general, `1/6`)·`seorilabs-x64-android`
 (android, `0/1`) 스케일셋이 추가됐다([이슈 #78](https://github.com/seorilabs/.github/issues/78)).
 두 스케일셋의 러너는 `seori-m6-01` + `workload=ci` toleration으로 배치되고, 리스너는
 기존 세 workload와 동일하게 RPI5에 남는다(RPI4001 refresh 시 리스너가 죽는 문제 회피,
 2026-08-22). `rpi4001` 격리와 RPI5 capacity 조건은 그대로다.
+ARC의 idle 최소 러너는 `pendingEphemeralRunners`로 집계될 수 있으므로 capacity 검증은
+`pending + running` 활성 합계가 `minRunners` 이상인지 확인한다. 각 개별 값과 활성 합계가
+`maxRunners`를 넘거나 `currentRunners`가 최소값보다 작으면 계속 fail-closed한다.
 
 이 추가로 `cluster.nodes.x64`, x64 두 스케일셋, 스케일셋별 `listenerNodeSelector`·
 `tolerations`가 필수 필드로 들어가 기존 계약 문서를 깨는 변경이므로

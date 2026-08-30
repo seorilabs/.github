@@ -234,7 +234,9 @@ test("24시간 미만 관찰, ARC 실동작 초과와 RPI4 신규 Pod를 거부�
   const cases = [
     ["incomplete-window", "RPI_CAPACITY_OBSERVATION_WINDOW_INCOMPLETE"],
     ["rpi4-schedulable", "RPI_CAPACITY_RPI4_QUARANTINE_DRIFT"],
+    ["x64-node-drift", "RPI_CAPACITY_X64_NODE_DRIFT"],
     ["arc-over-capacity", "RPI_CAPACITY_ARC_LIVE_DRIFT"],
+    ["arc-under-capacity", "RPI_CAPACITY_ARC_LIVE_DRIFT"],
     ["unmanaged-arc", "RPI_CAPACITY_ARC_LIVE_DRIFT"],
     ["placement-drift", "RPI_CAPACITY_WORKLOAD_PLACEMENT_DRIFT"],
     ["placement-drift-offset", "RPI_CAPACITY_WORKLOAD_PLACEMENT_DRIFT"],

@@ -283,6 +283,7 @@ function liveReadback() {
       "node",
       contract.cluster.nodes.quarantined.hostname,
       contract.cluster.nodes.workload.hostname,
+      contract.cluster.nodes.x64.hostname,
       "-o",
       "json",
     ],
@@ -293,6 +294,7 @@ function liveReadback() {
     contract.cluster.nodes.quarantined.hostname,
   );
   const workload = nodeByName(nodes, contract.cluster.nodes.workload.hostname);
+  const x64 = nodeByName(nodes, contract.cluster.nodes.x64.hostname);
   const requiredTaint = contract.cluster.nodes.quarantined.requiredTaint;
   const quarantineConditions =
     contract.cluster.nodes.quarantined.requiredConditions;
@@ -319,6 +321,23 @@ function liveReadback() {
       workloadConditions.memoryPressure
   ) {
     fail("RPI_CAPACITY_RPI5_HEALTH_DRIFT");
+  }
+  const expectedX64 = contract.cluster.nodes.x64;
+  const x64Taint = x64?.spec?.taints?.find(
+    (entry) =>
+      entry.key === expectedX64.requiredTaint.key &&
+      entry.value === expectedX64.requiredTaint.value &&
+      entry.effect === expectedX64.requiredTaint.effect,
+  );
+  if (
+    x64?.metadata?.name !== expectedX64.hostname ||
+    x64?.status?.nodeInfo?.architecture !== expectedX64.arch ||
+    x64?.metadata?.labels?.["kubernetes.io/arch"] !== expectedX64.arch ||
+    x64Taint === undefined ||
+    x64?.status?.allocatable?.cpu !== expectedX64.allocatable.cpu ||
+    x64?.status?.allocatable?.memory !== expectedX64.allocatable.memory
+  ) {
+    fail("RPI_CAPACITY_X64_NODE_DRIFT");
   }
   const quarantineStartedAt = Date.parse(taint.timeAdded ?? "");
   if (!Number.isFinite(quarantineStartedAt)) {
@@ -364,7 +383,8 @@ function liveReadback() {
           value <= expected.maxRunners,
       ) ||
       current < expected.minRunners ||
-      running < expected.minRunners
+      pending + running < expected.minRunners ||
+      pending + running > expected.maxRunners
     ) {
       fail("RPI_CAPACITY_ARC_LIVE_DRIFT");
     }

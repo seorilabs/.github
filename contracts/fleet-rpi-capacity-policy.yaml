@@ -30,7 +30,7 @@ cluster:
         effect: NoSchedule
       allocatable:
         cpu: 11500m
-        memory: 4.97Gi
+        memory: 5209412Ki
 
 workloads:
   scheduler:

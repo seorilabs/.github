@@ -88,7 +88,7 @@
                   "required": ["cpu", "memory"],
                   "properties": {
                     "cpu": { "const": "11500m" },
-                    "memory": { "const": "4.97Gi" }
+                    "memory": { "const": "5209412Ki" }
                   }
                 }
               }

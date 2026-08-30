@@ -65,6 +65,26 @@ if (args[0] === "get" && args[1] === "node") {
         spec: { unschedulable: false, taints: [] },
         status: { conditions: conditions() },
       },
+      {
+        metadata: {
+          name: "seori-m6-01",
+          labels: { "kubernetes.io/arch": "amd64" },
+        },
+        spec: {
+          taints: [
+            {
+              key: "workload",
+              value: "ci",
+              effect: scenario === "x64-node-drift" ? "PreferNoSchedule" : "NoSchedule",
+            },
+          ],
+        },
+        status: {
+          nodeInfo: { architecture: "amd64" },
+          allocatable: { cpu: "11500m", memory: "5209412Ki" },
+          conditions: conditions(),
+        },
+      },
     ],
   });
 }
@@ -75,7 +95,12 @@ if (args[0] === "get" && args[1] === "autoscalingrunnersets") {
     minRunners,
     maxRunners,
     currentRunners,
-    { nodeSelector = arcSelector, tolerations = [] } = {},
+    {
+      nodeSelector = arcSelector,
+      tolerations = [],
+      pendingRunners = 0,
+      runningRunners = currentRunners,
+    } = {},
   ) => ({
     metadata: { name },
     spec: {
@@ -87,8 +112,8 @@ if (args[0] === "get" && args[1] === "autoscalingrunnersets") {
     status: {
       phase: "Running",
       currentRunners,
-      pendingEphemeralRunners: 0,
-      runningEphemeralRunners: currentRunners,
+      pendingEphemeralRunners: pendingRunners,
+      runningEphemeralRunners: runningRunners,
     },
   });
   const items = [
@@ -102,6 +127,8 @@ if (args[0] === "get" && args[1] === "autoscalingrunnersets") {
     scaleSet("seorilabs-x64", 1, 6, 1, {
       nodeSelector: x64Selector,
       tolerations: x64Toleration,
+      pendingRunners: scenario === "arc-under-capacity" ? 0 : 1,
+      runningRunners: 0,
     }),
     scaleSet("seorilabs-x64-android", 0, 1, 0, {
       nodeSelector: x64Selector,
