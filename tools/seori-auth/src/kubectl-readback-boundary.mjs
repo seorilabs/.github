@@ -54,7 +54,7 @@ export function resolveCanonicalMicrok8sKubeconfig({
     if (
       typeof requestedPath !== 'string' || typeof stateRoot !== 'string' ||
       !isAbsolute(requestedPath) || !isAbsolute(stateRoot) ||
-      requestedPath !== join(stateRoot, 'current/credentials/client.config') ||
+      requestedPath !== join(stateRoot, 'current/credentials/kubelet.config') ||
       !Number.isSafeInteger(expectedOwner) || expectedOwner < 0
     ) stop('KUBECONFIG_PATH_INVALID');
     const rootEntry = lstatSync(stateRoot);
@@ -70,7 +70,7 @@ export function resolveCanonicalMicrok8sKubeconfig({
     ) stop('KUBECONFIG_PATH_INVALID');
     const revisionRoot = join(stateRoot, revision);
     const credentialsRoot = join(revisionRoot, 'credentials');
-    const canonical = join(credentialsRoot, 'client.config');
+    const canonical = join(credentialsRoot, 'kubelet.config');
     const revisionEntry = lstatSync(revisionRoot);
     const credentialsEntry = lstatSync(credentialsRoot);
     const fileEntry = lstatSync(canonical);
@@ -196,7 +196,7 @@ export function openSecureMicrok8sKubectlReadbackBoundary(options) {
     revision = readlinkSync(current);
     const revisionRoot = join(options.stateRoot, revision);
     if (
-      canonical !== join(revisionRoot, 'credentials/client.config') ||
+      canonical !== join(revisionRoot, 'credentials/kubelet.config') ||
       realpathSync(current) !== revisionRoot
     ) stop('KUBECONFIG_PATH_INVALID');
   } catch {

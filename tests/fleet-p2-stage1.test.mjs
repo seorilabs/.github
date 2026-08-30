@@ -913,7 +913,7 @@ test('native SSH relay permits only the exact RPI5 host-encryption readback comm
   const readbackCommand = "sudo -S -p '' /bin/sh -c 'exec /usr/local/libexec/seori-auth-native " +
     'launch -- /usr/local/bin/node /opt/seorilabs/fleet-p2/' + 'a'.repeat(40) +
     '/scripts/fleet/provision-p2-host-encryption.mjs readback ' +
-    '--kubeconfig=/var/snap/microk8s/current/credentials/client.config ' +
+    '--kubeconfig=/var/snap/microk8s/current/credentials/kubelet.config ' +
     '--tang-attestation=/var/lib/seorilabs/tang-backup-attestations/rpi4001.json ' +
     '--tang-attestation=/var/lib/seorilabs/tang-backup-attestations/seori-m6-01.json ' +
     "--public-error-channel=stdout 3</dev/null </dev/null'";
@@ -960,7 +960,7 @@ printf '{"stdinBytes":%s}\n' "$count"
       '/usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node ' +
       '/opt/seorilabs/fleet-p2/' + 'a'.repeat(40) +
       '/scripts/fleet/provision-p2-host-encryption.mjs backup-state ' +
-      '--kubeconfig=/var/snap/microk8s/current/credentials/client.config ' +
+      '--kubeconfig=/var/snap/microk8s/current/credentials/kubelet.config ' +
       "--public-error-channel=stdout 3</dev/null </dev/null'";
     const backupStateAccepted = await runRelay('rpi5', backupStateCommand);
     assert.equal(backupStateAccepted.status, 0);
@@ -1023,7 +1023,7 @@ test('host-encryption readback uses the exact RPI5 source and returns public sta
       'provision-p2-host-encryption\\.mjs readback',
       'u',
     ));
-    assert.match(commands, /--kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/client\.config/u);
+    assert.match(commands, /--kubeconfig=\/var\/snap\/microk8s\/current\/credentials\/kubelet\.config/u);
     assert.doesNotMatch(commands, new RegExp(secretCanary, 'u'));
   } finally {
     await fixture.cleanup();

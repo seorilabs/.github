@@ -57,6 +57,9 @@ const commandMock = fileURLToPath(
 );
 const contract = parse(await readFile('contracts/fleet-p2-host-encryption.yaml', 'utf8'));
 const schema = JSON.parse(await readFile('contracts/fleet-p2-host-encryption.schema.json', 'utf8'));
+const hostReadbackRbac = parse(
+  await readFile('contracts/fleet-p2-host-readback-rbac.yaml', 'utf8'),
+);
 const confirmationSet = confirmations(contract);
 const fakeRecoverySecret = 'FAKE_LUKS_RECOVERY_SECRET_MUST_NEVER_APPEAR_0123456789';
 const thumbprints = {
@@ -312,6 +315,52 @@ test('P2 host provisioning contract fixes non-sparse LUKS2, exact mount and Tang
   assert.equal(plan.confirmations.apply, confirmationSet.apply);
 });
 
+test('RPI5 host readback reuses the exact node identity with only required read permissions', () => {
+  assert.equal(hostReadbackRbac.apiVersion, 'v1');
+  assert.equal(hostReadbackRbac.kind, 'List');
+  assert.equal(hostReadbackRbac.items.length, 4);
+  const byKind = new Map(hostReadbackRbac.items.map((item) => [item.kind, item]));
+  const clusterRole = byKind.get('ClusterRole');
+  const clusterBinding = byKind.get('ClusterRoleBinding');
+  const role = byKind.get('Role');
+  const roleBinding = byKind.get('RoleBinding');
+  assert.deepEqual(clusterRole.rules, [{
+    apiGroups: [''],
+    resources: ['persistentvolumes'],
+    resourceNames: ['seori-auth-state-rpi5'],
+    verbs: ['get'],
+  }]);
+  assert.deepEqual(clusterBinding.subjects, [{
+    apiGroup: 'rbac.authorization.k8s.io',
+    kind: 'User',
+    name: 'system:node:rpi5',
+  }]);
+  assert.equal(role.metadata.namespace, 'auth-broker');
+  assert.deepEqual(roleBinding.subjects, clusterBinding.subjects);
+  assert.deepEqual(role.rules, [{
+    apiGroups: [''],
+    resources: ['persistentvolumeclaims'],
+    resourceNames: ['seori-auth-state'],
+    verbs: ['get'],
+  }, {
+    apiGroups: [''],
+    resources: ['pods'],
+    verbs: ['list'],
+  }, {
+    apiGroups: ['apps'],
+    resources: ['statefulsets'],
+    resourceNames: ['seori-auth-broker'],
+    verbs: ['get'],
+  }, {
+    apiGroups: ['apps'],
+    resources: ['deployments'],
+    resourceNames: ['seori-password-loader', 'seori-totp-signer'],
+    verbs: ['get'],
+  }]);
+  const serialized = JSON.stringify(hostReadbackRbac);
+  assert.doesNotMatch(serialized, /secrets|create|update|patch|delete|watch/u);
+});
+
 test('trusted public error channel returns only a stable code without changing failure semantics', async (context) => {
   const fixture = await createFixture();
   context.after(() => fixture.cleanup());
@@ -328,7 +377,7 @@ test('trusted public error channel returns only a stable code without changing f
   assert.doesNotMatch(result.stdout, new RegExp(fakeRecoverySecret, 'u'));
 });
 
-test('MicroK8S current kubeconfig resolves only through a root-equivalent numeric revision', async (context) => {
+test('MicroK8S kubelet identity resolves only through a root-equivalent numeric revision', async (context) => {
   const exact = await createFixture();
   const lookalike = await createFixture();
   const invalidExecutable = await createFixture();
@@ -337,18 +386,18 @@ test('MicroK8S current kubeconfig resolves only through a root-equivalent numeri
     lookalike.cleanup(),
     invalidExecutable.cleanup(),
   ]));
-  const alias = '/var/snap/microk8s/current/credentials/client.config';
+  const alias = '/var/snap/microk8s/current/credentials/kubelet.config';
 
   const exactRoot = join(exact.root, 'var/snap/microk8s');
   const exactSnapRoot = join(exact.root, 'snap/microk8s');
   await mkdir(join(exactRoot, '7668/credentials'), { recursive: true });
   await mkdir(join(exactSnapRoot, '7668'), { recursive: true });
-  await writeFile(join(exactRoot, '7668/credentials/client.config'), 'fixture kubeconfig\n', {
+  await writeFile(join(exactRoot, '7668/credentials/kubelet.config'), 'fixture kubeconfig\n', {
     mode: 0o600,
   });
   await writeFile(join(exactSnapRoot, '7668/kubectl'), 'fixture kubectl\n', { mode: 0o755 });
   await chmod(join(exactRoot, '7668/credentials'), 0o770);
-  await chmod(join(exactRoot, '7668/credentials/client.config'), 0o660);
+  await chmod(join(exactRoot, '7668/credentials/kubelet.config'), 0o660);
   await chmod(join(exactSnapRoot, '7668/kubectl'), 0o755);
   await symlink('7668', join(exactRoot, 'current'));
   await symlink('7668', join(exactSnapRoot, 'current'));
@@ -358,8 +407,8 @@ test('MicroK8S current kubeconfig resolves only through a root-equivalent numeri
   ]);
   const exactLog = await readFile(exact.log, 'utf8');
   assert.match(exactLog, /--kubeconfig=\/proc\/self\/fd\/3/u);
-  assert.doesNotMatch(exactLog, /\/var\/snap\/microk8s\/7668\/credentials\/client\.config/u);
-  assert.doesNotMatch(exactLog, /\/var\/snap\/microk8s\/current\/credentials\/client\.config/u);
+  assert.doesNotMatch(exactLog, /\/var\/snap\/microk8s\/7668\/credentials\/kubelet\.config/u);
+  assert.doesNotMatch(exactLog, /\/var\/snap\/microk8s\/current\/credentials\/kubelet\.config/u);
   const kubectlCalls = exactLog.trim().split('\n').map((line) => JSON.parse(line))
     .filter(({ executable }) => executable.endsWith('/snap/microk8s/7668/kubectl'));
   assert.ok(kubectlCalls.length > 1);
@@ -369,14 +418,21 @@ test('MicroK8S current kubeconfig resolves only through a root-equivalent numeri
     const contextIndex = args.indexOf('--context');
     return args[contextIndex + 1] === 'microk8s';
   }));
+  const podCalls = kubectlCalls.filter(({ args }) => args.includes('pods'));
+  assert.ok(podCalls.some(({ args }) => {
+    const selector = args.indexOf('--field-selector');
+    return args.includes('--all-namespaces') && args[selector + 1] === 'spec.nodeName=rpi5';
+  }));
+  assert.ok(podCalls.some(({ args }) =>
+    args.includes('--namespace') && args.includes('auth-broker')));
 
   const lookalikeRoot = join(lookalike.root, 'var/snap/microk8s');
   await mkdir(join(lookalikeRoot, '7668/credentials'), { recursive: true });
-  await writeFile(join(lookalikeRoot, '7668/credentials/client.config'), 'fixture kubeconfig\n', {
+  await writeFile(join(lookalikeRoot, '7668/credentials/kubelet.config'), 'fixture kubeconfig\n', {
     mode: 0o600,
   });
   await chmod(join(lookalikeRoot, '7668/credentials'), 0o770);
-  await chmod(join(lookalikeRoot, '7668/credentials/client.config'), 0o660);
+  await chmod(join(lookalikeRoot, '7668/credentials/kubelet.config'), 0o660);
   await symlink('../lookalike', join(lookalikeRoot, 'current'));
   const rejected = await runHost(lookalike, 'backup', [
     `--confirmation=${confirmationSet.backup}`,
@@ -393,12 +449,12 @@ test('MicroK8S current kubeconfig resolves only through a root-equivalent numeri
   const invalidSnapRoot = join(invalidExecutable.root, 'snap/microk8s');
   await mkdir(join(invalidRoot, '7668/credentials'), { recursive: true });
   await mkdir(join(invalidSnapRoot, '7668'), { recursive: true });
-  await writeFile(join(invalidRoot, '7668/credentials/client.config'), 'fixture kubeconfig\n', {
+  await writeFile(join(invalidRoot, '7668/credentials/kubelet.config'), 'fixture kubeconfig\n', {
     mode: 0o600,
   });
   await writeFile(join(invalidSnapRoot, '7668/kubectl'), 'fixture kubectl\n', { mode: 0o775 });
   await chmod(join(invalidRoot, '7668/credentials'), 0o770);
-  await chmod(join(invalidRoot, '7668/credentials/client.config'), 0o660);
+  await chmod(join(invalidRoot, '7668/credentials/kubelet.config'), 0o660);
   await chmod(join(invalidSnapRoot, '7668/kubectl'), 0o775);
   await symlink('7668', join(invalidRoot, 'current'));
   await symlink('7668', join(invalidSnapRoot, 'current'));

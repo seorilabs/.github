@@ -63,7 +63,7 @@ const fleetPath = fileURLToPath(
   new URL('../../contracts/fleet-p3-runtime.yaml', import.meta.url),
 );
 const kubectl = '/usr/local/bin/kubectl';
-const MICROK8S_KUBECONFIG = '/var/snap/microk8s/current/credentials/client.config';
+const MICROK8S_KUBECONFIG = '/var/snap/microk8s/current/credentials/kubelet.config';
 const MICROK8S_CONTEXT = 'microk8s';
 const MICROK8S_SNAP_ROOT = '/snap/microk8s';
 const MICROK8S_STATE_ROOT = '/var/snap/microk8s';
@@ -781,13 +781,28 @@ function readConsumerQuiescence(
         .some((field) => ![undefined, 0].includes(observed.status?.[field]))
     ) stop('P2_HOST_LIVE_REPLICAS_NOT_ZERO');
   }
-  const pods = publicJson(read(kubectlExecutable, [
-    ...prefix,
-    '--context', kubernetesContext,
-    'get', 'pods', '--all-namespaces', '--output=json',
-  ], 'P2_HOST_CONSUMER_READBACK_FAILED', { inputDescriptors }),
-  'P2_HOST_CONSUMER_READBACK_INVALID');
-  if (!Array.isArray(pods?.items)) stop('P2_HOST_CONSUMER_READBACK_INVALID');
+  const readPods = (scope) => {
+    const observed = publicJson(read(kubectlExecutable, [
+      ...prefix,
+      '--context', kubernetesContext,
+      'get', 'pods', ...scope, '--output=json',
+    ], 'P2_HOST_CONSUMER_READBACK_FAILED', { inputDescriptors }),
+    'P2_HOST_CONSUMER_READBACK_INVALID');
+    if (!Array.isArray(observed?.items)) stop('P2_HOST_CONSUMER_READBACK_INVALID');
+    return observed.items;
+  };
+  const nodePods = readPods([
+    '--all-namespaces',
+    '--field-selector', `spec.nodeName=${contract.target.nodeName}`,
+  ]);
+  const namespacePods = readPods(['--namespace', contract.kubernetes.namespace]);
+  const pods = new Map();
+  for (const pod of [...nodePods, ...namespacePods]) {
+    const key = pod.metadata?.uid ??
+      `${pod.metadata?.namespace ?? ''}\0${pod.metadata?.name ?? ''}`;
+    if (key === '\0') stop('P2_HOST_CONSUMER_READBACK_INVALID');
+    pods.set(key, pod);
+  }
   const managedNames = new Set(gate.workloads.map(({ name }) => name));
   const protectedPaths = [
     contract.target.mountPath,
@@ -795,7 +810,7 @@ function readConsumerQuiescence(
     dirname(contract.target.sourcePath),
     contract.target.mapperPath,
   ];
-  for (const pod of pods.items) {
+  for (const pod of pods.values()) {
     if (['Succeeded', 'Failed'].includes(pod.status?.phase)) continue;
     const podName = pod.metadata?.labels?.['app.kubernetes.io/name'];
     const volumes = Array.isArray(pod.spec?.volumes) ? pod.spec.volumes : [];

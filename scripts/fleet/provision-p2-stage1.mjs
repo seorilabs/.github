@@ -81,7 +81,7 @@ const mode = process.argv[2] ?? 'plan';
 const MAX_PUBLIC_OUTPUT = 2 * 1024 * 1024;
 const SHA40 = /^[a-f0-9]{40}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
-const HOST_KUBECONFIG = '/var/snap/microk8s/current/credentials/client.config';
+const HOST_KUBECONFIG = '/var/snap/microk8s/current/credentials/kubelet.config';
 const LUKS_RECOVERY_LOGICAL_ID = 'shared/seori-auth/luks-recovery';
 
 class Stage1ControllerError extends Error {

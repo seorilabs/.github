@@ -189,7 +189,7 @@ function runApply(host) {
   const result = spawnSync('/usr/local/libexec/seori-auth-native', [
     'launch', '--', '/usr/local/bin/node', script, 'apply',
     `--confirmation=${confirmations(host).apply}`,
-    '--kubeconfig=/var/snap/microk8s/current/credentials/client.config',
+    '--kubeconfig=/var/snap/microk8s/current/credentials/kubelet.config',
     `--recovery-key-file=${recoveryPath}`,
     '--tang-attestation=/var/lib/seorilabs/tang-backup-attestations/rpi4001.json',
     '--tang-attestation=/var/lib/seorilabs/tang-backup-attestations/seori-m6-01.json',

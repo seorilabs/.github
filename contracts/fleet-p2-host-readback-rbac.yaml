@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: seori-p2-host-readback-rpi5
+      labels:
+        app.kubernetes.io/name: seori-auth
+        app.kubernetes.io/component: host-encryption-readback
+        app.kubernetes.io/managed-by: seorilabs-fleet
+    rules:
+      - apiGroups: [""]
+        resources: [persistentvolumes]
+        resourceNames: [seori-auth-state-rpi5]
+        verbs: [get]
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: seori-p2-host-readback-rpi5
+      labels:
+        app.kubernetes.io/name: seori-auth
+        app.kubernetes.io/component: host-encryption-readback
+        app.kubernetes.io/managed-by: seorilabs-fleet
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: seori-p2-host-readback-rpi5
+    subjects:
+      - apiGroup: rbac.authorization.k8s.io
+        kind: User
+        name: system:node:rpi5
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: seori-p2-host-readback-rpi5
+      namespace: auth-broker
+      labels:
+        app.kubernetes.io/name: seori-auth
+        app.kubernetes.io/component: host-encryption-readback
+        app.kubernetes.io/managed-by: seorilabs-fleet
+    rules:
+      - apiGroups: [""]
+        resources: [persistentvolumeclaims]
+        resourceNames: [seori-auth-state]
+        verbs: [get]
+      - apiGroups: [""]
+        resources: [pods]
+        verbs: [list]
+      - apiGroups: [apps]
+        resources: [statefulsets]
+        resourceNames: [seori-auth-broker]
+        verbs: [get]
+      - apiGroups: [apps]
+        resources: [deployments]
+        resourceNames: [seori-password-loader, seori-totp-signer]
+        verbs: [get]
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: seori-p2-host-readback-rpi5
+      namespace: auth-broker
+      labels:
+        app.kubernetes.io/name: seori-auth
+        app.kubernetes.io/component: host-encryption-readback
+        app.kubernetes.io/managed-by: seorilabs-fleet
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: seori-p2-host-readback-rpi5
+    subjects:
+      - apiGroup: rbac.authorization.k8s.io
+        kind: User
+        name: system:node:rpi5

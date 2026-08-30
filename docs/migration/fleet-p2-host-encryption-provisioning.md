@@ -52,14 +52,19 @@ Broker workload를 활성화하지 않는다.
   secret-consuming child에는 같은 FD 3만 전달하며 중간에 파일 path를 다시 열지 않는다. 값과 원본
   경로는 child argv, 환경, stdout, stderr, marker, receipt에 남지 않는다.
 - RPI5 Kubernetes readback은 `/var/snap/microk8s/current`가 root 소유의 숫자 snap revision만 가리키고,
-  revision root는 non-writable이며 `credentials`와 `client.config`가 각각 exact `0770`, `0660`, 동일한
+  revision root는 non-writable이며 `credentials`와 `kubelet.config`가 각각 exact `0770`, `0660`, 동일한
   non-root group인 경우에만 canonical revision path를 사용한다. 일반 kubeconfig의 symlink·group write
   거부 정책은 유지한다. 검증한 파일은 `O_NOFOLLOW`로 한 번 연 FD 3으로 kubectl child에만 전달해
   group-writable parent의 path swap을 차단한다. 실행 파일은 `/snap/microk8s/current`가 위 state
   revision과 같은 숫자를 가리킬 때만 root-owned exact `0755`
   `/snap/microk8s/<revision>/kubectl`을 사용한다. worker 노드에서 kubectl을 실행하지 않고 안내만
   반환하는 `snap run microk8s.kubectl` wrapper와 존재하지 않는 `/usr/local/bin/kubectl`은 사용하지
-  않는다. 이 공식 host-local config의 context 이름 `microk8s`는 여기서만 요구하고, 조직
+  않는다. 오래돼 새 cluster CA와 맞지 않는 worker-local `client.config`나 control-plane의
+  `system:masters` kubeconfig도 사용하지 않는다. 기존 `system:node:rpi5` identity에는
+  `contracts/fleet-p2-host-readback-rbac.yaml`만 적용한다. 노드 Pod는 Node Authorizer가 요구하는
+  `spec.nodeName=rpi5` field selector로 읽고, 별도 RBAC는 exact PV/PVC, 세 workload get과
+  `auth-broker` namespace의 pending PVC consumer 확인용 Pod list만 허용한다. Secret 및 mutation
+  권한은 없다. 이 공식 host-local config의 context 이름 `microk8s`는 여기서만 요구하고, 조직
   desired-state의 논리 cluster 이름 `vzyx-cluster`는 PV/PVC UID·resourceVersion·Retain binding과
   함께 계속 원장에 유지한다.
 - 무인 Stage1 controller는 catalog의 `shared/seori-auth/luks-recovery`만 해석한다. source SHA별 sudoers
@@ -159,11 +164,15 @@ sudo /usr/local/libexec/seori-auth-native launch -- \
 
 ## RPI5 순서
 
-두 `TANG_SERVER_VERIFIED` attestation과 canonical kubeconfig를 준비한 뒤 plan을 확인한다.
+두 `TANG_SERVER_VERIFIED` attestation과 RPI5 kubelet identity용 최소권한 RBAC를 준비한 뒤 plan을
+확인한다. `contracts/fleet-p2-host-readback-rbac.yaml`은 control-plane의 검증된 admin 실행 경계에서
+적용하고 `kubectl auth can-i --as=system:node:rpi5`로 선언된 get/list만 `yes`, Secret과 mutation은
+`no`인지 readback한다.
 먼저 RPI5 또는 검증된 Linux ARM64 환경에서 native boundary를 빌드하고 별도 승인된 root 설치 단계에서
 plan의 exact executable path에
-root-owned, group/world non-writable file로 설치한다. production entrypoint는 `SEORILABS_KUBECTL`
-override를 거부하고 canonical `/usr/local/bin/kubectl`만 사용한다.
+root-owned, group/world non-writable file로 설치한다. production entrypoint는
+`SEORILABS_KUBECTL` override를 거부하고 state와 snap의 동일한 숫자 revision에 있는 exact
+`/snap/microk8s/<revision>/kubectl`만 사용한다.
 `tools/seori-auth/.build/seori-auth-native`도 같은 Linux ARM64 source에서 빌드해
 `/usr/local/libexec/seori-auth-native`에 root-owned `0755`로 설치한다. 또한
 `scripts/fleet/build-p2-process-hardening-boundary.mjs`가 만든 N-API artifact를
