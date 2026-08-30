@@ -58,6 +58,7 @@ import {
 
 const BUNDLE_SOURCE_SHA = "a".repeat(40);
 const WORKFLOW_EXECUTION_SHA = "b".repeat(40);
+const PLAN_IDENTITY = "e".repeat(64);
 const DIGEST = `sha256:${"c".repeat(64)}`;
 const roots = [];
 
@@ -195,6 +196,17 @@ function buildRuntimeContext({
     runId: "1234",
     runAttempt: "1",
   };
+}
+
+function candidateBranchRef({
+  repositoryId = "1250442131",
+  workflowExecutionSha = WORKFLOW_EXECUTION_SHA,
+  planIdentity = PLAN_IDENTITY,
+} = {}) {
+  return (
+    `seori/workflow-bundle-v5-canary/${repositoryId}/` +
+    `${workflowExecutionSha.slice(0, 12)}/${planIdentity}`
+  );
 }
 
 function buildRuntimeResponse(
@@ -548,6 +560,18 @@ test("v5 candidate binds every contract, runtime asset, profile, and immutable w
   assert.deepEqual(
     candidate.buildRuntimeBinding.calledWorkflows,
     workflowBundleV5Contract.buildRuntimeBinding.calledWorkflows,
+  );
+  assert.equal(
+    candidate.buildRuntimeBinding.candidatePolicy,
+    "fixed-repository-workflow-sha-and-plan-identity",
+  );
+  assert.equal(
+    candidate.buildRuntimeBinding.candidateBranchTemplate,
+    "seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}/{planIdentity}",
+  );
+  assert.equal(
+    buildRuntimeBindingV5Contract.candidateBranchTemplate,
+    candidate.buildRuntimeBinding.candidateBranchTemplate,
   );
   assert.equal(candidate.toolchains.godot, "4.7.2");
   assert.equal(
@@ -1702,6 +1726,7 @@ test("approved main and two fixed candidate PR build bindings resolve before app
     assert.equal(binding.buildProfile, profile);
     assert.equal(binding.packageManager, profile === "react-native-android" ? "pnpm" : null);
     assert.equal(binding.workflowBundleApprovalState, "APPROVED");
+    assert.equal(binding.planIdentity, null);
   }
 
   const baseSha = "8".repeat(40);
@@ -1720,8 +1745,7 @@ test("approved main and two fixed candidate PR build bindings resolve before app
       fullName,
       pullRequestBaseSha: baseSha,
       pullRequestHeadRepository: fullName,
-      pullRequestHeadRef:
-        `seori/workflow-bundle-v5-canary/${repositoryId}/${WORKFLOW_EXECUTION_SHA.slice(0, 12)}`,
+      pullRequestHeadRef: candidateBranchRef({ repositoryId }),
     });
     const binding = await resolveBuildRuntimeBindingV5(context, {
       trustedManifestReadback: async (request) => {
@@ -1729,16 +1753,18 @@ test("approved main and two fixed candidate PR build bindings resolve before app
         assert.equal(request.schema, "workflow-bundle-v5-build-canary");
         assert.equal(request.applicationSourceSha, baseSha);
         assert.equal(request.eventSourceSha, mergeSha);
+        assert.equal(request.planIdentity, PLAN_IDENTITY);
         return buildRuntimeResponse(request);
       },
     });
     assert.equal(binding.applicationSourceSha, baseSha);
     assert.equal(binding.eventSourceSha, mergeSha);
     assert.equal(binding.workflowBundleApprovalState, "CANDIDATE");
+    assert.equal(binding.planIdentity, PLAN_IDENTITY);
   }
 });
 
-test("build runtime blocks lookalike caller, candidate branch drift, stale bundle state, and PAUSED", async () => {
+test("build runtime blocks lookalike caller, malformed candidate branch identity, stale bundle state, and PAUSED", async () => {
   const main = buildRuntimeContext();
   for (const attack of [
     { callerWorkflowRef: main.callerWorkflowRef.replace("runtime-canary", "runtime-lookalike") },
@@ -1766,14 +1792,34 @@ test("build runtime blocks lookalike caller, candidate branch drift, stale bundl
     fullName: "seorilabs/happy-farm",
     pullRequestBaseSha: "8".repeat(40),
     pullRequestHeadRepository: "seorilabs/happy-farm",
-    pullRequestHeadRef: "seori/workflow-bundle-v5-canary/1250442131/wrong-sha",
+    pullRequestHeadRef: candidateBranchRef(),
   });
-  await assert.rejects(
-    resolveBuildRuntimeBindingV5(candidate, {
-      trustedManifestReadback: async () => assert.fail("branch drift must fail locally"),
-    }),
-    /BUILD_RUNTIME_CANDIDATE_IDENTITY_INVALID/u,
-  );
+  const prefix =
+    `seori/workflow-bundle-v5-canary/${candidate.repositoryId}/` +
+    WORKFLOW_EXECUTION_SHA.slice(0, 12);
+  for (const pullRequestHeadRef of [
+    prefix,
+    `${prefix}/${PLAN_IDENTITY.toUpperCase()}`,
+    `${prefix}/${"g".repeat(64)}`,
+    `${prefix}/${"e".repeat(63)}`,
+    `${prefix}/${"e".repeat(65)}`,
+    candidateBranchRef({ repositoryId: "1250442132" }),
+    candidateBranchRef({ workflowExecutionSha: "c".repeat(40) }),
+    candidateBranchRef({ workflowExecutionSha: "B".repeat(40) }),
+    `${candidateBranchRef()}/lookalike`,
+  ]) {
+    let readbackCalls = 0;
+    await assert.rejects(
+      resolveBuildRuntimeBindingV5({ ...candidate, pullRequestHeadRef }, {
+        trustedManifestReadback: async () => {
+          readbackCalls += 1;
+          return {};
+        },
+      }),
+      /BUILD_RUNTIME_CANDIDATE_IDENTITY_INVALID/u,
+    );
+    assert.equal(readbackCalls, 0);
+  }
 
   await assert.rejects(
     resolveBuildRuntimeBindingV5(main, {
@@ -1806,14 +1852,18 @@ test("build manifest adapter fixes origin and exposes only public exact claims",
     fetchImpl: async (input, options) => {
       calls.push({ input: String(input), options });
       const url = new URL(input);
+      const schema = url.searchParams.get("schema");
+      const repositoryId = url.pathname.split("/").at(-2);
       const request = {
-        repositoryId: context.repositoryId,
-        fullName: context.fullName,
+        repositoryId,
+        fullName: repositoryId === "1250442131"
+          ? "seorilabs/happy-farm"
+          : context.fullName,
         applicationSourceSha: url.searchParams.get("ref"),
         eventSourceSha: url.searchParams.get("event_ref"),
         workflowExecutionSha: url.searchParams.get("workflow_sha"),
         buildProfile: url.searchParams.get("build_profile"),
-        mode: "APPROVED",
+        mode: schema === "workflow-bundle-v5-build-canary" ? "CANDIDATE" : "APPROVED",
       };
       return new Response(JSON.stringify(buildRuntimeResponse(request)), {
         status: 200,
@@ -1831,6 +1881,31 @@ test("build manifest adapter fixes origin and exposes only public exact claims",
   assert.equal(requested.searchParams.get("schema"), "workflow-bundle-v5-build");
   assert.equal(calls[0].options.headers.Authorization, `Bearer ${token}`);
   assert.doesNotMatch(calls[0].input, /header|payload|signature/u);
+
+  const candidateContext = buildRuntimeContext({
+    eventName: "pull_request",
+    eventRef: "refs/pull/41/merge",
+    eventSourceSha: "9".repeat(40),
+    repositoryId: "1250442131",
+    fullName: "seorilabs/happy-farm",
+    pullRequestBaseSha: "8".repeat(40),
+    pullRequestHeadRepository: "seorilabs/happy-farm",
+    pullRequestHeadRef: candidateBranchRef(),
+  });
+  const candidateBinding = await resolveBuildRuntimeBindingV5(candidateContext, {
+    trustedManifestReadback: readback,
+  });
+  assert.equal(candidateBinding.planIdentity, PLAN_IDENTITY);
+  assert.equal(calls.length, 2);
+  const candidateRequest = new URL(calls[1].input);
+  assert.deepEqual([...candidateRequest.searchParams.keys()].sort(), [
+    "build_profile", "event_ref", "plan_identity", "ref", "schema", "workflow_sha",
+  ]);
+  assert.equal(candidateRequest.searchParams.get("plan_identity"), PLAN_IDENTITY);
+  assert.equal(
+    candidateRequest.searchParams.get("schema"),
+    "workflow-bundle-v5-build-canary",
+  );
 
   const oversizedReadback = createBuildManifestReadbackV5({
     oidcTokenProvider: async () => token,

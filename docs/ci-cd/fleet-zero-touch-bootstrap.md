@@ -119,7 +119,7 @@ readback token은 같은 permission의 `read`만 사용하고 mutation token과 
 
 PR mutation 전에 `CANDIDATE_WIF_PREBIND` 목적의 5분·1회 승인 receipt를 CAS로 소비한다. 승인은 organization·repo·app source SHA·candidate bundle digest·candidate source SHA·central `job_workflow_ref`·plan digest를 모두 고정한다. shared WIF provider의 기존 binding과 두 etag를 먼저 읽고, exact etag CAS 적용 뒤 다시 `BOUND`인지 확인한 경우에만 GitHub App이 PR을 생성한다. 완료 replay는 같은 consumed approval과 WIF/PR exact readback을 사용하며 이미 존재하는 IAM binding이나 PR을 중복 생성하지 않는다.
 
-Android caller는 생성 PR의 해당 파일 변경에만 반응한다. 중앙 reusable workflow는 일반 경로에서는 exact `main` caller만, candidate 경로에서는 고정 repository ID·same-repo head·exact base source SHA·`refs/pull/<number>/merge`·workflow execution SHA suffix가 모두 맞는 PR만 허용한다. repository-scoped GitHub App token, plan generation, 5분 operation lease, idempotent readback을 모두 통과해야 완료된다.
+Android caller는 생성 PR의 해당 파일 변경에만 반응한다. 중앙 reusable workflow는 일반 경로에서는 exact `main` caller만, candidate 경로에서는 고정 repository ID·same-repo head·exact base source SHA·`refs/pull/<number>/merge`와 `seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}/{planIdentity}` 형식의 exact head ref가 모두 맞는 PR만 허용한다. `planIdentity`는 64자리 lowercase hex이며 candidate manifest readback의 `plan_identity`로 전달한다. Backoffice는 이를 정답으로 신뢰하지 않고, 실행 큐의 `expectedHeadRef`와 OIDC `head_ref` 및 GitHub PR readback이 모두 일치할 때만 허용한다. repository-scoped GitHub App token, plan generation, 5분 operation lease, idempotent readback을 모두 통과해야 완료된다.
 
 ## 운영 전 필수 gate
 

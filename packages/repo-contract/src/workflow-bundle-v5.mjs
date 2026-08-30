@@ -1103,9 +1103,9 @@ export const workflowBundleV5Contract = Object.freeze({
   buildRuntimeBinding: Object.freeze({
     authentication: "github-oidc",
     sourceStrategy: "exact-main-or-fixed-canary-pr-base",
-    candidatePolicy: "fixed-repository-and-workflow-sha",
+    candidatePolicy: "fixed-repository-workflow-sha-and-plan-identity",
     candidateBranchTemplate:
-      "seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}",
+      "seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}/{planIdentity}",
     calledWorkflows: Object.freeze({
       reactNativeAndroid: Object.freeze({
         path: ".github/workflows/rn-build-android-cloud-v2.yml",

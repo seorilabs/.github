@@ -96,8 +96,8 @@
         "authentication": "github-oidc",
         "audience": "seorilabs-control-plane",
         "sourceStrategy": "exact-main-or-fixed-canary-pr-base",
-        "candidatePolicy": "fixed-repository-and-workflow-sha",
-        "candidateBranchTemplate": "seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}",
+        "candidatePolicy": "fixed-repository-workflow-sha-and-plan-identity",
+        "candidateBranchTemplate": "seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}/{planIdentity}",
         "identity": {
           "callerWorkflowRef": "github.workflow_ref",
           "calledWorkflowRef": "job.workflow_ref",

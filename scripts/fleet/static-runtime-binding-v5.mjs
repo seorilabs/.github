@@ -3,6 +3,7 @@ import { appendFileSync } from "node:fs";
 
 const SHA = /^[0-9a-f]{40}$/u;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
+const PLAN_IDENTITY = /^[0-9a-f]{64}$/u;
 const REPOSITORY_ID = /^[1-9][0-9]{0,31}$/u;
 const FULL_NAME = /^seorilabs\/[A-Za-z0-9._-]+$/u;
 const PUBLIC_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/u;
@@ -54,6 +55,8 @@ const BUILD_CANARIES = Object.freeze({
 });
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const STATIC_MANIFEST_RETRY_DELAYS_MS = Object.freeze([250, 750]);
+const CANDIDATE_BRANCH =
+  /^seori\/workflow-bundle-v5-canary\/([1-9][0-9]{0,31})\/([0-9a-f]{12})\/([0-9a-f]{64})$/u;
 
 export const staticRuntimeBindingV5Contract = Object.freeze({
   origin: "https://backoffice.vzyx.xyz",
@@ -77,9 +80,9 @@ export const buildRuntimeBindingV5Contract = Object.freeze({
   audience: staticRuntimeBindingV5Contract.audience,
   authentication: "github-oidc",
   sourceStrategy: "exact-main-or-fixed-canary-pr-base",
-  candidatePolicy: "fixed-repository-and-workflow-sha",
+  candidatePolicy: "fixed-repository-workflow-sha-and-plan-identity",
   candidateBranchTemplate:
-    "seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}",
+    "seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}/{planIdentity}",
   calledWorkflows: BUILD_RUNTIME_CONTRACTS,
   canaries: BUILD_CANARIES,
 });
@@ -212,6 +215,16 @@ function safeDirectory(value) {
 
 function positiveIntegerString(value) {
   return /^(?:[1-9][0-9]*)$/u.test(String(value ?? ""));
+}
+
+function parseCandidateBranchIdentity(value) {
+  const match = CANDIDATE_BRANCH.exec(value ?? "");
+  if (!match) return null;
+  return Object.freeze({
+    repositoryId: match[1],
+    workflowSha12: match[2],
+    planIdentity: match[3],
+  });
 }
 
 function calledWorkflowForPath(path) {
@@ -591,6 +604,9 @@ function validateBuildContext(context) {
     });
   }
   const canary = BUILD_CANARIES[context.repositoryId];
+  const candidateBranchIdentity = parseCandidateBranchIdentity(
+    context.pullRequestHeadRef,
+  );
   if (
     context.eventName !== "pull_request" ||
     !canary ||
@@ -599,8 +615,10 @@ function validateBuildContext(context) {
     !/^refs\/pull\/[1-9][0-9]*\/merge$/u.test(context.eventRef ?? "") ||
     !SHA.test(context.pullRequestBaseSha ?? "") ||
     context.pullRequestHeadRepository !== context.fullName ||
-    context.pullRequestHeadRef !==
-      `seori/workflow-bundle-v5-canary/${context.repositoryId}/${context.jobWorkflowSha.slice(0, 12)}`
+    !candidateBranchIdentity ||
+    candidateBranchIdentity.repositoryId !== context.repositoryId ||
+    candidateBranchIdentity.workflowSha12 !== context.jobWorkflowSha.slice(0, 12) ||
+    !PLAN_IDENTITY.test(candidateBranchIdentity.planIdentity)
   ) {
     fail("BUILD_RUNTIME_CANDIDATE_IDENTITY_INVALID");
   }
@@ -609,6 +627,7 @@ function validateBuildContext(context) {
     contract,
     eventSourceSha,
     mode: "CANDIDATE",
+    planIdentity: candidateBranchIdentity.planIdentity,
     schema: "workflow-bundle-v5-build-canary",
   });
 }
@@ -718,6 +737,12 @@ export function createBuildManifestReadbackV5({
     url.searchParams.set("event_ref", request.eventSourceSha);
     url.searchParams.set("workflow_sha", request.workflowExecutionSha);
     url.searchParams.set("build_profile", request.buildProfile);
+    if (request.mode === "CANDIDATE") {
+      if (!PLAN_IDENTITY.test(request.planIdentity ?? "")) {
+        fail("BUILD_RUNTIME_CANDIDATE_IDENTITY_INVALID");
+      }
+      url.searchParams.set("plan_identity", request.planIdentity);
+    }
     url.searchParams.set("schema", request.schema);
     for (let attempt = 0; attempt <= STATIC_MANIFEST_RETRY_DELAYS_MS.length; attempt += 1) {
       let response;
@@ -777,6 +802,9 @@ export async function resolveBuildRuntimeBindingV5(
     runId: String(context.runId),
     runAttempt: String(context.runAttempt),
     mode: identity.mode,
+    ...(identity.mode === "CANDIDATE"
+      ? { planIdentity: identity.planIdentity }
+      : {}),
     schema: identity.schema,
   });
   const response = await trustedManifestReadback(structuredClone(request));
@@ -813,6 +841,7 @@ export async function resolveBuildRuntimeBindingV5(
     workflowBundleSourceSha: manifest.workflowBundle.sourceSha,
     workflowBundlePayloadDigest: manifest.workflowBundle.payloadDigest,
     workflowBundleApprovalState: manifest.workflowBundle.approvalState,
+    planIdentity: request.planIdentity ?? null,
     manifestDigest: response.manifestDigest,
     dependencyAuditException: encodedDependencyAuditException(dependencyAuditException),
   });
