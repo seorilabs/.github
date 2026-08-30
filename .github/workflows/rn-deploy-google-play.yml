@@ -108,7 +108,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
@@ -116,14 +116,14 @@ jobs:
 
       - name: Setup Node
         if: inputs.npm_registry_url == ''
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           check-latest: false
 
       - name: Setup Node with npm registry
         if: inputs.npm_registry_url != ''
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           check-latest: false
@@ -156,7 +156,7 @@ jobs:
           '
 
       - name: Checkout exact release version authority
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ steps.authority.outputs.repository }}
           ref: ${{ steps.authority.outputs.sha }}
@@ -203,7 +203,7 @@ jobs:
             node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --github-output
 
       - name: Setup Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
@@ -331,11 +331,35 @@ jobs:
             --kind android-app-bundle \
             --artifact "$AAB_PATH" \
             --metadata "$RUNNER_TEMP/aab-manifest.pb" \
+            --receipt "$RUNNER_TEMP/release-artifact-receipt.txt" \
             --github-output
+
+      # 업로드 스텝은 검증한 그 파일만 올려야 한다. caller 스크립트가 glob으로 다른 .aab를
+      # 고르지 못하도록, workspace에 검증된 AAB 하나만 있는지와 digest가 그대로인지 확인한다.
+      - name: Bind the verified AAB as the only upload candidate
+        if: ${{ inputs.upload }}
+        shell: bash
+        env:
+          VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
+          VERIFIED_AAB_DIGEST: ${{ steps.provenance.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          [ -f "$VERIFIED_AAB_PATH" ] || { echo "검증된 AAB 경로가 없다: $VERIFIED_AAB_PATH" >&2; exit 1; }
+          observed="$(sha256sum "$VERIFIED_AAB_PATH" | cut -d ' ' -f 1)"
+          [ "$observed" = "$VERIFIED_AAB_DIGEST" ] || {
+            echo "업로드 직전 AAB digest가 검증값과 다르다: $observed != $VERIFIED_AAB_DIGEST" >&2
+            exit 1
+          }
+          # 검증된 파일 옆에 다른 .aab가 있으면 업로드 도구가 그쪽을 고를 수 있다.
+          bundles="$(find "$(dirname "$VERIFIED_AAB_PATH")" -maxdepth 1 -type f -name '*.aab' | wc -l | tr -d ' ')"
+          [ "$bundles" = 1 ] || {
+            echo "검증된 AAB 디렉터리에 .aab가 정확히 하나여야 한다: $bundles" >&2
+            exit 1
+          }
 
       - name: Upload AAB artifact
         if: ${{ !inputs.upload }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: google-play-aab-${{ steps.tag.outputs.tag }}-${{ steps.release.outputs.android_version_code }}
           path: ${{ steps.android.outputs.aab_path }}
@@ -355,7 +379,7 @@ jobs:
 
       - name: Authenticate to Google Cloud
         if: ${{ inputs.upload }}
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
@@ -399,10 +423,13 @@ jobs:
           # 언어별 노트(전체 언어)는 env 파일 경로로 전달. 스크립트가 등록 언어와 교집합만 반영.
           # env 로 넘겨야 --release-notes-json 미지원(구버전) 스크립트도 깨지지 않고 무시한다.
           RELEASE_NOTES_JSON: ${{ steps.notes.outputs.found == 'true' && steps.notes.outputs.path || '' }}
+          # 업로드 대상은 검증된 exact 경로 하나다. 스크립트가 자체 탐색으로 다른 파일을 고르지 않는다.
+          VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
+          SEORI_EXPECTED_AAB_SHA256: ${{ steps.provenance.outputs.artifact_digest }}
         run: |
           set -euo pipefail
           args=(
-            --aab-path "${{ steps.android.outputs.aab_path }}"
+            --aab-path "$VERIFIED_AAB_PATH"
             --release-name "${{ steps.release.outputs.release_name }}"
             --release-status "${{ inputs.release_status }}"
             --track "${{ inputs.track }}"

@@ -15,6 +15,7 @@ import {
   AUTHORITY_ID,
   ReleaseAuthorityError,
   applyGodotExportVersion,
+  assertArtifactReceipt,
   assertArtifactVersion,
   assertSourceBinding,
   assertTagReceipt,
@@ -25,10 +26,13 @@ import {
   deriveReleaseVersion,
   githubOutputLines,
   parseAabManifest,
+  parseArtifactReceipt,
   parseInfoPlistJson,
   parseReleaseBinding,
+  parseReleaseTagRef,
   parseTagReceipt,
   readAitContainer,
+  renderArtifactReceipt,
   renderTagReceipt,
   selectLatestStableTag,
 } from '../scripts/release/tag-version-authority.mjs';
@@ -438,15 +442,19 @@ test('xcarchive Info.plist readback은 tag 파생값과 다르면 fail-closed한
   }
 });
 
-test('.ait 컨테이너를 읽고 배포 memo를 태그에서 파생한 canonical 값으로 고정한다', () => {
+test('지원하는 .ait 형식에는 내부 version 필드가 없고 memo가 artifact digest를 담는다', () => {
+  // 실제 RN(.ait v1 컨테이너)과 Godot(legacy zip) 산출물 fixture를 그대로 읽는다.
   const rn = readAitContainer(readFileSync(join(FIXTURES, 'react-native/ait/trait-test-hub.ait')));
   assert.equal(rn.format, 'ait');
   assert.equal(rn.formatVersion, 1);
   assert.equal(rn.appName, 'trait-test-hub');
   assert.match(rn.deploymentId, /^[0-9a-f-]{36}$/u);
+  // 계약: 지원 형식 어느 쪽도 내부 version 기록을 갖지 않는다. 그래서 authority는 태그다.
+  assert.deepEqual([...rn.versionFields], []);
 
   const godot = readAitContainer(readFileSync(join(FIXTURES, 'godot/ait/foam-party.ait')));
   assert.equal(godot.format, 'zip');
+  assert.deepEqual([...godot.versionFields], []);
 
   assert.throws(
     () => readAitContainer(Buffer.from('not a bundle at all')),
@@ -454,14 +462,39 @@ test('.ait 컨테이너를 읽고 배포 memo를 태그에서 파생한 canonica
   );
 
   const current = binding({ workflow: 'rn-deploy-ait.yml' });
-  const memo = canonicalReleaseMemo(current);
-  assert.equal(memo, `v1.2.3 1.2.3 (1002003) ${SHA_A.slice(0, 12)}`);
-  assert.equal(canonicalReleaseMemo(current, ' hotfix  rollout '), `${memo} · hotfix rollout`);
-  assert.ok(canonicalReleaseMemo(current, 'x'.repeat(2000)).length <= 1000);
-
   const digest = createHash('sha256').update('artifact').digest('hex');
+  const memo = canonicalReleaseMemo(current, { artifactDigest: digest });
+  assert.equal(
+    memo,
+    `v1.2.3 1.2.3 (1002003) src:${SHA_A.slice(0, 12)} sha256:${digest}`,
+  );
+  assert.equal(
+    canonicalReleaseMemo(current, { artifactDigest: digest, note: ' hotfix  rollout ' }),
+    `${memo} · hotfix rollout`,
+  );
+  // digest가 사라지면 식별자가 무너지므로 자르지 않고 fail-closed한다.
+  assert.throws(
+    () => canonicalReleaseMemo(current, { artifactDigest: digest, note: 'x'.repeat(2000) }),
+    (error) => error.code === 'artifact-digest-mismatch',
+  );
+  assert.throws(
+    () => canonicalReleaseMemo(current, { artifactDigest: 'nope' }),
+    (error) => error.code === 'artifact-digest-mismatch',
+  );
+
   assert.doesNotThrow(() =>
     assertArtifactVersion({ kind: 'ait', binding: current, observed: { memo, digest } }),
+  );
+  // 같은 태그·같은 memo라도 다른 파일이면 digest가 달라 대조에서 어긋난다.
+  const otherDigest = createHash('sha256').update('other artifact').digest('hex');
+  assert.throws(
+    () =>
+      assertArtifactVersion({
+        kind: 'ait',
+        binding: current,
+        observed: { memo, digest: otherDigest },
+      }),
+    (error) => error.code === 'artifact-digest-mismatch',
   );
   assert.throws(
     () =>
@@ -470,46 +503,203 @@ test('.ait 컨테이너를 읽고 배포 memo를 태그에서 파생한 canonica
         binding: current,
         observed: { memo: 'GitHub Actions main@abc1234', digest },
       }),
-    (error) => error.code === 'artifact-provenance-mismatch',
+    (error) => error.code === 'artifact-digest-mismatch',
   );
   assert.throws(
     () => assertArtifactVersion({ kind: 'ait', binding: current, observed: { memo, digest: 'nope' } }),
-    (error) => error.code === 'artifact-provenance-mismatch',
+    (error) => error.code === 'artifact-digest-mismatch',
+  );
+  // 컨테이너가 내부 version 기록을 갖게 되면 계약 갱신 전까지 배포하지 않는다.
+  assert.throws(
+    () =>
+      assertArtifactVersion({
+        kind: 'ait',
+        binding: current,
+        observed: { memo, digest, versionFields: ['bundle.field9'] },
+      }),
+    (error) => error.code === 'ait-internal-version-field-present',
   );
 });
 
-test('Godot export preset은 authority가 아니라 태그 파생값 주입 대상이다', () => {
+test('artifact receipt는 binding·kind·digest·memo를 한 파일로 묶는다', () => {
+  const current = binding({ workflow: 'rn-deploy-ait.yml' });
+  const digest = createHash('sha256').update('artifact').digest('hex');
+  const memo = canonicalReleaseMemo(current, { artifactDigest: digest });
+  const receipt = parseArtifactReceipt(
+    renderArtifactReceipt({ binding: current, kind: 'ait', artifactDigest: digest, memo }),
+  );
+  assert.equal(receipt['artifact-sha256'], digest);
+  assert.equal(receipt['artifact-digest-source'], 'artifact-file');
+  assert.equal(receipt['upload-memo'], memo);
+  assert.equal(receipt.tag, 'v1.2.3');
+  assert.doesNotThrow(() =>
+    assertArtifactReceipt({ binding: current, kind: 'ait', artifactDigest: digest, memo, receipt }),
+  );
+  // 다른 파일을 올리면 receipt 대조에서 드러난다.
+  assert.throws(
+    () =>
+      assertArtifactReceipt({
+        binding: current,
+        kind: 'ait',
+        artifactDigest: createHash('sha256').update('swapped').digest('hex'),
+        memo,
+        receipt,
+      }),
+    (error) => error.code === 'artifact-digest-mismatch',
+  );
+  assert.equal(
+    parseArtifactReceipt(
+      renderArtifactReceipt({
+        binding: current,
+        kind: 'xcode-archive',
+        artifactDigest: digest,
+      }),
+    )['artifact-digest-source'],
+    'archive-info-plist',
+  );
+});
+
+test('Godot export preset 주입은 명시된 preset 하나만 바꾼다', () => {
   const presets = readFileSync(join(FIXTURES, 'godot/export_presets.cfg'), 'utf8');
   const current = binding({ tag: 'v2.0.5', workflow: 'godot-deploy-google-play.yml' });
 
-  const android = applyGodotExportVersion(presets, { platform: 'Android', binding: current });
+  const android = applyGodotExportVersion(presets, {
+    platform: 'Android',
+    binding: current,
+    preset: 'Android',
+  });
   assert.match(android, /^version\/code=2000005$/mu);
   assert.match(android, /^version\/name="2\.0\.5"$/mu);
   assert.doesNotMatch(android, /^version\/code=3$/mu);
 
-  const ios = applyGodotExportVersion(android, { platform: 'iOS', binding: current });
+  // 인덱스 선택자도 같은 preset을 가리킨다.
+  assert.equal(
+    applyGodotExportVersion(presets, { platform: 'Android', binding: current, preset: 'preset.0' }),
+    android,
+  );
+
+  const ios = applyGodotExportVersion(android, {
+    platform: 'iOS',
+    binding: current,
+    preset: 'iOS',
+  });
   assert.match(ios, /^application\/short_version="2\.0\.5"$/mu);
   assert.match(ios, /^application\/version="2000005"$/mu);
   // 다른 preset의 값은 건드리지 않는다.
   assert.match(ios, /^package\/unique_name="im\.seorilabs\.foamparty"$/mu);
   assert.equal(ios.split('\n').length, presets.split('\n').length);
 
+  // 선택자가 없으면 같은 platform preset이 여럿일 때 임의로 고를 수 있으므로 fail-closed한다.
   assert.throws(
-    () => applyGodotExportVersion(presets, { platform: 'macOS', binding: current }),
-    (error) => error.code === 'artifact-provenance-mismatch',
+    () => applyGodotExportVersion(presets, { platform: 'Android', binding: current }),
+    (error) => error.code === 'godot-preset-selector-required',
   );
   assert.throws(
-    () => applyGodotExportVersion('[preset.0]\n\nplatform="Android"\n', { platform: 'Android', binding: current }),
+    () =>
+      applyGodotExportVersion(presets, {
+        platform: 'Android',
+        binding: current,
+        preset: 'AndroidQA',
+      }),
+    (error) => error.code === 'godot-preset-selector-mismatch',
+  );
+  // 선택자가 실제 export 대상 platform과 다르면 잘못된 preset을 덮어쓰게 되므로 거부한다.
+  assert.throws(
+    () => applyGodotExportVersion(presets, { platform: 'iOS', binding: current, preset: 'Android' }),
+    (error) => error.code === 'godot-preset-selector-mismatch',
+  );
+  // 같은 이름 preset이 둘이면 어느 쪽을 export하는지 파일만으로 결정할 수 없다.
+  const duplicated = [
+    '[preset.0]',
+    '',
+    'name="Android"',
+    'platform="Android"',
+    '',
+    '[preset.0.options]',
+    '',
+    'version/code=1',
+    'version/name="0.0.1"',
+    '',
+    '[preset.1]',
+    '',
+    'name="Android"',
+    'platform="Android"',
+    '',
+    '[preset.1.options]',
+    '',
+    'version/code=1',
+    'version/name="0.0.1"',
+    '',
+  ].join('\n');
+  assert.throws(
+    () =>
+      applyGodotExportVersion(duplicated, {
+        platform: 'Android',
+        binding: current,
+        preset: 'Android',
+      }),
+    (error) => error.code === 'godot-preset-selector-ambiguous',
+  );
+  assert.throws(
+    () =>
+      applyGodotExportVersion(presets, {
+        platform: 'macOS',
+        binding: current,
+        preset: 'preset.0',
+      }),
     (error) => error.code === 'artifact-provenance-mismatch',
   );
   assert.throws(
     () =>
       applyGodotExportVersion(
         '[preset.0]\n\nplatform="Android"\n\n[preset.0.options]\n\npackage/name="x"\n',
-        { platform: 'Android', binding: current },
+        { platform: 'Android', binding: current, preset: 'preset.0' },
       ),
     (error) => error.code === 'artifact-provenance-mismatch',
   );
+});
+
+test('v0.0.0과 versionCode 0은 어떤 마켓 artifact도 만들 수 없다', () => {
+  assert.throws(
+    () => deriveReleaseVersion('v0.0.0'),
+    (error) => error.code === 'derived-version-code-out-of-range',
+  );
+  // 태그 생성 경로(release-tag.yml)도 같은 구현을 쓰므로 태그 자체가 만들어지지 않는다.
+  assert.throws(
+    () =>
+      createReleaseBinding({
+        tag: 'v0.0.0',
+        sourceSha: SHA_A,
+        authorityRevision: 'a'.repeat(64),
+        configRevision: 'b'.repeat(64),
+      }),
+    (error) => error.code === 'derived-version-code-out-of-range',
+  );
+  // 최신 stable 태그 자동 선택에서도 후보가 아니다.
+  assert.equal(selectLatestStableTag(['v0.0.0', 'v0.0.1']), 'v0.0.1');
+  assert.throws(
+    () => selectLatestStableTag(['v0.0.0']),
+    (error) => error.code === 'tag-pattern-mismatch',
+  );
+  assert.equal(deriveReleaseVersion('v0.0.1').androidVersionCode, 1);
+});
+
+test('release ref는 exact stable tag ref 하나만 허용한다', () => {
+  assert.equal(parseReleaseTagRef('refs/tags/v1.2.3').tag, 'v1.2.3');
+  for (const ref of [
+    'refs/heads/main',
+    'refs/heads/v1.2.3',
+    'refs/tags/v1.2.3-rc.1',
+    'refs/tags/release/v1.2.3',
+    'refs/pull/41/merge',
+    '',
+  ]) {
+    assert.throws(
+      () => parseReleaseTagRef(ref),
+      (error) => ['tag-ref-mismatch', 'tag-pattern-mismatch'].includes(error.code),
+      ref,
+    );
+  }
 });
 
 test('resolver CLI는 태그만으로 GitHub output과 binding 파일을 만든다', () => {
@@ -584,21 +774,72 @@ test('artifact 검증 CLI는 RN·Godot·AIT 경로 fixture를 그대로 readback
       JSON.stringify(binding({ tag: 'v2.0.5', workflow: 'godot-deploy-google-play.yml' }), null, 2),
     );
 
-    const cases = [
-      ['android-app-bundle', rnBinding, 'react-native/android/aab-manifest.pb', true],
-      ['android-app-bundle', rnBinding, 'react-native/android/aab-manifest-package-json-authority.pb', false],
-      ['android-app-bundle', godotBinding, 'godot/android/aab-manifest.pb', true],
-      ['android-app-bundle', godotBinding, 'godot/android/aab-manifest-config-json-authority.pb', false],
-      ['xcode-archive', rnBinding, 'react-native/ios/info-plist.json', true],
-      ['xcode-archive', rnBinding, 'react-native/ios/info-plist-run-number-build.json', false],
-      ['xcode-archive', godotBinding, 'godot/ios/info-plist.json', true],
-      ['xcode-archive', godotBinding, 'godot/ios/info-plist-godot-project-authority.json', false],
+    // AAB fixture는 실제 컨테이너다. 워크플로우와 같은 방식으로 zip에서 manifest를 꺼내 읽는다.
+    const androidCases = [
+      [rnBinding, 'react-native/android/app-release.aab', true],
+      [rnBinding, 'react-native/android/app-release-package-json-authority.aab', false],
+      [godotBinding, 'godot/android/app-release.aab', true],
+      [godotBinding, 'godot/android/app-release-config-json-authority.aab', false],
     ];
-
-    for (const [kind, bindingPath, fixture, shouldPass] of cases) {
+    for (const [bindingPath, fixture, shouldPass] of androidCases) {
+      const artifactPath = join(FIXTURES, fixture);
+      const manifestPath = join(root, `${fixture.replaceAll('/', '_')}.pb`);
+      writeFileSync(
+        manifestPath,
+        execFileSync('unzip', ['-p', artifactPath, 'base/manifest/AndroidManifest.xml'], {
+          maxBuffer: 8 * 1024 * 1024,
+        }),
+      );
+      const receiptPath = join(root, `${fixture.replaceAll('/', '_')}.receipt.txt`);
       const result = runNode(VERIFY_CLI, [
         '--kind',
-        kind,
+        'android-app-bundle',
+        '--binding',
+        bindingPath,
+        '--artifact',
+        artifactPath,
+        '--metadata',
+        manifestPath,
+        '--receipt',
+        receiptPath,
+      ]);
+      assert.equal(result.status === 0, shouldPass, `${fixture}: ${result.stderr}`);
+      if (shouldPass) {
+        const receipt = parseArtifactReceipt(readFileSync(receiptPath, 'utf8'));
+        assert.equal(
+          receipt['artifact-sha256'],
+          createHash('sha256').update(readFileSync(artifactPath)).digest('hex'),
+          fixture,
+        );
+        assert.equal(receipt['artifact-kind'], 'android-app-bundle', fixture);
+        assert.equal(receipt['artifact-digest-source'], 'artifact-file', fixture);
+      } else {
+        assert.match(result.stderr, /artifact-provenance-mismatch/u, fixture);
+      }
+    }
+    // 업로드 대상 파일 없이 metadata만으로는 AAB를 검증하지 않는다.
+    assert.match(
+      runNode(VERIFY_CLI, [
+        '--kind',
+        'android-app-bundle',
+        '--binding',
+        rnBinding,
+        '--metadata',
+        join(FIXTURES, 'react-native/android/aab-manifest.pb'),
+      ]).stderr,
+      /artifact-digest-mismatch/u,
+    );
+
+    const archiveCases = [
+      [rnBinding, 'react-native/ios/info-plist.json', true],
+      [rnBinding, 'react-native/ios/info-plist-run-number-build.json', false],
+      [godotBinding, 'godot/ios/info-plist.json', true],
+      [godotBinding, 'godot/ios/info-plist-godot-project-authority.json', false],
+    ];
+    for (const [bindingPath, fixture, shouldPass] of archiveCases) {
+      const result = runNode(VERIFY_CLI, [
+        '--kind',
+        'xcode-archive',
         '--binding',
         bindingPath,
         '--metadata',
@@ -619,12 +860,17 @@ test('artifact 검증 CLI는 RN·Godot·AIT 경로 fixture를 그대로 readback
     );
     assert.equal(ait.status, 0, ait.stderr);
     const aitOutput = readFileSync(outputPath, 'utf8');
+    const aitDigest = createHash('sha256').update(readFileSync(aitArtifact)).digest('hex');
     assert.match(aitOutput, /^ait_format=ait$/mu);
-    assert.match(aitOutput, /^release_memo=v1\.2\.3 1\.2\.3 \(1002003\) a{12} · internal rollout$/mu);
     assert.match(
       aitOutput,
-      new RegExp(`^artifact_digest=${createHash('sha256').update(readFileSync(aitArtifact)).digest('hex')}$`, 'mu'),
+      new RegExp(
+        `^release_memo=v1\\.2\\.3 1\\.2\\.3 \\(1002003\\) src:a{12} sha256:${aitDigest} · internal rollout$`,
+        'mu',
+      ),
     );
+    assert.match(aitOutput, new RegExp(`^artifact_digest=${aitDigest}$`, 'mu'));
+    assert.match(aitOutput, /^artifact_digest_source=artifact-file$/mu);
 
     const wrongMemo = runNode(VERIFY_CLI, [
       '--kind',
@@ -637,7 +883,24 @@ test('artifact 검증 CLI는 RN·Godot·AIT 경로 fixture를 그대로 readback
       'GitHub Actions main@abc1234',
     ]);
     assert.notEqual(wrongMemo.status, 0);
-    assert.match(wrongMemo.stderr, /artifact-provenance-mismatch/u);
+    assert.match(wrongMemo.stderr, /artifact-digest-mismatch/u);
+
+    // 같은 태그·같은 binding이라도 다른 .ait 파일을 올리면 memo digest가 달라 대조에서 어긋난다.
+    const swapped = runNode(VERIFY_CLI, [
+      '--kind',
+      'ait',
+      '--binding',
+      rnBinding,
+      '--artifact',
+      join(FIXTURES, 'godot/ait/foam-party.ait'),
+      '--memo',
+      readFileSync(outputPath, 'utf8')
+        .split('\n')
+        .find((line) => line.startsWith('release_memo='))
+        .slice('release_memo='.length),
+    ]);
+    assert.notEqual(swapped.status, 0);
+    assert.match(swapped.stderr, /artifact-digest-mismatch/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -654,8 +917,17 @@ test('Godot 주입 CLI는 binding 파일 기준으로 export preset을 덮어쓴
     );
     writeFileSync(presetsPath, readFileSync(join(FIXTURES, 'godot/export_presets.cfg'), 'utf8'));
 
-    for (const platform of ['Android', 'iOS']) {
-      const result = runNode(GODOT_CLI, ['--binding', bindingPath, '--platform', platform, '--presets', presetsPath]);
+    for (const [platform, preset] of [['Android', 'Android'], ['iOS', 'iOS']]) {
+      const result = runNode(GODOT_CLI, [
+        '--binding',
+        bindingPath,
+        '--platform',
+        platform,
+        '--preset',
+        preset,
+        '--presets',
+        presetsPath,
+      ]);
       assert.equal(result.status, 0, result.stderr);
     }
 
@@ -664,6 +936,18 @@ test('Godot 주입 CLI는 binding 파일 기준으로 export preset을 덮어쓴
     assert.match(patched, /^version\/name="2\.0\.5"$/mu);
     assert.match(patched, /^application\/short_version="2\.0\.5"$/mu);
     assert.match(patched, /^application\/version="2000005"$/mu);
+
+    // 선택자 없이 호출하면 어떤 preset을 바꿀지 결정할 수 없어 fail-closed한다.
+    const missingSelector = runNode(GODOT_CLI, [
+      '--binding',
+      bindingPath,
+      '--platform',
+      'Android',
+      '--presets',
+      presetsPath,
+    ]);
+    assert.notEqual(missingSelector.status, 0);
+    assert.match(missingSelector.stderr, /godot-preset-selector-required/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -838,26 +1122,63 @@ test('릴리즈 경로는 artifact metadata를 다시 읽어 태그와 대조한
   }
 });
 
-test('Godot 릴리즈 경로는 export preset에 태그 파생 버전을 주입한다', () => {
+test('Godot 릴리즈 경로는 명시된 preset 하나에만 태그 파생 버전을 주입한다', () => {
+  // 주입 대상 preset과 export 대상 preset이 같은 변수여야 다른 preset을 덮어쓰지 않는다.
   const androidWorkflow = workflowText('godot-deploy-google-play.yml');
   assert.match(
     androidWorkflow,
-    /apply-godot-export-version\.mjs \\\n            --platform Android \\\n            --presets "\$PROJECT_DIR\/export_presets\.cfg"/u,
+    /apply-godot-export-version\.mjs \\\n            --platform Android \\\n            --preset "\$ANDROID_EXPORT_PRESET" \\\n            --presets "\$PROJECT_DIR\/export_presets\.cfg"/u,
   );
+  assert.match(
+    androidWorkflow,
+    /--export-release "\$ANDROID_EXPORT_PRESET"/u,
+  );
+  assert.match(androidWorkflow, /ANDROID_EXPORT_PRESET: \$\{\{ inputs\.android_export_preset \}\}/u);
 
   const iosWorkflow = workflowText('godot-deploy-app-store.yml');
   assert.match(
     iosWorkflow,
-    /apply-godot-export-version\.mjs \\\n            --platform iOS \\\n            --presets "\$PROJECT_DIR\/export_presets\.cfg"/u,
+    /apply-godot-export-version\.mjs \\\n            --platform iOS \\\n            --preset "\$IOS_EXPORT_PRESET" \\\n            --presets "\$PROJECT_DIR\/export_presets\.cfg"/u,
   );
+  assert.match(iosWorkflow, /--export-release "\$IOS_EXPORT_PRESET"/u);
+});
+
+test('릴리즈 업로드는 검증한 파일 하나만 올린다', () => {
+  for (const name of ['rn-deploy-google-play.yml', 'godot-deploy-google-play.yml']) {
+    const workflow = workflowText(name);
+    const bind = extractRunBlock(workflow, 'Bind the verified AAB as the only upload candidate');
+    assert.match(bind, /sha256sum "\$VERIFIED_AAB_PATH"/u, name);
+    assert.match(bind, /\$observed" = "\$VERIFIED_AAB_DIGEST/u, name);
+    assert.match(bind, /-maxdepth 1 -type f -name '\*\.aab'/u, name);
+    // 업로드 스텝은 검증된 exact 경로만 받는다.
+    assert.match(workflow, /--aab-path "\$VERIFIED_AAB_PATH"/u, name);
+    assert.match(
+      workflow,
+      /SEORI_EXPECTED_AAB_SHA256: \$\{\{ steps\.provenance\.outputs\.artifact_digest \}\}/u,
+      name,
+    );
+  }
+
+  for (const name of ['rn-deploy-ait.yml', 'godot-deploy-ait.yml']) {
+    const workflow = workflowText(name);
+    const bind = extractRunBlock(workflow, 'Bind the verified .ait as the only upload candidate');
+    assert.match(bind, /sha256sum "\$VERIFIED_AIT_PATH"/u, name);
+    assert.match(bind, /\$observed" = "\$VERIFIED_AIT_DIGEST/u, name);
+    assert.match(bind, /-maxdepth 1 -type f -name '\*\.ait'/u, name);
+    // AppsInToss 배포 memo는 artifact digest를 담은 canonical memo 하나뿐이다.
+    assert.match(workflow, /DEPLOY_MEMO: \$\{\{ steps\.provenance\.outputs\.release_memo \}\}/u, name);
+    assert.match(workflow, /--receipt "\$RUNNER_TEMP\/release-artifact-receipt\.txt"/u, name);
+  }
 });
 
 test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지한다', () => {
+  // 권한 있는 job의 러너는 caller 입력을 그대로 쓰지 않는다. 승인된 라벨로 축약된 식만 허용한다.
   const approvedRunners = new Set([
     'seorilabs-rpi-arm64',
     'ubuntu-latest',
     'macos-26',
-    '${{ inputs.runs_on }}',
+    "${{ (inputs.runs_on == 'seorilabs-x64-android' && 'seorilabs-x64-android') || 'ubuntu-latest' }}",
+    "${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}",
   ]);
   const marketPermissions = {
     'rn-deploy-google-play.yml': { contents: 'read', 'id-token': 'write', packages: 'read' },
@@ -881,9 +1202,26 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   }
 
   // 태그 생성만 contents:write를 갖는다.
-  const releaseTag = parse(workflowText('release-tag.yml'));
+  const releaseTagText = workflowText('release-tag.yml');
+  const releaseTag = parse(releaseTagText);
   assert.deepEqual(releaseTag.permissions, { contents: 'write' });
-  assert.equal(releaseTag.jobs.create['runs-on'], '${{ inputs.runs_on }}');
+  assert.equal(
+    releaseTag.jobs.create['runs-on'],
+    "${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}",
+  );
+  // 승인되지 않은 라벨 요청은 조용히 다른 러너로 흘러가지 않고 실패한다.
+  assert.equal(releaseTag.jobs.create.steps[0].name, 'Reject unapproved runner routing');
+  assert.match(
+    extractRunBlock(releaseTagText, 'Reject unapproved runner routing'),
+    /"seorilabs-rpi-arm64" \| "ubuntu-latest"\) ;;/u,
+  );
+
+  // 권한 있는 다른 재사용 워크플로우도 caller 러너 입력을 그대로 쓰지 않는다.
+  for (const name of ['godot-deploy-google-play.yml', 'cleanup-actions-storage.yml', 'godot-pages.yml']) {
+    const text = workflowText(name);
+    assert.doesNotMatch(text, /runs-on: \$\{\{ inputs\.runs_on \}\}/u, name);
+    assert.match(text, /- name: Reject unapproved runner routing/u, name);
+  }
 });
 
 test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독으로 고정한다', () => {
@@ -925,9 +1263,15 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
   assert.deepEqual(
     contract.failClosed.map(({ id }) => id).sort(),
     [
+      'ait-internal-version-field-present',
+      'artifact-digest-mismatch',
       'artifact-provenance-mismatch',
       'config-revision-mismatch',
+      'derived-version-code-out-of-range',
       'forbidden-authority-override',
+      'godot-preset-selector-ambiguous',
+      'godot-preset-selector-mismatch',
+      'godot-preset-selector-required',
       'source-sha-mismatch',
       'tag-pattern-mismatch',
       'tag-ref-mismatch',
@@ -935,6 +1279,41 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
       'tag-reuse-with-different-source',
     ],
   );
+  // 마켓 최소 versionCode. v0.0.0은 어떤 artifact도 만들 수 없다.
+  assert.equal(contract.derivation.bounds.versionCodeMin, 1);
+  // .ait 형식 계약: 내부 version 필드가 없고 memo가 artifact digest를 담는다.
+  assert.deepEqual(contract.artifactReadback.ait.supportedFormats, ['ait', 'zip']);
+  assert.equal(contract.artifactReadback.ait.internalVersionField, 'none');
+  assert.equal(contract.artifactReadback.ait.onInternalVersionFieldObserved, 'fail-closed');
+  assert.equal(
+    contract.artifactReadback.ait.fields.memo,
+    'canonical-release-memo-with-artifact-digest',
+  );
+  assert.ok(contract.artifactReadback.ait.memoFields.includes('artifact-sha256'));
+  // 업로드 결속과 preset 선택자 정책.
+  assert.equal(contract.uploadBinding.passVerifiedArtifactPath, true);
+  assert.equal(contract.uploadBinding.reverifyDigestBeforeUpload, true);
+  assert.equal(contract.uploadBinding.singleCandidateInArtifactDirectory, true);
+  assert.equal(contract.godotExportPreset.selector, 'explicit-preset-name-or-index');
+  assert.equal(contract.godotExportPreset.ambiguousSelector, 'fail-closed');
+  // WorkflowBundle v5 정본 경로도 같은 authority를 쓴다.
+  assert.deepEqual(contract.workflowBundleV5.calledWorkflows.sort(), [
+    '.github/workflows/ait-build-only-v1.yml',
+    '.github/workflows/godot-build-android-cloud-v2.yml',
+    '.github/workflows/rn-build-android-cloud-v2.yml',
+  ]);
+  assert.equal(contract.workflowBundleV5.bindingMode, 'RELEASE');
+  assert.equal(contract.workflowBundleV5.requiresApprovedBundle, true);
+  const releaseRefPattern = new RegExp(contract.workflowBundleV5.releaseRefPattern, 'u');
+  assert.equal(releaseRefPattern.test('refs/tags/v1.2.3'), true);
+  for (const invalid of ['refs/heads/main', 'refs/tags/v1.2.3-rc.1', 'refs/tags/release/v1.2.3']) {
+    assert.equal(releaseRefPattern.test(invalid), false, invalid);
+  }
+  assert.deepEqual(contract.artifactReceipt.digestSource, {
+    'android-app-bundle': 'artifact-file',
+    ait: 'artifact-file',
+    'xcode-archive': 'archive-info-plist',
+  });
   assert.deepEqual(Object.keys(contract.artifactReadback).sort(), ['ait', 'android-app-bundle', 'xcode-archive']);
   assert.equal(contract.artifactReadback['android-app-bundle'].tool, 'aab-proto-manifest');
   assert.equal(

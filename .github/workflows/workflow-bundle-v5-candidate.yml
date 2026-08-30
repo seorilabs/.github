@@ -4,8 +4,8 @@ on:
   pull_request:
     paths:
       - .github/cloud-build/capacitor-android-build-only-v1.yaml
-      - .github/cloud-build/godot-android-build-only.yaml
-      - .github/cloud-build/rn-android-build-only.yaml
+      - .github/cloud-build/godot-android-build-only-v2.yaml
+      - .github/cloud-build/rn-android-build-only-v2.yaml
       - .github/workflows/ait-build-only-v1.yml
       - .github/workflows/capacitor-build-android-cloud-v1.yml
       - .github/workflows/godot-build-android-cloud-v2.yml
@@ -24,13 +24,15 @@ on:
       - scripts/fleet/godot-diagnostic-gate.mjs
       - scripts/fleet/secret-scan.mjs
       - scripts/fleet/v5-paths.mjs
+      - contracts/release-version-authority.yaml
+      - scripts/release/**.mjs
       - tests/workflow-bundle-v5*.test.mjs
   push:
     branches: [main]
     paths:
       - .github/cloud-build/capacitor-android-build-only-v1.yaml
-      - .github/cloud-build/godot-android-build-only.yaml
-      - .github/cloud-build/rn-android-build-only.yaml
+      - .github/cloud-build/godot-android-build-only-v2.yaml
+      - .github/cloud-build/rn-android-build-only-v2.yaml
       - .github/workflows/ait-build-only-v1.yml
       - .github/workflows/capacitor-build-android-cloud-v1.yml
       - .github/workflows/godot-build-android-cloud-v2.yml
@@ -49,6 +51,8 @@ on:
       - scripts/fleet/godot-diagnostic-gate.mjs
       - scripts/fleet/secret-scan.mjs
       - scripts/fleet/v5-paths.mjs
+      - contracts/release-version-authority.yaml
+      - scripts/release/**.mjs
       - tests/workflow-bundle-v5*.test.mjs
   workflow_dispatch:
 

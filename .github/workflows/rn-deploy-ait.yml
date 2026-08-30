@@ -93,7 +93,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
@@ -107,14 +107,14 @@ jobs:
 
       - name: Setup Node
         if: inputs.npm_registry_url == ''
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           check-latest: false
 
       - name: Setup Node with npm registry
         if: inputs.npm_registry_url != ''
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
           check-latest: false
@@ -147,7 +147,7 @@ jobs:
           '
 
       - name: Checkout exact release version authority
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ steps.authority.outputs.repository }}
           ref: ${{ steps.authority.outputs.sha }}
@@ -266,10 +266,33 @@ jobs:
           node .seorilabs-release-authority/scripts/release/verify-release-artifact.mjs \
             --kind ait \
             --artifact "${{ steps.artifact.outputs.path }}" \
+            --receipt "$RUNNER_TEMP/release-artifact-receipt.txt" \
             --github-output
 
+      # 배포 스텝은 검증한 그 .ait만 올려야 한다. AppsInToss CLI가 디렉터리에서 다른 번들을
+      # 고르지 못하도록, workspace에 검증된 .ait 하나만 있는지와 digest가 그대로인지 확인한다.
+      - name: Bind the verified .ait as the only upload candidate
+        shell: bash
+        env:
+          VERIFIED_AIT_PATH: ${{ steps.provenance.outputs.artifact_path }}
+          VERIFIED_AIT_DIGEST: ${{ steps.provenance.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          [ -f "$VERIFIED_AIT_PATH" ] || { echo "검증된 .ait 경로가 없다: $VERIFIED_AIT_PATH" >&2; exit 1; }
+          observed="$(sha256sum "$VERIFIED_AIT_PATH" | cut -d ' ' -f 1)"
+          [ "$observed" = "$VERIFIED_AIT_DIGEST" ] || {
+            echo "배포 직전 .ait digest가 검증값과 다르다: $observed != $VERIFIED_AIT_DIGEST" >&2
+            exit 1
+          }
+          # 검증된 파일 옆에 다른 .ait가 있으면 AppsInToss CLI가 그쪽을 고를 수 있다.
+          bundles="$(find "$(dirname "$VERIFIED_AIT_PATH")" -maxdepth 1 -type f -name '*.ait' | wc -l | tr -d ' ')"
+          [ "$bundles" = 1 ] || {
+            echo "검증된 .ait 디렉터리에 .ait가 정확히 하나여야 한다: $bundles" >&2
+            exit 1
+          }
+
       - name: Upload .ait artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ait-${{ github.event.repository.name }}-${{ steps.tag.outputs.tag }}-${{ steps.release.outputs.android_version_code }}
           path: ${{ steps.artifact.outputs.path }}
@@ -298,7 +321,7 @@ jobs:
             echo "### Deploy AIT"; echo ""
             echo "- tag: ${{ steps.tag.outputs.tag }} @ ${{ steps.tag.outputs.sha }}"
             echo "- version: ${{ steps.release.outputs.version_name }} (${{ steps.release.outputs.android_version_code }})"
-            echo "- artifact: ${{ steps.provenance.outputs.ait_format }} ${{ steps.provenance.outputs.artifact_digest }}"
+            echo "- artifact: ${{ steps.provenance.outputs.ait_format }} ${{ steps.provenance.outputs.artifact_path }} sha256:${{ steps.provenance.outputs.artifact_digest }}"
             echo "- memo: ${{ steps.provenance.outputs.release_memo }}"
             echo "- runner: seorilabs-rpi-arm64"
           } >> "$GITHUB_STEP_SUMMARY"

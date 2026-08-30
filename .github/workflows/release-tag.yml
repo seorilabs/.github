@@ -30,7 +30,7 @@ on:
         default: false
         type: boolean
       runs_on:
-        description: "실행 러너"
+        description: "실행 러너. seorilabs-rpi-arm64 또는 ubuntu-latest만 허용한다."
         required: false
         default: "seorilabs-rpi-arm64"
         type: string
@@ -56,7 +56,7 @@ concurrency:
 jobs:
   create:
     name: Create SemVer release tag
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}
     timeout-minutes: 10
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
@@ -70,15 +70,28 @@ jobs:
       DRY_RUN: ${{ inputs.dry_run }}
 
     steps:
+      # 권한 있는 job의 러너는 caller 입력을 그대로 믿지 않는다. 승인된 라벨만 허용하고,
+      # 그 밖의 값은 요청 자체를 실패시킨다(runs-on은 이미 승인 목록으로 축약돼 있다).
+      - name: Reject unapproved runner routing
+        shell: bash
+        env:
+          REQUESTED_RUNNER: ${{ inputs.runs_on }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_RUNNER" in
+            "seorilabs-rpi-arm64" | "ubuntu-latest") ;;
+            *) echo "승인되지 않은 러너 라벨: $REQUESTED_RUNNER" >&2; exit 1 ;;
+          esac
+
       - name: Checkout target
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.target_ref || 'main' }}
           fetch-depth: 0
           fetch-tags: true
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           check-latest: false
@@ -101,7 +114,7 @@ jobs:
           '
 
       - name: Checkout exact release version authority
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ steps.authority.outputs.repository }}
           ref: ${{ steps.authority.outputs.sha }}

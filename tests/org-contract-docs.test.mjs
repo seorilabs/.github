@@ -32,12 +32,15 @@ const JSON_SCHEMAS = [
   "contracts/markets/google-play.schema.json",
   "contracts/workflow-bundle.schema.json",
   "contracts/xcode-cloud-run.schema.json",
+  "contracts/xcode-cloud-run-v5.schema.json",
+  "contracts/release-version-authority-migration.schema.json",
 ];
 const YAML_CONTRACTS = [
   "contracts/agent-policy.yaml",
   "contracts/provider-auth-matrix.yaml",
   "contracts/release-policy.yaml",
   "contracts/release-version-authority.yaml",
+  "contracts/release-version-authority-migration.yaml",
   "contracts/review-policy.yaml",
   "contracts/test-policy.yaml",
   "profiles/godot.yaml",

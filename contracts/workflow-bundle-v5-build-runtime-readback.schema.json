@@ -18,7 +18,7 @@
   "properties": {
     "schemaVersion": { "const": 1 },
     "state": { "const": "VERIFIED" },
-    "mode": { "enum": ["CANDIDATE", "APPROVED"] },
+    "mode": { "enum": ["CANDIDATE", "APPROVED", "RELEASE"] },
     "repositoryId": { "$ref": "#/$defs/repositoryId" },
     "fullName": { "$ref": "#/$defs/fullName" },
     "applicationSourceSha": { "$ref": "#/$defs/sha" },
@@ -50,7 +50,10 @@
         "repositoryId": { "$ref": "#/$defs/repositoryId" },
         "fullName": { "$ref": "#/$defs/fullName" },
         "sourceSha": { "$ref": "#/$defs/sha" },
-        "sourceRef": { "const": "refs/heads/main" },
+        "sourceRef": {
+          "description": "main 실행은 refs/heads/main, release 실행은 exact stable tag ref다. 그 밖의 ref로는 build binding을 발급하지 않는다.",
+          "oneOf": [{ "const": "refs/heads/main" }, { "$ref": "#/$defs/releaseTagRef" }]
+        },
         "observationId": { "$ref": "#/$defs/publicId" },
         "observationDigest": { "$ref": "#/$defs/sha256" },
         "configRevisionId": { "$ref": "#/$defs/publicId" },
@@ -67,6 +70,10 @@
   "$defs": {
     "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "releaseTagRef": {
+      "type": "string",
+      "pattern": "^refs/tags/v(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
     "repositoryId": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
     "fullName": { "type": "string", "pattern": "^seorilabs/[A-Za-z0-9._-]+$" },
     "publicId": {
@@ -128,6 +135,20 @@
             "dependencyRoot": { "$ref": "#/$defs/safeDirectory" },
             "scriptPath": { "const": "scripts/build-android.sh" },
             "artifactKind": { "const": "android-aab" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["target", "buildProfile", "packageManager", "executionRoot", "dependencyRoot", "scriptPath", "artifactKind"],
+          "properties": {
+            "target": { "const": "ait" },
+            "buildProfile": { "enum": ["ait-granite", "ait-web"] },
+            "packageManager": { "enum": ["npm", "pnpm"] },
+            "executionRoot": { "$ref": "#/$defs/safeDirectory" },
+            "dependencyRoot": { "$ref": "#/$defs/safeDirectory" },
+            "scriptPath": { "const": "scripts/build-ait.sh" },
+            "artifactKind": { "const": "ait" }
           }
         }
       ]

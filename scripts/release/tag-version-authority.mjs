@@ -10,8 +10,15 @@ export const BINDING_SCHEMA_VERSION = 1;
 export const RELEASE_TAG_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 export const VERSION_SEGMENT_BASE = 1000;
 export const VERSION_CODE_MAX = 2_100_000_000;
+// Google Play versionCode와 Apple build number는 1 이상이어야 한다. v0.0.0은 파생값이 0이므로
+// 어떤 마켓 artifact도 만들 수 없다. 태그 생성과 배포 양쪽에서 같은 하한으로 거부한다.
+export const VERSION_CODE_MIN = 1;
 export const TAG_RECEIPT_MARKER = 'seori-release-binding: 1';
+// 빌드된 artifact 하나를 tag binding에 묶는 receipt. digest가 들어가므로 같은 태그라도
+// 다른 파일로 업로드하면 대조에서 어긋난다.
+export const ARTIFACT_RECEIPT_MARKER = 'seori-release-artifact: 1';
 export const ARTIFACT_KINDS = Object.freeze(['android-app-bundle', 'xcode-archive', 'ait']);
+export const RELEASE_TAG_REF_PREFIX = 'refs/tags/';
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/u;
@@ -45,6 +52,13 @@ function requireDigest(value, label) {
   return value;
 }
 
+function requireArtifactDigest(value, label) {
+  if (typeof value !== 'string' || !DIGEST_PATTERN.test(value)) {
+    fail('artifact-digest-mismatch', `${label}는 64자리 소문자 hex sha256이어야 한다: ${value ?? 'missing'}`);
+  }
+  return value;
+}
+
 /** exact stable SemVer 태그만 허용한다. prerelease와 build metadata는 마켓 artifact를 만들지 않는다. */
 export function parseReleaseTag(tag) {
   const match = RELEASE_TAG_PATTERN.exec(typeof tag === 'string' ? tag : '');
@@ -74,6 +88,14 @@ export function deriveReleaseVersion(tag) {
   const buildNumber = major * 1_000_000 + minor * VERSION_SEGMENT_BASE + patch;
   if (!Number.isSafeInteger(buildNumber) || buildNumber > VERSION_CODE_MAX) {
     fail('tag-pattern-mismatch', `파생 versionCode가 Google Play 최대값을 넘는다: ${buildNumber}`);
+  }
+  if (buildNumber < VERSION_CODE_MIN) {
+    // v0.0.0은 versionCode 0을 만든다. Google Play와 App Store 모두 거부하는 값이므로
+    // 태그 생성 시점에도 배포 시점에도 artifact를 만들지 않는다.
+    fail(
+      'derived-version-code-out-of-range',
+      `파생 versionCode가 마켓 최소값 ${VERSION_CODE_MIN} 미만이다: ${tag} -> ${buildNumber}`,
+    );
   }
 
   const versionName = `${major}.${minor}.${patch}`;
@@ -110,7 +132,11 @@ export function selectLatestStableTag(tags) {
       continue;
     }
     const buildNumber = parsed.major * 1_000_000 + parsed.minor * VERSION_SEGMENT_BASE + parsed.patch;
-    if (!Number.isSafeInteger(buildNumber) || buildNumber > VERSION_CODE_MAX) {
+    if (
+      !Number.isSafeInteger(buildNumber) ||
+      buildNumber > VERSION_CODE_MAX ||
+      buildNumber < VERSION_CODE_MIN
+    ) {
       // versionCode를 파생할 수 없는 태그는 마켓 artifact를 만들 수 없으므로 후보가 아니다.
       continue;
     }
@@ -127,6 +153,22 @@ export function selectLatestStableTag(tags) {
     fail('tag-pattern-mismatch', 'release_tag가 비어 있고 사용할 stable vX.Y.Z 태그도 없다.');
   }
   return best.tag;
+}
+
+/**
+ * WorkflowBundle v5 정본 경로는 `refs/tags/vX.Y.Z` push/dispatch 하나에서만 마켓 artifact를
+ * 만든다. branch ref, 동명 ref, prerelease 태그 ref는 여기서 fail-closed한다.
+ */
+export function parseReleaseTagRef(ref) {
+  const text = typeof ref === 'string' ? ref : '';
+  if (!text.startsWith(RELEASE_TAG_REF_PREFIX)) {
+    fail('tag-ref-mismatch', `release ref는 ${RELEASE_TAG_REF_PREFIX}vX.Y.Z여야 한다: ${ref ?? 'missing'}`);
+  }
+  const tag = text.slice(RELEASE_TAG_REF_PREFIX.length);
+  if (tag.includes('/')) {
+    fail('tag-ref-mismatch', `release tag ref에 중첩 경로를 둘 수 없다: ${text}`);
+  }
+  return parseReleaseTag(tag);
 }
 
 /**
@@ -365,12 +407,109 @@ export function assertSourceBinding({ binding, headSha, localTagSha }) {
   }
 }
 
-/** AppsInToss 배포 memo는 tag에서 파생한 canonical 문자열만 사용한다. */
-export function canonicalReleaseMemo(binding, note = '') {
+export const RELEASE_MEMO_MAX_LENGTH = 1000;
+
+/**
+ * AppsInToss 배포 memo는 tag 파생값과 업로드 대상 artifact의 sha256만으로 만든다.
+ * .ait 컨테이너는 내부 version 필드를 갖지 않으므로, provider 기록에서 "이 태그의 이 파일"을
+ * 가리키는 유일한 식별자가 memo다. digest를 넣어 같은 태그로 다른 파일을 올리면 어긋나게 한다.
+ */
+export function canonicalReleaseMemo(binding, { artifactDigest, note = '' } = {}) {
+  requireArtifactDigest(artifactDigest, '.ait artifact digest');
   const trimmed = typeof note === 'string' ? note.trim().replace(/\s+/gu, ' ') : '';
-  const head = `${binding.tag} ${binding.versionName} (${binding.androidVersionCode}) ${binding.sourceSha.slice(0, 12)}`;
+  const head =
+    `${binding.tag} ${binding.versionName} (${binding.androidVersionCode}) ` +
+    `src:${binding.sourceSha.slice(0, 12)} sha256:${artifactDigest}`;
   const memo = trimmed.length > 0 ? `${head} · ${trimmed}` : head;
-  return memo.length > 1000 ? memo.slice(0, 1000) : memo;
+  if (memo.length > RELEASE_MEMO_MAX_LENGTH) {
+    // 잘라내면 digest가 사라져 식별자가 무너진다. 운영 메모를 줄이도록 fail-closed한다.
+    fail(
+      'artifact-digest-mismatch',
+      `release memo가 ${RELEASE_MEMO_MAX_LENGTH}자를 넘는다. 운영 메모를 줄여야 한다: ${memo.length}자`,
+    );
+  }
+  return memo;
+}
+
+/**
+ * kind별로 digest를 어디서 뜨는지 고정한다. AAB와 .ait은 업로드 대상 파일 자체를, xcarchive는
+ * 디렉터리 번들이라 파일 하나로 잡을 수 없으므로 readback한 archive Info.plist를 쓴다.
+ */
+export const ARTIFACT_DIGEST_SOURCES = Object.freeze({
+  'android-app-bundle': 'artifact-file',
+  'xcode-archive': 'archive-info-plist',
+  ait: 'artifact-file',
+});
+
+export function artifactDigestSource(kind) {
+  const source = ARTIFACT_DIGEST_SOURCES[kind];
+  if (source === undefined) {
+    fail('artifact-provenance-mismatch', `지원하지 않는 artifact kind: ${kind}`);
+  }
+  return source;
+}
+
+const ARTIFACT_RECEIPT_FIELDS = Object.freeze([
+  ['authority', (context) => context.binding.authority],
+  ['authority-revision', (context) => context.binding.authorityRevision],
+  ['tag', (context) => context.binding.tag],
+  ['source-sha', (context) => context.binding.sourceSha],
+  ['config-revision', (context) => context.binding.configRevision],
+  ['artifact-kind', (context) => context.kind],
+  ['artifact-digest-source', (context) => artifactDigestSource(context.kind)],
+  ['artifact-sha256', (context) => context.artifactDigest],
+  ['version-name', (context) => context.binding.versionName],
+  ['android-version-code', (context) => String(context.binding.androidVersionCode)],
+  ['apple-build-number', (context) => String(context.binding.appleBuildNumber)],
+  ['upload-memo', (context) => context.memo],
+]);
+
+/**
+ * 업로드 직전 artifact 하나를 binding에 묶는 receipt. provider에 남기는 memo와 같은 digest를
+ * 담으므로, 검증한 파일과 실제로 올린 파일이 다르면 receipt 대조에서 드러난다.
+ */
+export function renderArtifactReceipt({ binding, kind, artifactDigest, memo = '' }) {
+  artifactDigestSource(kind);
+  requireArtifactDigest(artifactDigest, 'artifact digest');
+  const context = { binding, kind, artifactDigest, memo };
+  return [
+    ARTIFACT_RECEIPT_MARKER,
+    ...ARTIFACT_RECEIPT_FIELDS.filter(([field]) => field !== 'upload-memo' || memo.length > 0).map(
+      ([field, read]) => `${field}: ${read(context)}`,
+    ),
+  ].join('\n');
+}
+
+/** artifact receipt를 다시 읽는다. marker가 없으면 null. */
+export function parseArtifactReceipt(text) {
+  const body = typeof text === 'string' ? text : '';
+  if (!body.includes(ARTIFACT_RECEIPT_MARKER)) {
+    return null;
+  }
+  const fields = new Map();
+  for (const line of body.split('\n')) {
+    const match = /^([a-z0-9-]+):[ \t]*(.*)$/u.exec(line.trim());
+    if (match !== null && match[1] !== ARTIFACT_RECEIPT_MARKER.split(':')[0]) {
+      fields.set(match[1], match[2].trim());
+    }
+  }
+  return Object.fromEntries(fields);
+}
+
+/** receipt가 현재 binding·kind·digest와 exact match하는지 확인한다. */
+export function assertArtifactReceipt({ binding, kind, artifactDigest, memo = '', receipt }) {
+  if (receipt === null || receipt === undefined) {
+    fail('artifact-digest-mismatch', 'artifact receipt가 없다.');
+  }
+  const expected = parseArtifactReceipt(renderArtifactReceipt({ binding, kind, artifactDigest, memo }));
+  for (const [field, value] of Object.entries(expected)) {
+    if (receipt[field] !== value) {
+      fail(
+        'artifact-digest-mismatch',
+        `artifact receipt ${field}이 현재 실행값과 다르다: ${receipt[field] ?? 'missing'} != ${value}`,
+      );
+    }
+  }
 }
 
 const ANDROID_RESOURCE_NAMESPACE = 'http://schemas.android.com/apk/res/android';
@@ -537,9 +676,61 @@ export function parseInfoPlistJson(text) {
   return { versionName, versionCode: Number(rawBuild) };
 }
 
+// AIT v1 bundle 헤더에서 의미가 확정된 필드. 나머지 필드에 version 문자열이 들어오면
+// 컨테이너가 자체 version 기록을 갖게 된 것이므로 tag 단일 authority 가정이 깨진다.
+const AIT_KNOWN_BUNDLE_FIELDS = Object.freeze([2, 3]);
+const SEMVER_SHAPED = /^v?\d+\.\d+\.\d+/u;
+// legacy zip .ait의 루트 metadata 후보. 존재하면 version 기록을 담을 수 있으므로 fail-closed한다.
+const ZIP_METADATA_ENTRY = /^(?:manifest|metadata|version|app)(?:\.(?:json|txt|ya?ml))?$/iu;
+
+function scanAitBundleVersionFields(fields) {
+  const found = [];
+  for (const [fieldNumber, values] of fields) {
+    if (AIT_KNOWN_BUNDLE_FIELDS.includes(fieldNumber)) {
+      continue;
+    }
+    for (const value of values) {
+      if (Buffer.isBuffer(value) && SEMVER_SHAPED.test(value.toString('utf8').trim())) {
+        found.push(`bundle.field${fieldNumber}`);
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+function scanZipVersionEntries(bytes) {
+  const found = [];
+  let offset = 0;
+  while (offset + 30 <= bytes.length) {
+    if (!bytes.subarray(offset, offset + 4).equals(ZIP_LOCAL_HEADER)) {
+      break;
+    }
+    const compressedSize = bytes.readUInt32LE(offset + 18);
+    const nameLength = bytes.readUInt16LE(offset + 26);
+    const extraLength = bytes.readUInt16LE(offset + 28);
+    const nameStart = offset + 30;
+    const nameEnd = nameStart + nameLength;
+    if (nameEnd > bytes.length) {
+      fail('artifact-provenance-mismatch', 'zip .ait entry 이름이 잘렸다.');
+    }
+    const name = bytes.subarray(nameStart, nameEnd).toString('utf8');
+    if (ZIP_METADATA_ENTRY.test(name)) {
+      found.push(`zip:${name}`);
+    }
+    const next = nameEnd + extraLength + compressedSize;
+    if (next <= offset) {
+      break;
+    }
+    offset = next;
+  }
+  return found;
+}
+
 /**
  * .ait 컨테이너를 읽는다. AIT v1 헤더는 deploymentId와 appName을 담고, legacy zip 번들은
  * entry 목록만 갖는다. 어느 형식도 version 필드를 갖지 않으므로 version authority는 tag다.
+ * 이 가정이 깨진 컨테이너를 조용히 통과시키지 않도록 versionFields로 관측 결과를 돌려준다.
  */
 export function readAitContainer(buffer) {
   const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer ?? []);
@@ -562,11 +753,26 @@ export function readAitContainer(buffer) {
     if (appName.length === 0) {
       fail('artifact-provenance-mismatch', 'AIT bundle에서 appName을 읽지 못했다.');
     }
-    return { format: 'ait', formatVersion, deploymentId, appName };
+    return {
+      format: 'ait',
+      formatVersion,
+      deploymentId,
+      appName,
+      versionFields: Object.freeze([
+        ...scanAitBundleVersionFields(fields),
+        ...scanZipVersionEntries(bytes.subarray(20 + bundleLength)),
+      ]),
+    };
   }
 
   if (bytes.subarray(0, ZIP_LOCAL_HEADER.length).equals(ZIP_LOCAL_HEADER)) {
-    return { format: 'zip', formatVersion: 0, deploymentId: '', appName: '' };
+    return {
+      format: 'zip',
+      formatVersion: 0,
+      deploymentId: '',
+      appName: '',
+      versionFields: Object.freeze(scanZipVersionEntries(bytes)),
+    };
   }
 
   fail('artifact-provenance-mismatch', '.ait 아티팩트가 AIT/ZIP 컨테이너가 아니다.');
@@ -584,16 +790,21 @@ const GODOT_PLATFORM_VERSION_KEYS = Object.freeze({
   ],
 });
 
-/**
- * Godot export preset의 version 값을 tag 파생값으로 덮어쓴다. export_presets.cfg는 authority가
- * 아니라 주입 대상이며, 실제 반영 여부는 artifact readback으로 다시 확인한다.
- */
-export function applyGodotExportVersion(text, { platform, binding }) {
-  const keyFactory = GODOT_PLATFORM_VERSION_KEYS[platform];
-  if (keyFactory === undefined) {
-    fail('artifact-provenance-mismatch', `지원하지 않는 Godot export platform: ${platform}`);
-  }
+export const GODOT_PRESET_SECTION = /^preset\.(0|[1-9]\d*)$/u;
 
+/**
+ * export_presets.cfg에서 주입 대상 preset을 고른다. 호출자는 preset 이름(`name="Android"`)이나
+ * 인덱스(`preset.0`)를 반드시 명시한다. 같은 platform preset이 여럿일 때 첫 번째를 임의로
+ * 고르면 배포 대상이 아닌 preset을 덮어쓸 수 있으므로, 선택자 없는 호출은 fail-closed한다.
+ */
+export function selectGodotExportPreset(text, { platform, preset }) {
+  if (typeof preset !== 'string' || preset.trim().length === 0) {
+    fail(
+      'godot-preset-selector-required',
+      'export preset 선택자(preset 이름 또는 preset.N 인덱스)를 명시해야 한다.',
+    );
+  }
+  const selector = preset.trim();
   const lines = String(text ?? '').split('\n');
   const sections = new Map();
   let current = null;
@@ -609,26 +820,56 @@ export function applyGodotExportVersion(text, { platform, binding }) {
     }
   });
 
-  let presetName = null;
+  const matches = [];
   for (const [name, section] of sections) {
-    if (!/^preset\.\d+$/u.test(name)) {
+    if (!GODOT_PRESET_SECTION.test(name)) {
       continue;
     }
     const body = lines.slice(section.start, section.end);
-    if (body.some((line) => line.trim() === `platform="${platform}"`)) {
-      presetName = name;
-      break;
+    const presetName = body
+      .map((line) => /^name="(.*)"\s*$/u.exec(line.trim()))
+      .find((match) => match !== null)?.[1];
+    if (name !== selector && presetName !== selector) {
+      continue;
     }
-  }
-  if (presetName === null) {
-    fail('artifact-provenance-mismatch', `export_presets.cfg에 ${platform} preset이 없다.`);
+    if (!body.some((line) => line.trim() === `platform="${platform}"`)) {
+      fail(
+        'godot-preset-selector-mismatch',
+        `preset ${selector}의 platform이 ${platform}이 아니다.`,
+      );
+    }
+    matches.push({ section: name, presetName: presetName ?? '', options: sections.get(`${name}.options`) });
   }
 
-  const options = sections.get(`${presetName}.options`);
-  if (options === undefined) {
-    fail('artifact-provenance-mismatch', `export_presets.cfg에 ${presetName}.options 섹션이 없다.`);
+  if (matches.length === 0) {
+    fail('godot-preset-selector-mismatch', `export_presets.cfg에 preset ${selector}이 없다.`);
+  }
+  if (matches.length > 1) {
+    // 같은 이름 preset이 둘 이상이면 어느 쪽을 export하는지 파일만으로 결정할 수 없다.
+    fail(
+      'godot-preset-selector-ambiguous',
+      `preset 선택자 ${selector}가 ${matches.length}개 preset과 일치한다.`,
+    );
+  }
+  const [selected] = matches;
+  if (selected.options === undefined) {
+    fail('godot-preset-selector-mismatch', `export_presets.cfg에 ${selected.section}.options 섹션이 없다.`);
+  }
+  return { lines, ...selected };
+}
+
+/**
+ * Godot export preset의 version 값을 tag 파생값으로 덮어쓴다. export_presets.cfg는 authority가
+ * 아니라 주입 대상이며, 실제 반영 여부는 artifact readback으로 다시 확인한다.
+ * 명시된 preset 하나의 options 섹션만 바꾸고 다른 preset은 그대로 둔다.
+ */
+export function applyGodotExportVersion(text, { platform, binding, preset }) {
+  const keyFactory = GODOT_PLATFORM_VERSION_KEYS[platform];
+  if (keyFactory === undefined) {
+    fail('artifact-provenance-mismatch', `지원하지 않는 Godot export platform: ${platform}`);
   }
 
+  const { lines, section, options } = selectGodotExportPreset(text, { platform, preset });
   const patched = [...lines];
   for (const [key, value] of keyFactory(binding)) {
     const pattern = new RegExp(`^${key.replace('/', '\\/')}\\s*=`, 'u');
@@ -641,7 +882,7 @@ export function applyGodotExportVersion(text, { platform, binding }) {
       }
     }
     if (!replaced) {
-      fail('artifact-provenance-mismatch', `export_presets.cfg ${presetName}.options에 ${key}가 없다.`);
+      fail('artifact-provenance-mismatch', `export_presets.cfg ${section}.options에 ${key}가 없다.`);
     }
   }
 
@@ -686,16 +927,24 @@ export function assertArtifactVersion({ kind, binding, observed }) {
     return;
   }
 
-  if (observed.memo !== canonicalReleaseMemo(binding, observed.note ?? '')) {
+  requireArtifactDigest(observed.digest, '.ait artifact digest');
+  // .ait 컨테이너가 자체 version 기록을 갖게 되면 tag 단일 authority 전제가 깨진다.
+  // 새 형식을 조용히 통과시키지 않고 계약을 갱신하도록 fail-closed한다.
+  const versionFields = Array.isArray(observed.versionFields) ? observed.versionFields : [];
+  if (versionFields.length > 0) {
     fail(
-      'artifact-provenance-mismatch',
-      `AppsInToss memo가 tag 파생 canonical memo와 다르다: ${observed.memo}`,
+      'ait-internal-version-field-present',
+      `.ait 컨테이너에 내부 version 기록이 있다. 계약 갱신 없이 배포할 수 없다: ${versionFields.join(', ')}`,
     );
   }
-  if (typeof observed.digest !== 'string' || !DIGEST_PATTERN.test(observed.digest)) {
+  const expectedMemo = canonicalReleaseMemo(binding, {
+    artifactDigest: observed.digest,
+    note: observed.note ?? '',
+  });
+  if (observed.memo !== expectedMemo) {
     fail(
-      'artifact-provenance-mismatch',
-      `.ait artifact digest가 sha256 hex가 아니다: ${observed.digest ?? 'missing'}`,
+      'artifact-digest-mismatch',
+      `AppsInToss memo가 tag·digest 파생 canonical memo와 다르다: ${observed.memo} != ${expectedMemo}`,
     );
   }
 }

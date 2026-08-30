@@ -195,6 +195,7 @@ function buildRuntimeContext({
     jobWorkflowRef: `seorilabs/.github/${called}@${WORKFLOW_EXECUTION_SHA}`,
     runId: "1234",
     runAttempt: "1",
+    bindingTarget: "android",
   };
 }
 
@@ -394,8 +395,8 @@ function evidenceSet(candidate) {
     builderImage: candidate.buildProfiles[record.buildProfile].builderImage,
     cloudBuildConfigSha256: candidate.quality.runtimeAssetDigests[
       record.buildProfile === "react-native-android"
-        ? ".github/cloud-build/rn-android-build-only.yaml"
-        : ".github/cloud-build/godot-android-build-only.yaml"
+        ? ".github/cloud-build/rn-android-build-only-v2.yaml"
+        : ".github/cloud-build/godot-android-build-only-v2.yaml"
     ],
     marketUpload: false,
   }));
@@ -620,11 +621,14 @@ test("v5 candidate CI runs the cold npm and pnpm fixtures instead of silently sk
       `${event} must include the primary v5 schema as well as suffixed contracts`,
     );
     for (const sharedRuntimeAsset of [
-      ".github/cloud-build/godot-android-build-only.yaml",
-      ".github/cloud-build/rn-android-build-only.yaml",
+      ".github/cloud-build/godot-android-build-only-v2.yaml",
+      ".github/cloud-build/rn-android-build-only-v2.yaml",
       ".github/workflows/godot-build-android-cloud-v2.yml",
       ".github/workflows/rn-build-android-cloud-v2.yml",
       "scripts/fleet/secret-scan.mjs",
+      // release version authority 구현도 digest-bound runtime asset이다.
+      "contracts/release-version-authority.yaml",
+      "scripts/release/**.mjs",
     ]) {
       assert.ok(
         paths.includes(sharedRuntimeAsset),
@@ -1876,8 +1880,9 @@ test("build manifest adapter fixes origin and exposes only public exact claims",
   const requested = new URL(calls[0].input);
   assert.equal(requested.origin, buildRuntimeBindingV5Contract.origin);
   assert.deepEqual([...requested.searchParams.keys()].sort(), [
-    "build_profile", "event_ref", "ref", "schema", "workflow_sha",
+    "build_profile", "build_target", "event_ref", "ref", "schema", "workflow_sha",
   ]);
+  assert.equal(requested.searchParams.get("build_target"), "android");
   assert.equal(requested.searchParams.get("schema"), "workflow-bundle-v5-build");
   assert.equal(calls[0].options.headers.Authorization, `Bearer ${token}`);
   assert.doesNotMatch(calls[0].input, /header|payload|signature/u);
@@ -1899,7 +1904,7 @@ test("build manifest adapter fixes origin and exposes only public exact claims",
   assert.equal(calls.length, 2);
   const candidateRequest = new URL(calls[1].input);
   assert.deepEqual([...candidateRequest.searchParams.keys()].sort(), [
-    "build_profile", "event_ref", "plan_identity", "ref", "schema", "workflow_sha",
+    "build_profile", "build_target", "event_ref", "plan_identity", "ref", "schema", "workflow_sha",
   ]);
   assert.equal(candidateRequest.searchParams.get("plan_identity"), PLAN_IDENTITY);
   assert.equal(
@@ -2621,7 +2626,9 @@ test("new workflows are build-only, private ARC routed, checksum-bound, and reta
   assert.match(godotWorkflow, /godot-diagnostic-gate\.mjs/u);
   assert.match(godotWorkflow, /retention-days: 3/u);
   assert.match(aitWorkflow, /github\.event\.repository\.private && 'seorilabs-rpi-arm64' \|\| 'ubuntu-latest'/u);
-  assert.match(aitWorkflow, /test "\$REPOSITORY_PRIVATE" = true/u);
+  // 이제 private 게이트는 caller 입력이 아니라 job 조건과 서명된 binding readback이 건다.
+  assert.match(aitWorkflow, /if: \$\{\{ github\.event\.repository\.private \}\}/u);
+  assert.equal(Object.hasOwn(parse(aitWorkflow).on.workflow_call ?? {}, "inputs"), false);
   assert.match(aitWorkflow, /runnerRoute: "private-arc"/u);
   assert.doesNotMatch(aitWorkflow, /public-github-hosted/u);
   assert.match(aitWorkflow, /find .*\.ait/u);

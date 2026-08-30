@@ -23,7 +23,7 @@ on:
         default: false
         type: boolean
       runs_on:
-        description: "실행 러너 (private repo는 ARC, public은 ubuntu-latest)"
+        description: "실행 러너. seorilabs-rpi-arm64 또는 ubuntu-latest만 허용한다."
         required: false
         default: "seorilabs-rpi-arm64"
         type: string
@@ -35,7 +35,7 @@ permissions:
 jobs:
   cleanup:
     name: Delete artifacts and caches
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}
     timeout-minutes: 15
 
     env:
@@ -46,6 +46,19 @@ jobs:
       DRY_RUN: ${{ inputs.dry_run }}
 
     steps:
+      # 권한 있는 job의 러너는 caller 입력을 그대로 믿지 않는다. 승인된 라벨만 허용하고,
+      # 그 밖의 값은 요청 자체를 실패시킨다(runs-on은 이미 승인 목록으로 축약돼 있다).
+      - name: Reject unapproved runner routing
+        shell: bash
+        env:
+          REQUESTED_RUNNER: ${{ inputs.runs_on }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_RUNNER" in
+            "seorilabs-rpi-arm64" | "ubuntu-latest") ;;
+            *) echo "승인되지 않은 러너 라벨: $REQUESTED_RUNNER" >&2; exit 1 ;;
+          esac
+
       - name: Delete workflow artifacts
         if: env.DELETE_ARTIFACTS == 'true'
         shell: bash

@@ -14,7 +14,9 @@ test("Google Play 트랙 승격은 RPI ARC에서 재빌드 없이 실행한다",
   assert.match(workflow, /runs-on: seorilabs-rpi-arm64/);
   assert.doesNotMatch(workflow, /runs-on: ubuntu-latest/);
   assert.match(workflow, /environment: google-play/);
-  assert.match(workflow, /google-github-actions\/auth@v3/);
+  // 외부 action은 공식 최신 stable의 immutable SHA로 고정한다.
+  assert.match(workflow, /google-github-actions\/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3\.0\.0/);
+  assert.doesNotMatch(workflow, /uses: [A-Za-z0-9._-]+\/[A-Za-z0-9._-]+@(?![0-9a-f]{40})/);
   assert.ok(installStep, "Google Play API client 설치 step이 필요합니다.");
   assert.match(installStep, /python3 -m ensurepip --version/);
   assert.doesNotMatch(installStep, /python3 -m venv --help/);

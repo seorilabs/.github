@@ -1,23 +1,10 @@
-# WorkflowBundle v5 candidate. Produces one local .ait build artifact only.
+# WorkflowBundle v5 AIT build-only path. Backoffice binding resolves before app checkout.
+# 이 워크플로우는 caller 입력을 받지 않는다. build profile, 경로, 버전은 모두 서명된
+# resolved manifest와 release tag에서만 나온다(contracts/release-version-authority.yaml).
 name: AIT Build-only v1
 
 on:
-  workflow_call:
-    inputs:
-      source_sha: { required: true, type: string }
-      build_profile: { required: true, type: string }
-      package_manager: { required: true, type: string }
-      execution_root: { required: true, type: string }
-      dependency_root: { required: true, type: string }
-      script_path: { required: true, type: string }
-      artifact_kind: { required: true, type: string }
-      config_revision_id: { required: true, type: string }
-      config_revision: { required: true, type: number }
-      config_revision_digest: { required: true, type: string }
-      signed_snapshot_digest: { required: true, type: string }
-      snapshot_signature_key_id: { required: true, type: string }
-      snapshot_signature_policy_revision: { required: true, type: string }
-      snapshot_signature_digest: { required: true, type: string }
+  workflow_call: {}
 
 permissions:
   contents: read
@@ -33,11 +20,43 @@ jobs:
       id-token: write
     timeout-minutes: 5
     outputs:
+      application_source_sha: ${{ steps.binding.outputs.application_source_sha }}
+      build_profile: ${{ steps.binding.outputs.build_profile }}
+      package_manager: ${{ steps.binding.outputs.package_manager }}
+      execution_root: ${{ steps.binding.outputs.execution_root }}
+      dependency_root: ${{ steps.binding.outputs.dependency_root }}
+      script_path: ${{ steps.binding.outputs.script_path }}
+      artifact_kind: ${{ steps.binding.outputs.artifact_kind }}
+      config_revision_id: ${{ steps.binding.outputs.config_revision_id }}
+      config_revision: ${{ steps.binding.outputs.config_revision }}
+      config_revision_digest: ${{ steps.binding.outputs.config_revision_digest }}
+      signed_snapshot_digest: ${{ steps.binding.outputs.signed_snapshot_digest }}
+      snapshot_signature_key_id: ${{ steps.binding.outputs.snapshot_signature_key_id }}
+      snapshot_signature_policy_revision: ${{ steps.binding.outputs.snapshot_signature_policy_revision }}
+      snapshot_signature_digest: ${{ steps.binding.outputs.snapshot_signature_digest }}
+      workflow_bundle_source_sha: ${{ steps.binding.outputs.workflow_bundle_source_sha }}
+      workflow_bundle_payload_digest: ${{ steps.binding.outputs.workflow_bundle_payload_digest }}
+      manifest_digest: ${{ steps.binding.outputs.manifest_digest }}
+      binding_mode: ${{ steps.binding.outputs.binding_mode }}
+      release_mode: ${{ steps.binding.outputs.release_mode }}
+      release_tag: ${{ steps.binding.outputs.release_tag }}
+      release_artifact_kind: ${{ steps.binding.outputs.release_artifact_kind }}
+      release_version_name: ${{ steps.binding.outputs.release_version_name }}
+      release_android_version_code: ${{ steps.binding.outputs.release_android_version_code }}
+      release_authority_revision: ${{ steps.binding.outputs.release_authority_revision }}
+      release_config_revision: ${{ steps.binding.outputs.release_config_revision }}
+      release_binding_digest: ${{ steps.binding.outputs.release_binding_digest }}
       bundle_repository: ${{ steps.bundle-identity.outputs.repository }}
       bundle_sha: ${{ steps.bundle-identity.outputs.sha }}
       bundle_ref: ${{ steps.bundle-identity.outputs.ref }}
 
     steps:
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+
       - name: Validate called reusable workflow identity
         id: bundle-identity
         shell: bash
@@ -60,13 +79,17 @@ jobs:
           path: .seorilabs-workflow-bundle
           persist-credentials: false
 
-      - name: Verify current signed AIT runtime binding before app checkout
+      - name: Resolve current signed AIT binding before app checkout
+        id: binding
         shell: bash
         env:
           BINDING_TARGET: ait
           EVENT_NAME: ${{ github.event_name }}
           EVENT_REF: ${{ github.ref }}
-          APPLICATION_SOURCE_SHA: ${{ github.sha }}
+          EVENT_SOURCE_SHA: ${{ github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
           REPOSITORY_ID: ${{ github.repository_id }}
           FULL_NAME: ${{ github.repository }}
@@ -76,58 +99,53 @@ jobs:
           JOB_WORKFLOW_REF: ${{ steps.bundle-identity.outputs.ref }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
-          INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
-          INPUT_BUILD_PROFILE: ${{ inputs.build_profile }}
-          INPUT_PACKAGE_MANAGER: ${{ inputs.package_manager }}
-          INPUT_EXECUTION_ROOT: ${{ inputs.execution_root }}
-          INPUT_DEPENDENCY_ROOT: ${{ inputs.dependency_root }}
-          INPUT_SCRIPT_PATH: ${{ inputs.script_path }}
-          INPUT_ARTIFACT_KIND: ${{ inputs.artifact_kind }}
-          INPUT_CONFIG_REVISION_ID: ${{ inputs.config_revision_id }}
-          INPUT_CONFIG_REVISION: ${{ inputs.config_revision }}
-          INPUT_CONFIG_REVISION_DIGEST: ${{ inputs.config_revision_digest }}
-          INPUT_SIGNED_SNAPSHOT_DIGEST: ${{ inputs.signed_snapshot_digest }}
-          INPUT_SNAPSHOT_SIGNATURE_KEY_ID: ${{ inputs.snapshot_signature_key_id }}
-          INPUT_SNAPSHOT_SIGNATURE_POLICY_REVISION: ${{ inputs.snapshot_signature_policy_revision }}
-          INPUT_SNAPSHOT_SIGNATURE_DIGEST: ${{ inputs.snapshot_signature_digest }}
         run: node .seorilabs-workflow-bundle/scripts/fleet/static-runtime-binding-v5.mjs
 
   build-only:
     name: AIT Build-only
     needs: resolve-binding
-    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    if: ${{ github.event.repository.private }}
+    runs-on: seorilabs-rpi-arm64
     permissions:
       contents: read
       packages: read
     timeout-minutes: 30
+    outputs:
+      artifact_sha256: ${{ steps.provenance.outputs.artifact_digest }}
+      release_memo: ${{ steps.provenance.outputs.release_memo }}
+      ait_format: ${{ steps.provenance.outputs.ait_format }}
 
     steps:
-      - name: Validate exact non-release request
+      - name: Validate the resolved build binding
         shell: bash
         env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
-          BUILD_PROFILE: ${{ inputs.build_profile }}
-          PACKAGE_MANAGER: ${{ inputs.package_manager }}
-          ARTIFACT_KIND: ${{ inputs.artifact_kind }}
-          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
-          EVENT_REF: ${{ github.ref }}
-          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
-          CONFIG_REVISION_ID: ${{ inputs.config_revision_id }}
-          CONFIG_REVISION: ${{ inputs.config_revision }}
-          CONFIG_REVISION_DIGEST: ${{ inputs.config_revision_digest }}
-          SIGNED_SNAPSHOT_DIGEST: ${{ inputs.signed_snapshot_digest }}
-          SNAPSHOT_SIGNATURE_KEY_ID: ${{ inputs.snapshot_signature_key_id }}
-          SNAPSHOT_SIGNATURE_POLICY_REVISION: ${{ inputs.snapshot_signature_policy_revision }}
-          SNAPSHOT_SIGNATURE_DIGEST: ${{ inputs.snapshot_signature_digest }}
+          SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          BUILD_PROFILE: ${{ needs.resolve-binding.outputs.build_profile }}
+          PACKAGE_MANAGER: ${{ needs.resolve-binding.outputs.package_manager }}
+          SCRIPT_PATH: ${{ needs.resolve-binding.outputs.script_path }}
+          ARTIFACT_KIND: ${{ needs.resolve-binding.outputs.artifact_kind }}
+          BUNDLE_SHA: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          CONFIG_REVISION_ID: ${{ needs.resolve-binding.outputs.config_revision_id }}
+          CONFIG_REVISION: ${{ needs.resolve-binding.outputs.config_revision }}
+          CONFIG_REVISION_DIGEST: ${{ needs.resolve-binding.outputs.config_revision_digest }}
+          SIGNED_SNAPSHOT_DIGEST: ${{ needs.resolve-binding.outputs.signed_snapshot_digest }}
+          SNAPSHOT_SIGNATURE_KEY_ID: ${{ needs.resolve-binding.outputs.snapshot_signature_key_id }}
+          SNAPSHOT_SIGNATURE_POLICY_REVISION: ${{ needs.resolve-binding.outputs.snapshot_signature_policy_revision }}
+          SNAPSHOT_SIGNATURE_DIGEST: ${{ needs.resolve-binding.outputs.snapshot_signature_digest }}
+          BINDING_MODE: ${{ needs.resolve-binding.outputs.binding_mode }}
+          RELEASE_MODE: ${{ needs.resolve-binding.outputs.release_mode }}
+          RELEASE_TAG: ${{ needs.resolve-binding.outputs.release_tag }}
+          RELEASE_ARTIFACT_KIND: ${{ needs.resolve-binding.outputs.release_artifact_kind }}
+          RELEASE_VERSION_NAME: ${{ needs.resolve-binding.outputs.release_version_name }}
+          RELEASE_BINDING_DIGEST: ${{ needs.resolve-binding.outputs.release_binding_digest }}
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$BUILD_PROFILE" =~ ^(ait-granite|ait-web)$ ]]
           [[ "$PACKAGE_MANAGER" =~ ^(npm|pnpm)$ ]]
+          test "$SCRIPT_PATH" = scripts/build-ait.sh
           test "$ARTIFACT_KIND" = ait
-          test "$REPOSITORY_PRIVATE" = true
-          test "$EVENT_REF" = refs/heads/main
-          test "$CALLER_WORKFLOW_REF" = "$GITHUB_REPOSITORY/.github/workflows/ait-build-only.yml@refs/heads/main"
+          [[ "$BUNDLE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$CONFIG_REVISION_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$ ]]
           [[ "$CONFIG_REVISION" =~ ^[1-9][0-9]*$ ]]
           [[ "$CONFIG_REVISION_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
@@ -135,6 +153,19 @@ jobs:
           [[ "$SNAPSHOT_SIGNATURE_KEY_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$ ]]
           [[ "$SNAPSHOT_SIGNATURE_POLICY_REVISION" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$ ]]
           [[ "$SNAPSHOT_SIGNATURE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          # release 실행이면 태그 파생값이 모두 채워져 있어야 한다. 비어 있으면 version 정본이
+          # 없는 채로 마켓 artifact를 만드는 것이므로 build 전에 fail-closed한다.
+          if [ "$RELEASE_MODE" = true ]; then
+            test "$BINDING_MODE" = RELEASE
+            [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+            test "$RELEASE_ARTIFACT_KIND" = ait
+            [[ "$RELEASE_VERSION_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+            [[ "$RELEASE_BINDING_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          else
+            test "$RELEASE_MODE" = false
+            test -z "$RELEASE_TAG"
+            test -z "$RELEASE_VERSION_NAME"
+          fi
 
       - name: Checkout exact WorkflowBundle source before application checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -153,7 +184,7 @@ jobs:
       - name: Prepare pinned package managers without package credentials
         shell: bash
         env:
-          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+          PACKAGE_MANAGER: ${{ needs.resolve-binding.outputs.package_manager }}
           NPM_CONFIG_REGISTRY: https://registry.npmjs.org
           NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/workflow-bundle-v5-user.npmrc
           NPM_CONFIG_GLOBALCONFIG: ${{ runner.temp }}/workflow-bundle-v5-global.npmrc
@@ -211,17 +242,20 @@ jobs:
       - name: Checkout exact application source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.source_sha }}
+          ref: ${{ needs.resolve-binding.outputs.application_source_sha }}
           path: .seorilabs-application
           persist-credentials: false
+          # release 실행에서만 annotated tag receipt를 읽어야 하므로 그때만 전체 이력을 받는다.
+          fetch-depth: ${{ needs.resolve-binding.outputs.release_mode == 'true' && '0' || '1' }}
+          fetch-tags: ${{ needs.resolve-binding.outputs.release_mode == 'true' }}
 
       - name: Verify exact source and safe binding paths
         shell: bash
         env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
-          EXECUTION_ROOT: ${{ inputs.execution_root }}
-          DEPENDENCY_ROOT: ${{ inputs.dependency_root }}
-          SCRIPT_PATH: ${{ inputs.script_path }}
+          SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          EXECUTION_ROOT: ${{ needs.resolve-binding.outputs.execution_root }}
+          DEPENDENCY_ROOT: ${{ needs.resolve-binding.outputs.dependency_root }}
+          SCRIPT_PATH: ${{ needs.resolve-binding.outputs.script_path }}
         run: |
           set -euo pipefail
           application_root="$GITHUB_WORKSPACE/.seorilabs-application"
@@ -235,13 +269,45 @@ jobs:
           NODE
           node .seorilabs-workflow-bundle/scripts/fleet/secret-scan.mjs "$application_root"
 
+      # release 실행은 태그 하나에서 version을 파생한다. resolve-binding이 계산한 digest와
+      # 앱 checkout의 annotated tag receipt를 여기서 독립적으로 다시 대조해 fail-closed한다.
+      - name: Bind release version to the exact tag
+        if: ${{ needs.resolve-binding.outputs.release_mode == 'true' }}
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.resolve-binding.outputs.release_tag }}
+          RELEASE_SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          JOB_WORKFLOW_REPOSITORY: ${{ needs.resolve-binding.outputs.bundle_repository }}
+          JOB_WORKFLOW_REF: ${{ needs.resolve-binding.outputs.bundle_ref }}
+          JOB_WORKFLOW_SHA: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+          EXPECTED_BINDING_DIGEST: ${{ needs.resolve-binding.outputs.release_binding_digest }}
+        run: |
+          set -euo pipefail
+          application_root="$GITHUB_WORKSPACE/.seorilabs-application"
+          test "$(git -C "$application_root" rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "$RELEASE_SOURCE_SHA"
+          if [ "$(git -C "$application_root" cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then
+            git -C "$application_root" for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" \
+              > "$RUNNER_TEMP/release-tag-message.txt"
+            export RELEASE_TAG_MESSAGE_FILE="$RUNNER_TEMP/release-tag-message.txt"
+          fi
+          RELEASE_HEAD_SHA="$(git -C "$application_root" rev-parse 'HEAD^{commit}')" \
+          RELEASE_LOCAL_TAG_SHA="$(git -C "$application_root" rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" \
+            node .seorilabs-workflow-bundle/scripts/release/resolve-release-version.mjs --github-output
+          observed="$(grep '^binding_digest=' "$GITHUB_OUTPUT" | tail -n 1 | cut -d = -f 2)"
+          [ "$observed" = "$EXPECTED_BINDING_DIGEST" ] || {
+            echo "release binding digest가 resolve-binding 값과 다르다: $observed != $EXPECTED_BINDING_DIGEST" >&2
+            exit 1
+          }
+
       - name: Stage exactly locked dependency cache in an isolated process
         shell: bash
         working-directory: .seorilabs-workflow-bundle
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
-          PACKAGE_MANAGER: ${{ inputs.package_manager }}
-          DEPENDENCY_ROOT: ${{ inputs.dependency_root }}
+          PACKAGE_MANAGER: ${{ needs.resolve-binding.outputs.package_manager }}
+          DEPENDENCY_ROOT: ${{ needs.resolve-binding.outputs.dependency_root }}
         run: |
           set -euo pipefail
           ulimit -c 0
@@ -257,8 +323,8 @@ jobs:
       - name: Install exactly locked dependencies offline
         shell: bash
         env:
-          PACKAGE_MANAGER: ${{ inputs.package_manager }}
-          DEPENDENCY_ROOT: ${{ inputs.dependency_root }}
+          PACKAGE_MANAGER: ${{ needs.resolve-binding.outputs.package_manager }}
+          DEPENDENCY_ROOT: ${{ needs.resolve-binding.outputs.dependency_root }}
         run: |
           set -euo pipefail
           application_root="$GITHUB_WORKSPACE/.seorilabs-application"
@@ -276,9 +342,13 @@ jobs:
       - name: Produce exactly one AIT artifact
         shell: bash
         env:
-          EXECUTION_ROOT: ${{ inputs.execution_root }}
-          SCRIPT_PATH: ${{ inputs.script_path }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
+          EXECUTION_ROOT: ${{ needs.resolve-binding.outputs.execution_root }}
+          SCRIPT_PATH: ${{ needs.resolve-binding.outputs.script_path }}
+          SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          # 태그 실행이 아니면 빈 값이다. 마켓 artifact version 정본은 오직 이 태그 파생값이다.
+          RELEASE_TAG: ${{ needs.resolve-binding.outputs.release_tag }}
+          RELEASE_VERSION_NAME: ${{ needs.resolve-binding.outputs.release_version_name }}
+          RELEASE_VERSION_CODE: ${{ needs.resolve-binding.outputs.release_android_version_code }}
         run: |
           set -euo pipefail
           application_root="$GITHUB_WORKSPACE/.seorilabs-application"
@@ -287,16 +357,35 @@ jobs:
           export SEORI_AIT_OUTPUT="$output_root/application.ait"
           export SEORI_BUILD_MODE=build-only
           export SEORI_SOURCE_SHA="$SOURCE_SHA"
+          export SEORI_RELEASE_TAG="$RELEASE_TAG"
+          export SEORI_RELEASE_VERSION="$RELEASE_VERSION_NAME"
+          export SEORI_RELEASE_VERSION_CODE="$RELEASE_VERSION_CODE"
           cd "$application_root/$EXECUTION_ROOT"
           bash "$application_root/$SCRIPT_PATH"
           test -s "$SEORI_AIT_OUTPUT"
           test "$(find "$output_root" -type f -name '*.ait' | wc -l | tr -d ' ')" = 1
 
+      # .ait 컨테이너는 내부 version 필드를 갖지 않는다. 태그·커밋·파일 digest를 묶은 canonical
+      # memo와 receipt로 배포 식별자를 고정하고, 그 밖의 값이 나오면 fail-closed한다.
+      - name: Verify the built AIT against the release tag
+        if: ${{ needs.resolve-binding.outputs.release_mode == 'true' }}
+        id: provenance
+        shell: bash
+        env:
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+        run: |
+          set -euo pipefail
+          node .seorilabs-workflow-bundle/scripts/release/verify-release-artifact.mjs \
+            --kind ait \
+            --artifact "$RUNNER_TEMP/ait-build-only/application.ait" \
+            --receipt "$RUNNER_TEMP/ait-build-only/release-artifact-receipt.txt" \
+            --github-output
+
       - name: Transfer app-produced AIT to isolated evidence job
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ait-build-output-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/ait-build-only/application.ait
+          path: ${{ runner.temp }}/ait-build-only
           if-no-files-found: error
           retention-days: 3
 
@@ -305,6 +394,7 @@ jobs:
     needs:
       - resolve-binding
       - build-only
+    if: ${{ github.event.repository.private }}
     runs-on: seorilabs-rpi-arm64
     permissions:
       actions: read
@@ -328,20 +418,35 @@ jobs:
       - name: Write checksum-bound target evidence
         shell: bash
         env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
-          BUILD_PROFILE: ${{ inputs.build_profile }}
+          SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          BUILD_PROFILE: ${{ needs.resolve-binding.outputs.build_profile }}
           BUNDLE_SHA: ${{ needs.resolve-binding.outputs.bundle_sha }}
-          CONFIG_REVISION_ID: ${{ inputs.config_revision_id }}
-          CONFIG_REVISION: ${{ inputs.config_revision }}
-          CONFIG_REVISION_DIGEST: ${{ inputs.config_revision_digest }}
-          SIGNED_SNAPSHOT_DIGEST: ${{ inputs.signed_snapshot_digest }}
-          SNAPSHOT_SIGNATURE_KEY_ID: ${{ inputs.snapshot_signature_key_id }}
-          SNAPSHOT_SIGNATURE_POLICY_REVISION: ${{ inputs.snapshot_signature_policy_revision }}
-          SNAPSHOT_SIGNATURE_DIGEST: ${{ inputs.snapshot_signature_digest }}
+          CONFIG_REVISION_ID: ${{ needs.resolve-binding.outputs.config_revision_id }}
+          CONFIG_REVISION: ${{ needs.resolve-binding.outputs.config_revision }}
+          CONFIG_REVISION_DIGEST: ${{ needs.resolve-binding.outputs.config_revision_digest }}
+          SIGNED_SNAPSHOT_DIGEST: ${{ needs.resolve-binding.outputs.signed_snapshot_digest }}
+          SNAPSHOT_SIGNATURE_KEY_ID: ${{ needs.resolve-binding.outputs.snapshot_signature_key_id }}
+          SNAPSHOT_SIGNATURE_POLICY_REVISION: ${{ needs.resolve-binding.outputs.snapshot_signature_policy_revision }}
+          SNAPSHOT_SIGNATURE_DIGEST: ${{ needs.resolve-binding.outputs.snapshot_signature_digest }}
+          BINDING_MODE: ${{ needs.resolve-binding.outputs.binding_mode }}
+          RELEASE_TAG: ${{ needs.resolve-binding.outputs.release_tag }}
+          RELEASE_VERSION_NAME: ${{ needs.resolve-binding.outputs.release_version_name }}
+          RELEASE_AUTHORITY_REVISION: ${{ needs.resolve-binding.outputs.release_authority_revision }}
+          RELEASE_CONFIG_REVISION: ${{ needs.resolve-binding.outputs.release_config_revision }}
+          RELEASE_BINDING_DIGEST: ${{ needs.resolve-binding.outputs.release_binding_digest }}
+          RELEASE_MEMO: ${{ needs.build-only.outputs.release_memo }}
+          VERIFIED_ARTIFACT_SHA256: ${{ needs.build-only.outputs.artifact_sha256 }}
         run: |
           set -euo pipefail
           artifact="$RUNNER_TEMP/ait-build-only/application.ait"
           artifact_sha256="$(sha256sum "$artifact" | cut -d ' ' -f 1)"
+          # build job이 검증한 그 파일이 그대로 전달됐는지 격리된 job에서 다시 확인한다.
+          if [ -n "$VERIFIED_ARTIFACT_SHA256" ]; then
+            [ "$artifact_sha256" = "$VERIFIED_ARTIFACT_SHA256" ] || {
+              echo "전달된 .ait digest가 검증값과 다르다: $artifact_sha256 != $VERIFIED_ARTIFACT_SHA256" >&2
+              exit 1
+            }
+          fi
           export ARTIFACT_SHA256="sha256:$artifact_sha256"
           node --input-type=module -e '
             import { writeFileSync } from "node:fs";
@@ -367,6 +472,13 @@ jobs:
               runnerImage: "registry.vzyx.xyz/seorilabs/arc-runner-node24@sha256:4663a0066aa61f05006af285f2d5bcf95855fd9e8256c44c08c9e32ff92ac45e",
               artifactSha256: process.env.ARTIFACT_SHA256,
               marketUpload: false,
+              bindingMode: process.env.BINDING_MODE,
+              releaseTag: process.env.RELEASE_TAG || null,
+              releaseVersionName: process.env.RELEASE_VERSION_NAME || null,
+              releaseAuthorityRevision: process.env.RELEASE_AUTHORITY_REVISION || null,
+              releaseConfigRevision: process.env.RELEASE_CONFIG_REVISION || null,
+              releaseBindingDigest: process.env.RELEASE_BINDING_DIGEST || null,
+              releaseMemo: process.env.RELEASE_MEMO || null,
             };
             writeFileSync(process.env.RUNNER_TEMP + "/ait-build-only/provenance.json", JSON.stringify(evidence, null, 2) + "\n", { mode: 0o644 });
           '
@@ -374,7 +486,7 @@ jobs:
       - name: Upload build-only evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ait-build-only-${{ inputs.source_sha }}
+          name: ait-build-only-${{ needs.resolve-binding.outputs.application_source_sha }}
           path: ${{ runner.temp }}/ait-build-only
           if-no-files-found: error
           retention-days: 3

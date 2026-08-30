@@ -44,6 +44,11 @@ on:
         required: false
         default: ""
         type: string
+      android_export_preset:
+        description: "Godot Android export preset 이름. 버전 주입과 export 대상이 같아야 한다."
+        required: false
+        default: "Android"
+        type: string
       scripts_dir:
         required: false
         default: "tools"
@@ -63,7 +68,7 @@ on:
         default: 30
         type: number
       runs_on:
-        description: "러너. x64 필요. 기본은 GitHub-hosted."
+        description: "러너. x64 필요. ubuntu-latest 또는 seorilabs-x64-android만 허용한다."
         required: false
         default: "ubuntu-latest"
         type: string
@@ -75,7 +80,7 @@ permissions:
 jobs:
   build-aab:
     name: Godot signed Android App Bundle
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ (inputs.runs_on == 'seorilabs-x64-android' && 'seorilabs-x64-android') || 'ubuntu-latest' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: google-play
 
@@ -83,6 +88,7 @@ jobs:
       GODOT_VERSION: ${{ inputs.godot_version }}
       GODOT_STATUS: ${{ inputs.godot_status }}
       PROJECT_DIR: ${{ inputs.project_dir }}
+      ANDROID_EXPORT_PRESET: ${{ inputs.android_export_preset }}
       SCRIPTS_DIR: ${{ inputs.scripts_dir }}
       PREPARE_PROJECT_SCRIPT: ${{ inputs.prepare_project_script }}
       POST_EXPORT_VALIDATION_SCRIPT: ${{ inputs.post_export_validation_script }}
@@ -101,15 +107,28 @@ jobs:
       FIREBASE_STORAGE_BUCKET: ${{ vars.FIREBASE_STORAGE_BUCKET }}
 
     steps:
+      # 권한 있는 job의 러너는 caller 입력을 그대로 믿지 않는다. 승인된 라벨만 허용하고,
+      # 그 밖의 값은 요청 자체를 실패시킨다(runs-on은 이미 승인 목록으로 축약돼 있다).
+      - name: Reject unapproved runner routing
+        shell: bash
+        env:
+          REQUESTED_RUNNER: ${{ inputs.runs_on }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_RUNNER" in
+            "seorilabs-x64-android" | "ubuntu-latest") ;;
+            *) echo "승인되지 않은 러너 라벨: $REQUESTED_RUNNER" >&2; exit 1 ;;
+          esac
+
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
           fetch-tags: true
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           check-latest: false
@@ -132,7 +151,7 @@ jobs:
           '
 
       - name: Checkout exact release version authority
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ steps.authority.outputs.repository }}
           ref: ${{ steps.authority.outputs.sha }}
@@ -188,7 +207,7 @@ jobs:
           echo "aab_path=build/android/${name}.aab" >> "$GITHUB_OUTPUT"
 
       - name: Setup Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: "17"
@@ -233,6 +252,7 @@ jobs:
           set -euo pipefail
           node .seorilabs-release-authority/scripts/release/apply-godot-export-version.mjs \
             --platform Android \
+            --preset "$ANDROID_EXPORT_PRESET" \
             --presets "$PROJECT_DIR/export_presets.cfg"
 
       - name: Install Godot
@@ -349,7 +369,7 @@ jobs:
           export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="$GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD"
           export GODOT_ANDROID_KEYSTORE_RELEASE_KEY_PASSWORD="$key_password"
           mkdir -p "$(dirname "$AAB_PATH")"
-          godot --headless --path "$PROJECT_DIR" --export-release Android "$AAB_PATH"
+          godot --headless --path "$PROJECT_DIR" --export-release "$ANDROID_EXPORT_PRESET" "$AAB_PATH"
 
       # Godot이 preset 값을 무시하거나 오래된 build template이 남아 있으면 여기서 fail-closed한다.
       - name: Verify AAB version against the release tag
@@ -368,7 +388,31 @@ jobs:
             --kind android-app-bundle \
             --artifact "$AAB_PATH" \
             --metadata "$RUNNER_TEMP/aab-manifest.pb" \
+            --receipt "$RUNNER_TEMP/release-artifact-receipt.txt" \
             --github-output
+
+      # 업로드 스텝은 검증한 그 파일만 올려야 한다. caller 스크립트가 glob으로 다른 .aab를
+      # 고르지 못하도록, workspace에 검증된 AAB 하나만 있는지와 digest가 그대로인지 확인한다.
+      - name: Bind the verified AAB as the only upload candidate
+        if: ${{ inputs.upload }}
+        shell: bash
+        env:
+          VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
+          VERIFIED_AAB_DIGEST: ${{ steps.provenance.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          [ -f "$VERIFIED_AAB_PATH" ] || { echo "검증된 AAB 경로가 없다: $VERIFIED_AAB_PATH" >&2; exit 1; }
+          observed="$(sha256sum "$VERIFIED_AAB_PATH" | cut -d ' ' -f 1)"
+          [ "$observed" = "$VERIFIED_AAB_DIGEST" ] || {
+            echo "업로드 직전 AAB digest가 검증값과 다르다: $observed != $VERIFIED_AAB_DIGEST" >&2
+            exit 1
+          }
+          # 검증된 파일 옆에 다른 .aab가 있으면 업로드 도구가 그쪽을 고를 수 있다.
+          bundles="$(find "$(dirname "$VERIFIED_AAB_PATH")" -maxdepth 1 -type f -name '*.aab' | wc -l | tr -d ' ')"
+          [ "$bundles" = 1 ] || {
+            echo "검증된 AAB 디렉터리에 .aab가 정확히 하나여야 한다: $bundles" >&2
+            exit 1
+          }
 
       - name: Run caller post-export validation
         if: ${{ inputs.post_export_validation_script != '' }}
@@ -391,7 +435,7 @@ jobs:
 
       - name: Upload AAB artifact
         if: ${{ !inputs.upload }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: godot-google-play-aab-${{ steps.release.outputs.version_name }}-${{ steps.release.outputs.android_version_code }}
           path: ${{ steps.meta.outputs.aab_path }}
@@ -411,7 +455,7 @@ jobs:
 
       - name: Authenticate to Google Cloud
         if: ${{ inputs.upload }}
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
@@ -456,9 +500,13 @@ jobs:
           # 언어별 노트(전체 언어)는 env 파일 경로로 전달. 스크립트가 등록 언어와 교집합만 반영.
           # env 로 넘겨야 --release-notes-json 미지원(구버전) 스크립트도 깨지지 않고 무시한다.
           RELEASE_NOTES_JSON: ${{ steps.notes.outputs.found == 'true' && steps.notes.outputs.path || '' }}
+          # 업로드 대상은 검증된 exact 경로 하나다. 스크립트가 자체 탐색으로 다른 파일을 고르지 않는다.
+          VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
+          SEORI_EXPECTED_AAB_SHA256: ${{ steps.provenance.outputs.artifact_digest }}
         run: |
           set -euo pipefail
           args=(
+            --aab-path "$VERIFIED_AAB_PATH"
             --track "${{ inputs.track }}"
             --release-status "${{ inputs.release_status }}"
             --release-name "${{ github.event.repository.name }} ${{ steps.release.outputs.version_name }} (${{ steps.release.outputs.android_version_code }})"
@@ -473,6 +521,6 @@ jobs:
             echo "- tag: ${{ steps.tag.outputs.tag }} @ ${{ steps.tag.outputs.sha }}"
             echo "- version: ${{ steps.release.outputs.version_name }} (${{ steps.release.outputs.android_version_code }})"
             echo "- config revision: ${{ steps.release.outputs.config_revision }}"
-            echo "- artifact digest: ${{ steps.provenance.outputs.artifact_digest }}"
+            echo "- artifact: ${{ steps.provenance.outputs.artifact_path }} sha256:${{ steps.provenance.outputs.artifact_digest }}"
             echo "- track: ${{ inputs.track }} / status: ${{ inputs.release_status }} / uploaded: ${{ inputs.upload }}"
           } >> "$GITHUB_STEP_SUMMARY"

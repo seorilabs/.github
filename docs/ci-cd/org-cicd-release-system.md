@@ -198,7 +198,14 @@ flowchart LR
   annotated tag message에 release binding receipt를 남긴다. 배포 경로는 receipt의 source SHA와
   authority 계약 revision을 대조해 같은 태그의 다른 source/계약 재사용을 fail-closed한다.
 - readback: Android AAB는 zip에서 꺼낸 protobuf manifest, iOS는 archive `Info.plist`, `.ait`은 컨테이너 형식과
-  sha256 digest + 태그 파생 canonical memo로 확인한다.
+  sha256 digest + 태그 파생 canonical memo로 확인한다. `.ait` memo에는 artifact sha256이 들어 있어
+  같은 태그로 다른 파일을 올리면 대조에서 어긋난다.
+- 업로드 결속: 검증된 exact 경로를 업로드 도구에 `--aab-path`로 넘기고, 업로드 직전에 그 경로의
+  sha256을 다시 계산해 대조하며, 그 디렉터리에 후보 파일이 하나뿐인지 확인한다.
+- `v0.0.0`은 파생 versionCode가 0이라 태그 생성과 배포 양쪽에서 거부한다(최소 `v0.0.1`).
+- WorkflowBundle v5 정본(`rn-build-android-cloud-v2.yml`, `godot-build-android-cloud-v2.yml`,
+  `ait-build-only-v1.yml`)도 같은 authority를 쓰며 caller 입력을 받지 않는다. release 실행은
+  `refs/tags/vX.Y.Z`에서만 시작하고 승인된 번들에서만 마켓 artifact를 만든다.
 
 ---
 

@@ -1,0 +1,40 @@
+# WorkflowBundle v5 build-only Cloud Build 설정. release tag 파생 version을 주입한다.
+steps:
+  - id: build-only
+    name: asia-northeast3-docker.pkg.dev/seorilabs-ci/builders/godot-android-builder@sha256:b2a9d7a849f1193f42a40864d8487401abb6dc54472fe010b31b2e84e7be2940
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        workspace_root="$(realpath /workspace)"
+        working_directory="$(realpath "/workspace/${_SEORI_WORKING_DIRECTORY}")"
+        case "$working_directory" in
+          "$workspace_root"|"$workspace_root"/*) ;;
+          *) exit 1 ;;
+        esac
+        cd "$working_directory"
+        test -f build.env
+        test -f scripts/build-android.sh
+        export SEORI_ANDROID_AAB_OUTPUT=/workspace/app-release.aab
+        export SEORI_BUILD_MODE=build-only
+        export SEORI_SOURCE_SHA=${_SEORI_SOURCE_SHA}
+        # 마켓 artifact version 정본은 release tag 하나다. tag 실행이 아니면 빈 값이고,
+        # 앱 build script가 이 값을 무시하면 build 뒤 AAB manifest readback에서 fail-closed된다.
+        export SEORI_RELEASE_TAG=${_SEORI_RELEASE_TAG}
+        export SEORI_RELEASE_VERSION_NAME=${_SEORI_RELEASE_VERSION_NAME}
+        export SEORI_RELEASE_VERSION_CODE=${_SEORI_RELEASE_VERSION_CODE}
+        rm -f "$SEORI_ANDROID_AAB_OUTPUT"
+        bash scripts/build-android.sh
+        test -s "$SEORI_ANDROID_AAB_OUTPUT"
+artifacts:
+  objects:
+    location: ${_SEORI_ARTIFACT_URI}
+    paths:
+      - app-release.aab
+substitutions:
+  _SEORI_RELEASE_TAG: ""
+  _SEORI_RELEASE_VERSION_NAME: ""
+  _SEORI_RELEASE_VERSION_CODE: ""
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 2400s

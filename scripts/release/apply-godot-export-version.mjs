@@ -47,13 +47,16 @@ function main() {
   if (presetsPath.length === 0) {
     throw new ReleaseAuthorityError('artifact-provenance-mismatch', '--presets export_presets.cfg 경로가 필요하다.');
   }
+  // 실제로 export하는 preset 하나만 바꾼다. 선택자가 없으면 같은 platform의 다른 preset을
+  // 덮어쓸 수 있으므로 라이브러리가 fail-closed한다.
+  const preset = pick(args, 'preset', 'GODOT_EXPORT_PRESET');
 
   const original = readFileSync(presetsPath, 'utf8');
-  const patched = applyGodotExportVersion(original, { platform, binding });
+  const patched = applyGodotExportVersion(original, { platform, binding, preset });
   writeFileSync(presetsPath, patched, 'utf8');
 
   process.stdout.write(
-    `${platform} export preset version <- ${binding.tag} ` +
+    `${platform} export preset ${preset} version <- ${binding.tag} ` +
       `(${binding.versionName} / android ${binding.androidVersionCode} / apple ${binding.appleBuildNumber})\n`,
   );
 }

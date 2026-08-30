@@ -25,7 +25,7 @@ test('Gradle dependencies are cached and callers can narrow release ABIs safely'
     workflow,
     /react_native_architectures:[\s\S]*?default: ""[\s\S]*?type: string/,
   );
-  assert.match(workflow, /uses: actions\/setup-java@v5[\s\S]*?cache: gradle/);
+  assert.match(workflow, /uses: actions\/setup-java@[0-9a-f]{40} # v6\.0\.0[\s\S]*?cache: gradle/);
   assert.match(
     workflow,
     /REACT_NATIVE_ARCHITECTURES: \$\{\{ inputs\.react_native_architectures \}\}/,

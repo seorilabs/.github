@@ -1,5 +1,15 @@
 import { createHash } from "node:crypto";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  bindingDigest,
+  computeAuthorityRevision,
+  computeConfigRevision,
+  createReleaseBinding,
+  parseReleaseTagRef,
+} from "../release/tag-version-authority.mjs";
 
 const SHA = /^[0-9a-f]{40}$/u;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
@@ -27,22 +37,53 @@ const STATIC_CALLED_WORKFLOWS = Object.freeze({
 });
 const BUILD_RUNTIME_CONTRACTS = Object.freeze({
   reactNativeAndroid: Object.freeze({
+    target: "android",
     callerPath: ".github/workflows/android-build-only.yml",
     calledWorkflowPath: ".github/workflows/rn-build-android-cloud-v2.yml",
     profile: "react-native-android",
     packageManager: "pnpm",
     artifactKind: "android-aab",
+    releaseArtifactKind: "android-app-bundle",
     scriptPath: "scripts/build-android.sh",
   }),
   godotAndroid: Object.freeze({
+    target: "android",
     callerPath: ".github/workflows/android-build-only.yml",
     calledWorkflowPath: ".github/workflows/godot-build-android-cloud-v2.yml",
     profile: "godot-android",
     packageManager: null,
     artifactKind: "android-aab",
+    releaseArtifactKind: "android-app-bundle",
     scriptPath: "scripts/build-android.sh",
   }),
+  aitGranite: Object.freeze({
+    target: "ait",
+    callerPath: ".github/workflows/ait-build-only.yml",
+    calledWorkflowPath: ".github/workflows/ait-build-only-v1.yml",
+    profile: "ait-granite",
+    packageManager: "pnpm",
+    artifactKind: "ait",
+    releaseArtifactKind: "ait",
+    scriptPath: "scripts/build-ait.sh",
+  }),
+  aitWeb: Object.freeze({
+    target: "ait",
+    callerPath: ".github/workflows/ait-build-only.yml",
+    calledWorkflowPath: ".github/workflows/ait-build-only-v1.yml",
+    profile: "ait-web",
+    packageManager: "npm",
+    artifactKind: "ait",
+    releaseArtifactKind: "ait",
+    scriptPath: "scripts/build-ait.sh",
+  }),
 });
+const BUILD_RUNTIME_TARGETS = Object.freeze(["android", "ait"]);
+// 마켓 artifact를 만드는 실행은 exact stable release tag ref에서만 시작한다.
+const RELEASE_MODE = "RELEASE";
+const DEFAULT_AUTHORITY_CONTRACT_PATH = resolvePath(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../contracts/release-version-authority.yaml",
+);
 const BUILD_CANARIES = Object.freeze({
   "1250442131": Object.freeze({
     fullName: "seorilabs/happy-farm",
@@ -79,16 +120,65 @@ export const buildRuntimeBindingV5Contract = Object.freeze({
   endpoint: staticRuntimeBindingV5Contract.endpoint,
   audience: staticRuntimeBindingV5Contract.audience,
   authentication: "github-oidc",
-  sourceStrategy: "exact-main-or-fixed-canary-pr-base",
+  sourceStrategy: "exact-main-or-fixed-canary-pr-base-or-exact-release-tag",
   candidatePolicy: "fixed-repository-workflow-sha-and-plan-identity",
   candidateBranchTemplate:
     "seori/workflow-bundle-v5-canary/{repositoryId}/{workflowSha12}/{planIdentity}",
+  releasePolicy: "exact-stable-release-tag-with-source-sha-and-config-revision",
+  releaseVersionAuthority: "release-version-authority-v1",
+  targets: BUILD_RUNTIME_TARGETS,
   calledWorkflows: BUILD_RUNTIME_CONTRACTS,
   canaries: BUILD_CANARIES,
 });
 
 function fail(code) {
   throw new Error(code);
+}
+
+function isReleaseRef(ref) {
+  return typeof ref === "string" && ref.startsWith("refs/tags/");
+}
+
+function readAuthorityContract(path) {
+  try {
+    return readFileSync(path ?? DEFAULT_AUTHORITY_CONTRACT_PATH, "utf8");
+  } catch {
+    fail("RELEASE_VERSION_AUTHORITY_CONTRACT_UNREADABLE");
+    return "";
+  }
+}
+
+/**
+ * release 실행의 version binding. exact stable tag 하나에서 display version과 versionCode를
+ * 파생하고, source SHA와 called workflow full SHA·authority 계약 revision을 config revision으로
+ * 고정한다. 여기서 만든 값은 build 뒤 artifact readback에서 다시 대조한다.
+ */
+function releaseBindingFor({
+  releaseTag,
+  sourceSha,
+  calledWorkflowRepository,
+  calledWorkflowRef,
+  calledWorkflowSha,
+  authorityContract,
+}) {
+  let binding;
+  try {
+    const authorityRevision = computeAuthorityRevision(authorityContract);
+    binding = createReleaseBinding({
+      tag: releaseTag,
+      sourceSha,
+      authorityRevision,
+      configRevision: computeConfigRevision({
+        calledWorkflowRepository,
+        calledWorkflowRef,
+        calledWorkflowSha,
+        authorityRevision,
+      }),
+    });
+  } catch (error) {
+    fail(`RELEASE_VERSION_AUTHORITY_${String(error?.code ?? "FAILED").toUpperCase().replaceAll("-", "_")}`);
+  }
+  return Object.freeze({ ...binding, bindingDigest: bindingDigest(binding) });
 }
 
 function canonicalize(value) {
@@ -572,19 +662,52 @@ function validateBuildContext(context) {
     !positiveIntegerString(context?.runId) ||
     !positiveIntegerString(context?.runAttempt) ||
     context.jobWorkflowRepository !== "seorilabs/.github" ||
-    !SHA.test(context.jobWorkflowSha ?? "")
+    !SHA.test(context.jobWorkflowSha ?? "") ||
+    !BUILD_RUNTIME_TARGETS.includes(context.bindingTarget ?? "")
   ) {
     fail("BUILD_RUNTIME_CONTEXT_INVALID");
   }
-  const contract = Object.values(BUILD_RUNTIME_CONTRACTS).find(
-    ({ calledWorkflowPath }) =>
+  const candidates = Object.values(BUILD_RUNTIME_CONTRACTS).filter(
+    ({ calledWorkflowPath, target }) =>
+      target === context.bindingTarget &&
       context.jobWorkflowRef ===
         `seorilabs/.github/${calledWorkflowPath}@${context.jobWorkflowSha}`,
   );
-  if (!contract) fail("BUILD_RUNTIME_CALLED_WORKFLOW_IDENTITY_INVALID");
-  const expectedCaller = `${context.fullName}/${contract.callerPath}@${context.eventRef}`;
+  if (candidates.length === 0) fail("BUILD_RUNTIME_CALLED_WORKFLOW_IDENTITY_INVALID");
+  // 같은 called workflow가 여러 profile을 담당하면 profile은 caller 입력이 아니라
+  // Backoffice manifest readback이 정한다. contract는 그때 exact match로 다시 고정한다.
+  const contract = candidates.length === 1 ? candidates[0] : null;
+  const expectedCaller = `${context.fullName}/${candidates[0].callerPath}@${context.eventRef}`;
   if (context.callerWorkflowRef !== expectedCaller) {
     fail("BUILD_RUNTIME_CALLER_WORKFLOW_IDENTITY_INVALID");
+  }
+  // 마켓 artifact를 만드는 실행은 exact stable release tag ref에서만 시작한다.
+  if (isReleaseRef(context.eventRef)) {
+    if (
+      !["push", "workflow_dispatch"].includes(context.eventName) ||
+      (context.pullRequestBaseSha ?? "") !== "" ||
+      (context.pullRequestHeadRepository ?? "") !== "" ||
+      (context.pullRequestHeadRef ?? "") !== ""
+    ) {
+      fail("BUILD_RUNTIME_RELEASE_IDENTITY_INVALID");
+    }
+    let tag;
+    try {
+      ({ tag } = parseReleaseTagRef(context.eventRef));
+    } catch {
+      // 태그 형식 위반은 build runtime 오류 계열로 정규화한다. 상세는 노출하지 않는다.
+      fail("BUILD_RUNTIME_RELEASE_TAG_INVALID");
+    }
+    return Object.freeze({
+      applicationSourceSha: eventSourceSha,
+      candidates: Object.freeze(candidates),
+      contract,
+      eventSourceSha,
+      mode: RELEASE_MODE,
+      releaseTag: tag,
+      releaseRef: context.eventRef,
+      schema: "workflow-bundle-v5-build-release",
+    });
   }
   if (context.eventName === "workflow_dispatch") {
     if (
@@ -597,6 +720,7 @@ function validateBuildContext(context) {
     }
     return Object.freeze({
       applicationSourceSha: eventSourceSha,
+      candidates: Object.freeze(candidates),
       contract,
       eventSourceSha,
       mode: "APPROVED",
@@ -611,6 +735,7 @@ function validateBuildContext(context) {
     context.eventName !== "pull_request" ||
     !canary ||
     canary.fullName !== context.fullName ||
+    contract === null ||
     canary.profile !== contract.profile ||
     !/^refs\/pull\/[1-9][0-9]*\/merge$/u.test(context.eventRef ?? "") ||
     !SHA.test(context.pullRequestBaseSha ?? "") ||
@@ -624,6 +749,7 @@ function validateBuildContext(context) {
   }
   return Object.freeze({
     applicationSourceSha: context.pullRequestBaseSha,
+    candidates: Object.freeze(candidates),
     contract,
     eventSourceSha,
     mode: "CANDIDATE",
@@ -632,7 +758,7 @@ function validateBuildContext(context) {
   });
 }
 
-function validateBuildManifestResponse(response, request, contract, nowMs = Date.now()) {
+function validateBuildManifestResponse(response, request, contracts, nowMs = Date.now()) {
   const responseKeys = [
     "schemaVersion", "state", "mode", "repositoryId", "fullName",
     "applicationSourceSha", "eventSourceSha", "manifestDigest", "manifest",
@@ -655,11 +781,16 @@ function validateBuildManifestResponse(response, request, contract, nowMs = Date
   const manifest = response?.manifest;
   const binding = manifest?.buildBinding;
   const workflowBundle = manifest?.workflowBundle;
+  // profile은 caller가 아니라 서명된 manifest가 정한다. 그 profile에 해당하는 org 계약 하나로
+  // packageManager·scriptPath·artifactKind를 다시 exact match한다.
+  const contract = contracts.find(({ profile }) => profile === binding?.buildProfile) ?? null;
+  if (contract === null) fail("BUILD_RUNTIME_READBACK_INVALID");
   if (
     !exactKeys(response, responseKeys) ||
     response.schemaVersion !== 1 ||
     response.state !== "VERIFIED" ||
     response.mode !== request.mode ||
+    !["CANDIDATE", "APPROVED", RELEASE_MODE].includes(response.mode) ||
     response.repositoryId !== request.repositoryId ||
     response.fullName !== request.fullName ||
     response.applicationSourceSha !== request.applicationSourceSha ||
@@ -670,7 +801,8 @@ function validateBuildManifestResponse(response, request, contract, nowMs = Date
     manifest.repositoryId !== request.repositoryId ||
     manifest.fullName !== request.fullName ||
     manifest.sourceSha !== request.applicationSourceSha ||
-    manifest.sourceRef !== "refs/heads/main" ||
+    // release 실행은 정확히 그 태그 ref에 묶인다. main manifest를 태그 실행에 재사용할 수 없다.
+    manifest.sourceRef !== (request.releaseRef ?? "refs/heads/main") ||
     !PUBLIC_ID.test(manifest.observationId ?? "") ||
     !SHA256.test(manifest.observationDigest ?? "") ||
     !PUBLIC_ID.test(manifest.configRevisionId ?? "") ||
@@ -685,11 +817,12 @@ function validateBuildManifestResponse(response, request, contract, nowMs = Date
     !exactKeys(workflowBundle, workflowBundleKeys) ||
     workflowBundle.sourceSha !== request.workflowExecutionSha ||
     !SHA256.test(workflowBundle.payloadDigest ?? "") ||
-    workflowBundle.approvalState !== request.mode ||
+    // release 실행은 승인된 번들에서만 만든다. CANDIDATE 번들로 마켓 artifact를 만들지 않는다.
+    workflowBundle.approvalState !== (request.mode === RELEASE_MODE ? "APPROVED" : request.mode) ||
     canonicalJson(workflowBundle.buildProfiles) !==
       canonicalJson(["react-native-android", "godot-android"]) ||
     !exactKeys(binding, bindingKeys) ||
-    binding.target !== "android" ||
+    binding.target !== request.bindingTarget ||
     binding.buildProfile !== contract.profile ||
     binding.packageManager !== contract.packageManager ||
     !safeDirectory(binding.executionRoot) ||
@@ -707,7 +840,7 @@ function validateBuildManifestResponse(response, request, contract, nowMs = Date
     "ANDROID_BUILD_ONLY",
     nowMs,
   );
-  return { manifest, dependencyAuditException };
+  return { manifest, dependencyAuditException, contract };
 }
 
 export function createBuildManifestReadbackV5({
@@ -736,12 +869,19 @@ export function createBuildManifestReadbackV5({
     url.searchParams.set("ref", request.applicationSourceSha);
     url.searchParams.set("event_ref", request.eventSourceSha);
     url.searchParams.set("workflow_sha", request.workflowExecutionSha);
-    url.searchParams.set("build_profile", request.buildProfile);
+    url.searchParams.set("build_target", request.bindingTarget);
+    if (request.buildProfile !== null) {
+      url.searchParams.set("build_profile", request.buildProfile);
+    }
     if (request.mode === "CANDIDATE") {
       if (!PLAN_IDENTITY.test(request.planIdentity ?? "")) {
         fail("BUILD_RUNTIME_CANDIDATE_IDENTITY_INVALID");
       }
       url.searchParams.set("plan_identity", request.planIdentity);
+    }
+    if (request.mode === RELEASE_MODE) {
+      url.searchParams.set("release_ref", request.releaseRef);
+      url.searchParams.set("release_tag", request.releaseTag);
     }
     url.searchParams.set("schema", request.schema);
     for (let attempt = 0; attempt <= STATIC_MANIFEST_RETRY_DELAYS_MS.length; attempt += 1) {
@@ -796,7 +936,8 @@ export async function resolveBuildRuntimeBindingV5(
     applicationSourceSha: identity.applicationSourceSha,
     eventSourceSha: identity.eventSourceSha,
     workflowExecutionSha: context.jobWorkflowSha,
-    buildProfile: identity.contract.profile,
+    bindingTarget: context.bindingTarget,
+    buildProfile: identity.contract?.profile ?? null,
     callerWorkflowRef: context.callerWorkflowRef,
     calledWorkflowRef: context.jobWorkflowRef,
     runId: String(context.runId),
@@ -805,6 +946,9 @@ export async function resolveBuildRuntimeBindingV5(
     ...(identity.mode === "CANDIDATE"
       ? { planIdentity: identity.planIdentity }
       : {}),
+    ...(identity.mode === RELEASE_MODE
+      ? { releaseRef: identity.releaseRef, releaseTag: identity.releaseTag }
+      : {}),
     schema: identity.schema,
   });
   const response = await trustedManifestReadback(structuredClone(request));
@@ -812,19 +956,38 @@ export async function resolveBuildRuntimeBindingV5(
   if (!(current instanceof Date) || Number.isNaN(current.getTime())) {
     fail("DEPENDENCY_AUDIT_EXCEPTION_CLOCK_INVALID");
   }
-  const { manifest, dependencyAuditException } = validateBuildManifestResponse(
+  const { manifest, dependencyAuditException, contract } = validateBuildManifestResponse(
     response,
     request,
-    identity.contract,
+    identity.candidates,
     current.getTime(),
   );
+  if (contract.target !== "android" && dependencyAuditException !== null) {
+    // dependency audit 예외는 Android build-only action class에만 정의돼 있다.
+    fail("DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH");
+  }
   if (manifest.lifecycleState !== "ACTIVE") {
     fail(`${manifest.lifecycleState}_BUILD_RUNTIME_FORBIDDEN`);
   }
+  const release =
+    identity.mode === RELEASE_MODE
+      ? releaseBindingFor({
+          releaseTag: identity.releaseTag,
+          sourceSha: manifest.sourceSha,
+          calledWorkflowRepository: context.jobWorkflowRepository,
+          calledWorkflowRef: context.jobWorkflowRef,
+          calledWorkflowSha: context.jobWorkflowSha,
+          authorityContract: readAuthorityContract(context.authorityContractPath),
+        })
+      : null;
   return Object.freeze({
     applicationSourceSha: manifest.sourceSha,
     eventSourceSha: request.eventSourceSha,
-    calledWorkflowPath: identity.contract.calledWorkflowPath,
+    calledWorkflowPath: contract.calledWorkflowPath,
+    bindingTarget: contract.target,
+    mode: identity.mode,
+    release,
+    releaseArtifactKind: contract.releaseArtifactKind,
     buildProfile: manifest.buildBinding.buildProfile,
     packageManager: manifest.buildBinding.packageManager,
     executionRoot: manifest.buildBinding.executionRoot,
@@ -865,6 +1028,8 @@ function environmentContext(env) {
     jobWorkflowRef: env.JOB_WORKFLOW_REF,
     runId: env.RUN_ID,
     runAttempt: env.RUN_ATTEMPT,
+    bindingTarget: env.BINDING_TARGET,
+    authorityContractPath: env.RELEASE_AUTHORITY_CONTRACT,
   };
 }
 
@@ -897,10 +1062,13 @@ function appendOutputs(path, binding) {
 
 function appendBuildOutputs(path, binding) {
   if (typeof path !== "string" || path.length === 0) fail("BUILD_RUNTIME_OUTPUT_REQUIRED");
+  const release = binding.release;
   const outputs = {
     application_source_sha: binding.applicationSourceSha,
     event_source_sha: binding.eventSourceSha,
     called_workflow_path: binding.calledWorkflowPath,
+    binding_target: binding.bindingTarget,
+    binding_mode: binding.mode,
     build_profile: binding.buildProfile,
     package_manager: binding.packageManager ?? "none",
     execution_root: binding.executionRoot,
@@ -919,6 +1087,17 @@ function appendBuildOutputs(path, binding) {
     workflow_bundle_approval_state: binding.workflowBundleApprovalState,
     manifest_digest: binding.manifestDigest,
     dependency_audit_exception: binding.dependencyAuditException,
+    // release 실행에서만 채워진다. 마켓 artifact의 version 정본은 오직 이 태그 파생값이다.
+    release_mode: release === null ? "false" : "true",
+    release_tag: release?.tag ?? "",
+    release_artifact_kind: release === null ? "" : binding.releaseArtifactKind,
+    release_version_name: release?.versionName ?? "",
+    release_android_version_code: release === null ? "" : String(release.androidVersionCode),
+    release_apple_marketing_version: release?.appleMarketingVersion ?? "",
+    release_apple_build_number: release === null ? "" : String(release.appleBuildNumber),
+    release_authority_revision: release?.authorityRevision ?? "",
+    release_config_revision: release?.configRevision ?? "",
+    release_binding_digest: release?.bindingDigest ?? "",
   };
   appendFileSync(
     path,
@@ -926,15 +1105,28 @@ function appendBuildOutputs(path, binding) {
   );
 }
 
+/**
+ * release 실행이고 경로를 받은 경우에만 binding JSON을 남긴다. 워크플로우는 binding을 앱
+ * checkout이 있는 build job에서 다시 만들어 tag receipt까지 대조하므로, 이 파일은 선택 출력이다.
+ */
+function writeReleaseBinding(path, binding) {
+  if (binding.release === null || typeof path !== "string" || path.length === 0) return;
+  const { bindingDigest: _digest, ...releaseBinding } = binding.release;
+  writeFileSync(path, `${JSON.stringify(releaseBinding, null, 2)}\n`, "utf8");
+}
+
 if (import.meta.main) {
   try {
     if (process.env.BINDING_TARGET) {
-      if (process.env.BINDING_TARGET !== "android") fail("BUILD_RUNTIME_TARGET_INVALID");
+      if (!BUILD_RUNTIME_TARGETS.includes(process.env.BINDING_TARGET)) {
+        fail("BUILD_RUNTIME_TARGET_INVALID");
+      }
       const trustedManifestReadback = createBuildManifestReadbackV5();
       const binding = await resolveBuildRuntimeBindingV5(environmentContext(process.env), {
         trustedManifestReadback,
       });
       appendBuildOutputs(process.env.GITHUB_OUTPUT, binding);
+      writeReleaseBinding(process.env.RELEASE_BINDING_PATH, binding);
     } else {
       const trustedManifestReadback = createStaticManifestReadbackV5();
       const binding = await resolveStaticRuntimeBindingV5(environmentContext(process.env), {

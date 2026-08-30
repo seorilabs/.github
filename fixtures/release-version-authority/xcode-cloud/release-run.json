@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 3,
+  "repositoryId": "7001",
+  "fullName": "seorilabs/saju-reader",
+  "sourceSha": "dddddddddddddddddddddddddddddddddddddddd",
+  "sourceRef": "refs/tags/v1.2.3",
+  "bundleSourceSha": "cccccccccccccccccccccccccccccccccccccccc",
+  "bundleDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "configRevisionId": "config-saju-v5-r1",
+  "configRevision": 1,
+  "configRevisionDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "signedSnapshotDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "snapshotSignature": {
+    "keyId": "control-plane-snapshot-v1",
+    "policyRevision": "snapshot-policy-v1",
+    "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "buildBinding": {
+    "target": "ios",
+    "buildProfile": "capacitor-ios-xcode-cloud",
+    "executionRoot": ".",
+    "dependencyRoot": ".",
+    "scriptPath": "ci_scripts/ci_post_clone.sh",
+    "artifactKind": "xcode-archive"
+  },
+  "release": {
+    "authority": "release-version-authority-v1",
+    "authorityRevision": "41936666190959e27719fcfbec28da668d39bd2e62193e391e61e9bf97a993f9",
+    "tag": "v1.2.3",
+    "sourceSha": "dddddddddddddddddddddddddddddddddddddddd",
+    "configRevision": "f4ec9b120bdd3898fda39d38f77561711c9b33995550cd19259cfdf22963d91d",
+    "versionName": "1.2.3",
+    "appleMarketingVersion": "1.2.3",
+    "appleBuildNumber": 1002003,
+    "bindingDigest": "2ef9f0a39533ee2ad00a0814c645fbe963f6b60ef0689b25ecfbd719c3c2e52c"
+  },
+  "productId": "product-saju",
+  "workflowId": "workflow-saju",
+  "sourceReference": {
+    "id": "tag-reference-saju",
+    "name": "v1.2.3",
+    "kind": "TAG",
+    "commitSha": "dddddddddddddddddddddddddddddddddddddddd",
+    "immutable": true
+  },
+  "distribution": "BUILD_ONLY",
+  "requiredReadback": {
+    "action": "ciBuildRuns.get",
+    "fields": [
+      "id",
+      "sourceCommit.commitSha",
+      "workflow.id",
+      "sourceBranchOrTag.id"
+    ],
+    "expectedSourceCommitSha": "dddddddddddddddddddddddddddddddddddddddd",
+    "expectedSourceReferenceId": "tag-reference-saju",
+    "expectedWorkflowId": "workflow-saju",
+    "artifactKind": "xcode-archive",
+    "expectedMarketingVersion": "1.2.3",
+    "expectedBuildNumber": 1002003
+  },
+  "idempotencyKey": "xcode-cloud-v5.7001.v1.2.3.2ef9f0a39533ee2ad00a0814c645fbe9"
+}
