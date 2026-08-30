@@ -12,14 +12,14 @@ renderer는 secret 값을 읽거나 출력하지 않고 하나의 JSON `List`만
 
 | 필드 | 계약 |
 | --- | --- |
-| `schemaVersion` | 정수 `1` |
+| `schemaVersion` | 정수 `2` |
 | `namespace` | 고정값 `auth-broker` |
 | `image` | registry와 `@sha256:` digest가 포함된 immutable ARM64 image |
 | `imageProvenance` | `seorilabs/.github` source SHA, image workflow/run, `linux/arm64`, `imageDigest`의 exact binding |
 | `imagePullPolicy` | `Always` 또는 `IfNotPresent` |
 | `registry` | 명시적 `PUBLIC` 또는 `PACKAGES_READER`; mode가 없거나 readback 상태가 미검증이면 중단 |
 | `nodeSelector` | 고정값 `kubernetes.io/hostname: rpi5`. 다른 label이나 RPI4는 거부 |
-| `stateClaimName` | application envelope 계약과 exact Retain readback을 통과한 PVC 이름 |
+| `stateReadbackAttestation` | read-only verifier가 반환한 exact PV/PVC UID, resourceVersion, state contract digest와 observed digest |
 | `trustedWorkers` | namespace/pod exact match label을 각각 한 개씩 가진 selector |
 | `providerControlPlane` | signer ServiceAccount의 exact `backofficeClientSpiffeId`, 고정 `/internal/control-plane/provider-grants` scope, Backoffice signer Pod 전용 namespace/pod exact selector |
 | `egressProxy` | namespace/pod exact selector와 TLS proxy port |
@@ -37,7 +37,9 @@ namespace와 ServiceAccount까지 고정합니다.
 provider control-plane의 SPIFFE ID와 endpoint scope도 runtime config, immutable startup
 argument, Pod annotation에 각각 고정합니다. broker client allowlist에 exact Backoffice
 SPIFFE가 없거나 scope가 `/auth/*`로 바뀌면 readiness 전에 중단합니다. 이 binding은
-ServiceAccount에 Kubernetes API 권한을 추가하지 않으며 생성되는 Role은 계속 `rules: []`입니다.
+일반 worker와 factor ServiceAccount에는 Kubernetes API 권한을 추가하지 않습니다. broker에는
+startup attestor가 고정 PV/PVC를 읽는 `get`만 `resourceNames`로 한정해 부여하며 Secret,
+`list`, `watch` 권한은 부여하지 않습니다.
 broker `runtime.json`은 breaking `schemaVersion: 2`와 public `journalCheckpoint` binding을
 사용합니다. checkpoint authority는 기존
 `spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer` identity로 exact 고정하며,
@@ -68,6 +70,8 @@ renderer가 참조하지만 생성하지 않는 외부 객체는 다음뿐입니
 - role별 service mTLS Secret - `ca.crt`, `tls.crt`, `tls.key`
 - role별 egress mTLS Secret - `ca.crt`, `tls.crt`, `tls.key`
 - broker 전용 Retain PVC. secret-bearing 파일은 application envelope만 허용하고 journal은 공개 control/audit record만 저장
+- projected Kubernetes API token과 `kube-root-ca.crt`. 이 token은 startup attestor initContainer에만
+  mount되고 broker main/factor container에는 mount되지 않음
 - private GHCR pull Secret - `PACKAGES_READER`일 때만 세 Pod에 동일한 exact
   `imagePullSecrets`로 참조
 
@@ -99,25 +103,32 @@ readback이 없으면 workload apply를 중단합니다. renderer가 `imagePullS
 
 ## RPI5 application envelope state 검증 경계
 
-fleet runtime v2 계약은 secret-bearing durable state를 Browser Vault의 AES-256-GCM envelope로
+fleet runtime v3 계약은 secret-bearing durable state를 Browser Vault의 AES-256-GCM envelope로
 제한합니다. journal에는 strict public control/audit record만 허용하고 schema 검증을 append보다
 먼저 수행한 뒤 HMAC chain으로 인증합니다. backing disk 형식은 gate가 아닙니다. 저장소 루트에서
 다음 두 검증을 순서대로 실행합니다.
 
 ```sh
 node scripts/fleet/verify-p2-state-envelope.mjs contract
-node scripts/fleet/verify-p2-state-envelope.mjs live-readback
+node scripts/fleet/verify-p2-state-envelope.mjs live-readback \
+  --kubeconfig=/canonical/path/to/kubeconfig
 ```
 
-`contract`는 actual journal serializer와 Browser Vault cipher 상수가 runtime v2 계약과 일치하는지
-검증하고 공개 상태만 반환합니다. `live-readback`은 고정 `vzyx-cluster`에서 existing PV/PVC를
+`contract`는 actual journal serializer와 Browser Vault cipher 상수가 runtime v3 계약과 일치하는지
+검증하고 공개 상태만 반환합니다. `live-readback`은 ambient `HOME`/`KUBECONFIG`를 사용하지 않고
+명시한 canonical regular kubeconfig와 실행별 0700 임시 HOME/cache만 사용합니다. 고정
+`vzyx-cluster`에서 existing PV/PVC를
 `kubectl get`으로만 읽어 exact claim UID binding, Bound phase, RPI5 node affinity, size, storage
-class와 `Retain`을 확인합니다. create/apply/delete/patch를 호출하지 않습니다.
+class와 `Retain`을 확인하고 PV/PVC UID, resourceVersion, state contract digest를 하나의 공개
+attestation으로 고정합니다. create/apply/delete/patch를 호출하지 않습니다.
 PV/PVC가 모두 없으면 `MISSING`, 한쪽만 관측되면 `PARTIAL`, kubectl 결과가 불명이면 `FAILED`로
 구분하며 모두 `READBACK_FIRST`로 중단합니다. 이를 drift나 provisioning 성공으로 추측하지 않습니다.
 
 두 검증의 성공은 provisioning 승인이 아닙니다. PV/PVC 생성은 별도 승인 작업이며 삭제는 계약상
-금지됩니다. live exact readback 전까지 `protection.status: blocked_unverified`를 유지합니다.
+금지됩니다. production renderer는 이 attestation이 없거나 digest가 다르면 중단합니다. broker
+startup initContainer는 exact PV/PVC를 다시 읽어 UID/RV/digest가 같을 때만 marker를 쓰고 main
+container 시작을 허용합니다. startup/readiness/liveness probe도 같은 marker digest를 검증합니다.
+`protection.status: verified` 자기 선언만으로 이 readback을 대신할 수 없습니다.
 
 projected identity volume은 고정 mount
 `/var/run/seori-auth/projected-identity`와 고정 leaf `token`만 제공합니다. Kubernetes의

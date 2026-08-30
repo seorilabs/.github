@@ -1,22 +1,51 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
+import { parse } from 'yaml';
+
 import { APPROVED_IMAGE_BINDING } from '../scripts/public-image-binding.mjs';
+import {
+  buildRetainVolumeList,
+  verifyRetainVolumeReadback,
+} from '../src/state-envelope.mjs';
 
 const execFileAsync = promisify(execFile);
 const renderer = fileURLToPath(new URL('../scripts/render-production-k8s.mjs', import.meta.url));
 const digest = APPROVED_IMAGE_BINDING.imageProvenance.imageDigest.slice('sha256:'.length);
+const fleetContract = parse(await readFile('contracts/fleet-p3-runtime.yaml', 'utf8'));
+const state = fleetContract.authBroker.state;
+
+function exactStateAttestation() {
+  const desired = structuredClone(buildRetainVolumeList(state));
+  const pv = desired.items.find(({ kind }) => kind === 'PersistentVolume');
+  const pvc = desired.items.find(({ kind }) => kind === 'PersistentVolumeClaim');
+  pvc.metadata.uid = 'fixture-pvc-uid';
+  pvc.metadata.resourceVersion = '17';
+  pvc.status = {
+    phase: 'Bound',
+    accessModes: [...pvc.spec.accessModes],
+    capacity: { storage: pvc.spec.resources.requests.storage },
+  };
+  pv.metadata.uid = 'fixture-pv-uid';
+  pv.metadata.resourceVersion = '19';
+  pv.spec.claimRef.uid = pvc.metadata.uid;
+  pv.spec.claimRef.resourceVersion = pvc.metadata.resourceVersion;
+  pv.status = { phase: 'Bound' };
+  return structuredClone(
+    verifyRetainVolumeReadback({ state, observedPv: pv, observedPvc: pvc }).attestation,
+  );
+}
 
 function deploymentConfig() {
   const audience = '//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seori-auth/providers/microk8s';
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     namespace: 'auth-broker',
     image: APPROVED_IMAGE_BINDING.image,
     imageProvenance: { ...APPROVED_IMAGE_BINDING.imageProvenance },
@@ -29,7 +58,7 @@ function deploymentConfig() {
       kubernetesStatus: 'VERIFIED',
     },
     nodeSelector: { 'kubernetes.io/hostname': 'rpi5' },
-    stateClaimName: 'seori-auth-state',
+    stateReadbackAttestation: exactStateAttestation(),
     trustedWorkers: {
       namespaceSelector: { 'kubernetes.io/metadata.name': 'release-workers' },
       podSelector: { 'seorilabs.io/auth-client': 'true' },
@@ -112,23 +141,58 @@ function ingressAllows(policy, namespaceLabels, podLabels, port) {
       labelsMatch(peer.namespaceSelector, namespaceLabels) && labelsMatch(peer.podSelector, podLabels)));
 }
 
-test('production renderer emits immutable separated workloads without Kubernetes Secret values or API grants', async () => {
+test('production renderer exact-binds startup readback without Secret access or broad Kubernetes API grants', async () => {
   const manifest = await render();
   const serialized = JSON.stringify(manifest);
   const workloads = workloadItems(manifest);
   const serviceAccounts = manifest.items.filter((item) => item.kind === 'ServiceAccount');
-  const role = manifest.items.find((item) => item.kind === 'Role');
+  const rbac = manifest.items.filter((item) =>
+    ['Role', 'RoleBinding', 'ClusterRole', 'ClusterRoleBinding'].includes(item.kind));
   const policies = manifest.items.filter((item) => item.kind === 'NetworkPolicy');
   const stalePlaceholder = new RegExp(['REPLACE', ''].join('_'));
 
   assert.equal(manifest.kind, 'List');
   assert.equal(serviceAccounts.length, 3);
   assert.equal(new Set(serviceAccounts.map((item) => item.metadata.annotations['seorilabs.io/google-service-account'])).size, 3);
-  assert.deepEqual(role.rules, []);
-  assert.doesNotMatch(serialized, /"(?:data|stringData|secretKeyRef)"/);
+  assert.doesNotMatch(serialized, /"kind":"Secret"|"stringData"|"secretKeyRef"/u);
   assert.doesNotMatch(serialized, stalePlaceholder);
-  assert.doesNotMatch(serialized, /example\.invalid|0\.0\.0\.0\/0|"ipBlock"/);
+  assert.doesNotMatch(serialized, /example\.invalid|0\.0\.0\.0\/0/u);
   assert.equal(workloads.length, 3);
+
+  const stateRole = rbac.find((item) =>
+    item.kind === 'Role' && item.metadata.name === 'seori-auth-state-readback');
+  const stateClusterRole = rbac.find((item) =>
+    item.kind === 'ClusterRole' && item.metadata.name === 'seori-auth-state-readback');
+  assert.deepEqual(stateRole.rules, [{
+    apiGroups: [''],
+    resources: ['persistentvolumeclaims'],
+    resourceNames: ['seori-auth-state'],
+    verbs: ['get'],
+  }]);
+  assert.deepEqual(stateClusterRole.rules, [{
+    apiGroups: [''],
+    resources: ['persistentvolumes'],
+    resourceNames: ['seori-auth-state-rpi5'],
+    verbs: ['get'],
+  }]);
+  for (const item of rbac.filter(({ rules }) => Array.isArray(rules))) {
+    for (const rule of item.rules) {
+      assert.deepEqual(rule.verbs, ['get']);
+      assert.ok(rule.resources.every((resource) =>
+        ['persistentvolumes', 'persistentvolumeclaims'].includes(resource)));
+      assert.equal(rule.resources.includes('secrets'), false);
+      assert.equal(rule.verbs.some((verb) => ['list', 'watch'].includes(verb)), false);
+      assert.equal(rule.resourceNames.length, 1);
+    }
+  }
+  for (const binding of rbac.filter(({ kind }) => kind.endsWith('Binding'))) {
+    if (binding.metadata.name !== 'seori-auth-state-readback') continue;
+    assert.deepEqual(binding.subjects, [{
+      kind: 'ServiceAccount',
+      name: 'auth-broker',
+      namespace: 'auth-broker',
+    }]);
+  }
 
   for (const item of workloads) {
     const pod = item.spec.template.spec;
@@ -195,15 +259,70 @@ test('production renderer emits immutable separated workloads without Kubernetes
 
   const broker = workloads.find((item) => item.kind === 'StatefulSet');
   const factors = workloads.filter((item) => item.kind === 'Deployment');
+  const brokerPod = broker.spec.template.spec;
+  const brokerContainer = brokerPod.containers[0];
+  const init = brokerPod.initContainers[0];
+  const expectedAttestation = deploymentConfig().stateReadbackAttestation;
   assert.ok(broker.spec.template.spec.volumes.some((volume) => volume.name === 'state' && volume.persistentVolumeClaim));
   assert.ok(factors.every((item) => !item.spec.template.spec.volumes.some((volume) => volume.name === 'state')));
+  assert.equal(brokerPod.initContainers.length, 1);
+  assert.equal(init.name, 'state-volume-attestor');
+  assert.ok(init.command.includes('/opt/seori-auth/runtime/state-volume-attestor.mjs'));
+  assert.equal(init.volumeMounts.find(({ name }) => name === 'state').readOnly, true);
+  assert.equal(init.volumeMounts.find(({ name }) => name === 'state-api-token').readOnly, true);
+  assert.equal(brokerContainer.volumeMounts.some(({ name }) => name === 'state-api-token'), false);
+  assert.ok(brokerPod.volumes.some(({ name, projected }) =>
+    name === 'state-api-token' &&
+    projected.sources[0].serviceAccountToken.audience === 'https://kubernetes.default.svc' &&
+    projected.sources[0].serviceAccountToken.expirationSeconds === 600));
+  for (const factor of factors) {
+    assert.equal('initContainers' in factor.spec.template.spec, false);
+    assert.equal(factor.spec.template.spec.volumes.some(({ name }) => name === 'state-api-token'), false);
+    assert.equal(factor.spec.template.spec.containers[0].volumeMounts.some(
+      ({ name }) => name === 'state-api-token'), false);
+  }
+  assert.ok(brokerContainer.args.includes(
+    `--expected-state-attestation-sha256=${expectedAttestation.observedDigest}`));
+  for (const probeName of ['startupProbe', 'readinessProbe', 'livenessProbe']) {
+    assert.ok(brokerContainer[probeName].exec.command.includes(
+      `--expected-state-attestation-sha256=${expectedAttestation.observedDigest}`));
+  }
+  assert.equal(
+    broker.spec.template.metadata.annotations['seorilabs.io/state-pv-uid'],
+    expectedAttestation.pv.uid,
+  );
+  assert.equal(
+    broker.spec.template.metadata.annotations['seorilabs.io/state-pvc-resource-version'],
+    expectedAttestation.pvc.resourceVersion,
+  );
+  const stateAttestorConfig = manifest.items.find(({ kind, metadata }) =>
+    kind === 'ConfigMap' && metadata.name.startsWith('seori-auth-state-attestor-'));
+  assert.equal(stateAttestorConfig.immutable, true);
+  const expectedDocumentDigest = stateAttestorConfig.metadata.annotations[
+    'seorilabs.io/state-attestor-expected-sha256'
+  ];
+  assert.match(expectedDocumentDigest, /^[a-f0-9]{64}$/u);
+  assert.ok(stateAttestorConfig.metadata.name.endsWith(expectedDocumentDigest.slice(0, 12)));
+  assert.equal(
+    broker.spec.template.metadata.annotations['seorilabs.io/state-attestor-expected-sha256'],
+    expectedDocumentDigest,
+  );
+  const expectedDocument = JSON.parse(stateAttestorConfig.data['expected.json']);
+  assert.deepEqual(expectedDocument.attestation, expectedAttestation);
+  assert.deepEqual(expectedDocument.kubernetesApi, fleetContract.authBroker.kubernetesApi);
   assert.ok(policies.some((item) => item.metadata.name === 'default-deny' && item.spec.ingress.length === 0 && item.spec.egress.length === 0));
-  assert.ok(policies.every((item) => !JSON.stringify(item).includes('ipBlock')));
   const dnsEgress = policies.flatMap((item) => item.spec.egress ?? []).find((rule) =>
     rule.ports?.some((entry) => entry.port === 53));
   assert.deepEqual(dnsEgress.to[0].podSelector.matchLabels, { 'k8s-app': 'kube-dns' });
 
   const brokerTraffic = policies.find((item) => item.metadata.name === 'broker-allowed-traffic');
+  const apiRules = brokerTraffic.spec.egress.filter((rule) => rule.to?.[0]?.ipBlock);
+  assert.deepEqual(apiRules, [{
+    to: [{ ipBlock: { cidr: '10.152.183.1/32' } }],
+    ports: [{ protocol: 'TCP', port: 443 }],
+  }]);
+  const factorTraffic = policies.find((item) => item.metadata.name === 'factor-allowed-traffic');
+  assert.equal(JSON.stringify(factorTraffic).includes('ipBlock'), false);
   assert.equal(ingressAllows(
     brokerTraffic,
     { 'kubernetes.io/metadata.name': 'release-workers' },
@@ -251,6 +370,28 @@ test('PUBLIC registry mode removes imagePullSecrets and credential identifiers f
 });
 
 test('production renderer rejects mutable images and shared factor identities', async () => {
+  const legacy = deploymentConfig();
+  legacy.schemaVersion = 1;
+  await assert.rejects(render(legacy), (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /top-level deployment fields are invalid/);
+    return true;
+  });
+
+  for (const mutate of [
+    (config) => { delete config.stateReadbackAttestation; },
+    (config) => { config.stateReadbackAttestation.pv.uid = 'substituted-pv-uid'; },
+    (config) => { config.stateReadbackAttestation.observedDigest = 'f'.repeat(64); },
+  ]) {
+    const invalidStateReadback = deploymentConfig();
+    mutate(invalidStateReadback);
+    await assert.rejects(render(invalidStateReadback), (error) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr, /(?:top-level deployment fields|state readback attestation) .*invalid/u);
+      return true;
+    });
+  }
+
   const mutable = deploymentConfig();
   mutable.image = 'ghcr.io/seorilabs/seori-auth:latest';
   await assert.rejects(render(mutable), (error) => {

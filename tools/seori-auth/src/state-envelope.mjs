@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
 import { BROWSER_VAULT_ENVELOPE } from './browser-vault.mjs';
@@ -7,6 +8,7 @@ import { normalizeJournalCheckpointBinding } from './journal-checkpoint.mjs';
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const DNS_SUBDOMAIN = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
 const SIZE = /^[1-9][0-9]*(?:Mi|Gi)$/;
+const PUBLIC_ID = /^[A-Za-z0-9._:-]{1,256}$/;
 const STATE_MOUNT_PATH = '/var/lib/seori-auth';
 const STATE_KEYS = ['protection', 'volume'];
 const PROTECTION_KEYS = [
@@ -22,8 +24,18 @@ const BROWSER_VAULT_KEYS = [
 const VOLUME_KEYS = [
   'accessModes', 'claimName', 'deletionPolicy', 'kubernetesContext', 'localPath',
   'mutationPolicy', 'namespace', 'nodeName', 'readbackPolicy', 'reclaimPolicy',
-  'size', 'storageClassName', 'unknownOutcomePolicy', 'volumeMode', 'volumeName',
+  'readbackAttestation', 'size', 'storageClassName', 'unknownOutcomePolicy',
+  'volumeMode', 'volumeName',
 ];
+const READBACK_ATTESTATION_POLICY_KEYS = [
+  'digestAlgorithm', 'postStartGate', 'schemaVersion', 'startupGate',
+];
+const READBACK_ATTESTATION_KEYS = [
+  'context', 'namespace', 'observedDigest', 'pv', 'pvc', 'schemaVersion',
+  'stateContractDigest',
+];
+const PV_ATTESTATION_KEYS = ['name', 'resourceVersion', 'uid'];
+const PVC_ATTESTATION_KEYS = ['name', 'namespace', 'resourceVersion', 'uid'];
 const PV_SPEC_KEYS = [
   'accessModes', 'capacity', 'claimRef', 'local', 'nodeAffinity',
   'persistentVolumeReclaimPolicy', 'storageClassName', 'volumeMode',
@@ -58,6 +70,19 @@ function deepFreeze(value) {
   return value;
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) =>
+      `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function sha256(value) {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
 function validateStateContract(state) {
   const protection = state?.protection;
   const journal = protection?.journal;
@@ -69,6 +94,7 @@ function validateStateContract(state) {
   } catch {
     stop('STATE_ENVELOPE_CONTRACT_INVALID');
   }
+  const readbackAttestation = volume?.readbackAttestation;
   if (
     !exactKeys(state, STATE_KEYS) || !exactKeys(protection, PROTECTION_KEYS) ||
     protection.mode !== 'APPLICATION_ENVELOPE' ||
@@ -98,9 +124,68 @@ function validateStateContract(state) {
     volume.readbackPolicy !== 'EXACT_READBACK_ONLY' ||
     volume.mutationPolicy !== 'SEPARATE_APPROVAL' ||
     volume.deletionPolicy !== 'FORBIDDEN' ||
-    volume.unknownOutcomePolicy !== 'READBACK_FIRST'
+    volume.unknownOutcomePolicy !== 'READBACK_FIRST' ||
+    !exactKeys(readbackAttestation, READBACK_ATTESTATION_POLICY_KEYS) ||
+    readbackAttestation.schemaVersion !== 1 ||
+    readbackAttestation.digestAlgorithm !== 'SHA256_CANONICAL_JSON' ||
+    readbackAttestation.startupGate !== 'INIT_CONTAINER_EXACT_READBACK' ||
+    readbackAttestation.postStartGate !== 'READINESS_MARKER_EXACT_DIGEST'
   ) stop('STATE_ENVELOPE_CONTRACT_INVALID');
   return state;
+}
+
+function stateContractDigest(state) {
+  const contract = structuredClone(state);
+  delete contract.protection.status;
+  return sha256(canonicalJson(contract));
+}
+
+function publicResourceIdentity(value, expectedKeys) {
+  return exactKeys(value, expectedKeys) &&
+    expectedKeys.every((key) => PUBLIC_ID.test(value[key] ?? ''));
+}
+
+function attestationCore(state, observedPv, observedPvc) {
+  const core = {
+    schemaVersion: state.volume.readbackAttestation.schemaVersion,
+    context: state.volume.kubernetesContext,
+    namespace: state.volume.namespace,
+    stateContractDigest: stateContractDigest(state),
+    pv: {
+      name: observedPv.metadata.name,
+      uid: observedPv.metadata.uid,
+      resourceVersion: observedPv.metadata.resourceVersion,
+    },
+    pvc: {
+      namespace: observedPvc.metadata.namespace,
+      name: observedPvc.metadata.name,
+      uid: observedPvc.metadata.uid,
+      resourceVersion: observedPvc.metadata.resourceVersion,
+    },
+  };
+  return deepFreeze({ ...core, observedDigest: sha256(canonicalJson(core)) });
+}
+
+export function validateStateVolumeReadbackAttestation({ state, attestation }) {
+  validateStateContract(state);
+  if (
+    !exactKeys(attestation, READBACK_ATTESTATION_KEYS) ||
+    attestation.schemaVersion !== state.volume.readbackAttestation.schemaVersion ||
+    attestation.context !== state.volume.kubernetesContext ||
+    attestation.namespace !== state.volume.namespace ||
+    attestation.stateContractDigest !== stateContractDigest(state) ||
+    !publicResourceIdentity(attestation.pv, PV_ATTESTATION_KEYS) ||
+    !publicResourceIdentity(attestation.pvc, PVC_ATTESTATION_KEYS) ||
+    attestation.pv.name !== state.volume.volumeName ||
+    attestation.pvc.name !== state.volume.claimName ||
+    attestation.pvc.namespace !== state.volume.namespace
+  ) stop('STATE_VOLUME_ATTESTATION_INVALID');
+  const core = { ...attestation };
+  delete core.observedDigest;
+  if (attestation.observedDigest !== sha256(canonicalJson(core))) {
+    stop('STATE_VOLUME_ATTESTATION_INVALID');
+  }
+  return deepFreeze(structuredClone(attestation));
 }
 
 function volumeMetadata(state) {
@@ -112,7 +197,7 @@ function volumeMetadata(state) {
     },
     annotations: {
       'seorilabs.io/journal-content-policy': state.protection.journal.contentPolicy,
-      'seorilabs.io/state-contract-major': '2',
+      'seorilabs.io/state-contract-major': '3',
     },
   };
 }
@@ -120,7 +205,7 @@ function volumeMetadata(state) {
 export function verifyApplicationEnvelopeContract(state) {
   validateStateContract(state);
   return Object.freeze({
-    schemaVersion: 2,
+    schemaVersion: 3,
     state: 'APPLICATION_ENVELOPE_CONTRACT_VERIFIED',
     rolloutStatus: state.protection.status,
     mode: state.protection.mode,
@@ -254,13 +339,17 @@ export function verifyRetainVolumeReadback({ state, observedPv, observedPvc }) {
   verifyPersistentVolumeClaim(observedPvc, expectedPvc);
   verifyPersistentVolume(observedPv, expectedPv, observedPvc.metadata.uid);
   const volume = state.volume;
-  return Object.freeze({
-    schemaVersion: 2,
+  const attestation = attestationCore(state, observedPv, observedPvc);
+  return deepFreeze({
+    schemaVersion: 3,
     state: 'LIVE_READBACK_VERIFIED',
     readOnly: true,
     retention: 'Retain',
+    attestation,
     pv: Object.freeze({
       name: volume.volumeName,
+      uid: attestation.pv.uid,
+      resourceVersion: attestation.pv.resourceVersion,
       size: volume.size,
       storageClassName: volume.storageClassName,
       nodeName: volume.nodeName,
@@ -269,9 +358,25 @@ export function verifyRetainVolumeReadback({ state, observedPv, observedPvc }) {
     pvc: Object.freeze({
       namespace: volume.namespace,
       name: volume.claimName,
+      uid: attestation.pvc.uid,
+      resourceVersion: attestation.pvc.resourceVersion,
       volumeName: volume.volumeName,
       size: volume.size,
       phase: 'Bound',
     }),
   });
+}
+
+export function verifyExactStateVolumeReadback({
+  state,
+  attestation,
+  observedPv,
+  observedPvc,
+}) {
+  const expected = validateStateVolumeReadbackAttestation({ state, attestation });
+  const observed = verifyRetainVolumeReadback({ state, observedPv, observedPvc });
+  if (!isDeepStrictEqual(observed.attestation, expected)) {
+    stop('STATE_VOLUME_ATTESTATION_MISMATCH');
+  }
+  return observed;
 }

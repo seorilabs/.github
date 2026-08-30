@@ -201,11 +201,17 @@ function validateRuntimeConfig(config) {
 }
 
 function deploymentBinding(options) {
-  const expected = [
+  const common = [
     'config', 'expected-backoffice-spiffe-id', 'expected-google-service-account',
     'expected-provider-endpoint-scope', 'expected-secret-access-sha256', 'expected-wif-audience',
   ];
-  if (options.size !== expected.length || expected.some((key) => !options.has(key))) {
+  const state = ['expected-state-attestation-sha256', 'state-attestation-file'];
+  const allowed = new Set([...common, ...state]);
+  if (
+    common.some((key) => !options.has(key)) ||
+    [...options.keys()].some((key) => !allowed.has(key)) ||
+    state.some((key) => options.has(key)) && state.some((key) => !options.has(key))
+  ) {
     fail('runtime deployment binding arguments are invalid');
   }
   const binding = {
@@ -215,13 +221,21 @@ function deploymentBinding(options) {
     wifAudience: options.get('expected-wif-audience'),
     backofficeClientSpiffeId: options.get('expected-backoffice-spiffe-id'),
     providerEndpointScope: options.get('expected-provider-endpoint-scope'),
+    ...(options.has('state-attestation-file') ? {
+      stateAttestationFile: options.get('state-attestation-file'),
+      stateAttestationSha256: options.get('expected-state-attestation-sha256'),
+    } : {}),
   };
   if (
     !GOOGLE_IDENTITY.test(binding.googleServiceAccount ?? '') ||
     !SHA256.test(binding.secretAccessSha256 ?? '') ||
     !WIF_AUDIENCE.test(binding.wifAudience ?? '') ||
     binding.backofficeClientSpiffeId !== PROVIDER_CONTROL_PLANE_CLIENT_SPIFFE_ID ||
-    binding.providerEndpointScope !== PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE
+    binding.providerEndpointScope !== PROVIDER_CONTROL_PLANE_ENDPOINT_SCOPE ||
+    (binding.stateAttestationFile !== undefined && (
+      binding.stateAttestationFile !== '/run/seori-auth-state-attestor/verified.json' ||
+      !SHA256.test(binding.stateAttestationSha256 ?? '')
+    ))
   ) fail('runtime deployment identity binding is invalid');
   return Object.freeze(binding);
 }
@@ -234,7 +248,32 @@ function validateRuntimeDeploymentBinding(config, binding) {
       config.providerControlPlane.endpointScope !== binding.providerEndpointScope
     )
   ) fail('Backoffice provider control-plane deployment binding is invalid');
+  if (
+    (config.role === 'broker' && binding.stateAttestationFile === undefined) ||
+    (config.role !== 'broker' && binding.stateAttestationFile !== undefined)
+  ) fail('state attestation deployment binding is invalid');
   if (config.secretAccess.configSha256 !== binding.secretAccessSha256) fail('Secret Manager config checksum binding is invalid');
+}
+
+async function verifyStateAttestationMarker(binding) {
+  const path = binding.stateAttestationFile;
+  try {
+    const [entry, canonical] = await Promise.all([lstat(path), realpath(path)]);
+    if (
+      !entry.isFile() || entry.isSymbolicLink() || canonical !== path ||
+      entry.uid !== process.getuid?.() || (entry.mode & 0o077) !== 0
+    ) fail('state attestation marker is invalid');
+    const marker = await readConfig(path);
+    if (
+      !exactKeys(marker, ['observedDigest', 'schemaVersion', 'state']) ||
+      marker.schemaVersion !== 1 ||
+      marker.state !== 'STATE_VOLUME_ATTESTATION_VERIFIED' ||
+      marker.observedDigest !== binding.stateAttestationSha256
+    ) fail('state attestation marker is invalid');
+  } catch (error) {
+    if (error?.code === 'runtime_error') throw error;
+    fail('state attestation marker is invalid');
+  }
 }
 
 async function validateMountedSecretAccess(config, binding) {
@@ -347,9 +386,15 @@ async function readiness(path, role) {
   await chmod(path, 0o600);
 }
 
-async function healthcheck(path) {
+async function healthcheck(path, stateBinding) {
   const state = await readConfig(path);
   if (!exactKeys(state, ['pid', 'role']) || !Number.isSafeInteger(state.pid) || !ROLE.has(state.role)) fail('runtime is not ready');
+  if (state.role === 'broker') {
+    if (!stateBinding) fail('state attestation health binding is missing');
+    await verifyStateAttestationMarker(stateBinding);
+  } else if (stateBinding) {
+    fail('factor healthcheck cannot accept a state attestation');
+  }
   process.kill(state.pid, 0);
 }
 
@@ -482,6 +527,8 @@ async function serveBroker(config, nativeBoundary, journalCheckpointControlPlane
 }
 
 async function serve(config, binding) {
+  validateRuntimeDeploymentBinding(config, binding);
+  if (config.role === 'broker') await verifyStateAttestationMarker(binding);
   await validateMountedSecretAccess(config, binding);
   const nativeBoundary = await NativeSecurityBoundary.open({
     helperPath: config.nativeHelperPath,
@@ -883,8 +930,22 @@ try {
     const config = validateRuntimeConfig(await readConfig(binding.configPath));
     validateRuntimeDeploymentBinding(config, binding);
     process.stdout.write(`${JSON.stringify({ valid: true, schemaVersion: config.schemaVersion, role: config.role })}\n`);
-  } else if (command === 'healthcheck' && options.size === 1 && options.has('readiness-file')) {
-    await healthcheck(options.get('readiness-file'));
+  } else if (command === 'healthcheck' && options.has('readiness-file')) {
+    const stateOptions = ['expected-state-attestation-sha256', 'state-attestation-file'];
+    const hasStateBinding = stateOptions.every((key) => options.has(key));
+    if (
+      ![1, 3].includes(options.size) ||
+      stateOptions.some((key) => options.has(key)) && !hasStateBinding ||
+      hasStateBinding && (
+        options.get('state-attestation-file') !==
+          '/run/seori-auth-state-attestor/verified.json' ||
+        !SHA256.test(options.get('expected-state-attestation-sha256') ?? '')
+      )
+    ) fail('healthcheck arguments are invalid');
+    await healthcheck(options.get('readiness-file'), hasStateBinding ? {
+      stateAttestationFile: options.get('state-attestation-file'),
+      stateAttestationSha256: options.get('expected-state-attestation-sha256'),
+    } : undefined);
   } else if (command === 'canary' && options.size === 1 && options.has('native-helper')) {
     await canary(options.get('native-helper'));
   } else {

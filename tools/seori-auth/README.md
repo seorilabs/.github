@@ -252,15 +252,19 @@ one-shot Job을 생성합니다. 실제 실행은
 먼저 exact readback하고 없는 경우에만 server dry-run 뒤 create합니다. AlreadyExists와 결과 불명은
 mutation을 반복하지 않으며 admitted Pod의 PUBLIC no-pull 또는 PACKAGES_READER exact-one binding까지
 검증합니다. 현재 공개 계약과 live foundation의 차이는 Secret을 조회하지 않는 read-only auditor로
-확인합니다. auditor는 Namespace, ServiceAccount, namespace 전체 Role/RoleBinding,
+확인합니다. auditor는 canonical explicit kubeconfig와 격리된 임시 HOME/cache만 사용해
+Namespace, ServiceAccount, namespace 전체 Role/RoleBinding,
 각 auth-broker ServiceAccount의 effective Secret 권한을 `kubectl auth can-i`로 확인하고
-NetworkPolicy, Service, cert-manager 공개 객체를 exact readback합니다. stale binding,
+NetworkPolicy, Service, cert-manager 공개 객체와 고정 Retain PV/PVC를 exact readback합니다.
+PV/PVC UID, resourceVersion, state contract digest를 공개 attestation으로 반환하며
+`protection.status` 자기 선언만으로 READY를 만들지 않습니다. stale binding,
 Secret 권한, Service 노출 확장, NetworkPolicy port 확장,
-미선언 Deployment/StatefulSet/DaemonSet/Job/CronJob/Pod/ReplicaSet/ReplicationController/PVC가
+미선언 Deployment/StatefulSet/DaemonSet/Job/CronJob/Pod/ReplicaSet/ReplicationController 또는
+추가 state PVC가
 있거나 계약의 외부 gate가 `ready`가 아니면 exit 1로 중단합니다.
 
 ```sh
-node scripts/audit-foundation-readiness.mjs
+node scripts/audit-foundation-readiness.mjs --kubeconfig=/canonical/path/to/kubeconfig
 ```
 
 기존 static production 경로는 comment-only compatibility marker입니다. 이번 구현과 테스트는

@@ -3,6 +3,9 @@
 import { createHash } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { parse } from 'yaml';
 
 import {
   PROVIDER_CONTROL_PLANE_CLIENT_SPIFFE_ID,
@@ -14,6 +17,10 @@ import {
   validateImageProvenance,
   validateRegistry,
 } from './public-image-binding.mjs';
+import {
+  StateEnvelopeError,
+  validateStateVolumeReadbackAttestation,
+} from '../src/state-envelope.mjs';
 
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -41,6 +48,11 @@ const PROVIDER_POD_SELECTOR = Object.freeze({
 const AUTH_BROKER_NODE_SELECTOR = Object.freeze({
   'kubernetes.io/hostname': 'rpi5',
 });
+const FLEET_RUNTIME_CONTRACT = fileURLToPath(
+  new URL('../../../contracts/fleet-p3-runtime.yaml', import.meta.url),
+);
+const STATE_ATTESTOR_EXPECTED_PATH = '/etc/seori-auth-state-attestor/expected.json';
+const STATE_ATTESTOR_MARKER_PATH = '/run/seori-auth-state-attestor/verified.json';
 
 function fail(message) {
   process.stderr.write(`${JSON.stringify({ valid: false, code: 'invalid_deployment_config', message })}\n`);
@@ -81,6 +93,22 @@ async function load(path) {
   }
 }
 
+async function loadFleetRuntimeContract() {
+  const bytes = await readFile(FLEET_RUNTIME_CONTRACT);
+  try {
+    if (bytes.length === 0 || bytes.length > 512 * 1024) fail('fleet runtime contract size is invalid');
+    const contract = parse(bytes.toString('utf8'));
+    if (contract?.schemaVersion !== 3 || !contract.authBroker?.state || !contract.authBroker?.kubernetesApi) {
+      fail('fleet runtime state attestation contract is invalid');
+    }
+    return contract.authBroker;
+  } catch {
+    fail('fleet runtime contract is invalid');
+  } finally {
+    bytes.fill(0);
+  }
+}
+
 function roleConfig(value, role) {
   if (!exactKeys(value, [
     'allowedSecretManagerResources', 'configMapName', 'egressTlsSecretName', 'googleServiceAccount',
@@ -111,12 +139,35 @@ function roleConfig(value, role) {
   });
 }
 
-function validate(config) {
+function validate(config, fleetBroker) {
   if (!exactKeys(config, [
     'egressProxy', 'image', 'imageProvenance', 'imagePullPolicy', 'namespace', 'nodeSelector', 'registry',
-    'roles', 'providerControlPlane', 'schemaVersion', 'stateClaimName', 'trustedWorkers',
-  ]) || config.schemaVersion !== 1 || config.namespace !== 'auth-broker') {
+    'roles', 'providerControlPlane', 'schemaVersion', 'stateReadbackAttestation', 'trustedWorkers',
+  ]) || config.schemaVersion !== 2 || config.namespace !== 'auth-broker') {
     fail('top-level deployment fields are invalid');
+  }
+  if (fleetBroker.namespace !== config.namespace) fail('fleet runtime namespace binding is invalid');
+  if (
+    !exactKeys(fleetBroker.kubernetesApi, [
+      'audience', 'caConfigMapName', 'egressCidr', 'port', 'server',
+      'tokenExpirationSeconds',
+    ]) ||
+    fleetBroker.kubernetesApi.server !== 'https://kubernetes.default.svc' ||
+    fleetBroker.kubernetesApi.egressCidr !== '10.152.183.1/32' ||
+    fleetBroker.kubernetesApi.port !== 443 ||
+    fleetBroker.kubernetesApi.audience !== 'https://kubernetes.default.svc' ||
+    fleetBroker.kubernetesApi.caConfigMapName !== 'kube-root-ca.crt' ||
+    fleetBroker.kubernetesApi.tokenExpirationSeconds !== 600
+  ) fail('Kubernetes API startup attestor binding is invalid');
+  let stateReadbackAttestation;
+  try {
+    stateReadbackAttestation = validateStateVolumeReadbackAttestation({
+      state: fleetBroker.state,
+      attestation: config.stateReadbackAttestation,
+    });
+  } catch (error) {
+    if (error instanceof StateEnvelopeError) fail('state readback attestation is invalid');
+    throw error;
   }
   const imageProvenance = validateImageProvenance(config.image, config.imageProvenance, fail);
   const registry = validateRegistry(config.registry, fail);
@@ -165,7 +216,9 @@ function validate(config) {
     imageProvenance,
     registry,
     nodeSelector,
-    stateClaimName: dns(config.stateClaimName, 'stateClaimName'),
+    state: fleetBroker.state,
+    kubernetesApi: fleetBroker.kubernetesApi,
+    stateReadbackAttestation,
     trustedWorkers: Object.freeze({
       namespaceSelector: labels(config.trustedWorkers.namespaceSelector, 'trustedWorkers.namespaceSelector'),
       podSelector: labels(config.trustedWorkers.podSelector, 'trustedWorkers.podSelector'),
@@ -224,6 +277,25 @@ function podSecurityContext() {
   };
 }
 
+function stateAttestorExpected(config) {
+  return {
+    schemaVersion: 1,
+    state: config.state,
+    kubernetesApi: config.kubernetesApi,
+    attestation: config.stateReadbackAttestation,
+  };
+}
+
+function stateAttestorExpectedDigest(config) {
+  return createHash('sha256')
+    .update(JSON.stringify(stateAttestorExpected(config)))
+    .digest('hex');
+}
+
+function stateAttestorConfigName(config) {
+  return `seori-auth-state-attestor-${stateAttestorExpectedDigest(config).slice(0, 12)}`;
+}
+
 function roleVolumes(role, binding, config) {
   const volumes = [
     { name: 'runtime', emptyDir: { medium: 'Memory', sizeLimit: role === 'broker' ? '512Mi' : '16Mi' } },
@@ -238,7 +310,34 @@ function roleVolumes(role, binding, config) {
       },
     },
   ];
-  if (role === 'broker') volumes.push({ name: 'state', persistentVolumeClaim: { claimName: config.stateClaimName } });
+  if (role === 'broker') {
+    volumes.push(
+      { name: 'state', persistentVolumeClaim: { claimName: config.state.volume.claimName } },
+      {
+        name: 'state-attestor-config',
+        configMap: { name: stateAttestorConfigName(config), defaultMode: 0o440 },
+      },
+      { name: 'state-attestor-result', emptyDir: { medium: 'Memory', sizeLimit: '1Mi' } },
+      {
+        name: 'state-api-token',
+        projected: {
+          defaultMode: 0o440,
+          sources: [{
+            serviceAccountToken: {
+              audience: config.kubernetesApi.audience,
+              expirationSeconds: config.kubernetesApi.tokenExpirationSeconds,
+              path: 'token',
+            },
+          }, {
+            configMap: {
+              name: config.kubernetesApi.caConfigMapName,
+              items: [{ key: 'ca.crt', path: 'ca.crt' }],
+            },
+          }],
+        },
+      },
+    );
+  }
   return volumes;
 }
 
@@ -260,23 +359,64 @@ function configMounts(role) {
       { name: 'config', mountPath: '/etc/seori-auth/policy.json', subPath: 'policy.json', readOnly: true },
       { name: 'config', mountPath: '/etc/seori-auth/run-attestation.pub', subPath: 'run-attestation.pub', readOnly: true },
       { name: 'state', mountPath: '/var/lib/seori-auth' },
+      {
+        name: 'state-attestor-result',
+        mountPath: '/run/seori-auth-state-attestor',
+        readOnly: true,
+      },
     );
   }
   return mounts;
 }
 
-function probe(role) {
+function probe(role, config) {
+  const stateOptions = role === 'broker'
+    ? [
+        `--state-attestation-file=${STATE_ATTESTOR_MARKER_PATH}`,
+        `--expected-state-attestation-sha256=${config.stateReadbackAttestation.observedDigest}`,
+      ]
+    : [];
   return {
     exec: {
       command: [
         '/opt/seori-auth/bin/seori-auth-native', 'launch', '--', '/usr/local/bin/node',
         '/opt/seori-auth/runtime/entrypoint.mjs', 'healthcheck',
         `--readiness-file=/run/seori-auth/${runtimeRole(role)}.ready`,
+        ...stateOptions,
       ],
     },
     periodSeconds: 10,
     timeoutSeconds: 3,
     failureThreshold: 3,
+  };
+}
+
+function stateAttestorInitContainer(config) {
+  return {
+    name: 'state-volume-attestor',
+    image: config.image,
+    imagePullPolicy: config.imagePullPolicy,
+    command: [
+      '/opt/seori-auth/bin/seori-auth-native', 'launch', '--', '/usr/local/bin/node',
+      '/opt/seori-auth/runtime/state-volume-attestor.mjs',
+    ],
+    args: [],
+    securityContext: securityContext(),
+    resources: {
+      requests: { cpu: '10m', memory: '32Mi' },
+      limits: { cpu: '100m', memory: '96Mi' },
+    },
+    volumeMounts: [
+      { name: 'state', mountPath: '/var/lib/seori-auth', readOnly: true },
+      {
+        name: 'state-attestor-config',
+        mountPath: STATE_ATTESTOR_EXPECTED_PATH,
+        subPath: 'expected.json',
+        readOnly: true,
+      },
+      { name: 'state-attestor-result', mountPath: '/run/seori-auth-state-attestor' },
+      { name: 'state-api-token', mountPath: '/var/run/seori-auth-state-token', readOnly: true },
+    ],
   };
 }
 
@@ -299,11 +439,15 @@ function workload(role, config) {
       `--expected-wif-audience=${binding.wifAudience}`,
       `--expected-backoffice-spiffe-id=${config.providerControlPlane.backofficeClientSpiffeId}`,
       `--expected-provider-endpoint-scope=${config.providerControlPlane.endpointScope}`,
+      ...(role === 'broker' ? [
+        `--state-attestation-file=${STATE_ATTESTOR_MARKER_PATH}`,
+        `--expected-state-attestation-sha256=${config.stateReadbackAttestation.observedDigest}`,
+      ] : []),
     ],
     ports: [{ name: 'mtls', containerPort: port(role), protocol: 'TCP' }],
-    readinessProbe: probe(role),
-    livenessProbe: probe(role),
-    startupProbe: { ...probe(role), failureThreshold: 30 },
+    readinessProbe: probe(role, config),
+    livenessProbe: probe(role, config),
+    startupProbe: { ...probe(role, config), failureThreshold: 30 },
     securityContext: securityContext(),
     resources: role === 'broker'
       ? { requests: { cpu: '100m', memory: '256Mi' }, limits: { cpu: '1', memory: '1Gi' } }
@@ -323,6 +467,14 @@ function workload(role, config) {
         'seorilabs.io/secret-resource-partition-sha256': resourcePartitionSha256,
         'seorilabs.io/provider-control-plane-spiffe': config.providerControlPlane.backofficeClientSpiffeId,
         'seorilabs.io/provider-endpoint-scope': config.providerControlPlane.endpointScope,
+        ...(role === 'broker' ? {
+          'seorilabs.io/state-attestor-expected-sha256': stateAttestorExpectedDigest(config),
+          'seorilabs.io/state-observed-digest': config.stateReadbackAttestation.observedDigest,
+          'seorilabs.io/state-pv-uid': config.stateReadbackAttestation.pv.uid,
+          'seorilabs.io/state-pv-resource-version': config.stateReadbackAttestation.pv.resourceVersion,
+          'seorilabs.io/state-pvc-uid': config.stateReadbackAttestation.pvc.uid,
+          'seorilabs.io/state-pvc-resource-version': config.stateReadbackAttestation.pvc.resourceVersion,
+        } : {}),
         ...(config.registry.mode === 'PACKAGES_READER'
           ? { 'seorilabs.io/registry-credential-id': config.registry.credentialId }
           : {}),
@@ -339,6 +491,7 @@ function workload(role, config) {
       securityContext: podSecurityContext(),
       serviceAccountName: serviceAccountName(role),
       terminationGracePeriodSeconds: 30,
+      ...(role === 'broker' ? { initContainers: [stateAttestorInitContainer(config)] } : {}),
       containers: [container],
       volumes: roleVolumes(role, binding, config),
     },
@@ -380,6 +533,10 @@ function networkPolicies(config) {
     }],
     ports: [{ protocol: 'TCP', port: config.egressProxy.port }],
   };
+  const kubernetesApi = {
+    to: [{ ipBlock: { cidr: config.kubernetesApi.egressCidr } }],
+    ports: [{ protocol: 'TCP', port: config.kubernetesApi.port }],
+  };
   return [
     {
       apiVersion: 'networking.k8s.io/v1', kind: 'NetworkPolicy', metadata: metadata('default-deny'),
@@ -400,7 +557,7 @@ function networkPolicies(config) {
           }],
           ports: [{ protocol: 'TCP', port: 8443 }],
         }],
-        egress: [dns, proxy, {
+        egress: [dns, proxy, kubernetesApi, {
           to: [{ podSelector: { matchExpressions: [{
             key: 'app.kubernetes.io/name', operator: 'In', values: ['seori-password-loader', 'seori-totp-signer'],
           }] } }],
@@ -425,6 +582,59 @@ function networkPolicies(config) {
   ];
 }
 
+function stateAttestorConfigMap(config) {
+  const expectedDigest = stateAttestorExpectedDigest(config);
+  return {
+    apiVersion: 'v1',
+    kind: 'ConfigMap',
+    metadata: {
+      ...metadata(stateAttestorConfigName(config)),
+      annotations: { 'seorilabs.io/state-attestor-expected-sha256': expectedDigest },
+    },
+    immutable: true,
+    data: {
+      'expected.json': `${JSON.stringify(stateAttestorExpected(config))}\n`,
+    },
+  };
+}
+
+function stateReadbackRbac(config) {
+  const name = 'seori-auth-state-readback';
+  return [{
+    apiVersion: 'rbac.authorization.k8s.io/v1',
+    kind: 'ClusterRole',
+    metadata: { name },
+    rules: [{
+      apiGroups: [''],
+      resources: ['persistentvolumes'],
+      resourceNames: [config.state.volume.volumeName],
+      verbs: ['get'],
+    }],
+  }, {
+    apiVersion: 'rbac.authorization.k8s.io/v1',
+    kind: 'ClusterRoleBinding',
+    metadata: { name },
+    roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'ClusterRole', name },
+    subjects: [{ kind: 'ServiceAccount', name: 'auth-broker', namespace: config.namespace }],
+  }, {
+    apiVersion: 'rbac.authorization.k8s.io/v1',
+    kind: 'Role',
+    metadata: metadata(name),
+    rules: [{
+      apiGroups: [''],
+      resources: ['persistentvolumeclaims'],
+      resourceNames: [config.state.volume.claimName],
+      verbs: ['get'],
+    }],
+  }, {
+    apiVersion: 'rbac.authorization.k8s.io/v1',
+    kind: 'RoleBinding',
+    metadata: metadata(name),
+    roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'Role', name },
+    subjects: [{ kind: 'ServiceAccount', name: 'auth-broker', namespace: config.namespace }],
+  }];
+}
+
 function render(config) {
   const items = [{
     apiVersion: 'v1', kind: 'Namespace', metadata: {
@@ -437,6 +647,7 @@ function render(config) {
       },
     },
   }];
+  items.push(stateAttestorConfigMap(config), ...stateReadbackRbac(config));
   for (const role of ROLES) {
     const name = serviceAccountName(role);
     items.push({
@@ -475,5 +686,6 @@ function render(config) {
 
 const argument = process.argv[2];
 if (process.argv.length !== 3 || !argument?.startsWith('--config=')) fail('usage: render-production-k8s.mjs --config=/absolute/path.json');
-const config = validate(await load(argument.slice('--config='.length)));
+const fleetBroker = await loadFleetRuntimeContract();
+const config = validate(await load(argument.slice('--config='.length)), fleetBroker);
 process.stdout.write(`${JSON.stringify(render(config), null, 2)}\n`);

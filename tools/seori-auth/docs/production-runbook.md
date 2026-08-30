@@ -169,7 +169,8 @@ Kubernetes의 tmpfs `emptyDir`은 Pod 삭제 시 폐기되며, 같은 Pod의 bro
 schema/admission dry-run과 실제 binding을 read-only로 확인합니다. config에는 secret 값이
 아니라 image digest와 code-owned approved source SHA/workflow run provenance, 명시적
 `PUBLIC`/`PACKAGES_READER` registry mode,
-public Google identity/WIF audience, selector와 port만
+public Google identity/WIF audience, selector와 port, read-only verifier가 발행한 exact
+PV/PVC UID·resourceVersion·digest attestation만
 들어갑니다. RPI4에는 신규 workload를 배치하지 않고 검증된 RPI5 label을 node selector로
 지정합니다. 기존 `k8s/production/*.yaml`은 적용할 객체가 없는 compatibility marker입니다.
 `providerControlPlane`은 exact `backofficeClientSpiffeId`, 고정
@@ -203,14 +204,23 @@ done
   모두 같고 source HEAD나 mutable tag로 대체되지 않음
 - automount token false, explicit short-lived WIF audience만 mount
 - projected token은 고정 mount root와 leaf `token`만 사용하며 native `openat2` 검증을 통과
+- Kubernetes API용 별도 projected token은 broker startup attestor initContainer에만 mount되고
+  broker main/password/TOTP container에는 mount되지 않음
+- broker startup attestor Role/ClusterRole은 고정 PVC/PV `resourceNames`의 `get`만 허용하고
+  `list/watch`와 Secret 권한은 없으며 API egress는 `10.152.183.1/32:443` 하나뿐임
+- initContainer가 render 입력의 PV/PVC UID·resourceVersion·state contract digest를 live API
+  readback과 exact 비교하기 전에는 main container가 시작하지 않고, post-start readiness도
+  같은 observed digest marker를 확인함
 - default deny 후 일반 trusted worker와 provider control-plane signer의 서로 분리된 exact ingress,
   factor-service 내부 통신, DNS와 egress proxy만 허용
 - egress proxy가 exact provider hostname/TLS identity를 검증하고 direct Internet은 차단
-- state/Vault PVC는 worker와 factor service에 mount되지 않고 storage encryption이 활성
+- state/Vault PVC는 worker와 factor service에 mount되지 않고 secret-bearing state가
+  AES-256-GCM application envelope로만 저장됨
 - `providerControlPlane.backofficeClientSpiffeId`가 broker client allowlist와 같고 다른
   worker SPIFFE로 internal provider route 호출이 거부됨
 - run-attestation nonce digest가 HMAC journal에 먼저 소비되고 broker 재시작 뒤 replay도 거부됨
-- Role의 `rules: []`와 세 ServiceAccount의 Kubernetes Secret `get/list/watch=no`가 유지됨
+- factor의 Kubernetes API 권한 0, broker의 exact PV/PVC `get` 외 권한 0, 세 ServiceAccount의
+  Kubernetes Secret `get/list/watch=no`가 유지됨
 
 ## 6. Fake-account canary와 활성화
 

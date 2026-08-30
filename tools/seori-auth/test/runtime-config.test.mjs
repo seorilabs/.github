@@ -14,6 +14,8 @@ const googleServiceAccount = 'seori-auth-password@example-project.iam.gserviceac
 const wifAudience = '//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/seori-auth/providers/microk8s';
 const backofficeSpiffeId = 'spiffe://seorilabs.local/ns/platform/sa/provider-execution-signer';
 const providerEndpointScope = '/internal/control-plane/provider-grants';
+const stateAttestationFile = '/run/seori-auth-state-attestor/verified.json';
+const stateAttestationSha256 = 'f'.repeat(64);
 
 function passwordConfig() {
   return {
@@ -148,6 +150,14 @@ async function validate(config, overrides = {}) {
       `--expected-wif-audience=${wifAudience}`,
       `--expected-backoffice-spiffe-id=${overrides.backofficeSpiffeId ?? backofficeSpiffeId}`,
       `--expected-provider-endpoint-scope=${overrides.providerEndpointScope ?? providerEndpointScope}`,
+      ...(config.role === 'broker' && overrides.omitStateAttestation !== true ? [
+        `--state-attestation-file=${stateAttestationFile}`,
+        `--expected-state-attestation-sha256=${stateAttestationSha256}`,
+      ] : []),
+      ...(overrides.factorStateAttestation === true ? [
+        `--state-attestation-file=${stateAttestationFile}`,
+        `--expected-state-attestation-sha256=${stateAttestationSha256}`,
+      ] : []),
     ]);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -239,5 +249,27 @@ test('broker runtime exact-binds the Backoffice SPIFFE identity and internal pro
       googleServiceAccount: 'seori-auth-broker@example-project.iam.gserviceaccount.com',
     }),
     (error) => error.code === 1,
+  );
+});
+
+test('broker는 exact state attestation deployment binding을 요구하고 factor는 이를 거부한다', async () => {
+  await assert.rejects(
+    validate(brokerConfig(), {
+      googleServiceAccount: 'seori-auth-broker@example-project.iam.gserviceaccount.com',
+      omitStateAttestation: true,
+    }),
+    (error) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr, /runtime_error/);
+      return true;
+    },
+  );
+  await assert.rejects(
+    validate(passwordConfig(), { factorStateAttestation: true }),
+    (error) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr, /runtime_error/);
+      return true;
+    },
   );
 });

@@ -7,6 +7,15 @@ import { isAbsolute, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
+import {
+  KubectlReadbackBoundaryError,
+  openSecureKubectlReadbackBoundary,
+} from '../src/kubectl-readback-boundary.mjs';
+import {
+  StateEnvelopeError,
+  verifyRetainVolumeReadback,
+} from '../src/state-envelope.mjs';
+
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const TIMEOUT_MS = 15_000;
 const DEFAULT_KUBECTL = '/usr/local/bin/kubectl';
@@ -25,6 +34,8 @@ const RESOURCE_NAMES = Object.freeze({
   Role: 'role',
   RoleBinding: 'rolebinding',
   NetworkPolicy: 'networkpolicy',
+  PersistentVolume: 'persistentvolume',
+  PersistentVolumeClaim: 'persistentvolumeclaim',
 });
 
 export class FoundationReadinessError extends Error {
@@ -43,6 +54,11 @@ function childRead(executable, args, {
   acceptedExitCodes = [0],
   allowEmpty = false,
   json = true,
+  environment = {
+    LANG: 'C.UTF-8',
+    LC_ALL: 'C.UTF-8',
+    PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+  },
 } = {}) {
   if (
     !Array.isArray(acceptedExitCodes) || acceptedExitCodes.length === 0 ||
@@ -52,11 +68,7 @@ function childRead(executable, args, {
     const child = spawn(executable, args, {
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        HOME: process.env.HOME,
-        KUBECONFIG: process.env.KUBECONFIG,
-        PATH: process.env.PATH,
-      },
+      env: environment,
     });
     const stdout = [];
     let bytes = 0;
@@ -118,8 +130,12 @@ async function resolveKubectlPath() {
   return configured;
 }
 
-function kubectlReader(context, executable) {
-  const base = ['--context', context, 'get'];
+function kubectlReader(context, executable, boundary) {
+  const root = [
+    `--kubeconfig=${boundary.kubeconfig}`,
+    `--cache-dir=${boundary.cacheDirectory}`,
+  ];
+  const base = [...root, '--context', context, 'get'];
   return Object.freeze({
     get: (kind, name, namespace) => childRead(executable, [
       ...base,
@@ -128,20 +144,24 @@ function kubectlReader(context, executable) {
       ...(namespace ? ['--namespace', namespace] : []),
       '--output=json',
       '--ignore-not-found=true',
-    ], { allowEmpty: true }),
+    ], { allowEmpty: true, environment: boundary.environment }),
     list: (resources, namespace) => childRead(executable, [
       ...base,
       resources.join(','),
       '--namespace', namespace,
       '--output=json',
-    ]),
+    ], { environment: boundary.environment }),
     canI: async ({ verb, resource, namespace, serviceAccount }) => {
       const answer = await childRead(executable, [
-        '--context', context,
+        ...root, '--context', context,
         'auth', 'can-i', verb, resource,
         '--namespace', namespace,
         '--as', `system:serviceaccount:${namespace}:${serviceAccount}`,
-      ], { acceptedExitCodes: [0, 1], json: false });
+      ], {
+        acceptedExitCodes: [0, 1],
+        json: false,
+        environment: boundary.environment,
+      });
       if (!['yes', 'no'].includes(answer)) stop('AUTHORIZATION_READBACK_INVALID');
       return answer === 'yes';
     },
@@ -287,6 +307,38 @@ function listItems(value) {
   return value.items;
 }
 
+async function auditStateVolumeReadback({ desired, reader, namespace, diagnostics }) {
+  const binding = publicBinding(desired);
+  const state = binding.state;
+  const volume = state?.volume;
+  if (
+    !volume || volume.namespace !== namespace ||
+    typeof volume.volumeName !== 'string' || typeof volume.claimName !== 'string'
+  ) stop('CURRENT_CONTRACT_STATE_INVALID');
+  const [observedPv, observedPvc] = await Promise.all([
+    reader.get('PersistentVolume', volume.volumeName, undefined),
+    reader.get('PersistentVolumeClaim', volume.claimName, namespace),
+  ]);
+  let readback;
+  try {
+    readback = verifyRetainVolumeReadback({ state, observedPv, observedPvc });
+  } catch (error) {
+    if (!(error instanceof StateEnvelopeError)) throw error;
+    diagnostics.push({ code: error.code });
+  }
+  const claims = listItems(await reader.list(['persistentvolumeclaims'], namespace));
+  for (const claim of claims) {
+    if (claim?.metadata?.name !== volume.claimName) {
+      diagnostics.push({
+        code: 'UNDECLARED_STATE_PVC_PRESENT',
+        kind: claim?.kind ?? 'PersistentVolumeClaim',
+        name: claim?.metadata?.name ?? 'unknown',
+      });
+    }
+  }
+  return readback?.attestation;
+}
+
 export async function auditFoundationReadiness({ desired, reader, context }) {
   if (
     !desired || desired.kind !== 'List' || !Array.isArray(desired.items) ||
@@ -296,6 +348,12 @@ export async function auditFoundationReadiness({ desired, reader, context }) {
   ) stop('READINESS_INPUT_INVALID');
   const namespace = contractNamespace(desired);
   const diagnostics = contractDiagnostics(desired);
+  const stateReadbackAttestation = await auditStateVolumeReadback({
+    desired,
+    reader,
+    namespace,
+    diagnostics,
+  });
   for (const expected of desired.items) {
     const resourceName = RESOURCE_NAMES[expected.kind];
     if (!resourceName) stop('CURRENT_CONTRACT_KIND_UNSUPPORTED');
@@ -382,7 +440,7 @@ export async function auditFoundationReadiness({ desired, reader, context }) {
   const runtime = listItems(await reader.list(
     [
       'deployments', 'statefulsets', 'daemonsets', 'jobs', 'cronjobs', 'pods',
-      'replicasets', 'replicationcontrollers', 'persistentvolumeclaims',
+      'replicasets', 'replicationcontrollers',
     ],
     namespace,
   ));
@@ -399,19 +457,40 @@ export async function auditFoundationReadiness({ desired, reader, context }) {
     context,
     namespace,
     diagnostics,
+    ...(stateReadbackAttestation === undefined ? {} : { stateReadbackAttestation }),
   });
 }
 
 async function main() {
-  if (process.argv.length !== 2) stop('READINESS_ARGUMENTS_INVALID');
-  const desired = await childRead(process.execPath, [RENDERER, 'auth-broker-foundation']);
-  const binding = publicBinding(desired);
-  const context = binding.canary?.kubernetesContext;
-  if (typeof context !== 'string' || context.length === 0) stop('CURRENT_CONTRACT_CONTEXT_INVALID');
-  const executable = await resolveKubectlPath();
-  const result = await auditFoundationReadiness({ desired, reader: kubectlReader(context, executable), context });
-  process.stdout.write(`${JSON.stringify(result)}\n`);
-  if (result.state !== 'READY') process.exitCode = 1;
+  if (
+    process.argv.length !== 3 ||
+    !process.argv[2].startsWith('--kubeconfig=')
+  ) stop('READINESS_ARGUMENTS_INVALID');
+  let boundary;
+  try {
+    boundary = openSecureKubectlReadbackBoundary(
+      process.argv[2].slice('--kubeconfig='.length),
+    );
+  } catch (error) {
+    if (error instanceof KubectlReadbackBoundaryError) stop(error.code);
+    stop('KUBECONFIG_PATH_INVALID');
+  }
+  try {
+    const desired = await childRead(process.execPath, [RENDERER, 'auth-broker-foundation']);
+    const binding = publicBinding(desired);
+    const context = binding.canary?.kubernetesContext;
+    if (typeof context !== 'string' || context.length === 0) stop('CURRENT_CONTRACT_CONTEXT_INVALID');
+    const executable = await resolveKubectlPath();
+    const result = await auditFoundationReadiness({
+      desired,
+      reader: kubectlReader(context, executable, boundary),
+      context,
+    });
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    if (result.state !== 'READY') process.exitCode = 1;
+  } finally {
+    boundary.close();
+  }
 }
 
 function isDirectExecution() {

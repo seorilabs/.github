@@ -11,6 +11,24 @@ const args = process.argv.slice(2);
 const scenario = process.env.SEORILABS_STATE_FIXTURE_SCENARIO ?? 'exact';
 const log = process.env.SEORILABS_STATE_FIXTURE_LOG;
 if (log) appendFileSync(log, `${JSON.stringify(args)}\n`, 'utf8');
+const environmentLog = process.env.SEORILABS_STATE_FIXTURE_ENV_LOG;
+if (environmentLog) {
+  appendFileSync(environmentLog, `${JSON.stringify({
+    HOME: process.env.HOME,
+    KUBECONFIG: process.env.KUBECONFIG,
+    TMPDIR: process.env.TMPDIR,
+    XDG_CACHE_HOME: process.env.XDG_CACHE_HOME,
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+    XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+    XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
+  })}\n`, 'utf8');
+}
+
+const [kubeconfigArgument, cacheArgument, ...commandArgs] = args;
+if (
+  !kubeconfigArgument?.startsWith('--kubeconfig=/') ||
+  !cacheArgument?.startsWith('--cache-dir=/')
+) process.exit(64);
 
 function output(value) {
   if (value !== undefined) {
@@ -54,7 +72,7 @@ if (scenario === 'volume-drift') pvc.spec.resources.requests.storage = '11Gi';
 if (scenario === 'deleting') pvc.metadata.deletionTimestamp = '2026-08-30T00:00:00.000Z';
 if (scenario === 'unbound') pv.status.phase = 'Available';
 
-if (args.join('\0') === ['config', 'current-context'].join('\0')) {
+if (commandArgs.join('\0') === ['config', 'current-context'].join('\0')) {
   output(scenario === 'wrong-context' ? 'other-cluster' : state.volume.kubernetesContext);
 }
 
@@ -62,7 +80,7 @@ const pvArgs = [
   '--context', state.volume.kubernetesContext, 'get', 'persistentvolume',
   state.volume.volumeName, '--output=json', '--ignore-not-found=true',
 ];
-if (args.join('\0') === pvArgs.join('\0')) {
+if (commandArgs.join('\0') === pvArgs.join('\0')) {
   if (scenario === 'unknown-pv') process.exit(70);
   output(['missing-both', 'missing-pv'].includes(scenario) ? undefined : pv);
 }
@@ -72,7 +90,7 @@ const pvcArgs = [
   state.volume.claimName, '--namespace', state.volume.namespace, '--output=json',
   '--ignore-not-found=true',
 ];
-if (args.join('\0') === pvcArgs.join('\0')) {
+if (commandArgs.join('\0') === pvcArgs.join('\0')) {
   output(['missing-both', 'missing-pvc'].includes(scenario) ? undefined : pvc);
 }
 

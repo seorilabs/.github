@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://seorilabs.github.io/contracts/v2/fleet-p3-runtime.schema.json",
-  "title": "Seorilabs Fleet P3 runtime bootstrap contract v2",
+  "$id": "https://seorilabs.github.io/contracts/v3/fleet-p3-runtime.schema.json",
+  "title": "Seorilabs Fleet P3 runtime bootstrap contract v3",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "github", "cloudBuild", "authBroker"],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "github": {
       "type": "object",
       "additionalProperties": false,
@@ -315,9 +315,22 @@
     "authBroker": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["namespace", "image", "imageProvenance", "registry", "canary", "secretManager", "wifAudience", "state", "trustedWorkers", "providerControlPlane", "egressProxy", "roles"],
+      "required": ["namespace", "kubernetesApi", "image", "imageProvenance", "registry", "canary", "secretManager", "wifAudience", "state", "trustedWorkers", "providerControlPlane", "egressProxy", "roles"],
       "properties": {
         "namespace": { "const": "auth-broker" },
+        "kubernetesApi": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["server", "egressCidr", "port", "audience", "caConfigMapName", "tokenExpirationSeconds"],
+          "properties": {
+            "server": { "const": "https://kubernetes.default.svc" },
+            "egressCidr": { "const": "10.152.183.1/32" },
+            "port": { "const": 443 },
+            "audience": { "const": "https://kubernetes.default.svc" },
+            "caConfigMapName": { "const": "kube-root-ca.crt" },
+            "tokenExpirationSeconds": { "const": 600 }
+          }
+        },
         "image": { "const": "ghcr.io/seorilabs/seori-auth@sha256:57abc62f8f4fe9e95796dfd630c71d723d530a43bb5efc48a353c2b982eeedc7" },
         "imageProvenance": {
           "type": "object",
@@ -636,7 +649,8 @@
               "required": [
                 "kubernetesContext", "namespace", "claimName", "volumeName", "storageClassName",
                 "size", "accessModes", "volumeMode", "reclaimPolicy", "nodeName", "localPath",
-                "readbackPolicy", "mutationPolicy", "deletionPolicy", "unknownOutcomePolicy"
+                "readbackPolicy", "mutationPolicy", "deletionPolicy", "unknownOutcomePolicy",
+                "readbackAttestation"
               ],
               "properties": {
                 "kubernetesContext": { "const": "vzyx-cluster" },
@@ -656,7 +670,18 @@
                 "readbackPolicy": { "const": "EXACT_READBACK_ONLY" },
                 "mutationPolicy": { "const": "SEPARATE_APPROVAL" },
                 "deletionPolicy": { "const": "FORBIDDEN" },
-                "unknownOutcomePolicy": { "const": "READBACK_FIRST" }
+                "unknownOutcomePolicy": { "const": "READBACK_FIRST" },
+                "readbackAttestation": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schemaVersion", "digestAlgorithm", "startupGate", "postStartGate"],
+                  "properties": {
+                    "schemaVersion": { "const": 1 },
+                    "digestAlgorithm": { "const": "SHA256_CANONICAL_JSON" },
+                    "startupGate": { "const": "INIT_CONTAINER_EXACT_READBACK" },
+                    "postStartGate": { "const": "READINESS_MARKER_EXACT_DIGEST" }
+                  }
+                }
               }
             }
           }

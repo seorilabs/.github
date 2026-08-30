@@ -227,3 +227,15 @@ next checkpoint exact readback까지 확인되어야 mutation이 완료되며, �
 head의 직계 자식 한 건만 deterministic idempotent CAS로 복구한다. 실제 Backoffice DB/API와 mTLS
 transport는 후속 코드 gate이며, adapter가 없는 현재 production serve는 credential 접근과 lease
 발급 전에 fail-closed한다. 이를 사람 승인이나 리소스 부재로 분류하지 않는다.
+
+같은 날 후속 review에서 PV/PVC 실측 결과를 production startup과 결합하기 위해 runtime 계약을
+breaking major `schemaVersion: 3`으로 올렸다. verifier는 ambient kubeconfig나 사용자 HOME을
+사용하지 않고 canonical explicit kubeconfig와 실행별 0700 임시 HOME/cache만 사용한다. 성공
+readback은 PV/PVC UID·resourceVersion, state contract digest와 observed digest를 공개
+attestation으로 고정한다. production renderer는 이 attestation을 필수로 받고, broker 전용
+initContainer가 Kubernetes API에서 같은 PV/PVC를 다시 `get`해 exact 일치한 뒤에만 marker를 쓴다.
+Kubernetes API token은 initContainer에만 mount하고 main/factor에는 mount하지 않는다. broker
+ServiceAccount 권한은 두 exact `resourceNames`의 `get`만, API egress는
+`10.152.183.1/32:443`만 허용한다. readiness/liveness도 같은 marker digest를 다시 확인하므로
+`protection.status: verified` 자기 선언이나 render 이후 PV/PVC substitution만으로 READY가 되지
+않는다. 이 변경은 PV/PVC를 생성하거나 적용하지 않는다.

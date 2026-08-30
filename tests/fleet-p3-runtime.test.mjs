@@ -74,10 +74,10 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
   assert.equal(validate(contract), true, JSON.stringify(validate.errors));
   assert.equal(
     schema.$id,
-    "https://seorilabs.github.io/contracts/v2/fleet-p3-runtime.schema.json",
+    "https://seorilabs.github.io/contracts/v3/fleet-p3-runtime.schema.json",
   );
   const legacyMajor = structuredClone(contract);
-  legacyMajor.schemaVersion = 1;
+  legacyMajor.schemaVersion = 2;
   assert.equal(validate(legacyMajor), false);
   assert.equal(
     trustedFleetExecutorContract.githubApiVersion,
@@ -87,7 +87,15 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
     contract.github.pilotValues.map(({ repository }) => repository),
     ["happy-farm", "lizard-tycoon"],
   );
-  assert.equal(contract.schemaVersion, 2);
+  assert.equal(contract.schemaVersion, 3);
+  assert.deepEqual(contract.authBroker.kubernetesApi, {
+    server: "https://kubernetes.default.svc",
+    egressCidr: "10.152.183.1/32",
+    port: 443,
+    audience: "https://kubernetes.default.svc",
+    caConfigMapName: "kube-root-ca.crt",
+    tokenExpirationSeconds: 600,
+  });
   assert.equal(contract.authBroker.state.protection.mode, "APPLICATION_ENVELOPE");
   assert.equal(contract.authBroker.state.protection.status, "blocked_unverified");
   assert.equal(
@@ -137,6 +145,12 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
       mutationPolicy: "SEPARATE_APPROVAL",
       deletionPolicy: "FORBIDDEN",
       unknownOutcomePolicy: "READBACK_FIRST",
+      readbackAttestation: {
+        schemaVersion: 1,
+        digestAlgorithm: "SHA256_CANONICAL_JSON",
+        startupGate: "INIT_CONTAINER_EXACT_READBACK",
+        postStartGate: "READINESS_MARKER_EXACT_DIGEST",
+      },
     },
   );
   assert.equal(contract.authBroker.registry.credentialId, "shared/github/packages-reader");
