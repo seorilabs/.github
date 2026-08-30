@@ -8,14 +8,14 @@ export const EXPECTED_CANARY_OUTPUT_SHA256 = createHash('sha256')
   .update(EXPECTED_CANARY_OUTPUT)
   .digest('hex');
 export const APPROVED_IMAGE_BINDING = Object.freeze({
-  image: `${IMAGE_REPOSITORY}@sha256:58c0bf61b42ae253fc5db7037addea9f0386610dcabf7f3e45fd41ad7c1e0474`,
+  image: `${IMAGE_REPOSITORY}@sha256:0691542ca7de05339e258b9a767f44360e45a7207a1b6fab41c06f2cc9db04de`,
   imageProvenance: Object.freeze({
     repository: 'seorilabs/.github',
-    sourceSha: 'da7ff0c01bbdef4d1e4cf627b34af273a6a62992',
+    sourceSha: '6361f6f8f8e7a280557d53643b1d2ea24c51e27a',
     workflow: '.github/workflows/seori-auth-image.yml',
-    runId: 33294323501,
+    runId: 33301770004,
     platform: 'linux/arm64',
-    imageDigest: 'sha256:58c0bf61b42ae253fc5db7037addea9f0386610dcabf7f3e45fd41ad7c1e0474',
+    imageDigest: 'sha256:0691542ca7de05339e258b9a767f44360e45a7207a1b6fab41c06f2cc9db04de',
   }),
 });
 
