@@ -790,6 +790,33 @@ test('success path backs up, provisions once, writes canonical marker and verifi
   assert.equal(new Set(secretCalls.map(({ recoveryFdIdentity }) => recoveryFdIdentity)).size, 1);
 });
 
+test('Tang trust uses the attested signing thumbprints and fails before volume mutation', async (context) => {
+  const fixture = await createFixture({ scenario: 'tang-trust-drift' });
+  context.after(() => fixture.cleanup());
+  await runHost(fixture, 'backup', [
+    `--confirmation=${confirmationSet.backup}`,
+    `--kubeconfig=${fixture.kubeconfig}`,
+  ]);
+  await expectHostFailure(fixture, 'apply', [
+    `--confirmation=${confirmationSet.apply}`,
+    `--kubeconfig=${fixture.kubeconfig}`,
+    `--recovery-key-file=${fixture.recoveryKey}`,
+    ...tangFlags(fixture),
+  ], 'P2_TANG_ADVERTISEMENT_READBACK_FAILED');
+  const calls = (await readFile(fixture.log, 'utf8')).trim().split('\n')
+    .map((line) => JSON.parse(line));
+  const probes = calls.filter(({ executable, args }) =>
+    executable === '/usr/bin/clevis' && args[0] === 'encrypt' && args[1] === 'tang');
+  assert.equal(probes.length, 2);
+  assert.deepEqual(
+    probes.map(({ args }) => JSON.parse(args[2]).thp),
+    [thumbprints.rpi4001, thumbprints['seori-m6-01']],
+  );
+  assert.equal(calls.filter(({ executable, args }) =>
+    executable === contract.filesystemBoundary.executable && args[0] === 'create-source').length, 0);
+  assert.doesNotMatch(await readFile(fixture.log, 'utf8'), new RegExp(fakeRecoverySecret, 'u'));
+});
+
 test('partial, nonempty and identity drift fail before mutation', async (context) => {
   const partial = await createFixture({ scenario: 'partial' });
   const nonempty = await createFixture({ scenario: 'nonempty' });

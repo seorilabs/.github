@@ -33,6 +33,7 @@ const IPS = {
   rpi4001: '192.168.0.100',
   'seori-m6-01': '192.168.0.118',
 };
+const TANG_TRUST_PROBE = 'seorilabs-p2-tang-trust-probe-v1';
 
 let recoveryFdIdentity;
 try {
@@ -351,6 +352,37 @@ if (executable === '/usr/bin/fallocate') {
 }
 
 if (executable === '/usr/bin/clevis') {
+  if (args[0] === 'encrypt' && args[1] === 'tang') {
+    const input = readFileSync(0, 'utf8');
+    let config;
+    try {
+      config = JSON.parse(args[2]);
+    } catch {
+      process.exit(1);
+    }
+    const expected = Object.entries(IPS).find(([, ipv4]) => config.url?.includes(ipv4))?.[0];
+    if (
+      input !== TANG_TRUST_PROBE || expected === undefined || expected === 'rpi5' ||
+      config.thp !== THUMBPRINTS[expected] ||
+      (scenario === 'tang-trust-drift' && expected === 'seori-m6-01')
+    ) process.exit(1);
+    output({
+      protected: 'fixture-protected',
+      iv: 'fixture-iv',
+      ciphertext: `fixture-${expected}`,
+      tag: 'fixture-tag',
+    });
+  }
+  if (args[0] === 'decrypt' && args.length === 1) {
+    const input = readFileSync(0, 'utf8');
+    try {
+      const jwe = JSON.parse(input);
+      if (!jwe.ciphertext?.startsWith('fixture-')) process.exit(1);
+    } catch {
+      process.exit(1);
+    }
+    outputRaw(TANG_TRUST_PROBE);
+  }
   if (args[1] === 'bind') {
     state.clevis = true;
     saveState();

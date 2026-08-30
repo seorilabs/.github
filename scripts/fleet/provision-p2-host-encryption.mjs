@@ -1408,14 +1408,38 @@ function installManagedConfigurations(preBackupAttestation) {
   }
 }
 
-function verifyTangAdvertisements(attestations) {
+function verifyTangTrust(attestations) {
+  // Tang advertisements are signed JWS values whose serialization is not a stable identity.
+  // Clevis verifies the signed advertisement against the attested signing-key thumbprint.
+  const probe = 'seorilabs-p2-tang-trust-probe-v1';
   for (const attestation of attestations) {
-    const advertisement = run(
-      '/usr/bin/curl',
-      ['--fail', '--silent', '--show-error', '--max-time', '10', `${attestation.url}/adv`],
+    const encrypted = run(
+      '/usr/bin/clevis',
+      [
+        'encrypt',
+        'tang',
+        canonicalJson({
+          url: attestation.url,
+          thp: attestation.signingKeyThumbprints[0],
+        }),
+      ],
       'P2_TANG_ADVERTISEMENT_READBACK_FAILED',
+      { input: probe },
     ).stdout;
-    if (sha256(advertisement) !== attestation.advertisementSha256) {
+    const jwe = publicJson(encrypted, 'P2_TANG_ADVERTISEMENT_DRIFT');
+    if (
+      !['ciphertext', 'iv', 'protected', 'tag'].every((name) =>
+        typeof jwe[name] === 'string' && jwe[name].length > 0)
+    ) {
+      stop('P2_TANG_ADVERTISEMENT_DRIFT');
+    }
+    const decrypted = run(
+      '/usr/bin/clevis',
+      ['decrypt'],
+      'P2_TANG_ADVERTISEMENT_READBACK_FAILED',
+      { input: encrypted },
+    ).stdout;
+    if (decrypted !== probe) {
       stop('P2_TANG_ADVERTISEMENT_DRIFT');
     }
   }
@@ -1583,9 +1607,9 @@ function apply() {
     `${contract.target.backupRoot}/rollback.json`,
   ]) assertMissingLeaf(path, 'P2_HOST_APPLY_ARTIFACT_ALREADY_EXISTS');
   const preflightStateVolumeAttestation = readStateVolume(kubeconfigPath);
-  verifyTangAdvertisements(tangAttestations);
   readRequiredPackages({ installMissing: true });
   loadPreBackup();
+  verifyTangTrust(tangAttestations);
   const clevisPolicy = buildClevisPolicy(contract, tangAttestations, authorityPublicKey);
 
   mutate('/usr/bin/install', ['--directory', '--mode=0700', '/data/seori-auth']);
@@ -1972,7 +1996,7 @@ function restore() {
   if (headerDigest !== rollbackReceipt.headerBackupSha256) stop('P2_HOST_HEADER_BACKUP_DRIFT');
   const rollbackUuid = readLuksUuid(contract.target.rollbackSourcePath);
   if (rollbackUuid !== rollbackReceipt.luksUuid) stop('P2_HOST_LUKS_UUID_DRIFT');
-  verifyTangAdvertisements(tangAttestations);
+  verifyTangTrust(tangAttestations);
 
   const restoredSourceIdentity = recoverableRename({
     source: contract.target.rollbackSourcePath,
