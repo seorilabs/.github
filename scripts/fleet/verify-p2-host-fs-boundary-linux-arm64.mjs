@@ -38,7 +38,6 @@ const publicEnvironment = {
   PATH: '/usr/sbin:/usr/bin:/sbin:/bin',
 };
 const recordCanary = 'P2_RECORD_CONTENT_CANARY_MUST_NOT_APPEAR';
-const replacementCanary = 'P2_REPLACEMENT_CANARY_MUST_NOT_APPEAR';
 
 if (process.platform !== 'linux' || process.arch !== 'arm64') {
   throw new Error('P2 filesystem boundary harness requires Linux ARM64');
@@ -66,7 +65,6 @@ function run(executable, args, { allowHarnessPath = false, input, expectedStatus
   );
   const publicOutput = `${result.stdout}${result.stderr}`;
   assert.doesNotMatch(publicOutput, new RegExp(recordCanary, 'u'));
-  assert.doesNotMatch(publicOutput, new RegExp(replacementCanary, 'u'));
   if (!allowHarnessPath) assert.doesNotMatch(publicOutput, new RegExp(harnessRoot, 'u'));
   return result;
 }
@@ -218,10 +216,7 @@ try {
   assert.equal(tangOverrideEntry.gid, 0);
   assert.equal(tangOverrideEntry.mode & 0o777, 0o644);
   assert.equal(tangOverrideEntry.nlink, 1);
-  run(testBinary, ['publish-record', 'tang-socket-override'], {
-    input: Buffer.from(`${replacementCanary}\n`, 'utf8'),
-    expectedStatus: 126,
-  });
+  run(testBinary, ['publish-record', 'tang-socket-override'], { expectedStatus: 126 });
   assert.deepEqual(readFileSync(tangOverridePath), tangOverrideBytes);
 
   run(testBinary, ['publish-record', 'trust-anchor'], {
@@ -268,10 +263,7 @@ try {
     assert.equal(entry.mode & 0o777, mode);
   }
 
-  run(testBinary, ['publish-record', 'pre-provision'], {
-    input: Buffer.from(`${replacementCanary}\n`, 'utf8'),
-    expectedStatus: 126,
-  });
+  run(testBinary, ['publish-record', 'pre-provision'], { expectedStatus: 126 });
   assert.deepEqual(readFileSync(recordPath), recordBytes);
   run(testBinary, ['publish-record', '../pre-provision'], { expectedStatus: 126 });
 

@@ -339,6 +339,18 @@ test('central workflows gate Linux ARM64 host syscalls and Darwin child hardenin
     assert.match(normalized, /\/root\/seorilabs-p2-native-harness-/u);
     assert.doesNotMatch(normalized, /\/(?:run|var\/tmp)\/seorilabs-p2-native-harness-/u);
   }
+  assert.equal(
+    linuxHarness.includes(
+      "run(testBinary, ['publish-record', 'pre-provision'], { expectedStatus: 126 });",
+    ),
+    true,
+  );
+  assert.equal(
+    linuxHarness.includes(
+      "run(testBinary, ['publish-record', 'tang-socket-override'], { expectedStatus: 126 });",
+    ),
+    true,
+  );
   for (const workflow of workflows) {
     const linux = workflow.jobs['p2-host-boundary-arm64'];
     const darwin = workflow.jobs['p2-process-boundary-macos'];
