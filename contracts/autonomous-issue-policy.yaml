@@ -1,5 +1,5 @@
-schemaVersion: 1
-id: seorilabs-autonomous-issue-policy-v1
+schemaVersion: 2
+id: seorilabs-autonomous-issue-policy-v2
 
 defaults:
   registration: DISABLED
@@ -21,7 +21,14 @@ schedules:
       - "15:25"
       - "18:25"
       - "21:25"
-    maxIssuesPerRun: 1
+    mode: sequential-drain
+    workItemConcurrency: 1
+    workItemAttemptsPerRun: 1
+    continueAfterItemBlocker: true
+    stopConditions:
+      - no-unattempted-eligible-work
+      - execution-budget-exhausted
+      - global-safety-blocker
     priorityOrder:
       - P1
       - P2

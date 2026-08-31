@@ -116,7 +116,7 @@ function eligible(issue, environment = "local") {
   return environment === "local" || issue.labels.includes("autopilot:cloud");
 }
 
-function selectNext(issues, environment = "local") {
+function orderedQueue(issues, environment = "local") {
   const priority = new Map(
     policy.schedules.processing.priorityOrder.map((label, index) => [label, index]),
   );
@@ -130,7 +130,7 @@ function selectNext(issues, environment = "local") {
         left.createdAt.localeCompare(right.createdAt) ||
         left.number - right.number
       );
-    })[0];
+    });
 }
 
 test("자율 이슈 정책은 JSON Schema를 통과한다", () => {
@@ -138,6 +138,21 @@ test("자율 이슈 정책은 JSON Schema를 통과한다", () => {
     schema,
   );
   assert.equal(validate(policy), true, JSON.stringify(validate.errors));
+});
+
+test("처리는 실행당 건수 상한 없이 한 항목씩 직렬로 큐를 소진한다", () => {
+  assert.equal(policy.schemaVersion, 2);
+  assert.equal(policy.id, "seorilabs-autonomous-issue-policy-v2");
+  assert.equal("maxIssuesPerRun" in policy.schedules.processing, false);
+  assert.equal(policy.schedules.processing.mode, "sequential-drain");
+  assert.equal(policy.schedules.processing.workItemConcurrency, 1);
+  assert.equal(policy.schedules.processing.workItemAttemptsPerRun, 1);
+  assert.equal(policy.schedules.processing.continueAfterItemBlocker, true);
+  assert.deepEqual(policy.schedules.processing.stopConditions, [
+    "no-unattempted-eligible-work",
+    "execution-budget-exhausted",
+    "global-safety-blocker",
+  ]);
 });
 
 test("22개 제품은 양쪽 ENABLED이고 6개 제외 제품은 양쪽 EXCLUDED다", () => {
@@ -225,20 +240,20 @@ test("로컬 의존성은 local, 저장소와 CI만 필요한 작업은 cloud로
   assert.equal(routeFor({ sources: ["unknown-source"], requirements: [] }), "autopilot:local");
 });
 
-test("처리 후보는 차단 gate 뒤 P1부터 오래된 순으로 한 건만 고른다", () => {
+test("처리 큐는 차단 gate 뒤 P1부터 오래된 순으로 모든 적격 항목을 정렬한다", () => {
   const base = {
     repository: "seorilabs/lizard-tycoon",
     state: "OPEN",
     hasClosingPullRequest: false,
   };
-  const selected = selectNext([
+  const queue = orderedQueue([
     { ...base, number: 9, createdAt: "2026-08-01T00:00:00Z", labels: ["autopilot", "autopilot:local", "P2"] },
     { ...base, number: 8, createdAt: "2026-08-02T00:00:00Z", labels: ["autopilot", "autopilot:cloud", "P1"] },
     { ...base, number: 7, createdAt: "2026-08-01T00:00:00Z", labels: ["autopilot", "autopilot:cloud", "P1"] },
     { ...base, number: 6, createdAt: "2026-07-01T00:00:00Z", labels: ["autopilot", "autopilot:cloud", "P1", "blocked"] },
     { ...base, number: 5, createdAt: "2026-06-01T00:00:00Z", labels: ["autopilot", "autopilot:cloud", "P1", "approval:planning"] },
   ]);
-  assert.equal(selected.number, 7);
+  assert.deepEqual(queue.map(({ number }) => number), [7, 8, 9]);
 });
 
 test("클라우드는 cloud 라벨만 선택하고 제외 저장소는 항상 건너뛴다", () => {
@@ -268,5 +283,5 @@ test("클라우드는 cloud 라벨만 선택하고 제외 저장소는 항상 �
       labels: ["autopilot", "autopilot:cloud", "P1"],
     },
   ];
-  assert.equal(selectNext(issues, "cloud").number, 2);
+  assert.deepEqual(orderedQueue(issues, "cloud").map(({ number }) => number), [2]);
 });
