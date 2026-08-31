@@ -328,8 +328,53 @@ if [[ "$(/usr/bin/sha256sum "$staging/package-lock.json" | /usr/bin/awk '{print 
 fi
 
 bootstrap_step="DEPENDENCY_INSTALL"
-(cd "$staging" && /usr/local/bin/npm ci --ignore-scripts --no-bin-links --workspaces=false \
-  --audit=false --fund=false >/dev/null)
+npm_home="$staging/.npm-home"
+npm_cache="$staging/.npm-cache"
+npm_tmp="$staging/.npm-tmp"
+npm_log="$staging/.npm-install.log"
+npm_user_config="$npm_home/user.npmrc"
+npm_global_config="$npm_home/global.npmrc"
+/usr/bin/mkdir -m 0700 "$npm_home" "$npm_cache" "$npm_tmp"
+/usr/bin/install -m 0600 /dev/null "$npm_user_config"
+/usr/bin/install -m 0600 /dev/null "$npm_global_config"
+if ! (cd "$staging" && /usr/bin/env -i \
+  HOME="$npm_home" \
+  PATH=/usr/local/bin:/usr/bin:/bin \
+  TMPDIR="$npm_tmp" \
+  NPM_CONFIG_CACHE="$npm_cache" \
+  NPM_CONFIG_USERCONFIG="$npm_user_config" \
+  NPM_CONFIG_GLOBALCONFIG="$npm_global_config" \
+  NPM_CONFIG_AUDIT=false \
+  NPM_CONFIG_FUND=false \
+  NPM_CONFIG_UPDATE_NOTIFIER=false \
+  NPM_CONFIG_PROGRESS=false \
+  NPM_CONFIG_COLOR=false \
+  NPM_CONFIG_LOGLEVEL=error \
+  /usr/local/bin/npm ci --ignore-scripts --no-bin-links --workspaces=false \
+    >"$npm_log" 2>&1); then
+  if /usr/bin/grep -Eiq 'ENOSPC|no space left on device' "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_STORAGE"
+  elif /usr/bin/grep -Eiq \
+    'EAI_AGAIN|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|ECONNREFUSED|ECONNRESET' \
+    "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_NETWORK"
+  elif /usr/bin/grep -Eiq \
+    'CERT_|certificate|UNABLE_TO_VERIFY_LEAF_SIGNATURE|SELF_SIGNED_CERT' "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_TLS"
+  elif /usr/bin/grep -Eiq 'E401|E403|Unable to authenticate|authentication token' "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_REGISTRY_AUTH"
+  elif /usr/bin/grep -Eiq 'EINTEGRITY|integrity checksum failed' "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_INTEGRITY"
+  elif /usr/bin/grep -Eiq 'EACCES|EPERM' "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_FILE_ACCESS"
+  elif /usr/bin/grep -Eiq 'EUSAGE|package-lock|npm-shrinkwrap' "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_LOCKFILE"
+  else
+    bootstrap_step="DEPENDENCY_INSTALL_UNKNOWN"
+  fi
+  exit 126
+fi
+/usr/bin/rm -rf --one-file-system -- "$npm_home" "$npm_cache" "$npm_tmp" "$npm_log"
 workspace_parent="$staging/node_modules/@seorilabs"
 for workspace in repo-contract seori-auth; do
   workspace_link="$workspace_parent/$workspace"

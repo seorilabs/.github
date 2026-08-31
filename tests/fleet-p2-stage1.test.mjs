@@ -1361,8 +1361,20 @@ test('source bootstrap validates the outer Node command symlink without collapsi
   );
   assert.match(
     source,
-    /npm ci --ignore-scripts --no-bin-links --workspaces=false[\s\S]*--fund=false >\/dev\/null\)/u,
+    /\/usr\/bin\/env -i[\s\S]*HOME="\$npm_home"[\s\S]*NPM_CONFIG_USERCONFIG="\$npm_user_config"[\s\S]*NPM_CONFIG_GLOBALCONFIG="\$npm_global_config"[\s\S]*npm ci --ignore-scripts --no-bin-links --workspaces=false/u,
   );
+  assert.match(source, /\/usr\/bin\/install -m 0600 \/dev\/null "\$npm_user_config"/u);
+  assert.match(source, /\/usr\/bin\/install -m 0600 \/dev\/null "\$npm_global_config"/u);
+  assert.match(source, />"\$npm_log" 2>&1\); then/u);
+  assert.match(source, /DEPENDENCY_INSTALL_STORAGE/u);
+  assert.match(source, /DEPENDENCY_INSTALL_NETWORK/u);
+  assert.match(source, /DEPENDENCY_INSTALL_TLS/u);
+  assert.match(source, /DEPENDENCY_INSTALL_REGISTRY_AUTH/u);
+  assert.match(source, /DEPENDENCY_INSTALL_INTEGRITY/u);
+  assert.match(source, /DEPENDENCY_INSTALL_FILE_ACCESS/u);
+  assert.match(source, /DEPENDENCY_INSTALL_LOCKFILE/u);
+  assert.match(source, /DEPENDENCY_INSTALL_UNKNOWN/u);
+  assert.doesNotMatch(source, /\/bin\/cat "\$npm_log"/u);
   assert.match(source, /trap finish EXIT/u);
   assert.match(source, /P2_STAGE1_HOST_BOOTSTRAP_%s_FAILED/u);
   assert.match(source, /bootstrap_step="DEPENDENCY_INSTALL"/u);
