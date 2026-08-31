@@ -2,11 +2,17 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
 const SHA256 = /^[a-f0-9]{64}$/;
+const SHA40 = /^[a-f0-9]{40}$/;
 const LUKS_UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
 const PUBLIC_ID = /^[A-Za-z0-9._:-]{1,256}$/;
 const HOST_ENCRYPTION_KEYS = [
   'digestAlgorithm', 'filesystemType', 'luksType', 'mapperPath', 'markerPath',
   'missingPolicy', 'mode', 'schemaVersion', 'sourcePath', 'status',
+];
+const HOST_ENCRYPTION_VERIFICATION_KEYS = ['receipt', 'verifierSourceSha'];
+const REBOOT_RECEIPT_KEYS = [
+  'contractDigest', 'currentBootId', 'hostEncryptionDigest', 'nodeName',
+  'observedDigest', 'previousBootId', 'provisionedDigest', 'schemaVersion', 'state',
 ];
 const HOST_ATTESTATION_KEYS = [
   'filesystemType', 'luksType', 'luksUuid', 'mapperPath', 'mode', 'mountPath',
@@ -70,8 +76,17 @@ function publicIdentity(value, keys) {
 
 export function validateHostEncryptionPolicy(state) {
   const policy = state?.hostEncryption;
+  const expectedKeys = policy?.status === 'verified'
+    ? [...HOST_ENCRYPTION_KEYS, 'verification']
+    : HOST_ENCRYPTION_KEYS;
+  const verification = policy?.verification;
+  const receipt = verification?.receipt;
+  const receiptCore = receipt && typeof receipt === 'object' && !Array.isArray(receipt)
+    ? { ...receipt }
+    : undefined;
+  if (receiptCore !== undefined) delete receiptCore.observedDigest;
   if (
-    !exactKeys(policy, HOST_ENCRYPTION_KEYS) || policy.schemaVersion !== 1 ||
+    !exactKeys(policy, expectedKeys) || policy.schemaVersion !== 1 ||
     policy.mode !== 'LUKS2_DM_CRYPT' ||
     !['verified', 'blocked_unverified'].includes(policy.status) ||
     policy.luksType !== 'LUKS2' || policy.filesystemType !== 'ext4' ||
@@ -82,6 +97,25 @@ export function validateHostEncryptionPolicy(state) {
     policy.missingPolicy !== 'FAIL_CLOSED' ||
     state?.volume?.nodeName !== 'rpi5' ||
     state?.volume?.localPath !== '/var/lib/seori-auth'
+  ) stop('HOST_ENCRYPTION_POLICY_INVALID');
+  if (
+    policy.status === 'verified' &&
+    (
+      !exactKeys(verification, HOST_ENCRYPTION_VERIFICATION_KEYS) ||
+      !SHA40.test(verification.verifierSourceSha ?? '') ||
+      !exactKeys(receipt, REBOOT_RECEIPT_KEYS) ||
+      receipt.schemaVersion !== 1 ||
+      receipt.state !== 'HOST_ENCRYPTED_MOUNT_REBOOT_VERIFIED' ||
+      receipt.nodeName !== 'rpi5' ||
+      !SHA256.test(receipt.contractDigest ?? '') ||
+      !LUKS_UUID.test(receipt.previousBootId ?? '') ||
+      !LUKS_UUID.test(receipt.currentBootId ?? '') ||
+      receipt.previousBootId === receipt.currentBootId ||
+      !SHA256.test(receipt.provisionedDigest ?? '') ||
+      !SHA256.test(receipt.hostEncryptionDigest ?? '') ||
+      !SHA256.test(receipt.observedDigest ?? '') ||
+      sha256(canonicalJson(receiptCore)) !== receipt.observedDigest
+    )
   ) stop('HOST_ENCRYPTION_POLICY_INVALID');
   return policy;
 }

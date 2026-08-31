@@ -63,6 +63,7 @@ function withExternalGateState(source, ready) {
   binding.secretManager.provisioning.state = externalState;
   binding.state.protection.status = ready ? 'verified' : 'blocked_unverified';
   binding.state.hostEncryption.status = ready ? 'verified' : 'blocked_unverified';
+  if (!ready) delete binding.state.hostEncryption.verification;
   configMap.data['bindings.json'] = JSON.stringify(binding);
   return copy;
 }

@@ -618,8 +618,52 @@
                 "sourcePath": { "const": "/data/seori-auth/seori-auth-state.luks" },
                 "markerPath": { "const": "/var/lib/seori-auth/.seorilabs-host-encrypted-mount.json" },
                 "digestAlgorithm": { "const": "SHA256_CANONICAL_JSON" },
-                "missingPolicy": { "const": "FAIL_CLOSED" }
-              }
+                "missingPolicy": { "const": "FAIL_CLOSED" },
+                "verification": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["verifierSourceSha", "receipt"],
+                  "properties": {
+                    "verifierSourceSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+                    "receipt": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion", "state", "nodeName", "contractDigest",
+                        "previousBootId", "currentBootId", "provisionedDigest",
+                        "hostEncryptionDigest", "observedDigest"
+                      ],
+                      "properties": {
+                        "schemaVersion": { "const": 1 },
+                        "state": { "const": "HOST_ENCRYPTED_MOUNT_REBOOT_VERIFIED" },
+                        "nodeName": { "const": "rpi5" },
+                        "contractDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                        "previousBootId": { "type": "string", "pattern": "^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$" },
+                        "currentBootId": { "type": "string", "pattern": "^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$" },
+                        "provisionedDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                        "hostEncryptionDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                        "observedDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                      }
+                    }
+                  }
+                }
+              },
+              "allOf": [{
+                "if": {
+                  "properties": { "status": { "const": "verified" } },
+                  "required": ["status"]
+                },
+                "then": {
+                  "properties": { "verification": {} },
+                  "required": ["verification"]
+                },
+                "else": {
+                  "not": {
+                    "properties": { "verification": {} },
+                    "required": ["verification"]
+                  }
+                }
+              }]
             },
             "protection": {
               "type": "object",

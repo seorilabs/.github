@@ -593,7 +593,7 @@ authBroker:
     hostEncryption:
       schemaVersion: 1
       mode: LUKS2_DM_CRYPT
-      status: blocked_unverified
+      status: verified
       luksType: LUKS2
       filesystemType: ext4
       mapperPath: /dev/mapper/seori-auth-state
@@ -601,6 +601,18 @@ authBroker:
       markerPath: /var/lib/seori-auth/.seorilabs-host-encrypted-mount.json
       digestAlgorithm: SHA256_CANONICAL_JSON
       missingPolicy: FAIL_CLOSED
+      verification:
+        verifierSourceSha: 3640229983eb27505e9edbc136654f0c9a5da1d5
+        receipt:
+          schemaVersion: 1
+          state: HOST_ENCRYPTED_MOUNT_REBOOT_VERIFIED
+          nodeName: rpi5
+          contractDigest: 06368f5a09faf6b76510ee2b1e04217e765783010c7bcdc06839f51a1df6cc4b
+          previousBootId: 13550044-568d-4cca-81f9-d9649a565113
+          currentBootId: 83492a7b-8171-4f72-b865-d2ac9b6df0ca
+          provisionedDigest: 3b45e051747ea55a179becbb9176c08d83359a1dccca855b4305ee9f78ec3737
+          hostEncryptionDigest: b9641e773e5a27b2a16c522dc232830a7e3a5ce9435ba5acd4a3b6ba2f2d3101
+          observedDigest: 1395adf535b12060963d2cb9b84cf7d8df1279968d0d0e813ecc204d37813444
     protection:
       mode: APPLICATION_ENVELOPE
       status: blocked_unverified
