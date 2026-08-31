@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
-  chmod, mkdir, mkdtemp, readFile, rm, unlink, writeFile,
+  chmod, mkdir, mkdtemp, readFile, realpath, rm, unlink, writeFile,
 } from 'node:fs/promises';
 import net from 'node:net';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -30,7 +31,7 @@ function run(executable) {
 }
 
 test('regular-file askpass injects only the exact request through a native pipe', async () => {
-  const root = await mkdtemp('/private/tmp/p2ask.');
+  const root = await mkdtemp(join(await realpath(tmpdir()), 'p2ask.'));
   const askDirectory = join(root, 'run/systemd/ask-password');
   const sourceDirectory = join(root, 'data/seori-auth');
   const binaryDirectory = join(root, 'bin');
