@@ -25,6 +25,7 @@ import { parse } from 'yaml';
 
 import {
   canonicalDigest,
+  canonicalJson,
   confirmations as hostConfirmations,
   sha256,
 } from '../tools/seori-auth/src/host-encryption-provisioning.mjs';
@@ -711,13 +712,40 @@ test('Stage1 controller provisions, backs up, restore-verifies, signs, and deliv
     ])).stdout);
     assert.equal(delivered.state, 'RPI5_TANG_TRUST_EVIDENCE_INSTALLED');
     assert.equal(delivered.secretExposed, false);
+    const remoteAttestations = new Map();
     for (const server of hostContract.tang.servers) {
-      await lstat(join(
+      const path = join(
         fixture.remoteRoot,
         'rpi5',
         contract.tangBackup.hostAttestationRoot.slice(1),
         `${server.nodeName}.json`,
-      ));
+      );
+      await lstat(path);
+      const attestation = JSON.parse(await readFile(path, 'utf8'));
+      delete attestation.observedDigest;
+      attestation.advertisementSha256 = sha256(`legacy-rpi5-${server.nodeName}`);
+      attestation.observedDigest = canonicalDigest(attestation);
+      const bytes = Buffer.from(`${canonicalJson(attestation)}\n`, 'utf8');
+      await chmod(path, 0o600);
+      await writeFile(path, bytes);
+      await chmod(path, 0o400);
+      remoteAttestations.set(server.nodeName, bytes);
+    }
+    const repeated = JSON.parse((await runController(fixture, 'deliver-rpi5-evidence', [
+      `--source-sha=${sourceSha}`,
+      `--confirmation=${plan.confirmations.rpi5}`,
+    ])).stdout);
+    assert.equal(repeated.state, 'RPI5_TANG_TRUST_EVIDENCE_INSTALLED');
+    assert.equal(repeated.trustState, 'EXACT_READBACK');
+    for (const server of hostContract.tang.servers) {
+      assert.equal(repeated.attestationStates[server.nodeName], 'EXACT_READBACK');
+      const path = join(
+        fixture.remoteRoot,
+        'rpi5',
+        contract.tangBackup.hostAttestationRoot.slice(1),
+        `${server.nodeName}.json`,
+      );
+      assert.deepEqual(await readFile(path), remoteAttestations.get(server.nodeName));
     }
     const combinedOutput = await readFile(fixture.log, 'utf8');
     assert.doesNotMatch(combinedOutput, new RegExp(secretCanary, 'u'));

@@ -32,6 +32,7 @@ import {
   sha256,
   validateTangFleetAttestations,
   validateTangBackupAttestation,
+  validateTangServerAttestation,
 } from '../../tools/seori-auth/src/host-encryption-provisioning.mjs';
 import {
   P2Stage1Error,
@@ -552,6 +553,64 @@ function writeHostRecord(path, bytes, modeValue, selected, options = {}) {
   return 'CREATED';
 }
 
+function tangServerStableProjection(attestation) {
+  const projection = { ...attestation };
+  delete projection.advertisementSha256;
+  delete projection.observedDigest;
+  return projection;
+}
+
+function selectCreateOnlyTangServerAttestation(path, candidate, authorityPublicKey) {
+  const validatedCandidate = validateTangServerAttestation(
+    hostContract,
+    candidate,
+    authorityPublicKey,
+  );
+  let bytes;
+  try {
+    bytes = readRegular(path, {
+      modes: [0o400],
+      maxBytes: MAX_PUBLIC_INPUT,
+      rootOwned: true,
+    });
+  } catch (error) {
+    if (!(error instanceof Stage1HostError) || error.code !== 'P2_STAGE1_FILE_INVALID') {
+      throw error;
+    }
+    try {
+      lstatSync(mapped(path));
+      stop('P2_STAGE1_CREATE_ONLY_DRIFT');
+    } catch (nested) {
+      if (nested instanceof Stage1HostError) throw nested;
+      if (nested?.code !== 'ENOENT') stop('P2_STAGE1_CREATE_ONLY_DRIFT');
+    }
+    return validatedCandidate;
+  }
+  try {
+    let existing;
+    try {
+      existing = JSON.parse(bytes.toString('utf8'));
+    } catch {
+      stop('P2_STAGE1_CREATE_ONLY_DRIFT');
+    }
+    if (!bytes.equals(Buffer.from(`${canonicalJson(existing)}\n`, 'utf8'))) {
+      stop('P2_STAGE1_CREATE_ONLY_DRIFT');
+    }
+    const validatedExisting = validateTangServerAttestation(
+      hostContract,
+      existing,
+      authorityPublicKey,
+    );
+    if (
+      canonicalJson(tangServerStableProjection(validatedExisting)) !==
+      canonicalJson(tangServerStableProjection(validatedCandidate))
+    ) stop('P2_STAGE1_CREATE_ONLY_DRIFT');
+    return validatedExisting;
+  } finally {
+    bytes.fill(0);
+  }
+}
+
 function plan() {
   allowedOptions(['server']);
   const { selected, host } = server();
@@ -811,47 +870,61 @@ function installRpi5Evidence() {
     !Array.isArray(payload.tangAttestations)
   ) stop('P2_STAGE1_INSTALL_PAYLOAD_INVALID');
   const publicKey = Buffer.from(payload.publicKeyPem, 'utf8');
-  const publicDetails = attestorPublicDetails(publicKey);
-  const attestations = validateTangFleetAttestations(
-    hostContract,
-    payload.tangAttestations,
-    publicKey,
-  );
-  const paths = rpi5Paths();
-  const trustState = writeHostRecord(
-    paths.trustAnchor,
-    publicKey,
-    0o444,
-    hostContract.tang.servers[0],
-    {
-    privateParent: false,
-    },
-  );
-  const attestationStates = {};
-  for (const attestation of attestations) {
-    const bytes = Buffer.from(`${canonicalJson(attestation)}\n`, 'utf8');
-    try {
-      attestationStates[attestation.nodeName] = writeHostRecord(
+  try {
+    const publicDetails = attestorPublicDetails(publicKey);
+    const attestations = validateTangFleetAttestations(
+      hostContract,
+      payload.tangAttestations,
+      publicKey,
+    );
+    const paths = rpi5Paths();
+    const selectedAttestations = attestations.map((attestation) =>
+      selectCreateOnlyTangServerAttestation(
         paths.attestations[attestation.nodeName],
-        bytes,
-        0o400,
-        hostContract.tang.servers.find(({ nodeName }) => nodeName === attestation.nodeName),
-      );
-    } finally {
-      bytes.fill(0);
+        attestation,
+        publicKey,
+      ));
+    const validatedSelected = validateTangFleetAttestations(
+      hostContract,
+      selectedAttestations,
+      publicKey,
+    );
+    const trustState = writeHostRecord(
+      paths.trustAnchor,
+      publicKey,
+      0o444,
+      hostContract.tang.servers[0],
+      {
+        privateParent: false,
+      },
+    );
+    const attestationStates = {};
+    for (const attestation of validatedSelected) {
+      const bytes = Buffer.from(`${canonicalJson(attestation)}\n`, 'utf8');
+      try {
+        attestationStates[attestation.nodeName] = writeHostRecord(
+          paths.attestations[attestation.nodeName],
+          bytes,
+          0o400,
+          hostContract.tang.servers.find(({ nodeName }) => nodeName === attestation.nodeName),
+        );
+      } finally {
+        bytes.fill(0);
+      }
     }
+    return Object.freeze({
+      schemaVersion: 1,
+      state: 'RPI5_TANG_TRUST_EVIDENCE_INSTALLED',
+      nodeName: host.nodeName,
+      signerPublicKeySha256: publicDetails.fingerprintSha256,
+      tangAttestationDigests: validatedSelected.map(({ observedDigest }) => observedDigest),
+      trustState,
+      attestationStates,
+      secretExposed: false,
+    });
+  } finally {
+    publicKey.fill(0);
   }
-  publicKey.fill(0);
-  return Object.freeze({
-    schemaVersion: 1,
-    state: 'RPI5_TANG_TRUST_EVIDENCE_INSTALLED',
-    nodeName: host.nodeName,
-    signerPublicKeySha256: publicDetails.fingerprintSha256,
-    tangAttestationDigests: attestations.map(({ observedDigest }) => observedDigest),
-    trustState,
-    attestationStates,
-    secretExposed: false,
-  });
 }
 
 const handlers = new Map([
