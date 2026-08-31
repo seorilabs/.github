@@ -668,7 +668,10 @@ authBroker:
       podLabel: provider-execution-signer
   egressProxy:
     peer:
-      namespaceLabel: auth-egress
+      # cert-manager client/server certificates share the existing namespace-scoped
+      # auth-broker-egress-ca. Isolation is by empty-RBAC ServiceAccount, exact pod
+      # selector and mTLS SPIFFE ID rather than a second namespace with copied CA key.
+      namespaceLabel: auth-broker
       podLabel: seori-auth-egress-proxy
     port: 8443
   roles:

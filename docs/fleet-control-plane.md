@@ -107,6 +107,10 @@ NetworkPolicy, cert-manager 내부 TLS와 공개 binding만 생성한다. GCP se
 실제 생성·readback되고 application envelope/Retain PVC 및 private GHCR pull identity가 확인되기
 전에는 workload와 PVC를 만들지 않는다. 현재 적용 및 blocker 근거는
 [Fleet P3 runtime 전환 기록](migration/fleet-p3-runtime-2026-08-28.md)에 고정한다.
+외부 HTTPS는 empty-RBAC `seori-auth-egress-proxy` Pod를 유일한 출구로 사용한다. namespace-scoped
+`auth-broker-egress-ca`의 private key를 다른 namespace로 복제하지 않도록 proxy도 `auth-broker`에 두되,
+exact pod selector와 mTLS SPIFFE allowlist로 broker/factor/runtime과 분리한다. 호출 workload에는 Internet
+443 egress가 없고 proxy만 exact CONNECT hostname과 public DNS answer를 검증한 뒤 443을 연다.
 rollback renderer는 namespace를 보존하며 foundation이 소유한 객체만 반환한다.
 GitHub와 GCP bootstrap은 기본 실행이 dry-run이며 exact 공개 confirmation 없이는 mutation을
 거부한다. GitHub bootstrap은 새 App을 만들지 않는다. App `4124446`, installation
