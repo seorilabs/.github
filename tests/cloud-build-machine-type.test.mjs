@@ -18,11 +18,15 @@ async function makeRepo(files) {
   return root;
 }
 
-test("machineType 을 생략하면 통과한다", async () => {
+test("machineType 을 생략하면 진단을 만든다", async () => {
   const root = await makeRepo({
     "cloudbuild-android.yaml": "steps: []\noptions:\n  logging: CLOUD_LOGGING_ONLY\n",
   });
-  assert.deepEqual(await collectCloudBuildMachineTypeDiagnostics(root), []);
+  const diagnostics = await collectCloudBuildMachineTypeDiagnostics(root);
+  assert.equal(diagnostics.length, 1);
+  assert.equal(diagnostics[0].code, "CLOUD_BUILD_MACHINE_TYPE");
+  assert.equal(diagnostics[0].path, "$.options.machineType");
+  assert.match(diagnostics[0].message, /현재 값 생략됨/);
 });
 
 test("E2_STANDARD_2 는 통과한다", async () => {
