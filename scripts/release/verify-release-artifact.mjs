@@ -146,6 +146,9 @@ function main() {
       `verified_version_name=${binding.versionName}`,
       `verified_version_code=${binding.androidVersionCode}`,
     ];
+    if (kind === 'android-app-bundle') {
+      lines.push(`package_name=${summary.packageName}`);
+    }
     if (receiptPath.length > 0) {
       lines.push(`artifact_receipt_path=${receiptPath}`);
     }

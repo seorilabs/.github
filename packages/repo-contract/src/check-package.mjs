@@ -49,6 +49,7 @@ const requiredPackageFiles = [
   ".generated/contracts/xcode-cloud-run.schema.json",
   ".generated/release/tag-version-authority.mjs",
   ".generated/release/resolve-release-version.mjs",
+  ".generated/release/upload-google-play-aab.py",
   ".generated/release/verify-release-artifact.mjs",
   ".generated/release/apply-godot-export-version.mjs",
   ".generated/profiles/godot.yaml",

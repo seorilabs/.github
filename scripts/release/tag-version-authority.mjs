@@ -658,7 +658,8 @@ function protobufString(fields, fieldNumber) {
 
 /**
  * AAB의 base/manifest/AndroidManifest.xml(aapt.pb.XmlNode)에서 manifest element의
- * android:versionName과 android:versionCode를 읽는다.
+ * package, android:versionName, android:versionCode를 읽는다. package name은 중앙
+ * uploader가 repo-local config나 script를 읽지 않고 exact artifact identity를 사용하게 한다.
  */
 export function parseAabManifest(buffer) {
   const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer ?? []);
@@ -682,14 +683,17 @@ export function parseAabManifest(buffer) {
       continue;
     }
     const attribute = readProtobufFields(attributeBytes);
-    if (protobufString(attribute, 1) !== ANDROID_RESOURCE_NAMESPACE) {
-      continue;
-    }
+    const namespace = protobufString(attribute, 1);
     const name = protobufString(attribute, 2);
-    if (name !== 'versionName' && name !== 'versionCode') {
+    const isPackageName = namespace === '' && name === 'package';
+    const isVersion =
+      namespace === ANDROID_RESOURCE_NAMESPACE &&
+      (name === 'versionName' || name === 'versionCode');
+    if (!isPackageName && !isVersion) {
       continue;
     }
-    if (found.has(name)) {
+    const key = isPackageName ? 'packageName' : name;
+    if (found.has(key)) {
       continue;
     }
 
@@ -705,11 +709,21 @@ export function parseAabManifest(buffer) {
         : undefined;
       value = typeof decimal === 'number' ? String(decimal) : value;
     }
-    found.set(name, value);
+    found.set(key, value);
   }
 
+  const packageName = found.get('packageName');
   const versionName = found.get('versionName');
   const rawCode = found.get('versionCode');
+  if (
+    packageName === undefined ||
+    !/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/u.test(packageName)
+  ) {
+    fail(
+      'artifact-provenance-mismatch',
+      `AAB manifest package name을 읽지 못했다: ${packageName ?? 'missing'}`,
+    );
+  }
   if (versionName === undefined || versionName.length === 0) {
     fail('artifact-provenance-mismatch', 'AAB manifest에 android:versionName이 없다.');
   }
@@ -722,7 +736,7 @@ export function parseAabManifest(buffer) {
     fail('artifact-provenance-mismatch', `AAB manifest versionCode가 안전한 정수가 아니다: ${rawCode}`);
   }
 
-  return { versionName, versionCode };
+  return { packageName, versionName, versionCode };
 }
 
 /** plutil -convert json 출력에서 Apple marketing version과 build number를 읽는다. */

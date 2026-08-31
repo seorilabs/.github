@@ -89,6 +89,7 @@ const RUNTIME_ASSET_FILES = Object.freeze([
   "scripts/release/tag-version-authority.mjs",
   "scripts/release/resolve-release-version.mjs",
   "scripts/release/resolve-github-tag-commit.mjs",
+  "scripts/release/upload-google-play-aab.py",
   "scripts/release/verify-release-artifact.mjs",
   "scripts/release/verify-ait-build-evidence.mjs",
   "scripts/fleet/stage-private-package-v5.mjs",

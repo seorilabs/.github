@@ -3,7 +3,15 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
@@ -44,6 +52,7 @@ const REPOSITORY_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const FIXTURES = resolve(REPOSITORY_ROOT, 'fixtures/release-version-authority');
 const RESOLVE_CLI = resolve(REPOSITORY_ROOT, 'scripts/release/resolve-release-version.mjs');
 const VERIFY_CLI = resolve(REPOSITORY_ROOT, 'scripts/release/verify-release-artifact.mjs');
+const PLAY_UPLOAD_CLI = resolve(REPOSITORY_ROOT, 'scripts/release/upload-google-play-aab.py');
 const GODOT_CLI = resolve(REPOSITORY_ROOT, 'scripts/release/apply-godot-export-version.mjs');
 const AUTHORITY_CONTRACT = resolve(REPOSITORY_ROOT, 'contracts/release-version-authority.yaml');
 
@@ -360,7 +369,11 @@ test('annotated tag receipt는 같은 태그의 다른 source 재사용을 fail-
 test('AAB manifest readback은 tag 파생값과 다르면 fail-closed한다', () => {
   const rn = binding();
   const rnManifest = parseAabManifest(readFileSync(join(FIXTURES, 'react-native/android/aab-manifest.pb')));
-  assert.deepEqual(rnManifest, { versionName: '1.2.3', versionCode: 1_001_002_003 });
+  assert.deepEqual(rnManifest, {
+    packageName: 'im.seorilabs.traittesthub',
+    versionName: '1.2.3',
+    versionCode: 1_001_002_003,
+  });
   assert.doesNotThrow(() =>
     assertArtifactVersion({ kind: 'android-app-bundle', binding: rn, observed: rnManifest }),
   );
@@ -369,7 +382,11 @@ test('AAB manifest readback은 tag 파생값과 다르면 fail-closed한다', ()
   const leaked = parseAabManifest(
     readFileSync(join(FIXTURES, 'react-native/android/aab-manifest-package-json-authority.pb')),
   );
-  assert.deepEqual(leaked, { versionName: '0.9.3', versionCode: 903_000 });
+  assert.deepEqual(leaked, {
+    packageName: 'im.seorilabs.traittesthub',
+    versionName: '0.9.3',
+    versionCode: 903_000,
+  });
   assert.throws(
     () => assertArtifactVersion({ kind: 'android-app-bundle', binding: rn, observed: leaked }),
     (error) => error.code === 'artifact-provenance-mismatch',
@@ -377,7 +394,11 @@ test('AAB manifest readback은 tag 파생값과 다르면 fail-closed한다', ()
 
   const godot = binding({ tag: 'v2.0.5', workflow: 'godot-deploy-google-play.yml' });
   const godotManifest = parseAabManifest(readFileSync(join(FIXTURES, 'godot/android/aab-manifest.pb')));
-  assert.deepEqual(godotManifest, { versionName: '2.0.5', versionCode: 1_002_000_005 });
+  assert.deepEqual(godotManifest, {
+    packageName: 'im.seorilabs.foamparty',
+    versionName: '2.0.5',
+    versionCode: 1_002_000_005,
+  });
   assert.doesNotThrow(() =>
     assertArtifactVersion({ kind: 'android-app-bundle', binding: godot, observed: godotManifest }),
   );
@@ -386,7 +407,11 @@ test('AAB manifest readback은 tag 파생값과 다르면 fail-closed한다', ()
   const configJson = parseAabManifest(
     readFileSync(join(FIXTURES, 'godot/android/aab-manifest-config-json-authority.pb')),
   );
-  assert.deepEqual(configJson, { versionName: '0.1.0', versionCode: 1 });
+  assert.deepEqual(configJson, {
+    packageName: 'im.seorilabs.foamparty',
+    versionName: '0.1.0',
+    versionCode: 1,
+  });
   assert.throws(
     () => assertArtifactVersion({ kind: 'android-app-bundle', binding: godot, observed: configJson }),
     (error) => error.code === 'artifact-provenance-mismatch',
@@ -1428,6 +1453,18 @@ test('릴리즈 경로는 artifact metadata를 다시 읽어 태그와 대조한
   }
 });
 
+test('RN Play build는 Backoffice가 관리하는 선택적 Play Games public binding을 보존한다', () => {
+  const workflow = workflowText('rn-deploy-google-play.yml');
+  const definition = parse(workflow);
+  const build = definition.jobs['build-aab'].steps.find(
+    ({ name }) => name === 'Build signed Android AAB',
+  );
+  assert.equal(build.env.PLAY_GAMES_PROJECT_ID, '${{ vars.PLAY_GAMES_PROJECT_ID }}');
+  assert.equal(build.env.PLAY_GAMES_LEADERBOARD_ID, '${{ vars.PLAY_GAMES_LEADERBOARD_ID }}');
+  assert.match(build.run, /-PversionNameOverride="\$APP_VERSION_NAME"/u);
+  assert.match(build.run, /-PversionCodeOverride="\$APP_VERSION_CODE"/u);
+});
+
 test('Godot 릴리즈 경로는 명시된 preset 하나에만 태그 파생 버전을 주입한다', () => {
   // 주입 대상 preset과 export 대상 preset이 같은 변수여야 다른 preset을 덮어쓰지 않는다.
   const androidWorkflow = workflowText('godot-deploy-google-play.yml');
@@ -1493,7 +1530,23 @@ test('마켓 업로드와 트랙 승격은 태그 파생 exact versionCode를 �
     );
     assert.match(upload, /SEORI_EXPECTED_ANDROID_VERSION_CODE" =~ \^\[1-9\]\[0-9\]\*\$/u, name);
     assert.match(upload, /--aab-path "\$VERIFIED_AAB_PATH"/u, name);
+    assert.match(upload, /--expected-aab-sha256 "\$SEORI_EXPECTED_AAB_SHA256"/u, name);
+    assert.match(upload, /--expected-version-code "\$SEORI_EXPECTED_ANDROID_VERSION_CODE"/u, name);
+    assert.match(upload, /--package-name "\$VERIFIED_PACKAGE_NAME"/u, name);
+    assert.match(
+      upload,
+      /python3 \.seorilabs-release-authority\/scripts\/release\/upload-google-play-aab\.py/u,
+      name,
+    );
+    assert.match(upload, /VERIFIED_PACKAGE_NAME" = "\$EXPECTED_PACKAGE_NAME/u, name);
+    assert.doesNotMatch(upload, /scripts\/upload-google-play|tools\/upload_google_play/u, name);
   }
+
+  const rnDefinition = parse(workflowText('rn-deploy-google-play.yml'));
+  const godotDefinition = parse(workflowText('godot-deploy-google-play.yml'));
+  assert.equal(Object.hasOwn(rnDefinition.on.workflow_call.inputs, 'upload_script'), false);
+  assert.equal(rnDefinition.on.workflow_call.inputs.package_name.default, '');
+  assert.equal(godotDefinition.on.workflow_call.inputs.package_name.default, '');
 
   // 트랙 승격은 트랙의 최신 build가 아니라 태그가 정한 build 하나만 올린다.
   const promote = workflowText('promote-google-play.yml');
@@ -1508,6 +1561,56 @@ test('마켓 업로드와 트랙 승격은 태그 파생 exact versionCode를 �
   assert.match(promote, /EXPECTED_WORKFLOW_PATH: seorilabs\/\.github\/\.github\/workflows\/promote-google-play\.yml/u);
   assert.match(promote, /resolve-release-version\.mjs --github-output/u);
   assert.doesNotMatch(promote, /--sort=-v:refname/u);
+});
+
+test('중앙 Google Play uploader는 repo config 없이 exact AAB digest와 공개 identity를 검증한다', () => {
+  const source = readFileSync(PLAY_UPLOAD_CLI, 'utf8');
+  assert.doesNotMatch(source, /google-play\.config\.json|package\.json|resolve-release-version/u);
+  assert.match(source, /uploaded_version_code != validated\["expectedVersionCode"\]/u);
+  assert.match(source, /GOOGLE_PLAY_VERSION_CODE_MISMATCH/u);
+  assert.match(source, /google\.auth\.default\(scopes=\[ANDROID_PUBLISHER_SCOPE\]\)/u);
+
+  const syntax = spawnSync(
+    'python3',
+    ['-c', 'compile(open(__import__("sys").argv[1], encoding="utf-8").read(), __import__("sys").argv[1], "exec")', PLAY_UPLOAD_CLI],
+    { encoding: 'utf8' },
+  );
+  assert.equal(syntax.status, 0, syntax.stderr);
+
+  const root = mkdtempSync(join(tmpdir(), 'central-play-uploader-'));
+  try {
+    const aab = join(root, 'verified.aab');
+    const bytes = Buffer.from('verified-central-aab-fixture', 'utf8');
+    writeFileSync(aab, bytes);
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    const probe = [
+      'import argparse, importlib.util, json, sys',
+      'spec = importlib.util.spec_from_file_location("central_uploader", sys.argv[1])',
+      'module = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(module)',
+      'args = argparse.Namespace(package_name="im.seorilabs.cyclepair", track="internal", release_name="1.0.5", release_status="draft", expected_version_code=1001000005, expected_aab_sha256=sys.argv[3], aab_path=sys.argv[2], release_notes_json="")',
+      'result = module.validate_upload(args)',
+      'result["aabPath"] = str(result["aabPath"])',
+      'print(json.dumps(result, sort_keys=True))',
+    ].join('; ');
+    const valid = spawnSync('python3', ['-c', probe, PLAY_UPLOAD_CLI, aab, digest], {
+      encoding: 'utf8',
+      env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
+    });
+    assert.equal(valid.status, 0, valid.stderr);
+    const result = JSON.parse(valid.stdout);
+    assert.equal(result.packageName, 'im.seorilabs.cyclepair');
+    assert.equal(result.expectedVersionCode, 1_001_000_005);
+    assert.equal(result.aabPath, realpathSync(aab));
+
+    const invalid = spawnSync('python3', ['-c', probe, PLAY_UPLOAD_CLI, aab, '0'.repeat(64)], {
+      encoding: 'utf8',
+      env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
+    });
+    assert.notEqual(invalid.status, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('AppsInToss 배포는 검증한 exact 파일 경로를 CLI에 넘기고 API key를 job 전체에 두지 않는다', () => {

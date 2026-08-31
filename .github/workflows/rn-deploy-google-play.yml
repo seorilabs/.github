@@ -4,11 +4,11 @@
 # 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
 # package.json, Gradle, 저장소 로컬 resolver, 마켓 config JSON은 authority가 아니며 AAB readback에서
 # tag 파생값과 다르면 업로드 전에 fail-closed한다.
-# 표준 contract(템플릿이 구현):
+# 표준 build contract(템플릿이 구현):
 #   - apps/mobile/android(또는 android)/gradlew :app:bundleRelease
 #       -PversionNameOverride -PversionCodeOverride
-#   - scripts/upload-google-play-internal.py --aab-path --release-name --release-status [--track] [--changes-not-sent-for-review]
 #   - scripts/restore-mobile-firebase-config.mjs --android --require
+# 업로드는 exact central SHA의 scripts/release/upload-google-play-aab.py만 사용한다.
 name: RN Deploy Google Play (reusable)
 
 on:
@@ -16,6 +16,11 @@ on:
     inputs:
       release_tag:
         description: "빌드/업로드할 릴리즈 태그. 비우면 최신 vX.Y.Z."
+        required: false
+        default: ""
+        type: string
+      package_name:
+        description: "Backoffice BuildTarget의 Google Play package ID. 검증된 AAB identity와 같아야 한다."
         required: false
         default: ""
         type: string
@@ -71,10 +76,6 @@ on:
         description: "Android Gradle 프로젝트 경로(비우면 자동 탐지)"
         required: false
         default: ""
-        type: string
-      upload_script:
-        required: false
-        default: "scripts/upload-google-play-internal.py"
         type: string
       firebase_restore_script:
         required: false
@@ -342,6 +343,10 @@ jobs:
         env:
           APP_VERSION_NAME: ${{ steps.release.outputs.version_name }}
           APP_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
+          # 선택적 public build binding. Backoffice bootstrap이 caller repository vars로 관리하고,
+          # 이를 소비하지 않는 앱에서는 빈 값이라 기존 Gradle 계약에 영향을 주지 않는다.
+          PLAY_GAMES_PROJECT_ID: ${{ vars.PLAY_GAMES_PROJECT_ID }}
+          PLAY_GAMES_LEADERBOARD_ID: ${{ vars.PLAY_GAMES_LEADERBOARD_ID }}
         run: ./gradlew :app:bundleRelease --no-daemon -PversionNameOverride="$APP_VERSION_NAME" -PversionCodeOverride="$APP_VERSION_CODE"
 
       # Gradle이 override를 무시하거나 프로젝트 값이 남아 있으면 여기서 fail-closed한다.
@@ -456,8 +461,14 @@ jobs:
           # 업로드 대상은 검증된 exact 경로 하나다. 스크립트가 자체 탐색으로 다른 파일을 고르지 않는다.
           VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
           SEORI_EXPECTED_AAB_SHA256: ${{ steps.provenance.outputs.artifact_digest }}
+          VERIFIED_PACKAGE_NAME: ${{ steps.provenance.outputs.package_name }}
+          EXPECTED_PACKAGE_NAME: ${{ inputs.package_name }}
           # uploader는 태그 파생 versionCode를 필수로 요구한다. 트랙 최신값을 쓰지 않게 한다.
           SEORI_EXPECTED_ANDROID_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
+          RELEASE_NAME: ${{ steps.release.outputs.release_name }}
+          RELEASE_STATUS: ${{ inputs.release_status }}
+          RELEASE_TRACK: ${{ inputs.track }}
+          CHANGES_NOT_SENT_FOR_REVIEW: ${{ inputs.changes_not_sent_for_review }}
         run: |
           set -euo pipefail
           # post-export 검증과 readiness 검사 이후에도 파일이 바뀌지 않았는지 업로드 직전에 다시 본다.
@@ -471,14 +482,26 @@ jobs:
             echo "태그 파생 versionCode가 없다: ${SEORI_EXPECTED_ANDROID_VERSION_CODE:-missing}" >&2
             exit 1
           }
+          [ -n "$EXPECTED_PACKAGE_NAME" ] || {
+            echo "Backoffice package_name binding이 없다." >&2
+            exit 1
+          }
+          [ "$VERIFIED_PACKAGE_NAME" = "$EXPECTED_PACKAGE_NAME" ] || {
+            echo "AAB package identity가 Backoffice binding과 다르다." >&2
+            exit 1
+          }
           args=(
+            --package-name "$VERIFIED_PACKAGE_NAME"
             --aab-path "$VERIFIED_AAB_PATH"
-            --release-name "${{ steps.release.outputs.release_name }}"
-            --release-status "${{ inputs.release_status }}"
-            --track "${{ inputs.track }}"
+            --expected-aab-sha256 "$SEORI_EXPECTED_AAB_SHA256"
+            --expected-version-code "$SEORI_EXPECTED_ANDROID_VERSION_CODE"
+            --release-name "$RELEASE_NAME"
+            --release-status "$RELEASE_STATUS"
+            --track "$RELEASE_TRACK"
           )
-          [ "${{ inputs.changes_not_sent_for_review }}" = "true" ] && args+=(--changes-not-sent-for-review)
-          python3 ${{ inputs.upload_script }} "${args[@]}"
+          [ -n "$RELEASE_NOTES_JSON" ] && args+=(--release-notes-json "$RELEASE_NOTES_JSON")
+          [ "$CHANGES_NOT_SENT_FOR_REVIEW" = "true" ] && args+=(--changes-not-sent-for-review)
+          python3 .seorilabs-release-authority/scripts/release/upload-google-play-aab.py "${args[@]}"
 
       - name: Summary
         shell: bash

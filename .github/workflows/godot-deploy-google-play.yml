@@ -4,14 +4,19 @@
 # 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
 # export_presets.cfg와 play-store config JSON은 authority가 아니라 주입 대상이고, AAB manifest
 # readback이 태그 파생값과 다르면 업로드 전에 fail-closed한다.
-# 표준 contract(tools/): upload_google_play_internal.py
-#   (선택) install_android_build_template.sh, build_admob_plugin.sh, check_google_play_readiness.py
+# 표준 repo contract(tools/): 선택적 install/build/readiness 스크립트.
+# 업로드는 exact central SHA의 scripts/release/upload-google-play-aab.py만 사용한다.
 name: Godot Deploy Google Play (reusable)
 
 on:
   workflow_call:
     inputs:
       release_tag:
+        required: false
+        default: ""
+        type: string
+      package_name:
+        description: "Backoffice BuildTarget의 Google Play package ID. 검증된 AAB identity와 같아야 한다."
         required: false
         default: ""
         type: string
@@ -520,8 +525,13 @@ jobs:
           # 업로드 대상은 검증된 exact 경로 하나다. 스크립트가 자체 탐색으로 다른 파일을 고르지 않는다.
           VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
           SEORI_EXPECTED_AAB_SHA256: ${{ steps.provenance.outputs.artifact_digest }}
+          VERIFIED_PACKAGE_NAME: ${{ steps.provenance.outputs.package_name }}
+          EXPECTED_PACKAGE_NAME: ${{ inputs.package_name }}
           # uploader는 태그 파생 versionCode를 필수로 요구한다. 트랙 최신값을 쓰지 않게 한다.
           SEORI_EXPECTED_ANDROID_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
+          RELEASE_NAME: ${{ github.event.repository.name }} ${{ steps.release.outputs.version_name }} (${{ steps.release.outputs.android_version_code }})
+          RELEASE_STATUS: ${{ inputs.release_status }}
+          RELEASE_TRACK: ${{ inputs.track }}
         run: |
           set -euo pipefail
           # post-export 검증과 readiness 검사 이후에도 파일이 바뀌지 않았는지 업로드 직전에 다시 본다.
@@ -535,13 +545,25 @@ jobs:
             echo "태그 파생 versionCode가 없다: ${SEORI_EXPECTED_ANDROID_VERSION_CODE:-missing}" >&2
             exit 1
           }
+          [ -n "$EXPECTED_PACKAGE_NAME" ] || {
+            echo "Backoffice package_name binding이 없다." >&2
+            exit 1
+          }
+          [ "$VERIFIED_PACKAGE_NAME" = "$EXPECTED_PACKAGE_NAME" ] || {
+            echo "AAB package identity가 Backoffice binding과 다르다." >&2
+            exit 1
+          }
           args=(
+            --package-name "$VERIFIED_PACKAGE_NAME"
             --aab-path "$VERIFIED_AAB_PATH"
-            --track "${{ inputs.track }}"
-            --release-status "${{ inputs.release_status }}"
-            --release-name "${{ github.event.repository.name }} ${{ steps.release.outputs.version_name }} (${{ steps.release.outputs.android_version_code }})"
+            --expected-aab-sha256 "$SEORI_EXPECTED_AAB_SHA256"
+            --expected-version-code "$SEORI_EXPECTED_ANDROID_VERSION_CODE"
+            --track "$RELEASE_TRACK"
+            --release-status "$RELEASE_STATUS"
+            --release-name "$RELEASE_NAME"
           )
-          python3 "$SCRIPTS_DIR/upload_google_play_internal.py" "${args[@]}"
+          [ -n "$RELEASE_NOTES_JSON" ] && args+=(--release-notes-json "$RELEASE_NOTES_JSON")
+          python3 .seorilabs-release-authority/scripts/release/upload-google-play-aab.py "${args[@]}"
 
       - name: Summary
         shell: bash

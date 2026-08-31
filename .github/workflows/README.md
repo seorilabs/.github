@@ -106,11 +106,12 @@ publisher 권한을 가져서는 안 된다. GitHub OIDC 조건은 숫자 reposi
   `scripts/resolve-release-version.mjs`와 caller `version_name`/`version_code`/`version_script`
   입력은 제거됐다. 계약은 [`contracts/release-version-authority.yaml`](../../contracts/release-version-authority.yaml).
 - Android: `apps/mobile/android`(또는 `android`)/`gradlew :app:bundleRelease -PversionNameOverride -PversionCodeOverride`.
-- Google Play 업로드: `scripts/upload-google-play-internal.py`(RN) / `tools/upload_google_play_internal.py`(Godot).
+- Google Play 업로드: exact central SHA의 `scripts/release/upload-google-play-aab.py`.
   두 도구 모두 `--aab-path`로 받은 **검증된 파일 하나만** 업로드한다. 스스로 AAB를 탐색하지 않는다.
   워크플로우는 업로드 직전에 그 경로의 sha256을 다시 계산해 대조하고(post-export/readiness 이후),
   검증된 파일이 있는 디렉터리에 `.aab`가 하나뿐인지 확인한다. 도구는 `SEORI_EXPECTED_AAB_SHA256`과
-  `SEORI_EXPECTED_ANDROID_VERSION_CODE`를 필수로 요구한다.
+  `SEORI_EXPECTED_ANDROID_VERSION_CODE`를 필수로 요구하고, AAB manifest package가 Backoffice
+  BuildTarget package와 다르면 provider 호출 전에 차단한다.
 - 트랙 승격: `promote-google-play.yml`은 태그에서 파생한 versionCode를 `--promote-version-code`로
   넘긴다. 트랙의 "최신 build"를 승격하지 않는다.
 - AppsInToss 배포: 저장소 `deploy` 스크립트는 워크플로우가 준 `--memo`와 `--location`을 **그대로**
