@@ -2,10 +2,12 @@
 
 import { spawn } from 'node:child_process';
 import { constants as fsConstants, realpathSync } from 'node:fs';
-import { access, lstat, realpath } from 'node:fs/promises';
+import { access, lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
+
+import { parse } from 'yaml';
 
 import {
   KubectlReadbackBoundaryError,
@@ -20,6 +22,9 @@ const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const TIMEOUT_MS = 15_000;
 const DEFAULT_KUBECTL = '/usr/local/bin/kubectl';
 const RENDERER = fileURLToPath(new URL('../../../scripts/fleet/render-p3-runtime.mjs', import.meta.url));
+const HOST_READBACK_RBAC = fileURLToPath(new URL('../../../contracts/fleet-p2-host-readback-rbac.yaml', import.meta.url));
+const HOST_READBACK_RBAC_NAME = 'seori-p2-host-readback-rpi5';
+const HOST_READBACK_PRINCIPAL = 'system:node:rpi5';
 const CREDENTIAL_ANNOTATION = /(?:credential|secret|image[-_.]?pull|registry[-_.]?auth|gcp-service-account|role-arn|client-id)/iu;
 const SECRET_AUTHORIZATION_VERBS = Object.freeze([
   'create', 'delete', 'deletecollection', 'get', 'list', 'patch', 'update', 'watch',
@@ -33,6 +38,8 @@ const RESOURCE_NAMES = Object.freeze({
   Service: 'service',
   Role: 'role',
   RoleBinding: 'rolebinding',
+  ClusterRole: 'clusterrole',
+  ClusterRoleBinding: 'clusterrolebinding',
   NetworkPolicy: 'networkpolicy',
   PersistentVolume: 'persistentvolume',
   PersistentVolumeClaim: 'persistentvolumeclaim',
@@ -264,6 +271,74 @@ function resourceMatches(actual, expected) {
   return true;
 }
 
+function exactRbacResourceMatches(actual, expected) {
+  if (
+    !exactKeys(actual, Object.keys(expected)) ||
+    actual.apiVersion !== expected.apiVersion || actual.kind !== expected.kind ||
+    !metadataMatches(actual.metadata ?? {}, expected.metadata ?? {}, expected.kind)
+  ) return false;
+  return Object.entries(expected).every(([key, value]) =>
+    ['apiVersion', 'kind', 'metadata'].includes(key) || isDeepStrictEqual(actual[key], value));
+}
+
+function validateHostReadbackRbac(declaredRbac, namespace) {
+  if (
+    !declaredRbac || declaredRbac.apiVersion !== 'v1' || declaredRbac.kind !== 'List' ||
+    !Array.isArray(declaredRbac.items) || declaredRbac.items.length !== 4
+  ) stop('HOST_READBACK_RBAC_CONTRACT_INVALID');
+  const expectedKinds = new Set(['ClusterRole', 'ClusterRoleBinding', 'Role', 'RoleBinding']);
+  const observedKinds = new Set();
+  for (const item of declaredRbac.items) {
+    if (
+      !item || item.apiVersion !== 'rbac.authorization.k8s.io/v1' ||
+      !expectedKinds.has(item.kind) || observedKinds.has(item.kind) ||
+      item.metadata?.name !== HOST_READBACK_RBAC_NAME ||
+      (['Role', 'RoleBinding'].includes(item.kind)
+        ? item.metadata?.namespace !== namespace
+        : item.metadata?.namespace !== undefined)
+    ) stop('HOST_READBACK_RBAC_CONTRACT_INVALID');
+    observedKinds.add(item.kind);
+    if (['Role', 'ClusterRole'].includes(item.kind)) {
+      if (!Array.isArray(item.rules) || item.rules.length === 0) {
+        stop('HOST_READBACK_RBAC_CONTRACT_INVALID');
+      }
+      for (const rule of item.rules) {
+        if (
+          !Array.isArray(rule.apiGroups) || !Array.isArray(rule.resources) ||
+          !Array.isArray(rule.verbs) || rule.resources.length === 0 || rule.verbs.length === 0 ||
+          rule.apiGroups.includes('*') || rule.resources.includes('*') ||
+          rule.resources.includes('secrets') ||
+          rule.verbs.some((verb) => !['get', 'list'].includes(verb))
+        ) stop('HOST_READBACK_RBAC_CONTRACT_INVALID');
+      }
+      continue;
+    }
+    const expectedRoleKind = item.kind === 'RoleBinding' ? 'Role' : 'ClusterRole';
+    if (
+      !isDeepStrictEqual(item.roleRef, {
+        apiGroup: 'rbac.authorization.k8s.io',
+        kind: expectedRoleKind,
+        name: HOST_READBACK_RBAC_NAME,
+      }) ||
+      !isDeepStrictEqual(item.subjects, [{
+        apiGroup: 'rbac.authorization.k8s.io',
+        kind: 'User',
+        name: HOST_READBACK_PRINCIPAL,
+      }])
+    ) stop('HOST_READBACK_RBAC_CONTRACT_INVALID');
+  }
+  if (observedKinds.size !== expectedKinds.size) stop('HOST_READBACK_RBAC_CONTRACT_INVALID');
+  return declaredRbac.items;
+}
+
+export async function loadHostReadbackRbac() {
+  try {
+    return parse(await readFile(HOST_READBACK_RBAC, 'utf8'), { maxAliasCount: 0 });
+  } catch {
+    stop('HOST_READBACK_RBAC_CONTRACT_INVALID');
+  }
+}
+
 function publicBinding(desired) {
   const configMap = desired.items.find(({ kind }) => kind === 'ConfigMap');
   try {
@@ -342,7 +417,7 @@ async function auditStateVolumeReadback({ desired, reader, namespace, diagnostic
   return readback?.attestation;
 }
 
-export async function auditFoundationReadiness({ desired, reader, context }) {
+export async function auditFoundationReadiness({ desired, declaredRbac, reader, context }) {
   if (
     !desired || desired.kind !== 'List' || !Array.isArray(desired.items) ||
     desired.items.length === 0 || typeof context !== 'string' || context.length === 0 ||
@@ -350,6 +425,10 @@ export async function auditFoundationReadiness({ desired, reader, context }) {
     typeof reader.canI !== 'function'
   ) stop('READINESS_INPUT_INVALID');
   const namespace = contractNamespace(desired);
+  const hostReadbackRbac = validateHostReadbackRbac(
+    declaredRbac ?? await loadHostReadbackRbac(),
+    namespace,
+  );
   const diagnostics = contractDiagnostics(desired);
   const stateReadbackAttestation = await auditStateVolumeReadback({
     desired,
@@ -371,6 +450,26 @@ export async function auditFoundationReadiness({ desired, reader, context }) {
       diagnostics.push({ code: 'FOUNDATION_RESOURCE_DRIFT', kind: expected.kind, name: expected.metadata.name });
     }
   }
+  for (const expected of hostReadbackRbac) {
+    const actual = await reader.get(
+      expected.kind,
+      expected.metadata.name,
+      ['Role', 'RoleBinding'].includes(expected.kind) ? namespace : undefined,
+    );
+    if (!actual) {
+      diagnostics.push({
+        code: 'HOST_READBACK_RBAC_RESOURCE_MISSING',
+        kind: expected.kind,
+        name: expected.metadata.name,
+      });
+    } else if (!exactRbacResourceMatches(actual, expected)) {
+      diagnostics.push({
+        code: 'HOST_READBACK_RBAC_RESOURCE_DRIFT',
+        kind: expected.kind,
+        name: expected.metadata.name,
+      });
+    }
+  }
 
   const expectedConfigMap = desired.items.find(({ kind }) => kind === 'ConfigMap').metadata.name;
   const configMaps = listItems(await reader.list(['configmaps'], namespace));
@@ -381,7 +480,7 @@ export async function auditFoundationReadiness({ desired, reader, context }) {
       item.metadata.name !== expectedConfigMap
     ) diagnostics.push({ code: 'STALE_PUBLIC_BINDING_PRESENT', kind: 'ConfigMap', name: item.metadata.name });
   }
-  const expectedRbac = new Set(desired.items
+  const expectedRbac = new Set([...desired.items, ...hostReadbackRbac]
     .filter(({ kind }) => ['Role', 'RoleBinding'].includes(kind))
     .map(({ kind, metadata }) => `${kind}\0${metadata.name}`));
   const namespaceRbac = listItems(await reader.list(['roles', 'rolebindings'], namespace));
@@ -479,13 +578,17 @@ async function main() {
     stop('KUBECONFIG_PATH_INVALID');
   }
   try {
-    const desired = await childRead(process.execPath, [RENDERER, 'auth-broker-foundation']);
+    const [desired, declaredRbac] = await Promise.all([
+      childRead(process.execPath, [RENDERER, 'auth-broker-foundation']),
+      loadHostReadbackRbac(),
+    ]);
     const binding = publicBinding(desired);
     const context = binding.canary?.kubernetesContext;
     if (typeof context !== 'string' || context.length === 0) stop('CURRENT_CONTRACT_CONTEXT_INVALID');
     const executable = await resolveKubectlPath();
     const result = await auditFoundationReadiness({
       desired,
+      declaredRbac,
       reader: kubectlReader(context, executable, boundary),
       context,
     });
