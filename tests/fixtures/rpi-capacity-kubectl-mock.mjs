@@ -115,7 +115,16 @@ if (args[0] === "get" && args[1] === "autoscalingrunnersets") {
       minRunners,
       maxRunners,
       template: { spec: { nodeSelector, tolerations } },
-      listenerTemplate: { spec: { nodeSelector: arcSelector } },
+      listenerTemplate: {
+        spec: {
+          nodeSelector: x64Selector,
+          tolerations:
+            scenario === "arc-listener-toleration-drift" &&
+            name === "seorilabs-rpi-arm64"
+              ? []
+              : x64Toleration,
+        },
+      },
     },
     status: {
       phase: "Running",
@@ -164,7 +173,17 @@ if (
   output({
     kind: "Deployment",
     metadata: { name: "arc-gha-rs-controller", namespace: "arc-system" },
-    spec: { template: { spec: { nodeSelector: arcSelector } } },
+    spec: {
+      template: {
+        spec: {
+          nodeSelector: x64Selector,
+          tolerations:
+            scenario === "arc-controller-toleration-drift"
+              ? []
+              : x64Toleration,
+        },
+      },
+    },
   });
 }
 
@@ -322,6 +341,34 @@ if (args[0] === "get" && args[1] === "pods") {
         labels: {
           "actions.github.com/scale-set-name":
             scenario === "unlabeled-x64-runner" ? "unmanaged" : "seorilabs-x64",
+        },
+      },
+      spec: { nodeName: "seori-m6-01" },
+      status: { phase: "Running", containerStatuses: [] },
+    },
+    {
+      metadata: {
+        namespace: "arc-system",
+        name: "arc-gha-rs-controller-current",
+        creationTimestamp: "2026-01-01T00:00:00Z",
+        ownerReferences: [{ kind: "ReplicaSet" }],
+      },
+      spec: {
+        nodeName:
+          scenario === "arc-control-placement-drift"
+            ? "rpi5"
+            : "seori-m6-01",
+      },
+      status: { phase: "Running", containerStatuses: [] },
+    },
+    {
+      metadata: {
+        namespace: "arc-system",
+        name: "seorilabs-rpi-arm64-current-listener",
+        creationTimestamp: "2026-01-01T00:00:00Z",
+        ownerReferences: [{ kind: "AutoscalingListener" }],
+        labels: {
+          "actions.github.com/scale-set-name": "seorilabs-rpi-arm64",
         },
       },
       spec: { nodeName: "seori-m6-01" },

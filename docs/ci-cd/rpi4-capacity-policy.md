@@ -14,12 +14,14 @@ fail-closed로 확인한다.
   승인 annotation·ReplicaSet owner chain이 모두 일치할 때만 재생성을 허용한다. 그 외 새 active
   non-DaemonSet workload가 cordon 이후 이 노드에 생기면 검증 실패다. 종료된 진단 readback
   Pod는 현재 capacity를 소비하지 않으므로 placement 실패로 세지 않되 감사 근거로 보존한다.
-- Backoffice automation scheduler, ARC controller/listener/general/DIND runner와 향후
-  Auth Broker 세 workload는 exact `rpi5` selector를 사용한다.
+- Backoffice automation scheduler, arm64 general/DIND runner와 향후 Auth Broker 세
+  workload는 exact `rpi5` selector를 사용한다. ARC controller와 네 scale-set listener는
+  RPI5 장애와 job 수신을 분리하기 위해 exact `seori-m6-01` selector와 `workload=ci`
+  toleration을 사용한다.
 - ARC 스케일셋은 arm64 general(`1/3`)·DIND(`0/1`)와 x64 general(`1/6`)·
   x64 android(`0/1`) 네 개다. 선언값, AutoscalingRunnerSet spec 또는
   current/pending/running 수가 상한을 벗어나면 검증 실패다. x64 두 스케일셋은
-  러너를 `seori-m6-01`에 두고 리스너만 RPI5에 둔다.
+  러너를 `seori-m6-01`에 두며, 네 listener와 controller도 같은 전용 CI 노드에 둔다.
 - 이 변경은 cluster에 apply하지 않고, Pod를 이동하거나 `uncordon`·`taint`를 실행하지
   않는다. Auth Broker가 아직 배치되지 않은 상태는 `not_deployed`로 기록하되 renderer가
   RPI5 이외의 manifest를 생성하지 못하게 한다.
@@ -53,9 +55,8 @@ workload별 동시성 제한으로 해결해야 할 OOM을 분리한다.
 2026-08-30에 `seori-m6-01`(amd64, `workload=ci:NoSchedule` taint, allocatable
 `11500m` CPU / `5209412Ki` memory - 약 4.97Gi) 노드와 `seorilabs-x64`(general, `1/6`)·`seorilabs-x64-android`
 (android, `0/1`) 스케일셋이 추가됐다([이슈 #78](https://github.com/seorilabs/.github/issues/78)).
-두 스케일셋의 러너는 `seori-m6-01` + `workload=ci` toleration으로 배치되고, 리스너는
-기존 세 workload와 동일하게 RPI5에 남는다(RPI4001 refresh 시 리스너가 죽는 문제 회피,
-2026-08-22). `rpi4001` 격리와 RPI5 capacity 조건은 그대로다.
+두 스케일셋의 러너는 `seori-m6-01` + `workload=ci` toleration으로 배치됐다. 당시 listener는
+RPI5에 남겼고 `rpi4001` 격리와 RPI5 capacity 조건은 그대로 유지했다.
 ARC의 idle 최소 러너는 `pendingEphemeralRunners`로 집계될 수 있으므로 capacity 검증은
 `pending + running` 활성 합계가 `minRunners` 이상인지 확인한다. 각 개별 값과 활성 합계가
 `maxRunners`를 넘거나 `currentRunners`가 최소값보다 작으면 계속 fail-closed한다.
@@ -71,6 +72,13 @@ uncordon하지 않고 exact registry Deployment만 고정 selector와 cordon tol
 복구했다. 이 예외를 기계 판독 계약에 포함하면서 임의 Pod가 같은 label만 위조해 통과하지
 못하도록 Deployment와 ReplicaSet owner chain까지 검증한다. 새 필수 필드와 관찰 조건의
 의미가 바뀌므로 `schemaVersion`은 `3`으로 올렸다.
+
+2026-08-31 RPI5 재부팅 중 controller와 모든 listener가 함께 중단되어 정상인 x64 runner도
+새 job을 받지 못한 장애가 확인됐다. 실행 복제본은 controller와 네 listener를
+`seori-m6-01`로 옮기고 `workload=ci:NoSchedule` toleration을 추가했다. 중앙 계약도 selector뿐
+아니라 controller/listener toleration을 exact 검증하도록 바꾸고, 이 control-plane 장애 도메인
+분리라는 의미 변경에 맞춰 `schemaVersion`을 `4`로 올렸다. arm64 runner, Backoffice scheduler,
+Auth Broker의 RPI5 배치는 바꾸지 않았다.
 
 단, 위 시각은 cordon 뒤 약 20시간 25분이므로 24시간 관찰 완료 증거가 아니다. 최초로
 24시간을 채우는 시각은 **2026-08-29 09:01:39 KST**다. verifier는 Node의
@@ -106,11 +114,12 @@ RPI4 uncordon 또는 ARC capacity/placement 변경은 자동 실행하지 않으
 1. cordon `timeAdded` 기준 24시간 이상 관찰
 2. `MemoryPressure=False`, 새 OOM/eviction 0건
 3. host `MemAvailable` readback으로 실제 고갈이 아님을 재확인
-4. scheduler, ARC(arm64 `1/3`·`0/1`, x64 `1/6`·`0/1`), Auth Broker의 exact
-   selector/toleration 유지
+4. scheduler·arm64 runner·Auth Broker의 RPI5 배치, ARC controller/listener와 x64 runner의
+   m6 배치 및 exact toleration 유지
 5. 현재 Pod와 node별 영향 readback 및 사용자 승인
 
-uncordon하더라도 위 세 workload군의 RPI5 selector는 제거하지 않는다. 이후
-`MemoryPressure=True`, 새 OOM/eviction, 제한 workload의 RPI4 배치, RPI5 selector 또는 ARC
+uncordon하더라도 scheduler·arm64 runner·Auth Broker의 RPI5 selector와 ARC control-plane의
+m6 selector는 제거하지 않는다. 이후 `MemoryPressure=True`, 새 OOM/eviction, 제한 workload의
+RPI4 배치, RPI5/m6 selector 또는 ARC
 capacity drift 중 하나가 관찰되면 rollout을 중단하고 현재 상태를 다시 읽은 뒤 RPI4 cordon
 복구를 별도 승인 작업으로 수행한다. 자동으로 RPI4에 workload를 우회 배치하지 않는다.

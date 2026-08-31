@@ -1,4 +1,4 @@
-schemaVersion: 3
+schemaVersion: 4
 
 cluster:
   context: vzyx-cluster
@@ -62,9 +62,14 @@ workloads:
       name: arc-gha-rs-controller
       valuesFile: arc-controller-values.yaml
       nodeSelector:
-        kubernetes.io/hostname: rpi5
+        kubernetes.io/hostname: seori-m6-01
         kubernetes.io/os: linux
-        kubernetes.io/arch: arm64
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: ci
+          effect: NoSchedule
     runnerNamespace: arc-runners
     scaleSets:
       - name: seorilabs-rpi-arm64
@@ -77,9 +82,14 @@ workloads:
           kubernetes.io/os: linux
           kubernetes.io/arch: arm64
         listenerNodeSelector:
-          kubernetes.io/hostname: rpi5
+          kubernetes.io/hostname: seori-m6-01
           kubernetes.io/os: linux
-          kubernetes.io/arch: arm64
+          kubernetes.io/arch: amd64
+        listenerTolerations:
+          - key: workload
+            operator: Equal
+            value: ci
+            effect: NoSchedule
         tolerations: []
       - name: seorilabs-rpi-arm64-dind
         class: dind
@@ -91,9 +101,14 @@ workloads:
           kubernetes.io/os: linux
           kubernetes.io/arch: arm64
         listenerNodeSelector:
-          kubernetes.io/hostname: rpi5
+          kubernetes.io/hostname: seori-m6-01
           kubernetes.io/os: linux
-          kubernetes.io/arch: arm64
+          kubernetes.io/arch: amd64
+        listenerTolerations:
+          - key: workload
+            operator: Equal
+            value: ci
+            effect: NoSchedule
         tolerations: []
       - name: seorilabs-x64
         class: general
@@ -105,9 +120,14 @@ workloads:
           kubernetes.io/os: linux
           kubernetes.io/arch: amd64
         listenerNodeSelector:
-          kubernetes.io/hostname: rpi5
+          kubernetes.io/hostname: seori-m6-01
           kubernetes.io/os: linux
-          kubernetes.io/arch: arm64
+          kubernetes.io/arch: amd64
+        listenerTolerations:
+          - key: workload
+            operator: Equal
+            value: ci
+            effect: NoSchedule
         tolerations:
           - key: workload
             operator: Equal
@@ -123,9 +143,14 @@ workloads:
           kubernetes.io/os: linux
           kubernetes.io/arch: amd64
         listenerNodeSelector:
-          kubernetes.io/hostname: rpi5
+          kubernetes.io/hostname: seori-m6-01
           kubernetes.io/os: linux
-          kubernetes.io/arch: arm64
+          kubernetes.io/arch: amd64
+        listenerTolerations:
+          - key: workload
+            operator: Equal
+            value: ci
+            effect: NoSchedule
         tolerations:
           - key: workload
             operator: Equal

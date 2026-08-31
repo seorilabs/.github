@@ -675,12 +675,14 @@ function removeGeneratedWorkspaceLinks(staging) {
       unlinkSync(path);
     } catch (error) {
       if (error instanceof LocalHardeningBootstrapError) throw error;
+      if (error?.code === 'ENOENT') continue;
       stop('P2_STAGE1_LOCAL_DEPENDENCY_INSTALL_FAILED');
     }
   }
   try {
     rmdirSync(parent);
-  } catch {
+  } catch (error) {
+    if (error?.code === 'ENOENT') return;
     stop('P2_STAGE1_LOCAL_DEPENDENCY_INSTALL_FAILED');
   }
 }

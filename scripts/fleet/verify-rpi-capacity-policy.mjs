@@ -165,7 +165,10 @@ function validateFiles() {
     workspaceFile(configRoot, arc.controller.valuesFile),
     "RPI_CAPACITY_ARC_CONTROLLER_VALUES_INVALID",
   );
-  if (!same(controllerValues?.nodeSelector, arc.controller.nodeSelector)) {
+  if (
+    !same(controllerValues?.nodeSelector, arc.controller.nodeSelector) ||
+    !same(controllerValues?.tolerations ?? [], arc.controller.tolerations)
+  ) {
     fail("RPI_CAPACITY_ARC_CONTROLLER_VALUES_DRIFT");
   }
 
@@ -181,6 +184,10 @@ function validateFiles() {
       !same(
         values?.listenerTemplate?.spec?.nodeSelector,
         scaleSet.listenerNodeSelector,
+      ) ||
+      !same(
+        values?.listenerTemplate?.spec?.tolerations ?? [],
+        scaleSet.listenerTolerations,
       ) ||
       !same(values?.template?.spec?.nodeSelector, scaleSet.nodeSelector) ||
       !same(values?.template?.spec?.tolerations ?? [], scaleSet.tolerations)
@@ -266,6 +273,11 @@ function expectedRestrictedPodNode(pod) {
       pod?.metadata?.labels?.["actions.github.com/scale-set-name"];
     const scaleSet = findScaleSet(contract.workloads.arc, scaleSetName);
     return scaleSet?.nodeSelector?.["kubernetes.io/hostname"];
+  }
+  if (pod?.metadata?.namespace === "arc-system") {
+    return contract.workloads.arc.controller.nodeSelector[
+      "kubernetes.io/hostname"
+    ];
   }
   return contract.cluster.nodes.workload.hostname;
 }
@@ -451,6 +463,10 @@ function liveReadback() {
         expected.listenerNodeSelector,
       ) ||
       !same(
+        actual?.spec?.listenerTemplate?.spec?.tolerations ?? [],
+        expected.listenerTolerations,
+      ) ||
+      !same(
         actual?.spec?.template?.spec?.tolerations ?? [],
         expected.tolerations,
       ) ||
@@ -482,7 +498,13 @@ function liveReadback() {
     ],
     "RPI_CAPACITY_ARC_CONTROLLER_READ_FAILED",
   );
-  if (!same(podTemplateSelector(controller), arc.controller.nodeSelector)) {
+  if (
+    !same(podTemplateSelector(controller), arc.controller.nodeSelector) ||
+    !same(
+      controller?.spec?.template?.spec?.tolerations ?? [],
+      arc.controller.tolerations,
+    )
+  ) {
     fail("RPI_CAPACITY_ARC_CONTROLLER_LIVE_DRIFT");
   }
 

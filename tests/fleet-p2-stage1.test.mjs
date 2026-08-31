@@ -1368,6 +1368,10 @@ test('source bootstrap validates the outer Node command symlink without collapsi
   assert.match(source, /\/usr\/bin\/rm -- "\$workspace_link"/u);
   assert.match(source, /\/usr\/bin\/rmdir -- "\$workspace_parent"/u);
   assert.match(
+    await readFile('scripts/fleet/bootstrap-p2-stage1-local-hardening.mjs', 'utf8'),
+    /error\?\.code === 'ENOENT'\) continue/u,
+  );
+  assert.match(
     source,
     /build-native\.mjs"[\s\S]*seori-auth-native" >\/dev\/null/u,
   );

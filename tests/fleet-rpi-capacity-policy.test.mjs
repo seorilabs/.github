@@ -71,7 +71,12 @@ function scaleSetValues(
     runnerScaleSetName: name,
     minRunners,
     maxRunners,
-    listenerTemplate: { spec: { nodeSelector: { ...arcSelector } } },
+    listenerTemplate: {
+      spec: {
+        nodeSelector: { ...x64Selector },
+        tolerations: structuredClone(x64Toleration),
+      },
+    },
     template: { spec: { nodeSelector: { ...nodeSelector }, tolerations } },
   };
 }
@@ -93,7 +98,10 @@ async function fixtureWorkspace({ generalMax = 3, generalNode = "rpi5" } = {}) {
     writeFile(join(configRoot, "global-versions.yaml"), stringify(global)),
     writeFile(
       join(configRoot, "arc-controller-values.yaml"),
-      stringify({ nodeSelector: { ...arcSelector } }),
+      stringify({
+        nodeSelector: { ...x64Selector },
+        tolerations: structuredClone(x64Toleration),
+      }),
     ),
     writeFile(join(configRoot, "rpi-arm64-values.yaml"), stringify(general)),
     writeFile(
@@ -141,7 +149,7 @@ test("RPI capacity contract는 exact node, 보존 controller와 ARC 상한을 st
     schema,
   );
   assert.equal(validate(contract), true, JSON.stringify(validate.errors));
-  assert.equal(contract.schemaVersion, 3);
+  assert.equal(contract.schemaVersion, 4);
   assert.equal(contract.cluster.nodes.quarantined.hostname, "rpi4001");
   assert.equal(contract.cluster.nodes.workload.hostname, "rpi5");
   assert.equal(contract.cluster.nodes.x64.hostname, "seori-m6-01");
@@ -182,14 +190,14 @@ test("RPI capacity contract는 exact node, 보존 controller와 ARC 상한을 st
   assert.equal(contract.rollback.gate.automaticRetry, false);
 });
 
-test("운영 복제본은 exact RPI5 selector와 일반 1/3, DIND 0/1일 때만 통과한다", async () => {
+test("운영 복제본은 RPI5 runner와 m6 control-plane selector가 exact할 때만 통과한다", async () => {
   const root = await fixtureWorkspace();
   try {
     const result = await verify("files", `${root}/`);
     assert.equal(result.stderr, "");
     const output = JSON.parse(result.stdout);
     assert.equal(output.ok, true);
-    assert.equal(output.policyVersion, 3);
+    assert.equal(output.policyVersion, 4);
     assert.equal(output.workloadNode, "rpi5");
     assert.deepEqual(output.arc, [
       { name: "seorilabs-rpi-arm64", minRunners: 1, maxRunners: 3 },
@@ -228,7 +236,7 @@ test("live readback은 mutation 없이 cordon, selector, ARC와 메모리 eviden
     assert.equal(result.stderr, "");
     const output = JSON.parse(result.stdout);
     assert.equal(output.ok, true);
-    assert.equal(output.policyVersion, 3);
+    assert.equal(output.policyVersion, 4);
     assert.equal(output.evidence.rpi4NodeWorkingSetMi, 4565);
     assert.equal(output.evidence.rpi4RunningPodWorkingSetMi, 534);
     assert.equal(output.evidence.rpi5NodeWorkingSetMi, 3235);
@@ -258,6 +266,9 @@ test("24시간 미만 관찰, ARC 실동작 초과와 RPI4 신규 Pod를 거부�
     ["x64-node-drift", "RPI_CAPACITY_X64_NODE_DRIFT"],
     ["arc-over-capacity", "RPI_CAPACITY_ARC_LIVE_DRIFT"],
     ["arc-under-capacity", "RPI_CAPACITY_ARC_LIVE_DRIFT"],
+    ["arc-listener-toleration-drift", "RPI_CAPACITY_ARC_LIVE_DRIFT"],
+    ["arc-controller-toleration-drift", "RPI_CAPACITY_ARC_CONTROLLER_LIVE_DRIFT"],
+    ["arc-control-placement-drift", "RPI_CAPACITY_WORKLOAD_PLACEMENT_DRIFT"],
     ["unmanaged-arc", "RPI_CAPACITY_ARC_LIVE_DRIFT"],
     ["placement-drift", "RPI_CAPACITY_WORKLOAD_PLACEMENT_DRIFT"],
     ["placement-drift-offset", "RPI_CAPACITY_WORKLOAD_PLACEMENT_DRIFT"],
