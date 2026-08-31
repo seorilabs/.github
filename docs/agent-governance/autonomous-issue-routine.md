@@ -1,6 +1,6 @@
 # Autonomous Issue Routine
 
-이 문서는 Seorilabs 자율 이슈를 한 실행에 하나씩 구현하고 검증해 PR과 이슈를 종결하는 조직 공통 계약이다. 로컬 스킬이 없는 클라우드 환경도 [`autonomous-issue-policy.yaml`](../../contracts/autonomous-issue-policy.yaml), 이 문서와 대상 저장소 문서만으로 `autopilot:cloud` 이슈를 처리할 수 있어야 한다.
+이 문서는 Seorilabs 자율 이슈를 한 시점에 하나씩 구현하고 검증하되, 한 실행 안에서는 적격 큐를 직렬로 소진하는 조직 공통 계약이다. 로컬 스킬이 없는 클라우드 환경도 [`autonomous-issue-policy.yaml`](../../contracts/autonomous-issue-policy.yaml), 이 문서와 대상 저장소 문서만으로 `autopilot:cloud` 이슈를 처리할 수 있어야 한다.
 
 ## 읽기 순서와 실행 환경
 
@@ -8,7 +8,7 @@
 2. 이 문서
 3. `contracts/review-policy.yaml`, `contracts/test-policy.yaml`, `contracts/release-policy.yaml`
 4. 대상 저장소의 `AGENTS.md`, `.seorilabs/app.yaml`, README와 repo-local 실행 문서
-5. 선택한 이슈 본문과 연결된 PR·review thread
+5. 현재 처리할 이슈 본문과 연결된 PR·review thread
 6. 로컬 환경에 관련 스킬이 있으면 구현·검증 어댑터로 사용
 
 기계 판독 계약과 문서가 충돌하면 계약이 우선한다. repo-local 문서는 stack·명령·제품 고유 제약만 보강하며 조직 계약을 약화할 수 없다.
@@ -18,25 +18,28 @@
 - `processing=EXCLUDED`는 가장 앞선 차단 gate다. 해당 저장소를 clone하거나 이슈·PR을 변경하지 않는다.
 - `processing=DISABLED` 또는 정책에 없는 저장소도 건드리지 않는다.
 
-## 핵심 모델 — 한 실행 한 이슈
+## 핵심 모델 — 실행당 직렬 drain
 
-한 실행에서 선택·구현하는 이슈는 최대 한 개다. 같은 자율 이슈를 닫는 열린 PR이 있으면 새 이슈를 고르지 않고 그 PR을 먼저 종결한다. PR이 머지·종료되면 이번 실행을 끝낸다.
+처리 건수에는 고정 상한을 두지 않는다. 실행 시작 시점의 적격 이슈와 이를 닫는 열린 PR을 완전 pagination으로 수집해 하나의 고정 후보 집합을 만들고, 열린 closing PR을 먼저 둔 뒤 P1→P4, `createdAt`, 이슈 번호 순으로 전체를 결정적으로 정렬한다. 실행 도중 새로 생긴 항목은 다음 실행에 맡긴다.
+
+동시에 다루는 항목은 정확히 하나이며 같은 `repository#issue`는 한 실행에서 한 번만 시도한다. 각 시도 직전에 GitHub 상태와 라벨, closing PR, 원격 기본 브랜치를 다시 읽는다. 완료·이미 해결·항목별 차단 중 하나로 시도를 닫은 뒤에만 다음 미시도 항목으로 이동한다.
 
 ```mermaid
 flowchart LR
-  A["진행 중인 자율 PR 확인"] --> B["대상과 라벨 gate"]
-  B --> C["이슈 한 개 선택"]
-  C --> D["격리 구현과 검증"]
-  D --> E["Ready PR과 review gate"]
-  E --> F["머지와 상태 확인 후 종료"]
+  A["실행 시작 후보 전체 고정"] --> B["미시도 최상위 한 건 재검증"]
+  B --> C["격리 구현과 검증"]
+  C --> D["Ready PR과 review gate"]
+  D --> E["완료 또는 항목별 차단 기록"]
+  E --> F["다음 미시도 후보"]
+  F --> B
 ```
 
 ## 진행 중인 PR 우선
 
-- ENABLED 저장소의 열린 PR과 `closingIssuesReferences`를 확인한다.
-- `autopilot` 이슈를 닫는 PR이 있으면 그 PR의 현재 HEAD, CI, Seori·Copilot thread와 mergeability를 먼저 확인한다.
-- 같은 자동화가 새 이슈를 동시에 구현하지 않는다.
-- PR이 사람 승인, 외부 상태 또는 복구 불가능한 실패로 막히면 정확한 blocker를 기록하고 이번 실행을 끝낸다. 근거 없이 다른 PR이나 이슈를 수정하지 않는다.
+- ENABLED 저장소의 열린 PR과 `closingIssuesReferences`를 완전 pagination으로 확인한다.
+- `autopilot` 이슈를 닫는 PR은 새 구현 후보보다 먼저 정렬하고 현재 HEAD, CI, Seori·Copilot thread와 mergeability를 확인한다.
+- 한 PR을 갱신·대기·판정하는 동안 다른 이슈를 구현하지 않는다. repo당 열린 자율 PR은 하나를 넘기지 않는다.
+- PR이 사람 승인, 외부 상태 또는 저장소별 실패로 막히면 정확한 blocker와 현재 HEAD를 기록하고 그 `repository#issue`를 이번 실행의 시도 완료로 표시한다. 공유 mutation 경계가 정상이라면 다음 미시도 저장소·이슈로 진행한다.
 
 ## 새 이슈 선택
 
@@ -53,7 +56,7 @@ flowchart LR
 
 라벨이 누락되거나 상충하면 자동으로 추측해 고치지 않고 부적격 사유를 보고한다. 제목의 레거시 말머리나 `U숫자`·`N숫자`를 선택 순서로 사용하지 않는다.
 
-후보는 P1→P2→P3→P4 순으로 정렬하고, 같은 우선순위에서는 `createdAt`, 이슈 번호 오름차순으로 고른다. 최상위 한 개만 선택한다. 후보가 없으면 no-op으로 종료한다.
+후보는 P1→P2→P3→P4 순으로 정렬하고, 같은 우선순위에서는 `createdAt`, 이슈 번호 오름차순으로 전체 순서를 만든다. 각 반복에서는 아직 시도하지 않은 최상위 한 건만 선택한다. 후보가 없으면 no-op으로 종료한다.
 
 ## 구현 전 재검증
 
@@ -62,8 +65,23 @@ flowchart LR
 3. 현재 코드와 이미 반영된 PR을 대조해 이슈가 여전히 유효한지 확인한다.
 4. `autopilot:local`이면 본문에 적힌 로컬 스킬·데이터·기기·콘솔을 실제로 사용할 수 있는지 확인한다. 없으면 구현하지 않고 blocker를 보고한다.
 5. 범위가 기획 결정, 신규 콘텐츠, 일반 밸런스·경제 확장, 배포·심사·공개 출시로 바뀌었으면 자동 구현하지 않는다.
+6. 다음 한 건을 시작할 실행 시간·비용 예산이 남아 있는지 확인한다. 예산이 소진됐으면 새 worktree나 외부 변경을 만들지 않고 실행을 종료한다.
 
-이미 해결됐거나 중복이면 현재 근거를 이슈에 남기고 안전하게 종결한다. 인수조건이 모호하거나 제품 결정을 요구하면 임의 구현 대신 `blocked` 또는 적절한 `approval:*` gate로 전환하고 종료한다.
+이미 해결됐거나 중복이면 현재 근거를 이슈에 남기고 안전하게 종결한다. 인수조건이 모호하거나 제품 결정을 요구하면 임의 구현 대신 `blocked` 또는 적절한 `approval:*` gate로 전환하고 해당 시도를 닫은 뒤 다음 미시도 항목으로 진행한다.
+
+다음은 항목별 차단이므로 다른 저장소의 진행을 막지 않는다.
+
+- 특정 이슈의 사람 승인·제품 결정·로컬 자원 누락
+- 특정 PR의 review·CI·ruleset 대기
+- repo당 열린 자율 PR 한도 도달
+- 해당 이슈 mutation의 결과 불명. 같은 이슈는 `READBACK_FIRST`로 남기고 재시도하지 않는다.
+
+다음은 전역 안전 차단이므로 즉시 실행을 끝낸다.
+
+- 중앙 계약을 읽을 수 없거나 지원하지 않는 `schemaVersion`
+- GitHub 전체 후보 pagination 또는 공통 인증 상태를 신뢰할 수 없음
+- 공유 lease/CAS/mutation broker의 generation 또는 readback 무결성을 확인할 수 없음
+- 다음 항목을 안전하게 시작할 실행 예산이 없음
 
 ## 격리 구현과 검증
 
@@ -100,11 +118,12 @@ PR 본문에는 다음을 분리해 기록한다.
 6. Ready, current HEAD, required check·CI green, conflict 없음, 미해결 thread 0개를 직접 확인한다.
 7. 모든 gate가 통과하면 `gh pr merge <PR> --squash --delete-branch`로 병합한다. ruleset이나 권한이 막으면 우회하지 않는다.
 
-## 종료와 승인 경계
+## 항목 종료와 실행 종료
 
 - PR 상태, merge SHA, 연결 이슈 close, 원격 기본 브랜치 반영을 확인한다.
 - 병합과 원격 반영 뒤에만 격리 worktree를 안전하게 정리한다.
-- 이번 실행에서는 다음 이슈를 고르지 않는다.
+- `repository#issue`, 시도 세대, 최종 HEAD, 결과와 blocker를 실행 원장에 남긴 뒤 다음 미시도 후보를 고른다.
+- 적격 큐 소진, 실행 예산 소진 또는 전역 안전 차단에서만 전체 실행을 종료한다.
 - 릴리스 생성, artifact upload, 실기기 QA, 마켓 심사, 승인, 배포와 공개 상태는 별도 단계다. 이 루틴은 사람 승인 없이 이를 수행하거나 완료로 표현하지 않는다.
 
-실행 보고에는 선택한 저장소·이슈·실행 라벨, 구현·검증·PR·review·merge 상태, 남은 gate 또는 no-op 사유를 한국어로 구분해 남긴다.
+실행 보고에는 실행 시작 후보 수와 정렬 digest, 시도한 각 저장소·이슈·실행 라벨, 구현·검증·PR·review·merge 상태, 항목별 blocker, 종료 조건을 한국어로 구분해 남긴다. 같은 항목을 한 실행에서 두 번 시도하지 않았고 동시 처리 수가 1이었음을 공개 필드로 확인할 수 있어야 한다.

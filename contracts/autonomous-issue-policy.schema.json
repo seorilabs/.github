@@ -16,8 +16,8 @@
     "repositories"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
-    "id": { "const": "seorilabs-autonomous-issue-policy-v1" },
+    "schemaVersion": { "const": 2 },
+    "id": { "const": "seorilabs-autonomous-issue-policy-v2" },
     "defaults": {
       "type": "object",
       "additionalProperties": false,
@@ -50,13 +50,39 @@
         "processing": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["localTimes", "maxIssuesPerRun", "priorityOrder", "tieBreakers"],
+          "required": [
+            "localTimes",
+            "mode",
+            "candidateSet",
+            "revalidateBeforeEachAttempt",
+            "maxConcurrentIssues",
+            "maxAttemptsPerIssuePerRun",
+            "blockedIssuePolicy",
+            "executionBudgetSource",
+            "stopConditions",
+            "priorityOrder",
+            "tieBreakers"
+          ],
           "properties": {
             "localTimes": {
               "type": "array",
               "const": ["06:25", "09:25", "12:25", "15:25", "18:25", "21:25"]
             },
-            "maxIssuesPerRun": { "const": 1 },
+            "mode": { "const": "sequential-drain" },
+            "candidateSet": { "const": "run-start" },
+            "revalidateBeforeEachAttempt": { "const": true },
+            "maxConcurrentIssues": { "const": 1 },
+            "maxAttemptsPerIssuePerRun": { "const": 1 },
+            "blockedIssuePolicy": { "const": "continue-next-unattempted" },
+            "executionBudgetSource": { "const": "automation-occurrence" },
+            "stopConditions": {
+              "type": "array",
+              "const": [
+                "eligible-queue-exhausted",
+                "execution-budget-exhausted",
+                "global-safety-blocked"
+              ]
+            },
             "priorityOrder": {
               "type": "array",
               "const": ["P1", "P2", "P3", "P4"]

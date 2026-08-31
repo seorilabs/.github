@@ -30,9 +30,9 @@ flowchart LR
 | 영역 | 역할 | 위치 |
 | --- | --- | --- |
 | 운영 계약 | agent가 따라야 하는 조직 공통 규칙 | `.github/docs/agent-governance/` |
-| 자율 이슈 정책 | 대상 저장소·라벨·제목·실행 환경·회차 상한 | `.github/contracts/autonomous-issue-policy.yaml` |
+| 자율 이슈 정책 | 대상 저장소·라벨·제목·실행 환경·등록 상한·처리 모드 | `.github/contracts/autonomous-issue-policy.yaml` |
 | 자율 이슈 등록 계약 | 근거 gate와 실행 환경 분류를 거쳐 한 회차 한 이슈 등록 | `.github/docs/agent-governance/autonomous-issue-registration.md` |
-| 자율 이슈 처리 계약 | 한 회차 한 이슈의 선택·구현·리뷰·머지 절차 | `.github/docs/agent-governance/autonomous-issue-routine.md` |
+| 자율 이슈 처리 계약 | 한 시점 한 이슈를 지키는 실행당 직렬 drain 절차 | `.github/docs/agent-governance/autonomous-issue-routine.md` |
 | 실행 대시보드 | issue/PR/draft item의 상태와 우선순위 | GitHub Organization Project |
 | Source of truth | 기획, 의사결정, 승인 기록 | Obsidian/Vault |
 | Repo-local spec | 코드와 같이 versioned 되는 실행 스펙 | 각 repo의 `docs/`, `specs/`, release metadata |
