@@ -496,7 +496,9 @@ function sourceBoundary() {
       : undefined;
     if (regularFileAskpassBytes !== undefined) sourceBuffers.push(regularFileAskpassBytes);
     const sourceRegularFileAskpassDropInBytes = isRpi5
-      ? readRegular(sourceRegularFileAskpassDropIn, { modes: [0o644], rootOwned: true })
+      ? readRegular(sourceRegularFileAskpassDropIn, {
+        modes: [0o600, 0o644, 0o444], rootOwned: true,
+      })
       : undefined;
     if (sourceRegularFileAskpassDropInBytes !== undefined) {
       sourceBuffers.push(sourceRegularFileAskpassDropInBytes);
