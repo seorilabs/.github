@@ -271,6 +271,13 @@ test('P2 Stage1 contract fixes separate signing/encryption identities and truste
     'CANONICAL_FULL_LOCAL_AND_BEESTATION',
   );
   assert.ok(contract.sourceBootstrap.requiredExecutables.includes('/usr/bin/id'));
+  assert.ok(contract.sourceBootstrap.requiredExecutables.includes('/usr/bin/systemctl'));
+  assert.equal(
+    contract.sourceBootstrap.regularFileAskpassExecutable,
+    '/usr/local/libexec/seorilabs-p2-regular-file-askpass',
+  );
+  assert.equal(contract.sourceBootstrap.regularFileAskpassSlot, 1);
+  assert.match(contract.sourceBootstrap.regularFileAskpassPolicy, /NATIVE_DIRECT_PIPE/u);
   assert.equal(
     contract.hostProcessBoundary.launcherExecutable,
     '/usr/local/libexec/seori-auth-native',
@@ -1256,6 +1263,12 @@ test('source bootstrap validates the outer Node command symlink without collapsi
     source,
     /build-p2-host-fs-boundary\.mjs"[\s\S]*host-fs-boundary" >\/dev\/null/u,
   );
+  assert.match(
+    source,
+    /build-p2-regular-file-askpass\.mjs"[\s\S]*regular-file-askpass" >\/dev\/null/u,
+  );
+  assert.match(source, /systemctl daemon-reload/u);
+  assert.match(source, /DropInPaths/u);
 });
 
 test('local hardening bootstrap is current-user, crash-recoverable, exact, and outside credential backup', {

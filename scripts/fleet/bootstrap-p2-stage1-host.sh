@@ -52,6 +52,7 @@ required_executables=(
   /usr/bin/cut /usr/bin/dd /usr/bin/find /usr/bin/grep /usr/bin/hostname /usr/bin/install
   /usr/bin/ln /usr/bin/mkdir /usr/bin/mv /usr/bin/readlink /usr/bin/rm /usr/bin/tar
   /usr/bin/rmdir /usr/bin/sha256sum /usr/bin/stat /usr/bin/sync /usr/bin/uname /usr/bin/ip
+  /usr/bin/systemctl
   /usr/local/bin/node /usr/local/bin/npm
 )
 for executable in "${required_executables[@]}"; do
@@ -94,8 +95,28 @@ native_helper="${target}/tools/seori-auth/.build/seori-auth-native"
 native_launcher="/usr/local/libexec/seori-auth-native"
 process_boundary="/usr/local/libexec/seorilabs-p2-process-hardening.node"
 record_boundary="${target}/.build/seorilabs-p2-host-fs-boundary"
+regular_file_askpass_source="${target}/.build/seorilabs-p2-regular-file-askpass"
+regular_file_askpass="/usr/local/libexec/seorilabs-p2-regular-file-askpass"
+regular_file_askpass_dropin_source="${target}/contracts/systemd/clevis-luks-askpass.service.d/10-seorilabs-regular-file.conf"
+regular_file_askpass_dropin="/etc/systemd/system/clevis-luks-askpass.service.d/10-seorilabs-regular-file.conf"
 apply_loader="${target}/scripts/fleet/p2-host-encryption-apply-loader.mjs"
 apply_sudoers="/etc/sudoers.d/seorilabs-p2-host-encryption-${source_sha}"
+
+install_exact_helper() {
+  local source="$1"
+  local destination="$2"
+  local expected_sha="$3"
+  if [[ -e "$destination" ]] || [[ -L "$destination" ]]; then
+    if [[ -L "$destination" ]] || [[ ! -f "$destination" ]] || \
+       [[ "$(/usr/bin/stat -Lc '%u:%g:%a' "$destination")" != "0:0:755" ]] || \
+       [[ "$(/usr/bin/sha256sum "$destination" | /usr/bin/awk '{print $1}')" != "$expected_sha" ]]; then
+      exit 126
+    fi
+  else
+    /usr/bin/ln "$source" "$destination"
+    /usr/bin/sync -f /usr/local/libexec
+  fi
+}
 
 ensure_apply_sudoers() {
   if [[ "$host_name" != "rpi5" ]]; then return 0; fi
@@ -132,6 +153,16 @@ readback() {
      [[ ! -x "$record_boundary" ]] || [[ -L "$record_boundary" ]]; then
     return 1
   fi
+  if [[ "$host_name" == "rpi5" ]] && \
+     { [[ ! -x "$regular_file_askpass_source" ]] || [[ -L "$regular_file_askpass_source" ]] || \
+       [[ ! -x "$regular_file_askpass" ]] || [[ -L "$regular_file_askpass" ]] || \
+       [[ ! -f "$regular_file_askpass_dropin_source" ]] || \
+       [[ -L "$regular_file_askpass_dropin_source" ]] || \
+       [[ ! -f "$regular_file_askpass_dropin" ]] || [[ -L "$regular_file_askpass_dropin" ]] || \
+       [[ "$(/usr/bin/stat -Lc '%u:%g:%a' "$regular_file_askpass")" != "0:0:755" ]] || \
+       [[ "$(/usr/bin/stat -Lc '%u:%g:%a' "$regular_file_askpass_dropin")" != "0:0:644" ]]; }; then
+    return 1
+  fi
   receipt_mode="$(/usr/bin/stat -Lc '%a' "$receipt")"
   if [[ "$receipt_mode" != "444" ]]; then return 1; fi
   if /usr/bin/find "$target" \( -type l -o ! -user root -o -perm /0022 \) -print -quit | \
@@ -143,10 +174,21 @@ readback() {
     const path = require("node:path");
     const crypto = require("node:crypto");
     const [receiptPath, sourceSha, archiveSha, lockSha, sourceNativePath, nativePath,
-      processPath, recordPath] = process.argv.slice(1);
+      processPath, recordPath, nodeName, askpassSourcePath, askpassPath,
+      askpassDropInSourcePath, askpassDropInPath] = process.argv.slice(1);
     const value = JSON.parse(fs.readFileSync(receiptPath, "utf8"));
     const digest = (path) => crypto.createHash("sha256").update(fs.readFileSync(path)).digest("hex");
+    const regularKeys = ["sourceRegularFileAskpassPath", "sourceRegularFileAskpassSha256",
+      "regularFileAskpassPath", "regularFileAskpassSha256", "regularFileAskpassDropInPath",
+      "regularFileAskpassDropInSha256"];
+    const expectedKeys = ["schemaVersion", "state", "nodeName", "sourceSha", "archiveSha256",
+      "packageLockSha256", "nodeVersion", "npmVersion", "sourceNativeHelperPath",
+      "sourceNativeHelperSha256", "nativeLauncherPath", "nativeLauncherSha256",
+      "processBoundaryPath", "processBoundarySha256", "recordBoundaryPath",
+      "recordBoundarySha256", "dependencyPolicy",
+      ...(nodeName === "rpi5" ? regularKeys : [])].sort();
     if (value.schemaVersion !== 1 || value.state !== "P2_STAGE1_SOURCE_READY" ||
+        Object.keys(value).sort().join("\0") !== expectedKeys.join("\0") ||
         value.sourceSha !== sourceSha || value.archiveSha256 !== archiveSha ||
         value.packageLockSha256 !== lockSha || value.sourceNativeHelperPath !== sourceNativePath ||
         value.packageLockSha256 !== digest(path.join(path.dirname(receiptPath), "package-lock.json")) ||
@@ -156,8 +198,56 @@ readback() {
         value.recordBoundaryPath !== recordPath ||
         value.recordBoundarySha256 !== digest(recordPath) || value.nodeVersion !== "24.16.0" ||
         value.npmVersion !== "11.13.0") process.exit(126);
+    if (nodeName === "rpi5" &&
+        (value.sourceRegularFileAskpassPath !== askpassSourcePath ||
+         value.sourceRegularFileAskpassSha256 !== digest(askpassSourcePath) ||
+         value.regularFileAskpassPath !== askpassPath ||
+         value.regularFileAskpassSha256 !== digest(askpassPath) ||
+         value.regularFileAskpassSha256 !== value.sourceRegularFileAskpassSha256 ||
+         value.regularFileAskpassDropInPath !== askpassDropInPath ||
+         value.regularFileAskpassDropInSha256 !== digest(askpassDropInPath) ||
+         value.regularFileAskpassDropInSha256 !== digest(askpassDropInSourcePath))) process.exit(126);
   ' "$receipt" "$source_sha" "$archive_sha" "$lock_sha" "$native_helper" "$native_launcher" \
-    "$process_boundary" "$record_boundary"
+    "$process_boundary" "$record_boundary" "$host_name" "$regular_file_askpass_source" \
+    "$regular_file_askpass" "$regular_file_askpass_dropin_source" "$regular_file_askpass_dropin"
+}
+
+ensure_regular_file_askpass_manager() {
+  local source="$1"
+  local dropin_source="$2"
+  if [[ "$host_name" != "rpi5" ]]; then return 0; fi
+  local source_sha256 dropin_sha256 dropin_parent pending loaded_dropins
+  source_sha256="$(/usr/bin/sha256sum "$source" | /usr/bin/awk '{print $1}')"
+  dropin_sha256="$(/usr/bin/sha256sum "$dropin_source" | /usr/bin/awk '{print $1}')"
+  install_exact_helper "$source" "$regular_file_askpass" "$source_sha256"
+  dropin_parent="${regular_file_askpass_dropin%/*}"
+  if [[ -e "$dropin_parent" ]] || [[ -L "$dropin_parent" ]]; then
+    if [[ -L "$dropin_parent" ]] || [[ ! -d "$dropin_parent" ]] || \
+       [[ "$(/usr/bin/stat -Lc '%u:%g:%a' "$dropin_parent")" != "0:0:755" ]]; then
+      exit 126
+    fi
+  else
+    /usr/bin/install -d -o root -g root -m 0755 "$dropin_parent"
+  fi
+  if [[ -e "$regular_file_askpass_dropin" ]] || [[ -L "$regular_file_askpass_dropin" ]]; then
+    if [[ -L "$regular_file_askpass_dropin" ]] || [[ ! -f "$regular_file_askpass_dropin" ]] || \
+       [[ "$(/usr/bin/stat -Lc '%u:%g:%a' "$regular_file_askpass_dropin")" != "0:0:644" ]] || \
+       [[ "$(/usr/bin/sha256sum "$regular_file_askpass_dropin" | /usr/bin/awk '{print $1}')" != "$dropin_sha256" ]]; then
+      exit 126
+    fi
+  else
+    pending="${regular_file_askpass_dropin}.pending"
+    if [[ -e "$pending" ]] || [[ -L "$pending" ]]; then exit 126; fi
+    /usr/bin/install -o root -g root -m 0644 "$dropin_source" "$pending"
+    /usr/bin/mv --no-clobber -T "$pending" "$regular_file_askpass_dropin"
+    /usr/bin/sync -f "$dropin_parent"
+  fi
+  /usr/bin/systemctl daemon-reload
+  loaded_dropins="$(/usr/bin/systemctl show --property=DropInPaths --value clevis-luks-askpass.service)"
+  case " $loaded_dropins " in
+    *" $regular_file_askpass_dropin "*) ;;
+    *) exit 126 ;;
+  esac
 }
 
 verify_process_boundary() {
@@ -173,6 +263,8 @@ verify_process_boundary() {
 
 if [[ -e "$target" ]] || [[ -L "$target" ]]; then
   readback || exit 126
+  ensure_regular_file_askpass_manager \
+    "$regular_file_askpass_source" "$regular_file_askpass_dropin_source"
   ensure_apply_sudoers
   verify_process_boundary || exit 126
   /usr/local/bin/node -e '
@@ -236,46 +328,55 @@ done
   "$staging/.build/seorilabs-p2-process-hardening.node" >/dev/null
 /usr/local/bin/node "$staging/scripts/fleet/build-p2-host-fs-boundary.mjs" \
   "$staging/.build/seorilabs-p2-host-fs-boundary" >/dev/null
+if [[ "$host_name" == "rpi5" ]]; then
+  /usr/local/bin/node "$staging/scripts/fleet/build-p2-regular-file-askpass.mjs" \
+    "$staging/.build/seorilabs-p2-regular-file-askpass" >/dev/null
+fi
 
 staging_native="$staging/tools/seori-auth/.build/seori-auth-native"
 staging_process="$staging/.build/seorilabs-p2-process-hardening.node"
 staging_record="$staging/.build/seorilabs-p2-host-fs-boundary"
+staging_regular_file_askpass="$staging/.build/seorilabs-p2-regular-file-askpass"
+staging_regular_file_askpass_dropin="$staging/contracts/systemd/clevis-luks-askpass.service.d/10-seorilabs-regular-file.conf"
 native_sha="$(/usr/bin/sha256sum "$staging_native" | /usr/bin/awk '{print $1}')"
 process_sha="$(/usr/bin/sha256sum "$staging_process" | /usr/bin/awk '{print $1}')"
 record_sha="$(/usr/bin/sha256sum "$staging_record" | /usr/bin/awk '{print $1}')"
 /usr/bin/install -d -o root -g root -m 0755 /usr/local/libexec
-install_exact_helper() {
-  local source="$1"
-  local destination="$2"
-  local expected_sha="$3"
-  if [[ -e "$destination" ]] || [[ -L "$destination" ]]; then
-    if [[ -L "$destination" ]] || [[ ! -f "$destination" ]] || \
-       [[ "$(/usr/bin/stat -Lc '%u:%g:%a' "$destination")" != "0:0:755" ]] || \
-       [[ "$(/usr/bin/sha256sum "$destination" | /usr/bin/awk '{print $1}')" != "$expected_sha" ]]; then
-      exit 126
-    fi
-  else
-    /usr/bin/ln "$source" "$destination"
-    /usr/bin/sync -f /usr/local/libexec
-  fi
-}
 install_exact_helper "$staging_native" "$native_launcher" "$native_sha"
 install_exact_helper "$staging_process" "$process_boundary" "$process_sha"
+if [[ "$host_name" == "rpi5" ]]; then
+  ensure_regular_file_askpass_manager \
+    "$staging_regular_file_askpass" "$staging_regular_file_askpass_dropin"
+  regular_file_askpass_sha="$(/usr/bin/sha256sum "$staging_regular_file_askpass" | /usr/bin/awk '{print $1}')"
+  regular_file_askpass_dropin_sha="$(/usr/bin/sha256sum "$staging_regular_file_askpass_dropin" | /usr/bin/awk '{print $1}')"
+else
+  regular_file_askpass_sha=""
+  regular_file_askpass_dropin_sha=""
+fi
 /usr/local/bin/node -e '
   const fs = require("node:fs");
   const [path,nodeName,sourceSha,archiveSha256,packageLockSha256,nativeHelperPath,nativeHelperSha256,
     nativeLauncherPath,processBoundaryPath,processBoundarySha256,recordBoundaryPath,
-    recordBoundarySha256] = process.argv.slice(1);
+    recordBoundarySha256,sourceRegularFileAskpassPath,regularFileAskpassPath,regularFileAskpassSha256,
+    regularFileAskpassDropInPath,regularFileAskpassDropInSha256] = process.argv.slice(1);
+  const regular = nodeName === "rpi5" ? {
+    sourceRegularFileAskpassPath,
+    sourceRegularFileAskpassSha256: regularFileAskpassSha256,
+    regularFileAskpassPath,regularFileAskpassSha256,
+    regularFileAskpassDropInPath,regularFileAskpassDropInSha256,
+  } : {};
   const value={schemaVersion:1,state:"P2_STAGE1_SOURCE_READY",nodeName,sourceSha,archiveSha256,
     packageLockSha256,nodeVersion:"24.16.0",npmVersion:"11.13.0",
     sourceNativeHelperPath:nativeHelperPath,sourceNativeHelperSha256:nativeHelperSha256,
     nativeLauncherPath,nativeLauncherSha256:nativeHelperSha256,processBoundaryPath,
-    processBoundarySha256,recordBoundaryPath,recordBoundarySha256,
+    processBoundarySha256,recordBoundaryPath,recordBoundarySha256,...regular,
     dependencyPolicy:"NPM_CI_LOCKFILE_IGNORE_SCRIPTS"};
   fs.writeFileSync(path, JSON.stringify(value)+"\n", {flag:"wx",mode:0o444});
 ' "$staging/stage1-source.json" "$host_name" "$source_sha" "$archive_sha" "$lock_sha" \
   "$native_helper" "$native_sha" "$native_launcher" "$process_boundary" "$process_sha" \
-  "$record_boundary" "$record_sha"
+  "$record_boundary" "$record_sha" "$regular_file_askpass_source" \
+  "$regular_file_askpass" "$regular_file_askpass_sha" \
+  "$regular_file_askpass_dropin" "$regular_file_askpass_dropin_sha"
 /usr/bin/chmod 0444 "$staging/stage1-source.json"
 /usr/bin/chown -R root:root "$staging"
 /usr/bin/find "$staging" -type d -exec /usr/bin/chmod go-w {} +

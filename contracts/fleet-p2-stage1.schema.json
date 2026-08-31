@@ -107,7 +107,7 @@
     },
     "sourceBootstrap": {
       "type": "object", "additionalProperties": false,
-      "required": ["installRoot", "incomingRoot", "archivePolicy", "dependencyPolicy", "packageLockPath", "receiptName", "receiptMode", "packageInstallCommand", "requiredExecutables", "nativeLauncherRelativePath", "filesystemBoundaryBuildRelativePath", "processBoundaryBuildRelativePath", "localInstallerRelativePath", "localInstallPolicy", "helperPolicy"],
+      "required": ["installRoot", "incomingRoot", "archivePolicy", "dependencyPolicy", "packageLockPath", "receiptName", "receiptMode", "packageInstallCommand", "requiredExecutables", "nativeLauncherRelativePath", "filesystemBoundaryBuildRelativePath", "processBoundaryBuildRelativePath", "regularFileAskpassBuildRelativePath", "regularFileAskpassExecutable", "regularFileAskpassDropInRelativePath", "regularFileAskpassDropInPath", "regularFileAskpassSlot", "regularFileAskpassPolicy", "localInstallerRelativePath", "localInstallPolicy", "helperPolicy"],
       "properties": {
         "installRoot": { "const": "/opt/seorilabs/fleet-p2" },
         "incomingRoot": { "const": "/var/tmp/seorilabs-fleet-p2" },
@@ -126,7 +126,7 @@
           ], "items": false
         },
         "requiredExecutables": {
-          "type": "array", "minItems": 27, "maxItems": 27,
+          "type": "array", "minItems": 28, "maxItems": 28,
           "prefixItems": [
             { "const": "/bin/bash" }, { "const": "/bin/cat" }, { "const": "/bin/sh" },
             { "const": "/usr/bin/awk" }, { "const": "/usr/bin/cc" },
@@ -139,7 +139,8 @@
             { "const": "/usr/bin/mv" }, { "const": "/usr/bin/readlink" },
             { "const": "/usr/bin/rm" }, { "const": "/usr/bin/tar" },
             { "const": "/usr/bin/sha256sum" }, { "const": "/usr/bin/stat" },
-            { "const": "/usr/bin/sync" }, { "const": "/usr/bin/uname" },
+            { "const": "/usr/bin/sync" }, { "const": "/usr/bin/systemctl" },
+            { "const": "/usr/bin/uname" },
             { "const": "/usr/bin/ip" }, { "const": "/usr/local/bin/node" },
             { "const": "/usr/local/bin/npm" }
           ], "items": false
@@ -147,6 +148,12 @@
         "nativeLauncherRelativePath": { "const": "tools/seori-auth/.build/seori-auth-native" },
         "filesystemBoundaryBuildRelativePath": { "const": ".build/seorilabs-p2-host-fs-boundary" },
         "processBoundaryBuildRelativePath": { "const": ".build/seorilabs-p2-process-hardening.node" },
+        "regularFileAskpassBuildRelativePath": { "const": ".build/seorilabs-p2-regular-file-askpass" },
+        "regularFileAskpassExecutable": { "const": "/usr/local/libexec/seorilabs-p2-regular-file-askpass" },
+        "regularFileAskpassDropInRelativePath": { "const": "contracts/systemd/clevis-luks-askpass.service.d/10-seorilabs-regular-file.conf" },
+        "regularFileAskpassDropInPath": { "const": "/etc/systemd/system/clevis-luks-askpass.service.d/10-seorilabs-regular-file.conf" },
+        "regularFileAskpassSlot": { "const": 1 },
+        "regularFileAskpassPolicy": { "const": "EXACT_REGULAR_FILE_ASK_ID_ROOT_SOCKET_NATIVE_DIRECT_PIPE_CREATE_ONLY" },
         "localInstallerRelativePath": { "const": "scripts/fleet/bootstrap-p2-stage1-local-hardening.mjs" },
         "localInstallPolicy": { "const": "DARWIN_CURRENT_UID_CREATE_ONLY_EXACT_CONFIRMATION_CRASH_RECOVERABLE" },
         "helperPolicy": { "const": "SOURCE_VERSIONED_BUILD_DIGEST_RECEIPT_CREATE_ONLY_OR_EXACT" }

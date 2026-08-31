@@ -102,6 +102,7 @@ sourceBootstrap:
     - /usr/bin/sha256sum
     - /usr/bin/stat
     - /usr/bin/sync
+    - /usr/bin/systemctl
     - /usr/bin/uname
     - /usr/bin/ip
     - /usr/local/bin/node
@@ -109,6 +110,12 @@ sourceBootstrap:
   nativeLauncherRelativePath: tools/seori-auth/.build/seori-auth-native
   filesystemBoundaryBuildRelativePath: .build/seorilabs-p2-host-fs-boundary
   processBoundaryBuildRelativePath: .build/seorilabs-p2-process-hardening.node
+  regularFileAskpassBuildRelativePath: .build/seorilabs-p2-regular-file-askpass
+  regularFileAskpassExecutable: /usr/local/libexec/seorilabs-p2-regular-file-askpass
+  regularFileAskpassDropInRelativePath: contracts/systemd/clevis-luks-askpass.service.d/10-seorilabs-regular-file.conf
+  regularFileAskpassDropInPath: /etc/systemd/system/clevis-luks-askpass.service.d/10-seorilabs-regular-file.conf
+  regularFileAskpassSlot: 1
+  regularFileAskpassPolicy: EXACT_REGULAR_FILE_ASK_ID_ROOT_SOCKET_NATIVE_DIRECT_PIPE_CREATE_ONLY
   localInstallerRelativePath: scripts/fleet/bootstrap-p2-stage1-local-hardening.mjs
   localInstallPolicy: DARWIN_CURRENT_UID_CREATE_ONLY_EXACT_CONFIRMATION_CRASH_RECOVERABLE
   helperPolicy: SOURCE_VERSIONED_BUILD_DIGEST_RECEIPT_CREATE_ONLY_OR_EXACT
