@@ -402,6 +402,7 @@ gate 판정은 [`p7-gate-report.mjs`](../scripts/fleet/p7-gate-report.mjs)가 �
 | `ORG_CUSTOM_PROPERTY_SCHEMA` | `fleet-managed`, `fleet-profile`, `fleet-ruleset`, `fleet-state` 존재 | machine gate |
 | `ORG_RULESET_ACTIVATION` | Evaluate ruleset과 `Org Contract / Org Contract`를 만드는 default branch caller 수 | machine gate |
 | `CLOUD_BUILD_WIF_BINDING` | fleet-p3 provider와 submitter/executor 공개 식별자 | `FLEET_P3_CLOUD_BUILD_WIF_ACTIVATION` 사람 승인 |
+| `CALLER_MIGRATION_CONFORMANCE` | 최신 중앙 detector SHA에 결합된 15분 이내 전체 active cohort readback, floating ref 0, `secrets: inherit` 0, repo별 `READY` | machine gate |
 | `CENTRAL_PUBLIC_RELEASE_PROFILE` | release가 필요한 public repository와 중앙 public profile 유무 | `CENTRAL_PUBLIC_RELEASE_PROFILE_REQUIRED` machine gate |
 
 ARC runner group은 public repository를 허용하지 않으므로 중앙 release 경로는 현재 private

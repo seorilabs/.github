@@ -18,6 +18,15 @@ const contractPath = fileURLToPath(
 
 const PERMISSION_RANK = Object.freeze({ read: 1, write: 2, admin: 3 });
 const PUBLIC_RELEASE_PROFILE_ID = "public-stable-tag-release";
+const CALLER_MIGRATION_READBACK_CONTRACT =
+  "seorilabs-fleet-caller-migration-readback-v1";
+const CALLER_MIGRATION_MAX_TTL_MS = 15 * 60 * 1000;
+const CALLER_MIGRATION_MAX_CLOCK_SKEW_MS = 60 * 1000;
+const NUMERIC_ID_PATTERN = /^[1-9][0-9]{0,31}$/u;
+const SHA_PATTERN = /^[0-9a-f]{40}$/u;
+const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
+const EVIDENCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u;
+const REPOSITORY_FULL_NAME_PATTERN = /^seorilabs\/[A-Za-z0-9._-]+$/u;
 
 function permissionSatisfies(actual, required) {
   return (PERMISSION_RANK[actual] ?? 0) >= (PERMISSION_RANK[required] ?? 0);
@@ -25,6 +34,16 @@ function permissionSatisfies(actual, required) {
 
 function sortedUnique(values) {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function exactKeys(value, expected) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    JSON.stringify(Object.keys(value).sort()) ===
+      JSON.stringify([...expected].sort())
+  );
 }
 
 // GitHub App gate는 조직 owner만 열 수 있다. 자동 재시도 대상이 아니므로 부족한 권한과
@@ -284,7 +303,159 @@ function publicReleaseProfileGate(publicRepositories) {
   };
 }
 
-export function createFleetP7GateReport(readback, contract) {
+// P7 caller 이관은 단순히 org-contract.yml 파일이 존재하는지만 보면 안 된다. 전체 active
+// cohort를 같은 시점에 읽고 floating ref와 secrets: inherit가 0인지 확인해야 한다. 이
+// readback은 signed P7 inventory를 검증한 trusted adapter가 공개 필드만 투영한 결과이며,
+// report 자체는 여전히 PLAN_ONLY라서 PR이나 provider mutation 권한을 만들지 않는다.
+function callerMigrationGate(readback, now) {
+  const emptyDetail = {
+    blockers: ["CALLER_MIGRATION_READBACK_INVALID"],
+    counts: {},
+    needsChangeRepositories: [],
+  };
+  if (readback === undefined || readback === null) {
+    return {
+      id: "CALLER_MIGRATION_CONFORMANCE",
+      state: "MACHINE_BLOCKED",
+      code: "CALLER_MIGRATION_READBACK_MISSING",
+      detail: emptyDetail,
+    };
+  }
+  const coverage = readback.coverage;
+  const counts = readback.counts;
+  const repositories = readback.repositories;
+  const shapeValid =
+    exactKeys(readback, [
+      "contract",
+      "inventoryId",
+      "inventoryDigest",
+      "observedAt",
+      "expiresAt",
+      "detectorSourceSha",
+      "currentCentralSourceSha",
+      "coverage",
+      "counts",
+      "repositories",
+    ]) &&
+    readback.contract === CALLER_MIGRATION_READBACK_CONTRACT &&
+    EVIDENCE_ID_PATTERN.test(readback.inventoryId ?? "") &&
+    DIGEST_PATTERN.test(readback.inventoryDigest ?? "") &&
+    SHA_PATTERN.test(readback.detectorSourceSha ?? "") &&
+    SHA_PATTERN.test(readback.currentCentralSourceSha ?? "") &&
+    exactKeys(coverage, [
+      "complete",
+      "nextCursor",
+      "activeRepositoryCount",
+      "scannedRepositoryCount",
+    ]) &&
+    typeof coverage.complete === "boolean" &&
+    (coverage.nextCursor === null || typeof coverage.nextCursor === "string") &&
+    Number.isSafeInteger(coverage.activeRepositoryCount) &&
+    coverage.activeRepositoryCount > 0 &&
+    Number.isSafeInteger(coverage.scannedRepositoryCount) &&
+    coverage.scannedRepositoryCount > 0 &&
+    exactKeys(counts, ["workflowSecretsInherit", "workflowFloatingRef"]) &&
+    Number.isSafeInteger(counts.workflowSecretsInherit) &&
+    counts.workflowSecretsInherit >= 0 &&
+    Number.isSafeInteger(counts.workflowFloatingRef) &&
+    counts.workflowFloatingRef >= 0 &&
+    Array.isArray(repositories) &&
+    repositories.every(
+      (repository) =>
+        exactKeys(repository, [
+          "repositoryId",
+          "fullName",
+          "sourceSha",
+          "status",
+        ]) &&
+        NUMERIC_ID_PATTERN.test(repository.repositoryId ?? "") &&
+        REPOSITORY_FULL_NAME_PATTERN.test(repository.fullName ?? "") &&
+        SHA_PATTERN.test(repository.sourceSha ?? "") &&
+        ["READY", "NEEDS_CHANGE"].includes(repository.status),
+    );
+  if (!shapeValid) {
+    return {
+      id: "CALLER_MIGRATION_CONFORMANCE",
+      state: "MACHINE_BLOCKED",
+      code: "CALLER_MIGRATION_READBACK_INVALID",
+      detail: emptyDetail,
+    };
+  }
+
+  const blockers = [];
+  const observedAt = Date.parse(readback.observedAt);
+  const expiresAt = Date.parse(readback.expiresAt);
+  let nowMs;
+  try {
+    nowMs = Number(now());
+  } catch {
+    nowMs = Number.NaN;
+  }
+  if (
+    !Number.isFinite(observedAt) ||
+    !Number.isFinite(expiresAt) ||
+    !Number.isFinite(nowMs) ||
+    expiresAt <= observedAt ||
+    expiresAt - observedAt > CALLER_MIGRATION_MAX_TTL_MS ||
+    observedAt > nowMs + CALLER_MIGRATION_MAX_CLOCK_SKEW_MS ||
+    expiresAt <= nowMs
+  ) {
+    blockers.push("CALLER_MIGRATION_READBACK_EXPIRED");
+  }
+  if (readback.detectorSourceSha !== readback.currentCentralSourceSha) {
+    blockers.push("CALLER_MIGRATION_DETECTOR_SOURCE_DRIFT");
+  }
+  const repositoryIds = repositories.map(({ repositoryId }) => repositoryId);
+  const repositoryNames = repositories.map(({ fullName }) => fullName);
+  if (
+    coverage.complete !== true ||
+    coverage.nextCursor !== null ||
+    coverage.activeRepositoryCount !== coverage.scannedRepositoryCount ||
+    coverage.scannedRepositoryCount !== repositories.length ||
+    new Set(repositoryIds).size !== repositories.length ||
+    new Set(repositoryNames).size !== repositories.length
+  ) {
+    blockers.push("CALLER_MIGRATION_COVERAGE_INCOMPLETE");
+  }
+  if (counts.workflowSecretsInherit !== 0) {
+    blockers.push("CALLER_MIGRATION_SECRET_INHERITANCE_REMAINS");
+  }
+  if (counts.workflowFloatingRef !== 0) {
+    blockers.push("CALLER_MIGRATION_FLOATING_REF_REMAINS");
+  }
+  const needsChangeRepositories = repositories
+    .filter(({ status }) => status !== "READY")
+    .map(({ fullName }) => fullName)
+    .sort((left, right) => left.localeCompare(right));
+  if (needsChangeRepositories.length > 0) {
+    blockers.push("CALLER_MIGRATION_REPOSITORY_INCOMPLETE");
+  }
+  const uniqueBlockers = sortedUnique(blockers);
+  return {
+    id: "CALLER_MIGRATION_CONFORMANCE",
+    state: uniqueBlockers.length === 0 ? "OPEN" : "MACHINE_BLOCKED",
+    code:
+      uniqueBlockers.length === 0
+        ? null
+        : "FLEET_CALLER_MIGRATION_INCOMPLETE",
+    detail: {
+      inventoryId: readback.inventoryId,
+      inventoryDigest: readback.inventoryDigest,
+      detectorSourceSha: readback.detectorSourceSha,
+      currentCentralSourceSha: readback.currentCentralSourceSha,
+      coverage: structuredClone(coverage),
+      counts: structuredClone(counts),
+      blockers: uniqueBlockers,
+      needsChangeRepositories,
+    },
+  };
+}
+
+export function createFleetP7GateReport(
+  readback,
+  contract,
+  { now = () => Date.now() } = {},
+) {
   const gates = [
     githubAppGate(contract, readback.installation),
     customPropertyGate(contract, readback.organizationCustomProperties),
@@ -294,6 +465,7 @@ export function createFleetP7GateReport(readback, contract) {
       readback.defaultBranchOrgContractCallers,
     ),
     cloudBuildGate(contract, readback.cloudBuildBindings),
+    callerMigrationGate(readback.callerMigration, now),
     publicReleaseProfileGate(readback.publicRepositories),
   ];
   const blocked = gates.filter((gate) => gate.state !== "OPEN");

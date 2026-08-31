@@ -26,6 +26,7 @@ import {
   createFleetMigrationAttestationPayload,
   createFleetMigrationBaselineSuccessionPayload,
   createFleetMigrationChainHeadAttestationPayload,
+  createFleetCallerMigrationReadback,
   createFleetMigrationPlan,
   deriveFleetMigrationInventoryCheckpoint,
   fleetMigrationContract,
@@ -1181,6 +1182,46 @@ function firstWorkflowSecret(inventory) {
     .flatMap(({ candidates }) => candidates)
     .find(({ detection }) => detection.type === "WORKFLOW_SECRETS_INHERIT");
 }
+
+test("P7 caller readback은 trusted 전체 inventory에서만 floating과 inherit를 투영한다", () => {
+  const inventory = makeFleetInventory();
+  const binding = trustedBinding(inventory);
+  const readback = createFleetCallerMigrationReadback({
+    inventory,
+    trustedInventoryBinding: binding,
+    currentCentralSourceSha: DETECTOR_SHA,
+    now: EVALUATED_AT,
+  });
+  const counts = countFindings(inventory.repositories);
+  assert.equal(
+    readback.contract,
+    "seorilabs-fleet-caller-migration-readback-v1",
+  );
+  assert.equal(
+    readback.inventoryDigest,
+    computeFleetMigrationInventoryDigest(inventory),
+  );
+  assert.deepEqual(readback.counts, {
+    workflowSecretsInherit: counts.workflowSecretsInherit,
+    workflowFloatingRef: counts.workflowFloatingRef,
+  });
+  assert.equal(readback.coverage.complete, true);
+  assert.equal(readback.coverage.nextCursor, null);
+  assert.equal(readback.repositories.length, 38);
+  assert.ok(
+    readback.repositories.some(({ status }) => status === "NEEDS_CHANGE"),
+  );
+  assert.throws(
+    () =>
+      createFleetCallerMigrationReadback({
+        inventory,
+        trustedInventoryBinding: {},
+        currentCentralSourceSha: DETECTOR_SHA,
+        now: EVALUATED_AT,
+      }),
+    /FLEET_CALLER_MIGRATION_TRUSTED_INVENTORY_REQUIRED/u,
+  );
+});
 
 function planChangeForCandidate(plan, inventory, candidate) {
   const source = inventory.repositories.find(({ candidates }) =>

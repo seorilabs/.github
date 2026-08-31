@@ -10,6 +10,21 @@ const contract = loadFleetP3RuntimeContract();
 
 function openReadback() {
   const app = contract.github.app;
+  const now = Date.now();
+  const callerMigrationRepositories = contract.github.ruleset.repositories.map(
+    (name) => {
+      const fullName = `seorilabs/${name}`;
+      const executor = contract.cloudBuild.executors.find(
+        (candidate) => candidate.fullName === fullName,
+      );
+      return {
+        repositoryId: executor.repositoryId,
+        fullName,
+        sourceSha: "a".repeat(40),
+        status: "READY",
+      };
+    },
+  );
   return {
     installation: {
       app_id: app.appId,
@@ -50,6 +65,26 @@ function openReadback() {
               variables.SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT,
           }),
         ),
+    },
+    callerMigration: {
+      contract: "seorilabs-fleet-caller-migration-readback-v1",
+      inventoryId: "fleet-caller-inventory-20260831",
+      inventoryDigest: `sha256:${"b".repeat(64)}`,
+      observedAt: new Date(now - 1_000).toISOString(),
+      expiresAt: new Date(now + 14 * 60 * 1_000).toISOString(),
+      detectorSourceSha: "c".repeat(40),
+      currentCentralSourceSha: "c".repeat(40),
+      coverage: {
+        complete: true,
+        nextCursor: null,
+        activeRepositoryCount: callerMigrationRepositories.length,
+        scannedRepositoryCount: callerMigrationRepositories.length,
+      },
+      counts: {
+        workflowSecretsInherit: 0,
+        workflowFloatingRef: 0,
+      },
+      repositories: callerMigrationRepositories,
     },
     publicRepositories: [],
   };
@@ -221,11 +256,57 @@ test("readback이 없으면 열린 gate로 취급하지 않는다", () => {
   const report = createFleetP7GateReport({}, contract);
   assert.equal(report.executionAllowed, false);
   assert.deepEqual(report.machineBlocked.toSorted(), [
+    "CALLER_MIGRATION_CONFORMANCE",
     "CENTRAL_PUBLIC_RELEASE_PROFILE",
     "CLOUD_BUILD_WIF_BINDING",
     "GITHUB_APP_CAPABILITY",
     "ORG_CUSTOM_PROPERTY_SCHEMA",
     "ORG_RULESET_ACTIVATION",
+  ]);
+});
+
+test("floating ref와 secrets inherit가 남은 caller inventory는 P7을 열지 않는다", () => {
+  const readback = openReadback();
+  readback.callerMigration.counts = {
+    workflowSecretsInherit: 24,
+    workflowFloatingRef: 22,
+  };
+  readback.callerMigration.repositories[0].status = "NEEDS_CHANGE";
+  const gate = gateById(
+    createFleetP7GateReport(readback, contract),
+    "CALLER_MIGRATION_CONFORMANCE",
+  );
+  assert.equal(gate.state, "MACHINE_BLOCKED");
+  assert.equal(gate.code, "FLEET_CALLER_MIGRATION_INCOMPLETE");
+  assert.deepEqual(gate.detail.counts, {
+    workflowSecretsInherit: 24,
+    workflowFloatingRef: 22,
+  });
+  assert.deepEqual(gate.detail.blockers, [
+    "CALLER_MIGRATION_FLOATING_REF_REMAINS",
+    "CALLER_MIGRATION_REPOSITORY_INCOMPLETE",
+    "CALLER_MIGRATION_SECRET_INHERITANCE_REMAINS",
+  ]);
+  assert.deepEqual(gate.detail.needsChangeRepositories, [
+    readback.callerMigration.repositories[0].fullName,
+  ]);
+});
+
+test("caller inventory의 detector drift, pagination과 TTL을 각각 fail-closed한다", () => {
+  const readback = openReadback();
+  readback.callerMigration.currentCentralSourceSha = "d".repeat(40);
+  readback.callerMigration.coverage.complete = false;
+  readback.callerMigration.coverage.nextCursor = "next-page";
+  readback.callerMigration.expiresAt = new Date(Date.now() - 1_000).toISOString();
+  const gate = gateById(
+    createFleetP7GateReport(readback, contract),
+    "CALLER_MIGRATION_CONFORMANCE",
+  );
+  assert.equal(gate.state, "MACHINE_BLOCKED");
+  assert.deepEqual(gate.detail.blockers, [
+    "CALLER_MIGRATION_COVERAGE_INCOMPLETE",
+    "CALLER_MIGRATION_DETECTOR_SOURCE_DRIFT",
+    "CALLER_MIGRATION_READBACK_EXPIRED",
   ]);
 });
 

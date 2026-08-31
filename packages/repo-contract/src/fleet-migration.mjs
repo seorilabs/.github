@@ -2163,6 +2163,58 @@ export function loadTrustedFleetMigrationHistoricalInventoryBinding({
   });
 }
 
+// P7 gate가 임의 boolean이나 code-search 표본을 caller 이관 완료 증거로 받아들이지 않도록,
+// 서명과 TTL을 이미 검증한 inventory binding에서만 공개 readback을 만든다. legacy 운영 JSON은
+// 이 gate의 대상이 아니고, caller의 secrets: inherit와 floating 중앙 ref만 repo별 상태로 투영한다.
+export function createFleetCallerMigrationReadback({
+  inventory,
+  trustedInventoryBinding,
+  currentCentralSourceSha,
+  now,
+} = {}) {
+  if (
+    !SHA_PATTERN.test(currentCentralSourceSha ?? "") ||
+    !bindingMatches(trustedInventoryBinding, inventory, now)
+  ) {
+    throw new Error("FLEET_CALLER_MIGRATION_TRUSTED_INVENTORY_REQUIRED");
+  }
+  const counts = observedCounts(inventory.repositories);
+  const repositories = inventory.repositories.map(
+    ({ repository, candidates }) => ({
+      repositoryId: repository.id,
+      fullName: repository.fullName,
+      sourceSha: repository.sourceSha,
+      status: candidates.some((candidate) =>
+        ["WORKFLOW_SECRETS_INHERIT", "WORKFLOW_FLOATING_REF"].includes(
+          categoryForDetection(candidate.detection),
+        ),
+      )
+        ? "NEEDS_CHANGE"
+        : "READY",
+    }),
+  );
+  return deepFreeze({
+    contract: "seorilabs-fleet-caller-migration-readback-v1",
+    inventoryId: inventory.inventoryId,
+    inventoryDigest: computeFleetMigrationInventoryDigest(inventory),
+    observedAt: inventory.capturedAt,
+    expiresAt: inventory.expiresAt,
+    detectorSourceSha: inventory.detector.sourceSha,
+    currentCentralSourceSha,
+    coverage: {
+      complete: inventory.coverage.complete,
+      nextCursor: inventory.coverage.nextCursor,
+      activeRepositoryCount: inventory.coverage.activeRepositoryCount,
+      scannedRepositoryCount: repositories.length,
+    },
+    counts: {
+      workflowSecretsInherit: counts.workflowSecretsInherit,
+      workflowFloatingRef: counts.workflowFloatingRef,
+    },
+    repositories,
+  });
+}
+
 function bindingMatches(binding, inventory, now) {
   if (!INVENTORY_BINDINGS.has(binding)) return false;
   const nowMs = trustedNow(now);
