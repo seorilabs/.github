@@ -107,9 +107,10 @@ set -eu
     assert.equal(childEnvironment.LANG, 'C');
     assert.equal(childEnvironment.LC_ALL, 'C');
     assert.equal(childEnvironment.PATH, '/usr/sbin:/usr/bin:/sbin:/bin');
-    assert.deepEqual(Object.keys(childEnvironment).toSorted(), [
-      'LANG', 'LC_ALL', 'PATH', 'PWD', 'SHLVL', '_',
-    ].toSorted());
+    const shellGeneratedKeys = Object.keys(childEnvironment)
+      .filter((key) => !['LANG', 'LC_ALL', 'PATH'].includes(key));
+    assert.ok(shellGeneratedKeys.includes('PWD'));
+    assert.ok(shellGeneratedKeys.every((key) => ['PWD', 'SHLVL', '_'].includes(key)));
 
     await rm(replyCount, { force: true });
     await writeFile(ask, [
