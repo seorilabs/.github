@@ -1380,6 +1380,28 @@ test('source bootstrap validates the outer Node command symlink without collapsi
     source,
     /build-p2-regular-file-askpass\.mjs"[\s\S]*regular-file-askpass" >\/dev\/null/u,
   );
+  for (const receiptKey of [
+    'sourceRegularFileAskpassPath',
+    'sourceRegularFileAskpassSha256',
+    'regularFileAskpassPath',
+    'regularFileAskpassSha256',
+    'regularFileAskpassDropInPath',
+    'regularFileAskpassDropInSha256',
+  ]) {
+    assert.match(hostCliSource, new RegExp(`'${receiptKey}'`, 'u'));
+  }
+  assert.match(hostCliSource, /regularFileAskpassBuildRelativePath/u);
+  assert.match(hostCliSource, /regularFileAskpassExecutable/u);
+  assert.match(hostCliSource, /regularFileAskpassDropInRelativePath/u);
+  assert.match(hostCliSource, /regularFileAskpassDropInPath/u);
+  assert.match(
+    hostCliSource,
+    /receipt\.regularFileAskpassSha256 !== receipt\.sourceRegularFileAskpassSha256/u,
+  );
+  assert.match(
+    hostCliSource,
+    /receipt\.regularFileAskpassDropInSha256 !== sha256\(sourceRegularFileAskpassDropInBytes\)/u,
+  );
   assert.match(source, /systemctl daemon-reload/u);
   assert.match(source, /DropInPaths/u);
 });

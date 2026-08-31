@@ -409,6 +409,7 @@ function writeFixtureCreateOnlyOrExact(path, bytes, modeValue, { privateParent =
 function sourceBoundary() {
   if (fixtureRoot !== undefined) return null;
   if (verifiedSourceBoundary !== undefined) return verifiedSourceBoundary;
+  const sourceBuffers = [];
   try {
     const canonicalRoot = realpathSync(repositoryRoot).replace(/\/$/u, '');
     const prefix = `${stage1.sourceBootstrap.installRoot}/`;
@@ -421,11 +422,21 @@ function sourceBoundary() {
       maxBytes: 64 * 1024,
       rootOwned: true,
     }).toString('utf8'));
+    const regularFileReceiptKeys = [
+      'regularFileAskpassDropInPath', 'regularFileAskpassDropInSha256',
+      'regularFileAskpassPath', 'regularFileAskpassSha256',
+      'sourceRegularFileAskpassPath', 'sourceRegularFileAskpassSha256',
+    ];
+    const receiptHost = stage1.hosts.find(({ nodeName }) => nodeName === receipt.nodeName);
+    if (receiptHost === undefined) stop('P2_STAGE1_SOURCE_RECEIPT_INVALID');
+    assertHostIdentity(receiptHost);
+    const isRpi5 = receiptHost.nodeName === hostContract.target.nodeName;
     const expectedReceiptKeys = [
       'archiveSha256', 'dependencyPolicy', 'nativeLauncherPath', 'nativeLauncherSha256',
       'nodeName', 'nodeVersion', 'npmVersion', 'packageLockSha256', 'processBoundaryPath',
       'processBoundarySha256', 'recordBoundaryPath', 'recordBoundarySha256', 'schemaVersion',
       'sourceNativeHelperPath', 'sourceNativeHelperSha256', 'sourceSha', 'state',
+      ...(isRpi5 ? regularFileReceiptKeys : []),
     ];
     const sourceNativeHelper = join(canonicalRoot, stage1.sourceBootstrap.nativeLauncherRelativePath);
     const packageLock = join(canonicalRoot, stage1.sourceBootstrap.packageLockPath);
@@ -435,26 +446,67 @@ function sourceBoundary() {
       canonicalRoot,
       stage1.sourceBootstrap.filesystemBoundaryBuildRelativePath,
     );
+    const sourceRegularFileAskpass = join(
+      canonicalRoot,
+      stage1.sourceBootstrap.regularFileAskpassBuildRelativePath,
+    );
+    const regularFileAskpass = stage1.sourceBootstrap.regularFileAskpassExecutable;
+    const sourceRegularFileAskpassDropIn = join(
+      canonicalRoot,
+      stage1.sourceBootstrap.regularFileAskpassDropInRelativePath,
+    );
+    const regularFileAskpassDropIn = stage1.sourceBootstrap.regularFileAskpassDropInPath;
     const sourceNativeBytes = readRegular(sourceNativeHelper, { modes: [0o755], rootOwned: true });
+    sourceBuffers.push(sourceNativeBytes);
     const packageLockBytes = readRegular(packageLock, {
       modes: [0o600, 0o644, 0o444],
       rootOwned: true,
     });
+    sourceBuffers.push(packageLockBytes);
     const nativeBytes = readRegular(nativeLauncher, {
       modes: [0o755],
       rootOwned: true,
       linkCounts: [2],
     });
+    sourceBuffers.push(nativeBytes);
     const processBytes = readRegular(processBoundary, {
       modes: [0o755],
       rootOwned: true,
       linkCounts: [2],
     });
+    sourceBuffers.push(processBytes);
     const recordBytes = readRegular(recordBoundary, {
       modes: [0o755],
       rootOwned: true,
       linkCounts: [1],
     });
+    sourceBuffers.push(recordBytes);
+    const sourceRegularFileAskpassBytes = isRpi5
+      ? readRegular(sourceRegularFileAskpass, {
+        modes: [0o755], rootOwned: true, linkCounts: [1, 2],
+      })
+      : undefined;
+    if (sourceRegularFileAskpassBytes !== undefined) {
+      sourceBuffers.push(sourceRegularFileAskpassBytes);
+    }
+    const regularFileAskpassBytes = isRpi5
+      ? readRegular(regularFileAskpass, {
+        modes: [0o755], rootOwned: true, linkCounts: [1, 2],
+      })
+      : undefined;
+    if (regularFileAskpassBytes !== undefined) sourceBuffers.push(regularFileAskpassBytes);
+    const sourceRegularFileAskpassDropInBytes = isRpi5
+      ? readRegular(sourceRegularFileAskpassDropIn, { modes: [0o644], rootOwned: true })
+      : undefined;
+    if (sourceRegularFileAskpassDropInBytes !== undefined) {
+      sourceBuffers.push(sourceRegularFileAskpassDropInBytes);
+    }
+    const regularFileAskpassDropInBytes = isRpi5
+      ? readRegular(regularFileAskpassDropIn, { modes: [0o644], rootOwned: true })
+      : undefined;
+    if (regularFileAskpassDropInBytes !== undefined) {
+      sourceBuffers.push(regularFileAskpassDropInBytes);
+    }
     if (
       Object.keys(receipt).toSorted().join('\0') !== expectedReceiptKeys.toSorted().join('\0') ||
       receipt.schemaVersion !== 1 || receipt.state !== 'P2_STAGE1_SOURCE_READY' ||
@@ -470,14 +522,19 @@ function sourceBoundary() {
       receipt.recordBoundaryPath !== recordBoundary ||
       receipt.nativeLauncherSha256 !== sha256(nativeBytes) ||
       receipt.processBoundarySha256 !== sha256(processBytes) ||
-      receipt.recordBoundarySha256 !== sha256(recordBytes)
+      receipt.recordBoundarySha256 !== sha256(recordBytes) ||
+      (isRpi5 && (
+        receipt.sourceRegularFileAskpassPath !== sourceRegularFileAskpass ||
+        receipt.sourceRegularFileAskpassSha256 !== sha256(sourceRegularFileAskpassBytes) ||
+        receipt.regularFileAskpassPath !== regularFileAskpass ||
+        receipt.regularFileAskpassSha256 !== sha256(regularFileAskpassBytes) ||
+        receipt.regularFileAskpassSha256 !== receipt.sourceRegularFileAskpassSha256 ||
+        receipt.regularFileAskpassDropInPath !== regularFileAskpassDropIn ||
+        receipt.regularFileAskpassDropInSha256 !== sha256(regularFileAskpassDropInBytes) ||
+        receipt.regularFileAskpassDropInSha256 !== sha256(sourceRegularFileAskpassDropInBytes)
+      ))
     ) stop('P2_STAGE1_SOURCE_RECEIPT_INVALID');
     activateP2ProcessHardening(stage1.hostProcessBoundary);
-    sourceNativeBytes.fill(0);
-    packageLockBytes.fill(0);
-    nativeBytes.fill(0);
-    processBytes.fill(0);
-    recordBytes.fill(0);
     verifiedSourceBoundary = Object.freeze({
       sourceSha, nativeLauncher, processBoundary, recordBoundary, receipt,
     });
@@ -485,6 +542,8 @@ function sourceBoundary() {
   } catch (error) {
     if (error instanceof Stage1HostError) throw error;
     stop('P2_STAGE1_SOURCE_RECEIPT_INVALID');
+  } finally {
+    for (const bytes of sourceBuffers) bytes.fill(0);
   }
 }
 
