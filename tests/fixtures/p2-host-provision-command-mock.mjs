@@ -36,6 +36,16 @@ const IPS = {
 };
 const TANG_TRUST_PROBE = 'seorilabs-p2-tang-trust-probe-v1';
 
+function tangAdvertisement(targetNodeName) {
+  return `${JSON.stringify({
+    payload: Buffer.from(JSON.stringify({ keys: [], nodeName: targetNodeName }), 'utf8')
+      .toString('base64url'),
+    protected: Buffer.from(JSON.stringify({ alg: 'ES512', nodeName: targetNodeName }), 'utf8')
+      .toString('base64url'),
+    signature: Buffer.from(`signature-${targetNodeName}`, 'utf8').toString('base64url'),
+  })}\n`;
+}
+
 let recoveryFdIdentity;
 try {
   const entry = fstatSync(3);
@@ -525,10 +535,10 @@ if (executable === '/usr/bin/cat' && args[0] === '/proc/sys/kernel/random/boot_i
 if (executable === '/usr/bin/curl') {
   const url = args.at(-1);
   if (url.includes('192.168.0.100') || (url.includes('127.0.0.1') && nodeName === 'rpi4001')) {
-    outputRaw('{"server":"rpi4001","adv":1}\n');
+    outputRaw(tangAdvertisement('rpi4001'));
   }
   if (url.includes('192.168.0.118') || (url.includes('127.0.0.1') && nodeName === 'seori-m6-01')) {
-    outputRaw('{"server":"seori-m6-01","adv":1}\n');
+    outputRaw(tangAdvertisement('seori-m6-01'));
   }
   process.exit(22);
 }

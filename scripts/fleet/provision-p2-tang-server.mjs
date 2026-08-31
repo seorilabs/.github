@@ -25,6 +25,7 @@ import {
   confirmations,
   contractDigest,
   sha256,
+  stableTangAdvertisementDigest,
   validateTangBackupAttestation,
 } from '../../tools/seori-auth/src/host-encryption-provisioning.mjs';
 import { activateP2ProcessHardening } from './p2-process-hardening-boundary.mjs';
@@ -521,7 +522,7 @@ function readPublicServer(selected) {
     identity,
     packageVersion,
     signingKeyThumbprints,
-    advertisementSha256: sha256(advertisement),
+    advertisementSha256: stableTangAdvertisementDigest(advertisement),
     keyInventory: readInventory(selected),
   };
 }

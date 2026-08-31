@@ -727,6 +727,45 @@ test('Stage1 controller provisions, backs up, restore-verifies, signs, and deliv
   }
 });
 
+test('Stage1 preserves a valid create-only Tang attestation across randomized advertisement signatures', async () => {
+  const fixture = await createFixture();
+  const sourceSha = 'd'.repeat(40);
+  const nodeName = 'rpi4001';
+  try {
+    const { plan } = await bootstrapCredentials(fixture);
+    await runController(fixture, 'provision-tang', [
+      `--server=${nodeName}`,
+      `--source-sha=${sourceSha}`,
+      `--confirmation=${plan.confirmations.tangProvision[nodeName]}`,
+    ]);
+    const flags = [
+      `--server=${nodeName}`,
+      `--source-sha=${sourceSha}`,
+      `--confirmation=${plan.confirmations.tang[nodeName]}`,
+    ];
+    await runController(fixture, 'backup-tang', flags);
+    const machine = contract.hosts.find((entry) => entry.nodeName === nodeName);
+    const root = join(fixture.credentialRoot, contract.tangBackup.localRelativeRoot, nodeName);
+    const attestationPath = join(root, contract.tangBackup.serverAttestationSuffix);
+    const catalogPath = join(fixture.credentialRoot, machine.backupCatalogShardRelativePath);
+    const beforeAttestation = await readFile(attestationPath);
+    const beforeCatalog = await readFile(catalogPath);
+    const repeated = JSON.parse((await runController(
+      fixture,
+      'backup-tang',
+      flags,
+      'randomized-tang-advertisement',
+    )).stdout);
+    assert.equal(repeated.state, 'TANG_BACKUP_SIGNED_AND_CATALOGED');
+    assert.equal(repeated.serverState, 'EXACT_READBACK');
+    assert.equal(repeated.catalogState, 'EXACT_READBACK');
+    assert.deepEqual(await readFile(attestationPath), beforeAttestation);
+    assert.deepEqual(await readFile(catalogPath), beforeCatalog);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test('unknown backup response resumes readback-first from artifact-only crash state', async () => {
   const fixture = await createFixture();
   const sourceSha = 'b'.repeat(40);

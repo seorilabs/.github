@@ -203,6 +203,9 @@ if (tangReadback !== null) {
   const inventory = readScopedTangInventory(mapped(server.keyDirectory), { enforcePrivate: false });
   const publicKey = readFileSync(mapped(stage1.tangBackup.trustAnchorPath));
   const backupAttestation = JSON.parse(readFileSync(mapped(tangReadback[2]), 'utf8'));
+  const advertisementIdentity = scenario === 'randomized-tang-advertisement'
+    ? `fixture-advertisement-${nodeName}-randomized-signature`
+    : `fixture-advertisement-${nodeName}`;
   const attestation = buildTangServerAttestation({
     contract,
     server,
@@ -210,7 +213,7 @@ if (tangReadback !== null) {
     ipv4: server.ipv4,
     packageVersion: '15-3',
     signingKeyThumbprints: [nodeName === 'rpi4001' ? 'A'.repeat(43) : 'B'.repeat(43)],
-    advertisementSha256: sha256(Buffer.from(`fixture-advertisement-${nodeName}`, 'utf8')),
+    advertisementSha256: sha256(Buffer.from(advertisementIdentity, 'utf8')),
     keyInventory: {
       directory: server.keyDirectory,
       fileCount: inventory.publicInventory.fileCount,

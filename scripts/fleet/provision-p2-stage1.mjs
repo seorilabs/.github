@@ -1576,6 +1576,43 @@ function localTangPaths(machine) {
   });
 }
 
+function tangServerStableProjection(attestation) {
+  const projection = { ...attestation };
+  delete projection.advertisementSha256;
+  delete projection.observedDigest;
+  return projection;
+}
+
+function selectCreateOnlyTangServerAttestation(
+  root,
+  relativePath,
+  candidate,
+  authorityPublicKey,
+) {
+  const validatedCandidate = validateTangServerAttestation(
+    hostContract,
+    candidate,
+    authorityPublicKey,
+  );
+  const target = relativeCredentialPath(root, relativePath);
+  if (pathState(target) === 'ABSENT') return validatedCandidate;
+  const bytes = readHeld(target, { mode: 0o600, maximum: MAX_PUBLIC_OUTPUT });
+  try {
+    const existing = validateTangServerAttestation(
+      hostContract,
+      parsePublicJson(bytes.toString('utf8'), 'P2_STAGE1_TANG_SERVER_ATTESTATION_INVALID'),
+      authorityPublicKey,
+    );
+    if (
+      canonicalJson(tangServerStableProjection(existing)) !==
+      canonicalJson(tangServerStableProjection(validatedCandidate))
+    ) stop('P2_STAGE1_CREATE_ONLY_DRIFT');
+    return existing;
+  } finally {
+    bytes.fill(0);
+  }
+}
+
 async function copyRemoteArtifact(machine, remotePath, root, relativePath, expectedSha256) {
   const target = relativeCredentialPath(root, relativePath);
   ensureParent(root, target);
@@ -1776,12 +1813,23 @@ async function backupTang() {
     ), 'P2_STAGE1_TANG_SERVER_ATTESTATION_INVALID');
     validateTangServerAttestation(hostContract, serverAttestation, attestor.publicKey);
 
+    const selectedServerAttestation = selectCreateOnlyTangServerAttestation(
+      root,
+      paths.serverAttestation,
+      serverAttestation,
+      attestor.publicKey,
+    );
     const evidenceBytes = Buffer.from(`${canonicalJson(signed)}\n`, 'utf8');
-    const serverBytes = Buffer.from(`${canonicalJson(serverAttestation)}\n`, 'utf8');
+    const serverBytes = Buffer.from(`${canonicalJson(selectedServerAttestation)}\n`, 'utf8');
     try {
       const evidenceState = writeCreateOnlyOrExact(root, paths.evidence, evidenceBytes, 0o600).state;
       const serverState = writeCreateOnlyOrExact(root, paths.serverAttestation, serverBytes, 0o600).state;
-      const entry = expectedTangCatalogEntry(stage1, server, privateEvidence, serverAttestation);
+      const entry = expectedTangCatalogEntry(
+        stage1,
+        server,
+        privateEvidence,
+        selectedServerAttestation,
+      );
       const shard = catalogBytes(entry);
       let catalogState;
       try {
@@ -1798,7 +1846,7 @@ async function backupTang() {
         signerPublicKeySha256: attestor.publicDetails.fingerprintSha256,
         backupArtifactSha256: result.backupArtifactSha256,
         inventoryEvidenceSha256: result.inventoryEvidenceSha256,
-        serverAttestationDigest: serverAttestation.observedDigest,
+        serverAttestationDigest: selectedServerAttestation.observedDigest,
         artifactState,
         evidenceState,
         serverState,

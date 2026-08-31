@@ -189,6 +189,13 @@ rotate/delete는 하지 않는다. 각 서버에 대해 Stage 1 plan의 `tangPro
 attestation이 create-only로 들어가고 catalog shard가 등록된다. stdout에는 digest와 공개 identity만
 나온다.
 
+Tang `/adv`는 같은 payload에도 ECDSA signature가 매 요청 달라질 수 있다. server attestation의
+`advertisementSha256`은 raw 응답이나 signature가 아니라 JWS signing input인
+`protected.payload`를 고정한다. 이미 create-only로 기록된 legacy raw-response attestation은 signing
+thumbprint, package, host identity, key inventory, signed backup envelope가 현재 readback과 모두 같을
+때만 원본 bytes를 유지한다. 이 비교에서 advertisement digest와 그 파생 `observedDigest` 외의 차이가
+있으면 `P2_STAGE1_CREATE_ONLY_DRIFT`로 중단하며 기존 record를 덮어쓰지 않는다.
+
 ### 6. RPI5에 공개 trust evidence 전달
 
 두 server attestation이 모두 검증된 뒤에만 실행한다.

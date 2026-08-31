@@ -32,6 +32,7 @@ import {
   canonicalJson,
   confirmations,
   sha256,
+  stableTangAdvertisementDigest,
   tangBackupSignaturePayload,
   validateTangFleetAttestations,
 } from '../tools/seori-auth/src/host-encryption-provisioning.mjs';
@@ -69,9 +70,17 @@ const thumbprints = {
   rpi4001: 'A'.repeat(43),
   'seori-m6-01': 'B'.repeat(43),
 };
+function fixtureTangAdvertisement(nodeName, signature = `signature-${nodeName}`) {
+  return `${JSON.stringify({
+    payload: Buffer.from(JSON.stringify({ keys: [], nodeName }), 'utf8').toString('base64url'),
+    protected: Buffer.from(JSON.stringify({ alg: 'ES512', nodeName }), 'utf8').toString('base64url'),
+    signature: Buffer.from(signature, 'utf8').toString('base64url'),
+  })}\n`;
+}
+
 const advertisements = {
-  rpi4001: '{"server":"rpi4001","adv":1}\n',
-  'seori-m6-01': '{"server":"seori-m6-01","adv":1}\n',
+  rpi4001: fixtureTangAdvertisement('rpi4001'),
+  'seori-m6-01': fixtureTangAdvertisement('seori-m6-01'),
 };
 const tangKeyFixture = {
   'exc.jwk': '{"kty":"EC","kid":"fixture-exchange"}\n',
@@ -190,7 +199,7 @@ async function createFixture({ scenario = 'missing', nodeName = 'rpi5' } = {}) {
       ipv4: server.ipv4,
       packageVersion: '15-3',
       signingKeyThumbprints: [thumbprints[server.nodeName]],
-      advertisementSha256: sha256(advertisements[server.nodeName]),
+      advertisementSha256: stableTangAdvertisementDigest(advertisements[server.nodeName]),
       keyInventory,
       backupAttestation,
       authorityPublicKey: backupAuthorityPublicKey,
@@ -256,6 +265,23 @@ async function expectHostFailure(fixture, requestedMode, extra, code, scenario) 
     },
   );
 }
+
+test('Tang advertisement identity excludes the randomized JWS signature', () => {
+  const first = fixtureTangAdvertisement('rpi4001', 'signature-one');
+  const second = fixtureTangAdvertisement('rpi4001', 'signature-two');
+  assert.equal(
+    stableTangAdvertisementDigest(first),
+    stableTangAdvertisementDigest(second),
+  );
+  assert.notEqual(
+    stableTangAdvertisementDigest(first),
+    stableTangAdvertisementDigest(fixtureTangAdvertisement('seori-m6-01', 'signature-one')),
+  );
+  assert.throws(
+    () => stableTangAdvertisementDigest('{"payload":"x"}'),
+    (error) => error?.code === 'P2_TANG_ADVERTISEMENT_READBACK_INVALID',
+  );
+});
 
 test('P2 host provisioning contract fixes non-sparse LUKS2, exact mount and Tang 1-of-2', async () => {
   const validate = new Ajv2020({ strict: true, validateFormats: false }).compile(schema);
@@ -1262,7 +1288,10 @@ test('Tang server plan is mutation-free and exact host readback requires a backu
   assert.equal(attestation.state, 'TANG_SERVER_VERIFIED');
   assert.equal(attestation.hostname, 'rpi4001');
   assert.equal(attestation.port, 7500);
-  assert.equal(attestation.advertisementSha256, sha256(advertisements.rpi4001));
+  assert.equal(
+    attestation.advertisementSha256,
+    stableTangAdvertisementDigest(advertisements.rpi4001),
+  );
   assert.equal(attestation.backup.privateEvidence, undefined);
   assert.doesNotMatch(readback.stdout, /liveContentSha256|liveMetadataSha256|fixture-signing/u);
   assert.doesNotMatch(`${readback.stdout}${await readFile(fixture.log, 'utf8')}`, new RegExp(fakeRecoverySecret, 'u'));

@@ -9,6 +9,7 @@ import {
 const SHA256 = /^[a-f0-9]{64}$/u;
 const LUKS_UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/u;
 const TANG_THUMBPRINT = /^[A-Za-z0-9_-]{43}$/u;
+const TANG_JWS_COMPONENT = /^[A-Za-z0-9_-]+$/u;
 const PUBLIC_ID = /^[A-Za-z0-9._:/-]{1,256}$/u;
 const PACKAGE_VERSION = /^[A-Za-z0-9.+:~_-]{1,128}$/u;
 
@@ -35,6 +36,22 @@ export function canonicalJson(value) {
 
 export function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+export function stableTangAdvertisementDigest(advertisement) {
+  let value;
+  try {
+    value = JSON.parse(advertisement);
+  } catch {
+    stop('P2_TANG_ADVERTISEMENT_READBACK_INVALID');
+  }
+  if (
+    !exactKeys(value, ['payload', 'protected', 'signature']) ||
+    !TANG_JWS_COMPONENT.test(value.payload ?? '') ||
+    !TANG_JWS_COMPONENT.test(value.protected ?? '') ||
+    !TANG_JWS_COMPONENT.test(value.signature ?? '')
+  ) stop('P2_TANG_ADVERTISEMENT_READBACK_INVALID');
+  return sha256(`${value.protected}.${value.payload}`);
 }
 
 export function canonicalDigest(value) {
