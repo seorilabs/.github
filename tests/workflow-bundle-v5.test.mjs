@@ -2796,16 +2796,19 @@ test("RN and Godot v2 workflows resolve signed config before app checkout and ne
         submitNames.indexOf("Checkout exact application source"),
     );
     assert.ok(
-      submitNames.indexOf("Validate internal WIF public bindings") <
+      submitNames.indexOf("Resolve exact canary executor binding") <
         submitNames.indexOf("Authenticate keylessly for Cloud Build"),
     );
     assert.match(source, new RegExp(`buildProfile: "${profile}"`, "u"));
     assert.match(source, /schemaVersion: 2, target: "build"/u);
     assert.match(source, /marketUpload: false/u);
     assert.match(source, /retention-days: 3/u);
-    assert.match(source, /projects\/321365398093\/locations\/global\/workloadIdentityPools\/fleet-p3\/providers\/github-cloud-build/u);
-    assert.match(source, /seori-cloud-build-submitter@seorilabs-ci\.iam\.gserviceaccount\.com/u);
-    assert.match(source, /seori-cloud-build-executor@seorilabs-ci\.iam\.gserviceaccount\.com/u);
+    assert.match(source, /vars\.GOOGLE_WORKLOAD_IDENTITY_PROVIDER/u);
+    assert.match(source, /vars\.SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT/u);
+    assert.match(source, /resolve-android-cloud-build-target\.mjs/u);
+    assert.match(source, /ANDROID_CANARY_BUILD_ONLY/u);
+    assert.match(source, /steps\.cloud-target\.outputs\.executor_service_account/u);
+    assert.doesNotMatch(source, /seori-cloud-build-executor@seorilabs-ci\.iam\.gserviceaccount\.com/u);
     assert.doesNotMatch(source, /secrets:\s*inherit|uses:.*@main\b|\bdeploy\b|production|public release/iu);
     const tokenSteps = Object.values(workflow.jobs)
       .flatMap((job) => job.steps ?? [])
@@ -2977,7 +2980,7 @@ test("감사 보고서를 해석할 수 없으면 실패 코드에 상세를 덧
   );
 });
 
-test("Android cloud build은 WIF 공개 binding 불일치를 사람 승인 gate로 지목한다", async () => {
+test("Android cloud build은 repo가 executor를 입력하지 못하고 중앙 canary mapping만 사용한다", async () => {
   for (const name of [
     "rn-build-android-cloud-v2.yml",
     "godot-build-android-cloud-v2.yml",
@@ -2989,33 +2992,28 @@ test("Android cloud build은 WIF 공개 binding 불일치를 사람 승인 gate�
     const workflow = parse(source);
     const step = Object.values(workflow.jobs)
       .flatMap((job) => job.steps ?? [])
-      .find(({ name: stepName }) => stepName === "Validate internal WIF public bindings");
-    assert.notEqual(step, undefined, `${name}: WIF 검증 step이 있어야 한다`);
+      .find(({ name: stepName }) => stepName === "Resolve exact canary executor binding");
+    assert.notEqual(step, undefined, `${name}: target resolver step이 있어야 한다`);
     assert.deepEqual(Object.keys(step.env).toSorted(), [
-      "EXECUTOR",
-      "PROVIDER",
-      "SUBMITTER",
+      "GOOGLE_WORKLOAD_IDENTITY_PROVIDER",
+      "SEORI_ACTION_CAPABILITY",
+      "SEORI_BUILD_PROFILE",
+      "SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT",
+      "SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT",
+      "SEORI_REPOSITORY_FULL_NAME",
+      "SEORI_REPOSITORY_ID",
     ]);
     // 값 자체는 공개 변수이며 secret을 참조하지 않는다.
     assert.doesNotMatch(source, /\bsecrets\.(?:GOOGLE|SEORI_CLOUD_BUILD)/u);
-    assert.match(step.run, /FLEET_CLOUD_BUILD_WIF_BINDING_UNVERIFIED/u);
-    assert.match(step.run, /HUMAN_APPROVAL_REQUIRED/u);
-    assert.match(step.run, /FLEET_P3_CLOUD_BUILD_WIF_ACTIVATION/u);
-    for (const variable of [
-      "GOOGLE_WORKLOAD_IDENTITY_PROVIDER",
-      "SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT",
-      "SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT",
-    ]) {
-      assert.match(step.run, new RegExp(`missing ${variable}\\b`, "u"));
-    }
-    assert.match(step.run, /exit 1/u);
-    // 진단 출력 줄은 로그에서 잘리지 않도록 폭을 제한한다. 기대값 pin은 grep 가능한
-    // 단일 리터럴로 유지해야 하므로 길이 제한에서 제외한다.
-    for (const line of step.run.split("\n")) {
-      if (!/^\s*echo /u.test(line)) continue;
-      assert.ok(line.length <= 120, `WIF 진단 줄이 너무 김: ${line}`);
-    }
-    // 빈 배열 확장으로 set -u 하에서 죽지 않도록 문자열 누적만 사용한다.
-    assert.doesNotMatch(step.run, /\$\{#\w+\[@\]\}/u);
+    assert.equal(step.env.SEORI_ACTION_CAPABILITY, "ANDROID_CANARY_BUILD_ONLY");
+    assert.match(step.run, /resolve-android-cloud-build-target\.mjs/u);
+    const submit = Object.values(workflow.jobs)
+      .flatMap((job) => job.steps ?? [])
+      .find(({ name: stepName }) => stepName === "Submit exact source to x64 Cloud Build");
+    assert.equal(
+      submit.env.CLOUD_BUILD_SERVICE_ACCOUNT,
+      "${{ steps.cloud-target.outputs.executor_service_account }}",
+    );
+    assert.doesNotMatch(source, /ANDROID_PLAY_PROMOTABLE_SIGNED_BUILD/u);
   }
 });
