@@ -16,6 +16,8 @@ permissions:
 jobs:
   resolve-binding:
     name: Resolve signed AIT binding
+    # Public PR에서는 OIDC 발급, manifest 조회, application checkout를 모두 하지 않는다.
+    if: ${{ github.event.repository.private || github.event_name != 'pull_request' }}
     runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
     permissions:
       contents: read
@@ -53,6 +55,25 @@ jobs:
       bundle_ref: ${{ steps.bundle-identity.outputs.ref }}
 
     steps:
+      - name: Require a stable release tag for public repositories
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          if [ "$REPOSITORY_PRIVATE" = false ]; then
+            [[ "$EVENT_NAME" =~ ^(push|workflow_dispatch)$ ]] || {
+              echo "BUILD_RUNTIME_PUBLIC_STABLE_TAG_REQUIRED" >&2
+              exit 1
+            }
+            [[ "$EVENT_REF" =~ ^refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+              echo "BUILD_RUNTIME_PUBLIC_STABLE_TAG_REQUIRED" >&2
+              exit 1
+            }
+          fi
+
       - name: Setup pinned Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -81,6 +102,14 @@ jobs:
           path: .seorilabs-workflow-bundle
           persist-credentials: false
 
+      - name: Peel the exact stable tag through GitHub readback
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        id: release-source
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .seorilabs-workflow-bundle/scripts/release/resolve-github-tag-commit.mjs --github-output
+
       - name: Resolve current signed AIT binding before app checkout
         id: binding
         shell: bash
@@ -88,6 +117,8 @@ jobs:
           BINDING_TARGET: ait
           EVENT_NAME: ${{ github.event_name }}
           EVENT_REF: ${{ github.ref }}
+          # annotated tag에서는 github.sha가 tag object일 수 있으므로 peeled commit과 분리한다.
+          APPLICATION_SOURCE_SHA: ${{ steps.release-source.outputs.source_sha || github.sha }}
           EVENT_SOURCE_SHA: ${{ github.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
@@ -106,8 +137,9 @@ jobs:
   build-only:
     name: AIT Build-only
     needs: resolve-binding
-    if: ${{ github.event.repository.private }}
-    runs-on: seorilabs-rpi-arm64
+    # Private candidate/main 경로는 기존대로 유지하고, public은 exact stable tag release만 허용한다.
+    if: ${{ needs.resolve-binding.result == 'success' && (github.event.repository.private || needs.resolve-binding.outputs.release_mode == 'true') }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: read
@@ -396,14 +428,50 @@ jobs:
     needs:
       - resolve-binding
       - build-only
-    if: ${{ github.event.repository.private }}
-    runs-on: seorilabs-rpi-arm64
+    if: ${{ needs.resolve-binding.result == 'success' && needs.build-only.result == 'success' && (github.event.repository.private || needs.resolve-binding.outputs.release_mode == 'true') }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
     permissions:
       actions: read
       contents: read
     timeout-minutes: 10
 
     steps:
+      - name: Checkout exact WorkflowBundle source for final tag readback
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.resolve-binding.outputs.bundle_repository }}
+          ref: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          path: .seorilabs-workflow-bundle
+          persist-credentials: false
+
+      - name: Setup pinned Node for final tag readback
+        if: ${{ needs.resolve-binding.outputs.release_mode == 'true' }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+
+      - name: Revalidate the remote stable tag before evidence
+        if: ${{ needs.resolve-binding.outputs.release_mode == 'true' }}
+        shell: bash
+        env:
+          EXPECTED_RELEASE_TAG: ${{ needs.resolve-binding.outputs.release_tag }}
+          EXPECTED_SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node .seorilabs-workflow-bundle/scripts/release/resolve-github-tag-commit.mjs --github-output
+          observed_tag="$(grep '^release_tag=' "$GITHUB_OUTPUT" | tail -n 1 | cut -d = -f 2-)"
+          observed_sha="$(grep '^source_sha=' "$GITHUB_OUTPUT" | tail -n 1 | cut -d = -f 2-)"
+          [ "$observed_tag" = "$EXPECTED_RELEASE_TAG" ] || {
+            echo "RELEASE_TAG_FINAL_READBACK_MISMATCH" >&2
+            exit 1
+          }
+          [ "$observed_sha" = "$EXPECTED_SOURCE_SHA" ] || {
+            echo "RELEASE_TAG_FINAL_READBACK_MISMATCH" >&2
+            exit 1
+          }
+
       - name: Download app-produced AIT in a fresh job
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -423,6 +491,9 @@ jobs:
           SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
           BUILD_PROFILE: ${{ needs.resolve-binding.outputs.build_profile }}
           BUNDLE_SHA: ${{ needs.resolve-binding.outputs.bundle_sha }}
+          BUNDLE_PAYLOAD_DIGEST: ${{ needs.resolve-binding.outputs.workflow_bundle_payload_digest }}
+          MANIFEST_DIGEST: ${{ needs.resolve-binding.outputs.manifest_digest }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
           CONFIG_REVISION_ID: ${{ needs.resolve-binding.outputs.config_revision_id }}
           CONFIG_REVISION: ${{ needs.resolve-binding.outputs.config_revision }}
           CONFIG_REVISION_DIGEST: ${{ needs.resolve-binding.outputs.config_revision_digest }}
@@ -438,8 +509,12 @@ jobs:
           RELEASE_BINDING_DIGEST: ${{ needs.resolve-binding.outputs.release_binding_digest }}
           RELEASE_MEMO: ${{ needs.build-only.outputs.release_memo }}
           VERIFIED_ARTIFACT_SHA256: ${{ needs.build-only.outputs.artifact_sha256 }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
         run: |
           set -euo pipefail
+          [[ "$BUNDLE_PAYLOAD_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$MANIFEST_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$CALLER_WORKFLOW_REF" =~ ^seorilabs/[A-Za-z0-9._-]+/\.github/workflows/ait-build-only\.yml@refs/(heads/main|tags/v[0-9]+\.[0-9]+\.[0-9]+|pull/[1-9][0-9]*/merge)$ ]]
           artifact="$RUNNER_TEMP/ait-build-only/application.ait"
           artifact_sha256="$(sha256sum "$artifact" | cut -d ' ' -f 1)"
           # build job이 검증한 그 파일이 그대로 전달됐는지 격리된 job에서 다시 확인한다.
@@ -450,6 +525,17 @@ jobs:
             }
           fi
           export ARTIFACT_SHA256="sha256:$artifact_sha256"
+          if [ "$REPOSITORY_PRIVATE" = true ]; then
+            export RUNNER_ROUTE=private-arc
+            export RUNNER_IMAGE=registry.vzyx.xyz/seorilabs/arc-runner-node24@sha256:4663a0066aa61f05006af285f2d5bcf95855fd9e8256c44c08c9e32ff92ac45e
+          else
+            test -n "${ImageOS:-}"
+            test -n "${ImageVersion:-}"
+            [[ "$ImageOS" =~ ^[A-Za-z0-9._-]+$ ]]
+            [[ "$ImageVersion" =~ ^[A-Za-z0-9._-]+$ ]]
+            export RUNNER_ROUTE=public-github-hosted
+            export RUNNER_IMAGE="github-hosted:${ImageOS}@${ImageVersion}"
+          fi
           node --input-type=module -e '
             import { writeFileSync } from "node:fs";
             const evidence = {
@@ -459,6 +545,10 @@ jobs:
               repositoryId: Number(process.env.GITHUB_REPOSITORY_ID),
               fullName: process.env.GITHUB_REPOSITORY,
               sourceSha: process.env.SOURCE_SHA,
+              bindingSourceSha: process.env.SOURCE_SHA,
+              callerWorkflowRef: process.env.CALLER_WORKFLOW_REF,
+              manifestDigest: process.env.MANIFEST_DIGEST,
+              bundlePayloadDigest: process.env.BUNDLE_PAYLOAD_DIGEST,
               workflowExecutionSha: process.env.BUNDLE_SHA,
               workflowRef: "seorilabs/.github/.github/workflows/ait-build-only-v1.yml@" + process.env.BUNDLE_SHA,
               runId: Number(process.env.GITHUB_RUN_ID),
@@ -470,8 +560,9 @@ jobs:
               snapshotSignatureKeyId: process.env.SNAPSHOT_SIGNATURE_KEY_ID,
               snapshotSignaturePolicyRevision: process.env.SNAPSHOT_SIGNATURE_POLICY_REVISION,
               snapshotSignatureDigest: process.env.SNAPSHOT_SIGNATURE_DIGEST,
-              runnerRoute: "private-arc",
-              runnerImage: "registry.vzyx.xyz/seorilabs/arc-runner-node24@sha256:4663a0066aa61f05006af285f2d5bcf95855fd9e8256c44c08c9e32ff92ac45e",
+              runnerRoute: process.env.RUNNER_ROUTE,
+              runnerImage: process.env.RUNNER_IMAGE,
+              artifactKind: "ait",
               artifactSha256: process.env.ARTIFACT_SHA256,
               marketUpload: false,
               bindingMode: process.env.BINDING_MODE,

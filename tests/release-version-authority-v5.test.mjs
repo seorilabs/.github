@@ -250,6 +250,70 @@ test('승격되지 않은 AIT build profile은 release 실행에서도 fail-clos
   }
 });
 
+test('public AIT runtime은 stable tag만 readback하고 승격 전에는 artifact를 만들지 않는다', async () => {
+  let releaseReadback = 0;
+  await assert.rejects(
+    resolveBuildRuntimeBindingV5(
+      {
+        ...releaseContext({ profile: 'ait-web', target: 'ait' }),
+        repositoryPrivate: 'false',
+      },
+      {
+        trustedManifestReadback: async (request) => {
+          releaseReadback += 1;
+          assert.equal(request.mode, 'RELEASE');
+          assert.equal(request.releaseRef, RELEASE_REF);
+          assert.equal(request.applicationSourceSha, SOURCE_SHA);
+          return releaseResponse(request, 'ait-web');
+        },
+      },
+    ),
+    /BUILD_PROFILE_NOT_PROMOTED/u,
+  );
+  assert.equal(releaseReadback, 1);
+
+  let mainReadback = 0;
+  await assert.rejects(
+    resolveBuildRuntimeBindingV5(
+      {
+        ...releaseContext({
+          profile: 'ait-web',
+          target: 'ait',
+          eventName: 'workflow_dispatch',
+          eventRef: 'refs/heads/main',
+        }),
+        repositoryPrivate: 'false',
+      },
+      {
+        trustedManifestReadback: async () => {
+          mainReadback += 1;
+          throw new Error('unexpected readback');
+        },
+      },
+    ),
+    /BUILD_RUNTIME_PUBLIC_STABLE_TAG_REQUIRED/u,
+  );
+  assert.equal(mainReadback, 0);
+});
+
+test('annotated tag object SHA와 peeled application commit SHA를 분리한다', async () => {
+  const tagObjectSha = 'a'.repeat(40);
+  await resolveBuildRuntimeBindingV5(
+    {
+      ...releaseContext({ profile: 'react-native-android', target: 'android' }),
+      applicationSourceSha: SOURCE_SHA,
+      eventSourceSha: tagObjectSha,
+    },
+    {
+      trustedManifestReadback: async (request) => {
+        assert.equal(request.applicationSourceSha, SOURCE_SHA);
+        assert.equal(request.eventSourceSha, tagObjectSha);
+        return releaseResponse(request, 'react-native-android');
+      },
+    },
+  );
+});
+
 test('v5 non-release 실행에는 태그 파생값이 없다', async () => {
   const context = releaseContext({ eventName: 'workflow_dispatch', eventRef: 'refs/heads/main' });
   const binding = await resolveBuildRuntimeBindingV5(context, {

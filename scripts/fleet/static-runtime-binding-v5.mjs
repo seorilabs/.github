@@ -654,10 +654,12 @@ export async function resolveStaticRuntimeBindingV5(
 
 function validateBuildContext(context) {
   const eventSourceSha = context?.eventSourceSha ?? context?.applicationSourceSha;
+  const applicationSourceSha = context?.applicationSourceSha ?? eventSourceSha;
   if (
-    context?.repositoryPrivate !== "true" ||
+    !["true", "false"].includes(context?.repositoryPrivate) ||
     !REPOSITORY_ID.test(context?.repositoryId ?? "") ||
     !FULL_NAME.test(context?.fullName ?? "") ||
+    !SHA.test(applicationSourceSha ?? "") ||
     !SHA.test(eventSourceSha ?? "") ||
     !positiveIntegerString(context?.runId) ||
     !positiveIntegerString(context?.runAttempt) ||
@@ -699,7 +701,9 @@ function validateBuildContext(context) {
       fail("BUILD_RUNTIME_RELEASE_TAG_INVALID");
     }
     return Object.freeze({
-      applicationSourceSha: eventSourceSha,
+      // annotated tag event SHA는 tag object일 수 있다. application source는 GitHub ref
+      // readback에서 peel한 commit이고 eventSourceSha는 OIDC `sha` claim 대조용으로 분리한다.
+      applicationSourceSha,
       candidates: Object.freeze(candidates),
       contract,
       eventSourceSha,
@@ -709,9 +713,15 @@ function validateBuildContext(context) {
       schema: "workflow-bundle-v5-build-release",
     });
   }
+  // public repository의 build runtime은 stable tag 외에는 열지 않는다. 특히 public PR과
+  // main workflow_dispatch가 OIDC manifest readback까지 진행하지 못하게 여기서 차단한다.
+  if (context.repositoryPrivate === "false") {
+    fail("BUILD_RUNTIME_PUBLIC_STABLE_TAG_REQUIRED");
+  }
   if (context.eventName === "workflow_dispatch") {
     if (
       context.eventRef !== "refs/heads/main" ||
+      applicationSourceSha !== eventSourceSha ||
       (context.pullRequestBaseSha ?? "") !== "" ||
       (context.pullRequestHeadRepository ?? "") !== "" ||
       (context.pullRequestHeadRef ?? "") !== ""

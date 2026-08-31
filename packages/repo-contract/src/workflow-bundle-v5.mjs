@@ -48,6 +48,7 @@ const RUNTIME_ASSET_FILES = Object.freeze([
   ".github/cloud-build/godot-android-build-only-v2.yaml",
   ".github/cloud-build/rn-android-build-only-v2.yaml",
   ".github/workflows/ait-build-only-v1.yml",
+  ".github/workflows/ait-upload-v1.yml",
   ".github/workflows/capacitor-build-android-cloud-v1.yml",
   ".github/workflows/godot-build-android-cloud-v2.yml",
   ".github/workflows/godot-checks-v3.yml",
@@ -87,7 +88,9 @@ const RUNTIME_ASSET_FILES = Object.freeze([
   "fixtures/workflow-bundle-v5/trait-test-hub/repository/scripts/release.mjs",
   "scripts/release/tag-version-authority.mjs",
   "scripts/release/resolve-release-version.mjs",
+  "scripts/release/resolve-github-tag-commit.mjs",
   "scripts/release/verify-release-artifact.mjs",
+  "scripts/release/verify-ait-build-evidence.mjs",
   "scripts/fleet/stage-private-package-v5.mjs",
   "scripts/fleet/godot-diagnostic-gate.mjs",
   "scripts/fleet/secret-scan.mjs",
@@ -856,13 +859,13 @@ function staticPermissions(profile) {
 }
 
 function buildPermissions(profile) {
-  return profile === "react-native-android"
+  return ["react-native-android", "ait-granite", "ait-web"].includes(profile)
     ? { contents: "read", "id-token": "write", packages: "read" }
     : { contents: "read", "id-token": "write" };
 }
 
 function selectedBuild(manifest, target) {
-  if (target !== "android") fail("BUILD_TARGET_INVALID");
+  if (!["android", "ait"].includes(target)) fail("BUILD_TARGET_INVALID");
   const candidates = manifest.buildBindings.filter((binding) => binding.target === target);
   if (candidates.length !== 1) fail("BUILD_BINDING_NOT_EXACT");
   return candidates[0];
@@ -890,6 +893,16 @@ function buildCaller(bundle, manifest, target, { candidate = false } = {}) {
   if (!workflow || workflow.target !== target || workflow.workflow === null) {
     fail("BUILD_WORKFLOW_UNAVAILABLE");
   }
+  if (
+    target === "ait"
+    && !candidate
+    && (
+      workflow.marketUpload?.promotionState !== "APPROVED"
+      || workflow.marketUpload?.runtimeState !== "OPERATIONAL"
+    )
+  ) {
+    fail("AIT_UPLOAD_RUNTIME_NOT_OPERATIONAL");
+  }
   if (candidate) {
     const allowed = candidateCanary(manifest, "CANDIDATE_BUILD_REPOSITORY_NOT_ALLOWED");
     if (binding.buildProfile !== allowed.buildProfile) {
@@ -902,21 +915,24 @@ function buildCaller(bundle, manifest, target, { candidate = false } = {}) {
   ) {
     fail("BUILD_BUNDLE_BINDING_MISMATCH");
   }
+  const jobs = {
+    [target === "ait" ? "ait-build" : "android-build"]: {
+      uses: `seorilabs/.github/${workflow.workflow}@${workflow.sha}`,
+    },
+  };
   return workflowDocument({
-    name: "Android Build-only",
+    name: target === "ait" ? "AIT Build-only" : "Android Build-only",
     on: candidate
-      ? { pull_request: { paths: [".github/workflows/android-build-only.yml"] } }
-      : { workflow_dispatch: {} },
+      ? { pull_request: { paths: [bundle.callerPolicies[target].managedCallerPath] } }
+      : target === "ait"
+        ? { push: { tags: ["v*.*.*"] }, workflow_dispatch: {} }
+        : { workflow_dispatch: {} },
     permissions: buildPermissions(binding.buildProfile),
     concurrency: {
-      group: "android-build-${{ github.repository_id }}-${{ github.ref }}",
+      group: `${target}-build-` + "${{ github.repository_id }}-${{ github.ref }}",
       "cancel-in-progress": false,
     },
-    jobs: {
-      "android-build": {
-        uses: `seorilabs/.github/${workflow.workflow}@${workflow.sha}`,
-      },
-    },
+    jobs,
   });
 }
 
@@ -1286,6 +1302,16 @@ export const workflowBundleV5Contract = Object.freeze({
         path: ".github/workflows/godot-build-android-cloud-v2.yml",
         profile: "godot-android",
         packageManager: null,
+      }),
+      aitGranite: Object.freeze({
+        path: ".github/workflows/ait-build-only-v1.yml",
+        profile: "ait-granite",
+        packageManager: "pnpm",
+      }),
+      aitWeb: Object.freeze({
+        path: ".github/workflows/ait-build-only-v1.yml",
+        profile: "ait-web",
+        packageManager: "npm",
       }),
     }),
   }),

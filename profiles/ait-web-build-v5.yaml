@@ -5,6 +5,30 @@ target: ait
 runtime: ait-web
 executor: github-actions
 privateRunner: seorilabs-rpi-arm64
+publicRunner: ubuntu-latest
+publicExecutionPolicy:
+  pullRequest: forbidden
+  promotionState: CANDIDATE
+  runtimeState: RUNTIME_NOT_OPERATIONAL
+  events:
+    - push-stable-tag
+    - workflow-dispatch-stable-tag
+  versionAuthority: release-version-authority-v1
+  sourceBinding: exact-peeled-tag-commit
+  blockers:
+    - BACKOFFICE_PUBLIC_GITHUB_HOSTED_AIT_BINDING_REQUIRED
+    - PUBLIC_AIT_GITHUB_CANARY_EVIDENCE_REQUIRED
 artifactKind: ait
 scriptPath: scripts/build-ait.sh
-marketUpload: false
+marketUpload:
+  includedInBuild: false
+  workflow: .github/workflows/ait-upload-v1.yml
+  promotionState: CANDIDATE
+  runtimeState: RUNTIME_NOT_OPERATIONAL
+  transport: seori-auth-broker-trusted-adapter
+  sameParentRunNeeds: ait-build
+  artifactBinding: checksum-provenance-required
+  environment: apps-in-toss
+  environmentBootstrap: REQUIRED
+  approval: environment-protection-required
+  namedSecrets: []

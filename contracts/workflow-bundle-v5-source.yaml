@@ -78,6 +78,14 @@ buildRuntimeBinding:
       path: .github/workflows/godot-build-android-cloud-v2.yml
       profile: godot-android
       packageManager: null
+    aitGranite:
+      path: .github/workflows/ait-build-only-v1.yml
+      profile: ait-granite
+      packageManager: pnpm
+    aitWeb:
+      path: .github/workflows/ait-build-only-v1.yml
+      profile: ait-web
+      packageManager: npm
 
 staticProfiles:
   react-native:
@@ -127,12 +135,72 @@ buildProfiles:
     workflow: .github/workflows/ait-build-only-v1.yml
     artifactKind: ait
     scriptPath: scripts/build-ait.sh
+    repositoryVisibility:
+      - private
+      - public
+    runnerPolicy:
+      private: seorilabs-rpi-arm64
+      public: ubuntu-latest
+    publicExecutionPolicy:
+      pullRequest: forbidden
+      promotionState: CANDIDATE
+      runtimeState: RUNTIME_NOT_OPERATIONAL
+      events:
+        - push-stable-tag
+        - workflow-dispatch-stable-tag
+      versionAuthority: release-version-authority-v1
+      sourceBinding: exact-peeled-tag-commit
+      blockers:
+        - BACKOFFICE_PUBLIC_GITHUB_HOSTED_AIT_BINDING_REQUIRED
+        - PUBLIC_AIT_GITHUB_CANARY_EVIDENCE_REQUIRED
+    marketUpload:
+      includedInBuild: false
+      workflow: .github/workflows/ait-upload-v1.yml
+      promotionState: CANDIDATE
+      runtimeState: RUNTIME_NOT_OPERATIONAL
+      transport: seori-auth-broker-trusted-adapter
+      sameParentRunNeeds: ait-build
+      artifactBinding: checksum-provenance-required
+      environment: apps-in-toss
+      environmentBootstrap: REQUIRED
+      approval: environment-protection-required
+      namedSecrets: []
   ait-web:
     target: ait
     executor: github-actions
     workflow: .github/workflows/ait-build-only-v1.yml
     artifactKind: ait
     scriptPath: scripts/build-ait.sh
+    repositoryVisibility:
+      - private
+      - public
+    runnerPolicy:
+      private: seorilabs-rpi-arm64
+      public: ubuntu-latest
+    publicExecutionPolicy:
+      pullRequest: forbidden
+      promotionState: CANDIDATE
+      runtimeState: RUNTIME_NOT_OPERATIONAL
+      events:
+        - push-stable-tag
+        - workflow-dispatch-stable-tag
+      versionAuthority: release-version-authority-v1
+      sourceBinding: exact-peeled-tag-commit
+      blockers:
+        - BACKOFFICE_PUBLIC_GITHUB_HOSTED_AIT_BINDING_REQUIRED
+        - PUBLIC_AIT_GITHUB_CANARY_EVIDENCE_REQUIRED
+    marketUpload:
+      includedInBuild: false
+      workflow: .github/workflows/ait-upload-v1.yml
+      promotionState: CANDIDATE
+      runtimeState: RUNTIME_NOT_OPERATIONAL
+      transport: seori-auth-broker-trusted-adapter
+      sameParentRunNeeds: ait-build
+      artifactBinding: checksum-provenance-required
+      environment: apps-in-toss
+      environmentBootstrap: REQUIRED
+      approval: environment-protection-required
+      namedSecrets: []
 
 actions:
   checkout:
@@ -191,7 +259,8 @@ callerPolicies:
   ait:
     managedCallerPath: .github/workflows/ait-build-only.yml
     events:
-      - workflow_dispatch
+      - push-stable-tag
+      - workflow-dispatch-stable-tag
     permissions:
       contents: read
       id-token: write

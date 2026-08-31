@@ -813,7 +813,7 @@ test("unpromoted Capacitor and AIT build profiles remain fail-closed", async () 
   assert.throws(() => generateBuildCallerV5({
     ...androidOptions,
     target: "ait",
-  }), /BUILD_TARGET_INVALID/u);
+  }), /BUILD_PROFILE_NOT_PROMOTED/u);
 
   await assert.rejects(
     generateXcodeCloudRunV5({
@@ -839,7 +839,7 @@ test("trait fixture keeps root static commands and nested Granite AIT execution"
     approvedBundleBinding: bundle,
     resolvedBinding: resolved,
     target: "ait",
-  }), /BUILD_TARGET_INVALID/u);
+  }), /BUILD_PROFILE_NOT_PROMOTED/u);
 
   const splitOutsideDependency = structuredClone(manifest);
   splitOutsideDependency.buildBindings[0].dependencyRoot = "apps/ait";
@@ -1783,7 +1783,7 @@ test("build runtime blocks lookalike caller, malformed candidate branch identity
           return {};
         },
       }),
-      /BUILD_RUNTIME_(?:CONTEXT_INVALID|CALLER_WORKFLOW_IDENTITY_INVALID|CALLED_WORKFLOW_IDENTITY_INVALID)/u,
+      /BUILD_RUNTIME_(?:CONTEXT_INVALID|CALLER_WORKFLOW_IDENTITY_INVALID|CALLED_WORKFLOW_IDENTITY_INVALID|PUBLIC_STABLE_TAG_REQUIRED)/u,
     );
     assert.equal(calls, 0);
   }
@@ -2455,7 +2455,7 @@ test("pnpm staging preserves only exact stable public-registry overrides from th
   );
 });
 
-test("new workflows are build-only, private ARC routed, checksum-bound, and retain evidence for three days", async () => {
+test("new workflows are build-only, visibility-routed, checksum-bound, and retain evidence for three days", async () => {
   const [staticWorkflow, godotWorkflow, aitWorkflow, androidWorkflow, cloudBuild] = await Promise.all([
     readFile(".github/workflows/js-static-checks-v1.yml", "utf8"),
     readFile(".github/workflows/godot-checks-v3.yml", "utf8"),
@@ -2626,11 +2626,13 @@ test("new workflows are build-only, private ARC routed, checksum-bound, and reta
   assert.match(godotWorkflow, /godot-diagnostic-gate\.mjs/u);
   assert.match(godotWorkflow, /retention-days: 3/u);
   assert.match(aitWorkflow, /github\.event\.repository\.private && 'seorilabs-rpi-arm64' \|\| 'ubuntu-latest'/u);
-  // 이제 private 게이트는 caller 입력이 아니라 job 조건과 서명된 binding readback이 건다.
-  assert.match(aitWorkflow, /if: \$\{\{ github\.event\.repository\.private \}\}/u);
+  // public PR은 실행하지 않고 public build는 exact stable tag release에만 열린다.
+  assert.match(aitWorkflow, /github\.event_name != 'pull_request'/u);
+  assert.match(aitWorkflow, /release_mode == 'true'/u);
   assert.equal(Object.hasOwn(parse(aitWorkflow).on.workflow_call ?? {}, "inputs"), false);
-  assert.match(aitWorkflow, /runnerRoute: "private-arc"/u);
-  assert.doesNotMatch(aitWorkflow, /public-github-hosted/u);
+  assert.match(aitWorkflow, /RUNNER_ROUTE=private-arc/u);
+  assert.match(aitWorkflow, /RUNNER_ROUTE=public-github-hosted/u);
+  assert.match(aitWorkflow, /resolve-github-tag-commit\.mjs --github-output/u);
   assert.match(aitWorkflow, /find .*\.ait/u);
   assert.match(aitWorkflow, /artifactSha256/u);
   const aitDefinition = parse(aitWorkflow);

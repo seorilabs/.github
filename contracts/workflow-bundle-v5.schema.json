@@ -114,6 +114,16 @@
             "path": ".github/workflows/godot-build-android-cloud-v2.yml",
             "profile": "godot-android",
             "packageManager": null
+          },
+          "aitGranite": {
+            "path": ".github/workflows/ait-build-only-v1.yml",
+            "profile": "ait-granite",
+            "packageManager": "pnpm"
+          },
+          "aitWeb": {
+            "path": ".github/workflows/ait-build-only-v1.yml",
+            "profile": "ait-web",
+            "packageManager": "npm"
           }
         }
       }
@@ -269,7 +279,7 @@
         "ait": {
           "const": {
             "managedCallerPath": ".github/workflows/ait-build-only.yml",
-            "events": ["workflow_dispatch"],
+            "events": ["push-stable-tag", "workflow-dispatch-stable-tag"],
             "permissions": {
               "contents": "read",
               "id-token": "write",
@@ -395,13 +405,49 @@
     "aitProfile": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["target", "executor", "workflow", "artifactKind", "scriptPath", "sha"],
+      "required": ["target", "executor", "workflow", "artifactKind", "scriptPath", "repositoryVisibility", "runnerPolicy", "publicExecutionPolicy", "marketUpload", "sha"],
       "properties": {
         "target": { "const": "ait" },
         "executor": { "const": "github-actions" },
         "workflow": { "const": ".github/workflows/ait-build-only-v1.yml" },
         "artifactKind": { "const": "ait" },
         "scriptPath": { "const": "scripts/build-ait.sh" },
+        "repositoryVisibility": { "const": ["private", "public"] },
+        "runnerPolicy": {
+          "const": {
+            "private": "seorilabs-rpi-arm64",
+            "public": "ubuntu-latest"
+          }
+        },
+        "publicExecutionPolicy": {
+          "const": {
+            "pullRequest": "forbidden",
+            "promotionState": "CANDIDATE",
+            "runtimeState": "RUNTIME_NOT_OPERATIONAL",
+            "events": ["push-stable-tag", "workflow-dispatch-stable-tag"],
+            "versionAuthority": "release-version-authority-v1",
+            "sourceBinding": "exact-peeled-tag-commit",
+            "blockers": [
+              "BACKOFFICE_PUBLIC_GITHUB_HOSTED_AIT_BINDING_REQUIRED",
+              "PUBLIC_AIT_GITHUB_CANARY_EVIDENCE_REQUIRED"
+            ]
+          }
+        },
+        "marketUpload": {
+          "const": {
+            "includedInBuild": false,
+            "workflow": ".github/workflows/ait-upload-v1.yml",
+            "promotionState": "CANDIDATE",
+            "runtimeState": "RUNTIME_NOT_OPERATIONAL",
+            "transport": "seori-auth-broker-trusted-adapter",
+            "sameParentRunNeeds": "ait-build",
+            "artifactBinding": "checksum-provenance-required",
+            "environment": "apps-in-toss",
+            "environmentBootstrap": "REQUIRED",
+            "approval": "environment-protection-required",
+            "namedSecrets": []
+          }
+        },
         "sha": { "$ref": "#/$defs/sha" }
       }
     },

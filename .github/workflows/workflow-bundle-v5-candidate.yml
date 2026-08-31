@@ -7,6 +7,7 @@ on:
       - .github/cloud-build/godot-android-build-only-v2.yaml
       - .github/cloud-build/rn-android-build-only-v2.yaml
       - .github/workflows/ait-build-only-v1.yml
+      - .github/workflows/ait-upload-v1.yml
       - .github/workflows/capacitor-build-android-cloud-v1.yml
       - .github/workflows/godot-build-android-cloud-v2.yml
       - .github/workflows/godot-checks-v3.yml
@@ -34,6 +35,7 @@ on:
       - .github/cloud-build/godot-android-build-only-v2.yaml
       - .github/cloud-build/rn-android-build-only-v2.yaml
       - .github/workflows/ait-build-only-v1.yml
+      - .github/workflows/ait-upload-v1.yml
       - .github/workflows/capacitor-build-android-cloud-v1.yml
       - .github/workflows/godot-build-android-cloud-v2.yml
       - .github/workflows/godot-checks-v3.yml
