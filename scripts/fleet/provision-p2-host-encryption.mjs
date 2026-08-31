@@ -2057,6 +2057,9 @@ function rebootReadback() {
   const rebootReceiptPath = currentProvisionPath === paths.restoredProvision
     ? paths.restoredReboot
     : paths.reboot;
+  if (existsSync(rebootReceiptPath)) {
+    return loadRebootReceipt(provisioned, rebootReceiptPath);
+  }
   publishManagedRecord(
     rebootReceiptPath === paths.restoredReboot ? 'reboot-restored' : 'reboot',
     `${canonicalJson(rebootVerified)}\n`,
@@ -2076,9 +2079,13 @@ function validateDigestRecord(record, expectedKeys, code) {
   return record;
 }
 
-function loadRebootReceipt(provisioned) {
+function loadRebootReceipt(provisioned, receiptPath = backupPaths().reboot) {
+  const paths = backupPaths();
+  if (receiptPath !== paths.reboot && receiptPath !== paths.restoredReboot) {
+    stop('P2_HOST_REBOOT_ATTESTATION_INVALID');
+  }
   const receipt = validateDigestRecord(
-    readCanonicalJson(backupPaths().reboot, 'P2_HOST_REBOOT_ATTESTATION_INVALID'),
+    readCanonicalJson(receiptPath, 'P2_HOST_REBOOT_ATTESTATION_INVALID'),
     [
       'schemaVersion', 'state', 'nodeName', 'contractDigest', 'previousBootId',
       'currentBootId', 'provisionedDigest', 'hostEncryptionDigest',
@@ -2088,6 +2095,9 @@ function loadRebootReceipt(provisioned) {
   if (
     receipt.schemaVersion !== 1 || receipt.state !== 'HOST_ENCRYPTED_MOUNT_REBOOT_VERIFIED' ||
     receipt.nodeName !== contract.target.nodeName || receipt.contractDigest !== contractDigest(contract) ||
+    receipt.previousBootId !== provisioned.bootId ||
+    !/^[a-f0-9-]{36}$/u.test(receipt.currentBootId ?? '') ||
+    receipt.currentBootId === receipt.previousBootId ||
     receipt.provisionedDigest !== provisioned.observedDigest ||
     receipt.hostEncryptionDigest !== provisioned.hostEncryption.observedDigest
   ) stop('P2_HOST_REBOOT_ATTESTATION_MISMATCH');

@@ -682,6 +682,18 @@ test('success path backs up, provisions once, writes canonical marker and verifi
     ...tangFlags(fixture),
   ]);
   assert.equal(JSON.parse(rebootResult.stdout).state, 'HOST_ENCRYPTED_MOUNT_REBOOT_VERIFIED');
+  const rebootCallsBeforeRetry = (await readFile(fixture.log, 'utf8')).trim().split('\n').length;
+  const retriedRebootResult = await runHost(fixture, 'reboot-readback', [
+    `--kubeconfig=${fixture.kubeconfig}`,
+    ...tangFlags(fixture),
+  ]);
+  assert.deepEqual(JSON.parse(retriedRebootResult.stdout), JSON.parse(rebootResult.stdout));
+  const retryCalls = (await readFile(fixture.log, 'utf8')).trim().split('\n')
+    .slice(rebootCallsBeforeRetry)
+    .map((line) => JSON.parse(line));
+  assert.equal(retryCalls.some(({ executable, args }) =>
+    executable === filesystemBoundaryExecutable &&
+    args.join('\0') === ['publish-record', 'reboot'].join('\0')), false);
   const markerPath = join(
     fixture.root,
     'var/lib/seori-auth/.seorilabs-host-encrypted-mount.json',
