@@ -348,7 +348,7 @@ if (executable === '/usr/sbin/cryptsetup') {
 if (executable === '/usr/sbin/dmsetup') {
   const dmUuid = scenario === 'wrong-dm-uuid'
     ? `CRYPT-LUKS2-${LUKS_UUID.replaceAll('-', '')}-lookalike`
-    : `CRYPT-LUKS2-${LUKS_UUID.replaceAll('-', '')}-seori--auth--state`;
+    : `CRYPT-LUKS2-${LUKS_UUID.replaceAll('-', '')}-seori-auth-state`;
   output(
     `seori-auth-state|${dmUuid}|${state.dmMajor ?? 253}|${state.dmMinor ?? 7}`,
   );

@@ -610,8 +610,9 @@ export function validateMapperBackingAttestation({
 }) {
   const normalizedUuid = luksUuid?.replaceAll('-', '').toUpperCase();
   const mapperName = contract?.target?.mapperName;
+  // cryptsetup dm_prepare_uuid appends the mapper name verbatim after the normalized LUKS UUID.
   const expectedDmUuid = typeof mapperName === 'string'
-    ? `CRYPT-LUKS2-${normalizedUuid}-${mapperName.replaceAll('-', '--').toUpperCase()}`
+    ? `CRYPT-LUKS2-${normalizedUuid}-${mapperName.toUpperCase()}`
     : '';
   if (
     !LUKS_UUID.test(luksUuid ?? '') || !validPathIdentity(sourceIdentity, 'file', true) ||
