@@ -122,6 +122,7 @@ publisher 권한을 가져서는 안 된다. GitHub OIDC 조건은 숫자 reposi
 - Godot export preset: 버전 주입 대상과 `godot --export-release` 대상이 같은 preset이어야 한다.
   Google Play는 `android_export_preset`(기본 `Android`), App Store는 `ios_export_preset`으로 명시한다.
 - Godot Android에서 import 전 공개 runtime config 복원이나 최종 AAB 정책 검사가 필요하면 각각 `prepare_project_script`, `post_export_validation_script`를 넘긴다. 후자에는 `AAB_PATH`, `ANDROID_VERSION_NAME`, `ANDROID_VERSION_CODE`가 전달된다.
+- 결제 plugin·동적 Gradle preset처럼 중앙 direct export로 표현할 수 없는 Godot repo는 `build_script`를 넘긴다. 중앙이 태그 파생 `SEORI_RELEASE_*`와 exact `SEORI_ANDROID_AAB_OUTPUT`만 child process에 주입하고, upload와 provider API는 계속 중앙 workflow만 소유한다.
 - Firebase 복원: `scripts/restore-mobile-firebase-config.mjs --android|--ios --require`.
 - Godot web export: `scripts/export_godot_web.sh`.
 - Legacy GitHub App Store 경로의 Godot iOS: `scripts/ensure_godot.sh --with-export-templates`, `scripts/export_godot_ios.sh`(→ `<ios_output>.xcodeproj`). 이 입력 계약은 Xcode Cloud 이관 전 기존 consumer 확인에만 사용한다.

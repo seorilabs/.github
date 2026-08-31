@@ -19,7 +19,7 @@
 
 ### 이탈은 이미 일어나 있다
 
-`godot-deploy-google-play.yml`은 워크플로우 본문에서 Godot을 내려받아 export까지 수행한다. 그래서 그 이상이 필요한 repo는 재사용 워크플로우를 **버리고** 인라인 caller로 갔다.
+과거 `godot-deploy-google-play.yml`은 워크플로우 본문에서 Godot을 내려받아 export까지 수행했다. 그래서 그 이상이 필요한 repo는 재사용 워크플로우를 **버리고** 인라인 caller로 갔다. 현재 중앙 workflow는 호환 repo의 direct export와, 특수 repo의 `build_script` child process를 함께 지원하되 업로드·provider API는 중앙에만 둔다.
 
 | repo | 엔진 | 이탈 사유 |
 |---|---|---|
@@ -28,7 +28,7 @@
 | crossword-puzzle | RN | 문서화되지 않음 |
 | happy-farm | RN | 문서화되지 않음 |
 
-이탈 자체가 문제가 아니라, **재사용 워크플로우가 빌드를 품고 있어서 확장 지점이 없다는 것**이 문제다. 특수 요구가 생기면 통째로 복사하는 것 말고 길이 없다.
+이탈 자체가 문제가 아니라, **재사용 워크플로우가 빌드를 품고 있어서 확장 지점이 없었다는 것**이 문제였다. 이제 특수 요구는 repo의 `scripts/build-android.sh`로 한정하고 caller는 중앙 workflow를 그대로 쓴다.
 
 ### 버전도 갈려 있다
 

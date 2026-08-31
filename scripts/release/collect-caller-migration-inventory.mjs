@@ -47,11 +47,6 @@ const OBSOLETE_INPUTS_BY_KIND = Object.freeze({
   'godot-deploy-google-play': Object.freeze(['runs_on']),
 });
 
-const UPLOAD_TOOLS = Object.freeze({
-  'rn-deploy-google-play': 'scripts/upload-google-play-internal.py',
-  'godot-deploy-google-play': 'tools/upload_google_play_internal.py',
-});
-
 const BUILD_SCRIPT_ENVIRONMENT = Object.freeze({
   'workflow-bundle-v5-ait-build-only': {
     path: 'scripts/build-ait.sh',
@@ -240,18 +235,6 @@ export function collectCallerMigrationInventory(root, fullName) {
   }
 
   for (const kind of kinds) {
-    const tool = UPLOAD_TOOLS[kind];
-    if (tool !== undefined) {
-      const text = readTextOrNull(join(root, tool));
-      if (text === null || !text.includes('--aab-path')) {
-        findings.push({
-          id: 'upload-tool-missing-verified-path',
-          severity: 'blocking',
-          path: tool,
-          detail: '업로드 도구가 --aab-path로 받은 검증된 파일만 올려야 한다.',
-        });
-      }
-    }
     const script = BUILD_SCRIPT_ENVIRONMENT[kind];
     if (script !== undefined) {
       const text = readTextOrNull(join(root, script.path));

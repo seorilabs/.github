@@ -569,7 +569,6 @@ test('caller migration inventory는 남은 결함을 기계적으로 찾아낸�
       ].join('\n'),
     );
     write('scripts/resolve-release-version.mjs', 'export default 1;\n');
-    write('tools/upload_google_play_internal.py', 'import sys\n');
     write('scripts/build-ait.sh', '#!/usr/bin/env bash\nset -euo pipefail\n');
     write(
       'play-store/google-play.config.json',
@@ -596,7 +595,6 @@ test('caller migration inventory는 남은 결함을 기계적으로 찾아낸�
       'obsolete-caller-input',
       'repository-local-version-resolver',
       'market-config-version-authority',
-      'upload-tool-missing-verified-path',
       'build-script-ignores-release-environment',
     ]) {
       assert.ok(ids.has(expected), expected);

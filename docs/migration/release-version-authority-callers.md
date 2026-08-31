@@ -24,8 +24,8 @@ node scripts/release/collect-caller-migration-inventory.mjs <저장소 경로> \
 
 | caller kind | 제거 | 추가·확인 |
 |---|---|---|
-| `rn-deploy-google-play` | `version_name`, `version_code`, `version_script` | `scripts/upload-google-play-internal.py`가 `--aab-path`로 받은 파일만 업로드 |
-| `godot-deploy-google-play` | 같음 + `runs_on` | `tools/upload_google_play_internal.py`가 `--aab-path` 수용, preset 이름이 `Android`가 아니면 `android_export_preset` 명시. 러너는 `seorilabs-x64-android`로 중앙 고정 |
+| `rn-deploy-google-play` | `version_name`, `version_code`, `version_script`, repo-local uploader | exact 중앙 SHA의 업로더가 검증된 AAB만 업로드 |
+| `godot-deploy-google-play` | 같음 + `runs_on`, repo-local uploader | preset 이름이 `Android`가 아니면 `android_export_preset` 명시. 중앙 direct export로 표현할 수 없으면 `build_script`가 `SEORI_RELEASE_*`를 읽고 `SEORI_ANDROID_AAB_OUTPUT`에만 쓴다. 러너는 `seorilabs-x64-android`로 중앙 고정 |
 | `rn-deploy-app-store` | 같음 | — |
 | `godot-deploy-app-store` | 같음 | `ios_export_preset`이 실제 export 대상 preset 이름과 같아야 함 |
 | `rn-deploy-ait` / `godot-deploy-ait` | 같음 | 저장소 `deploy` 스크립트가 `--memo`와 `--location`을 **그대로** 전달(memo에 artifact sha256이 들어감) |
@@ -52,7 +52,7 @@ node scripts/release/collect-caller-migration-inventory.mjs <저장소 경로> \
 
 1. 모든 caller `uses`가 exact commit SHA로 고정됐다.
 2. caller에 `version_name`, `version_code`, `version_script`가 없다.
-3. 마켓 업로드 도구가 `--aab-path`로 받은 파일만 올리고, `SEORI_EXPECTED_AAB_SHA256`과
+3. exact 중앙 SHA의 마켓 업로드 도구가 `--aab-path`로 받은 파일만 올리고, `SEORI_EXPECTED_AAB_SHA256`과
    `SEORI_EXPECTED_ANDROID_VERSION_CODE`를 필수로 요구한다.
 4. build script가 `SEORI_RELEASE_*` 환경변수를 읽어 주입한다.
 5. exact stable 태그 실행에서 artifact readback이 통과한다.

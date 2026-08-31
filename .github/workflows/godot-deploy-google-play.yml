@@ -49,6 +49,11 @@ on:
         required: false
         default: ""
         type: string
+      build_script:
+        description: "중앙 export로 표현할 수 없는 repo의 AAB 빌드 스크립트. 비우면 중앙 Godot export 사용."
+        required: false
+        default: ""
+        type: string
       android_export_preset:
         description: "Godot Android export preset 이름. 버전 주입과 export 대상이 같아야 한다."
         required: false
@@ -104,6 +109,7 @@ jobs:
       PROJECT_DIR: ${{ inputs.project_dir }}
       ANDROID_EXPORT_PRESET: ${{ inputs.android_export_preset }}
       SCRIPTS_DIR: ${{ inputs.scripts_dir }}
+      BUILD_SCRIPT: ${{ inputs.build_script }}
       PREPARE_PROJECT_SCRIPT: ${{ inputs.prepare_project_script }}
       POST_EXPORT_VALIDATION_SCRIPT: ${{ inputs.post_export_validation_script }}
       SHOULD_UPLOAD: ${{ inputs.upload }}
@@ -226,6 +232,10 @@ jobs:
           set -euo pipefail
           name="${{ inputs.aab_name }}"
           [ -n "$name" ] || name="${{ github.event.repository.name }}"
+          [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+            echo "aab_name은 안전한 파일 basename이어야 한다." >&2
+            exit 1
+          }
           echo "aab_path=build/android/${name}.aab" >> "$GITHUB_OUTPUT"
 
       - name: Setup Java
@@ -262,11 +272,14 @@ jobs:
           path="$dir/upload-key.jks"
           printf '%s' "$GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$path"
           chmod 600 "$path"
-          echo "path=$path" >> "$GITHUB_OUTPUT"
+          alias="$(keytool -list -v -keystore "$path" -storepass "$GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD" | awk -F': ' '/^Alias name: /{print $2; exit}')"
+          [ -n "$alias" ] || { echo "upload key alias 탐지 실패." >&2; exit 1; }
+          { echo "path=$path"; echo "alias=$alias"; } >> "$GITHUB_OUTPUT"
 
       # export_presets.cfg는 version authority가 아니라 주입 대상이다. 태그 파생값을 덮어쓰고
       # 실제 반영 여부는 export 이후 AAB manifest readback으로 확인한다.
       - name: Apply release version to the Godot Android export preset
+        if: ${{ inputs.build_script == '' }}
         shell: bash
         env:
           RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
@@ -349,6 +362,7 @@ jobs:
           bash "$PREPARE_PROJECT_SCRIPT"
 
       - name: Import Godot project
+        if: ${{ inputs.build_script == '' }}
         run: godot --headless --path "$PROJECT_DIR" --import --quit-after 1
 
       - name: Validate AdMob variables
@@ -360,18 +374,47 @@ jobs:
           [ "${ADMOB_INTERSTITIAL_AD_UNIT_ID:-}" != "ca-app-pub-3940256099942544/1033173712" ] || { echo "ADMOB_INTERSTITIAL_AD_UNIT_ID는 테스트 ID 사용 금지." >&2; exit 1; }
 
       - name: Install Android build template
+        if: ${{ inputs.build_script == '' }}
         shell: bash
         run: |
           set -euo pipefail
           [ -f "$SCRIPTS_DIR/install_android_build_template.sh" ] && bash "$SCRIPTS_DIR/install_android_build_template.sh" || echo "no install_android_build_template.sh; skipping"
 
       - name: Build AdMob plugin
+        if: ${{ inputs.build_script == '' }}
         shell: bash
         run: |
           set -euo pipefail
           [ -f "$SCRIPTS_DIR/build_admob_plugin.sh" ] && bash "$SCRIPTS_DIR/build_admob_plugin.sh" || echo "no build_admob_plugin.sh; skipping"
 
+      - name: Run caller Android build script
+        if: ${{ inputs.build_script != '' }}
+        shell: bash
+        env:
+          GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEYSTORE_BASE64 }}
+          GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD }}
+          GOOGLE_PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.GOOGLE_PLAY_UPLOAD_KEY_PASSWORD }}
+          GOOGLE_PLAY_UPLOAD_KEY_ALIAS: ${{ steps.keystore.outputs.alias }}
+          SEORI_BUILD_MODE: production
+          SEORI_RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          SEORI_RELEASE_VERSION_NAME: ${{ steps.release.outputs.version_name }}
+          SEORI_RELEASE_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
+        run: |
+          set -euo pipefail
+          script_path="$(realpath -e "$BUILD_SCRIPT")"
+          case "$script_path" in
+            "$GITHUB_WORKSPACE"/*) ;;
+            *) echo "build_script는 checkout 내부의 기존 파일이어야 한다." >&2; exit 1 ;;
+          esac
+          [ -f "$script_path" ] || { echo "build_script가 파일이 아니다." >&2; exit 1; }
+          output_path="$GITHUB_WORKSPACE/${{ steps.meta.outputs.aab_path }}"
+          mkdir -p "$(dirname "$output_path")"
+          rm -f "$output_path"
+          SEORI_ANDROID_AAB_OUTPUT="$output_path" bash "$script_path"
+          [ -s "$output_path" ] || { echo "build_script가 exact AAB를 만들지 않았다." >&2; exit 1; }
+
       - name: Export signed Android AAB
+        if: ${{ inputs.build_script == '' }}
         shell: bash
         env:
           GODOT_ANDROID_KEYSTORE_RELEASE_PATH: ${{ steps.keystore.outputs.path }}

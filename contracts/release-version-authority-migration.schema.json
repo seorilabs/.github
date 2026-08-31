@@ -105,7 +105,6 @@
               "obsolete-caller-input",
               "repository-local-version-resolver",
               "market-config-version-authority",
-              "upload-tool-missing-verified-path",
               "build-script-ignores-release-environment",
               "godot-export-preset-not-declared"
             ]

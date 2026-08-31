@@ -1477,6 +1477,23 @@ test('Godot 릴리즈 경로는 명시된 preset 하나에만 태그 파생 버�
     /--export-release "\$ANDROID_EXPORT_PRESET"/u,
   );
   assert.match(androidWorkflow, /ANDROID_EXPORT_PRESET: \$\{\{ inputs\.android_export_preset \}\}/u);
+  const androidDefinition = parse(androidWorkflow);
+  assert.equal(androidDefinition.on.workflow_call.inputs.build_script.default, '');
+  const androidSteps = androidDefinition.jobs['build-aab'].steps;
+  const presetStep = androidSteps.find(({ name }) => name === 'Apply release version to the Godot Android export preset');
+  const customBuildStep = androidSteps.find(({ name }) => name === 'Run caller Android build script');
+  const directBuildStep = androidSteps.find(({ name }) => name === 'Export signed Android AAB');
+  const aabNameStep = androidSteps.find(({ name }) => name === 'Resolve AAB name');
+  assert.equal(presetStep.if, "${{ inputs.build_script == '' }}");
+  assert.equal(customBuildStep.if, "${{ inputs.build_script != '' }}");
+  assert.equal(directBuildStep.if, "${{ inputs.build_script == '' }}");
+  assert.equal(customBuildStep.env.SEORI_RELEASE_TAG, '${{ steps.tag.outputs.tag }}');
+  assert.equal(customBuildStep.env.SEORI_RELEASE_VERSION_NAME, '${{ steps.release.outputs.version_name }}');
+  assert.equal(customBuildStep.env.SEORI_RELEASE_VERSION_CODE, '${{ steps.release.outputs.android_version_code }}');
+  assert.match(customBuildStep.run, /SEORI_ANDROID_AAB_OUTPUT="\$output_path" bash "\$script_path"/u);
+  assert.match(customBuildStep.run, /"\$GITHUB_WORKSPACE"\/\*/u);
+  assert.doesNotMatch(customBuildStep.run, /eval|gcloud|googleapis|androidpublisher/u);
+  assert.match(aabNameStep.run, /\^\[A-Za-z0-9\]\[A-Za-z0-9\._-\]\*\$/u);
 
   const iosWorkflow = workflowText('godot-deploy-app-store.yml');
   assert.match(
