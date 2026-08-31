@@ -70,6 +70,17 @@ Ready이며 3개 KSA의 Secret `get/list/watch` 9개 조합은 모두 `no`다. w
 공개 ConfigMap은 계약과 동일한 SHA-256으로 readback했다. 다음 명령은 exact 객체만 겨냥하는
 rollback dry-run이며 실제 삭제는 별도 승인에서만 수행한다.
 
+2026-09-01 KST에는 RPI5의 기존 불변 reboot receipt를 exact source
+`8889621b356268bd7bcec7fefa828485f6252721`로 재검증했다. 결과는
+`HOST_ENCRYPTED_MOUNT_REBOOT_VERIFIED`, receipt digest
+`1395adf535b12060963d2cb9b84cf7d8df1279968d0d0e813ecc204d37813444`였고 기존 receipt를
+덮어쓰지 않았다. verified host-encryption binding을 포함한
+`auth-broker-public-bindings-190f9c1f6834`를 server dry-run 뒤 적용했으며 후속 `kubectl diff`는
+0이다. readiness audit에서 `STATE_HOST_ENCRYPTION_GATE_BLOCKED`는 해소됐다. 남은 진단은
+`REGISTRY_GATE_BLOCKED`, `SECRET_MANAGER_GATE_BLOCKED`,
+`STATE_APPLICATION_PROTECTION_GATE_BLOCKED`와 과거 불변 public binding ConfigMap 2개다. 과거
+ConfigMap은 rollback 문서의 삭제 승인 원칙에 따라 자동 삭제하지 않았다.
+
 ```bash
 node scripts/fleet/render-p3-runtime.mjs auth-broker-foundation-rollback |
   kubectl delete --dry-run=server -f -
