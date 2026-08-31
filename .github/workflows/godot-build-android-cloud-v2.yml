@@ -76,6 +76,49 @@ jobs:
           path: .seorilabs-workflow-bundle
           persist-credentials: false
 
+      - name: Resolve exact release tag commit
+        id: application-source
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          result-encoding: string
+          script: |
+            const eventSha = context.sha.toLowerCase();
+            if (!context.ref.startsWith('refs/tags/')) return eventSha;
+            const tag = context.ref.slice('refs/tags/'.length);
+            if (!/^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/.test(tag)) {
+              throw new Error('BUILD_RUNTIME_RELEASE_TAG_INVALID');
+            }
+            const expectedRef = `refs/tags/${tag}`;
+            const response = await github.rest.git.getRef({
+              ...context.repo,
+              ref: `tags/${tag}`,
+            });
+            if (response.data.ref !== expectedRef) {
+              throw new Error('BUILD_RUNTIME_RELEASE_TAG_REF_MISMATCH');
+            }
+            let object = response.data.object;
+            const visited = new Set();
+            for (let depth = 0; depth < 8; depth += 1) {
+              const sha = String(object.sha ?? '').toLowerCase();
+              if (!/^[0-9a-f]{40}$/.test(sha)) {
+                throw new Error('BUILD_RUNTIME_RELEASE_TAG_OBJECT_INVALID');
+              }
+              if (object.type === 'commit') return sha;
+              if (object.type !== 'tag' || visited.has(sha)) {
+                throw new Error('BUILD_RUNTIME_RELEASE_TAG_OBJECT_INVALID');
+              }
+              visited.add(sha);
+              const tagObject = await github.rest.git.getTag({
+                ...context.repo,
+                tag_sha: sha,
+              });
+              if (String(tagObject.data.sha).toLowerCase() !== sha) {
+                throw new Error('BUILD_RUNTIME_RELEASE_TAG_OBJECT_MISMATCH');
+              }
+              object = tagObject.data.object;
+            }
+            throw new Error('BUILD_RUNTIME_RELEASE_TAG_DEPTH_EXCEEDED');
+
       - name: Resolve current signed build-only binding before app checkout
         id: binding
         shell: bash
@@ -83,6 +126,7 @@ jobs:
           BINDING_TARGET: android
           EVENT_NAME: ${{ github.event_name }}
           EVENT_REF: ${{ github.ref }}
+          APPLICATION_SOURCE_SHA: ${{ steps.application-source.outputs.result }}
           EVENT_SOURCE_SHA: ${{ github.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}

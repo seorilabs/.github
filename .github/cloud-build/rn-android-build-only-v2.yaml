@@ -42,5 +42,8 @@ substitutions:
   _SEORI_RELEASE_VERSION_NAME: ""
   _SEORI_RELEASE_VERSION_CODE: ""
 options:
+  # RN/Hermes/CMake의 합산 RSS가 ARC 4608Mi cgroup을 초과한다. 조직 계약이 허용하는
+  # 8GB standard worker로 build를 격리하고 과금형 highcpu 우회는 사용하지 않는다.
+  machineType: E2_STANDARD_2
   logging: CLOUD_LOGGING_ONLY
 timeout: 2400s

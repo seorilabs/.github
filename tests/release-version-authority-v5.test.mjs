@@ -314,6 +314,32 @@ test('annotated tag object SHA와 peeled application commit SHA를 분리한다'
   );
 });
 
+test('Android v5 workflow는 checkout 전에 exact tag를 commit까지 peel해 binding에 전달한다', () => {
+  for (const path of [
+    '.github/workflows/rn-build-android-cloud-v2.yml',
+    '.github/workflows/godot-build-android-cloud-v2.yml',
+  ]) {
+    const text = workflowText(path);
+    assert.match(
+      text,
+      /uses: actions\/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9\.0\.0/u,
+      path,
+    );
+    assert.match(text, /ref: `tags\/\$\{tag\}`/u, path);
+    assert.match(text, /github\.rest\.git\.getTag/u, path);
+    assert.match(
+      text,
+      /APPLICATION_SOURCE_SHA: \$\{\{ steps\.application-source\.outputs\.result \}\}/u,
+      path,
+    );
+    assert.ok(
+      text.indexOf('Resolve exact release tag commit')
+        < text.indexOf('Resolve current signed build-only binding before app checkout'),
+      path,
+    );
+  }
+});
+
 test('v5 non-release 실행에는 태그 파생값이 없다', async () => {
   const context = releaseContext({ eventName: 'workflow_dispatch', eventRef: 'refs/heads/main' });
   const binding = await resolveBuildRuntimeBindingV5(context, {

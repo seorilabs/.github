@@ -2742,6 +2742,15 @@ test("new workflows are build-only, visibility-routed, checksum-bound, and retai
   assert.match(cloudBuild, /SEORI_BUILD_MODE=build-only/u);
 });
 
+test("RN Cloud Build v2는 ARC cgroup보다 큰 8GB standard worker를 고정한다", async () => {
+  const cloudBuild = await readFile(
+    ".github/cloud-build/rn-android-build-only-v2.yaml",
+    "utf8",
+  );
+  assert.match(cloudBuild, /machineType: E2_STANDARD_2/u);
+  assert.doesNotMatch(cloudBuild, /E2_HIGHCPU_|N1_HIGHCPU_/u);
+});
+
 test("RN and Godot v2 workflows resolve signed config before app checkout and never upload markets", async () => {
   for (const [profile, path] of [
     ["react-native-android", ".github/workflows/rn-build-android-cloud-v2.yml"],
