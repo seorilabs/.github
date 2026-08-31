@@ -1659,6 +1659,7 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
     'seorilabs-x64-android',
     'ubuntu-latest',
     'macos-26',
+    "${{ github.event.repository.private && 'seorilabs-x64-android' || 'ubuntu-latest' }}",
     "${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}",
   ]);
   const marketPermissions = {
@@ -1694,10 +1695,16 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   assert.equal(resolveTagStep.env.RELEASE_EVENT_REF, '${{ github.ref }}');
   assert.equal(resolveTagStep.env.RELEASE_EVENT_SHA, '${{ github.sha }}');
   const godotPlay = parse(workflowText('godot-deploy-google-play.yml'));
+  const rnPlay = parse(workflowText('rn-deploy-google-play.yml'));
   assert.equal(godotPlay.jobs['build-aab']['runs-on'], 'seorilabs-x64-android');
+  assert.equal(
+    rnPlay.jobs['build-aab']['runs-on'],
+    "${{ github.event.repository.private && 'seorilabs-x64-android' || 'ubuntu-latest' }}",
+  );
   for (const [name, definition] of [
     ['release-tag.yml', releaseTag],
     ['godot-deploy-google-play.yml', godotPlay],
+    ['rn-deploy-google-play.yml', rnPlay],
   ]) {
     // caller가 러너를 고를 수 없도록 입력 자체를 없앴다.
     assert.equal(
@@ -1714,6 +1721,21 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
     assert.doesNotMatch(text, /runs-on: \$\{\{ inputs\.runs_on \}\}/u, name);
     assert.match(text, /- name: Reject unapproved runner routing/u, name);
   }
+});
+
+test('RN Play public repo는 private ARC를 사용하지 않는다', () => {
+  const workflow = parse(workflowText('rn-deploy-google-play.yml'));
+  const runner = workflow.jobs['build-aab']['runs-on'];
+  assert.equal(
+    runner,
+    "${{ github.event.repository.private && 'seorilabs-x64-android' || 'ubuntu-latest' }}",
+  );
+
+  const selectRunner = (isPrivate) =>
+    isPrivate ? 'seorilabs-x64-android' : 'ubuntu-latest';
+  assert.equal(selectRunner(true), 'seorilabs-x64-android');
+  assert.equal(selectRunner(false), 'ubuntu-latest');
+  assert.notEqual(selectRunner(false), 'seorilabs-x64-android');
 });
 
 test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독으로 고정한다', () => {

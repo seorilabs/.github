@@ -1,6 +1,6 @@
 # Seorilabs org 재사용 워크플로우: RN 앱 Google Play (서명 AAB + 업로드)
 # 호출: uses: seorilabs/.github/.github/workflows/rn-deploy-google-play.yml@<FULL_COMMIT_SHA>
-# 러너: ubuntu-latest (Android aapt2가 x86-64 → ARC 금지). 업로드: WIF(keyless).
+# 러너: private는 전용 x64 Android ARC, public은 ubuntu-latest. 업로드: WIF(keyless).
 # 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
 # package.json, Gradle, 저장소 로컬 resolver, 마켓 config JSON은 authority가 아니며 AAB readback에서
 # tag 파생값과 다르면 업로드 전에 fail-closed한다.
@@ -108,7 +108,7 @@ permissions:
 jobs:
   build-aab:
     name: Signed Android App Bundle
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && 'seorilabs-x64-android' || 'ubuntu-latest' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: google-play
 

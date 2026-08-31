@@ -40,8 +40,8 @@
 | `release-tag.yml` | 지정 commit에 명시적 SemVer 태그 생성/push(마커 커밋·브랜치 push 없음) | ARC |
 | `rn-deploy-ait.yml` | RN .ait build + AppsInToss deploy | ARC |
 | `godot-deploy-ait.yml` | Godot web→wrapper→AppsInToss deploy | ARC |
-| `rn-deploy-google-play.yml` | RN 서명 AAB + Google Play 업로드 | ubuntu |
-| `godot-deploy-google-play.yml` | Godot 서명 AAB + Google Play 업로드 | ubuntu |
+| `rn-deploy-google-play.yml` | RN 서명 AAB + Google Play 업로드 | private `seorilabs-x64-android`, public `ubuntu-latest` |
+| `godot-deploy-google-play.yml` | Godot 서명 AAB + Google Play 업로드 | `seorilabs-x64-android` |
 | `rn-deploy-app-store.yml` | RN GitHub-hosted App Store 경로 — legacy migration 대상 | macos-26 |
 | `godot-deploy-app-store.yml` | Godot GitHub-hosted App Store 경로 — legacy migration 대상 | macos-26 |
 | `cleanup-actions-storage.yml` | 아티팩트/캐시 정리 | ARC |
@@ -117,8 +117,9 @@ publisher 권한을 가져서는 안 된다. GitHub OIDC 조건은 숫자 reposi
 - AppsInToss 배포: 저장소 `deploy` 스크립트는 워크플로우가 준 `--memo`와 `--location`을 **그대로**
   전달한다. memo에는 태그 파생값과 artifact sha256이 들어 있어 다시 만들거나 자르면 대조가 깨지고,
   `--location`은 검증된 exact absolute 경로다.
-- 러너: `release-tag.yml`은 `seorilabs-rpi-arm64`, `godot-deploy-google-play.yml`은
-  `seorilabs-x64-android`로 중앙에서 고정한다. 두 workflow의 `runs_on` 입력은 제거됐다.
+- 러너: `release-tag.yml`은 `seorilabs-rpi-arm64`, Godot Play와 private RN Play은
+  `seorilabs-x64-android`로 중앙에서 고정한다. public RN repo는 `ubuntu-latest`로만
+  라우팅해 private ARC를 노출하지 않는다. caller가 러너를 선택하는 `runs_on` 입력은 없다.
 - Godot export preset: 버전 주입 대상과 `godot --export-release` 대상이 같은 preset이어야 한다.
   Google Play는 `android_export_preset`(기본 `Android`), App Store는 `ios_export_preset`으로 명시한다.
 - Godot Android에서 import 전 공개 runtime config 복원이나 최종 AAB 정책 검사가 필요하면 각각 `prepare_project_script`, `post_export_validation_script`를 넘긴다. 후자에는 `AAB_PATH`, `ANDROID_VERSION_NAME`, `ANDROID_VERSION_CODE`가 전달된다.
