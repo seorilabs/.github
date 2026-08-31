@@ -1363,6 +1363,10 @@ test('source bootstrap validates the outer Node command symlink without collapsi
     source,
     /npm ci --ignore-scripts --no-bin-links --workspaces=false[\s\S]*--fund=false >\/dev\/null\)/u,
   );
+  assert.match(source, /trap finish EXIT/u);
+  assert.match(source, /P2_STAGE1_HOST_BOOTSTRAP_%s_FAILED/u);
+  assert.match(source, /bootstrap_step="DEPENDENCY_INSTALL"/u);
+  assert.doesNotMatch(source, /P2_STAGE1_HOST_BOOTSTRAP_\$\{[^}]+\}/u);
   assert.match(source, /expected_workspace_target="\.\.\/\.\.\/packages\/repo-contract"/u);
   assert.match(source, /expected_workspace_target="\.\.\/\.\.\/tools\/seori-auth"/u);
   assert.match(source, /\/usr\/bin\/rm -- "\$workspace_link"/u);
