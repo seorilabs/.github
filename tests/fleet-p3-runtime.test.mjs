@@ -775,11 +775,11 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   assert.doesNotMatch(output.confirmation, /e86018971183/u);
   assert.equal(
     output.workflowBundleSourceSha,
-    "65189aedfa5f5772b190f1cd6a7917b153d9caf7",
+    "d1d672553ee57befab01675680597cedeb345496",
   );
   assert.equal(
     output.workflowExecutionSha,
-    "65189aedfa5f5772b190f1cd6a7917b153d9caf7",
+    "d1d672553ee57befab01675680597cedeb345496",
   );
   assert.equal(
     output.workloadIdentity.github.audience,
@@ -789,15 +789,19 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   assert.deepEqual(
     contract.cloudBuild.wif.repositories.map(({ sha256 }) => sha256),
     [
-      "7f9c2d66844c0b9aa86f8d67c3e5bf526e3f1bf588544caec4cb2d11f1205e43",
-      "11aa0449d5c315066bd7c0223a26c6ff8dde158b37239faf3a9143b3655a25ca",
+      "0fe59ea7652311be672dbd640192c3fbd712716f3d0016c5cb0448e56c886672",
+      "eefa668ce406788b003d7e32acfa5fecf215f90d5e66b80146f1896342eb78c7",
+      "0fe59ea7652311be672dbd640192c3fbd712716f3d0016c5cb0448e56c886672",
+      "0fe59ea7652311be672dbd640192c3fbd712716f3d0016c5cb0448e56c886672",
     ],
   );
   assert.equal(
     output.workloadIdentity.github.attributeCondition,
     "assertion.repository_owner_id == '283115031' && " +
-      "((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@65189aedfa5f5772b190f1cd6a7917b153d9caf7') || " +
-      "(assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@65189aedfa5f5772b190f1cd6a7917b153d9caf7'))",
+      "((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@d1d672553ee57befab01675680597cedeb345496') || " +
+      "(assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@d1d672553ee57befab01675680597cedeb345496') || " +
+      "(assertion.repository_id == '1298244321' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@d1d672553ee57befab01675680597cedeb345496') || " +
+      "(assertion.repository_id == '1298264957' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@d1d672553ee57befab01675680597cedeb345496'))",
   );
   const capabilities = contract.cloudBuild.wif.repositories.map(
     ({ repositoryId, workflow }) => ({
@@ -1202,11 +1206,11 @@ test("Secret Manager bootstrap은 role partition을 two-phase 적용하고 rollb
   assert.equal(plan.provisioning.plaintextTransport, "fd3");
   assert.equal(
     plan.workflowBundleSourceSha,
-    "65189aedfa5f5772b190f1cd6a7917b153d9caf7",
+    "d1d672553ee57befab01675680597cedeb345496",
   );
   assert.equal(
     plan.workflowExecutionSha,
-    "65189aedfa5f5772b190f1cd6a7917b153d9caf7",
+    "d1d672553ee57befab01675680597cedeb345496",
   );
   assert.match(plan.confirmation, /^fleet-p3-secrets-[a-f0-9]{12}$/u);
   assert.doesNotMatch(plan.confirmation, /e86018971183/u);
