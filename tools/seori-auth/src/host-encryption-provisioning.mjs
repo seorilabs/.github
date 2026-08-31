@@ -592,6 +592,16 @@ export function validateMountedFilesystem({ source, filesystemType, target, cont
   return freeze({ source, filesystemType, target });
 }
 
+function stableMapperBackingIdentity(mapperBacking) {
+  return {
+    mapperName: mapperBacking.mapperName,
+    mapperPath: mapperBacking.mapperPath,
+    dmUuid: mapperBacking.dmUuid.toUpperCase(),
+    sourcePath: mapperBacking.sourcePath,
+    sourceIdentityDigest: mapperBacking.sourceIdentityDigest,
+  };
+}
+
 export function validateMapperBackingAttestation({
   contract,
   luksUuid,
@@ -599,6 +609,10 @@ export function validateMapperBackingAttestation({
   mapperBacking,
 }) {
   const normalizedUuid = luksUuid?.replaceAll('-', '').toUpperCase();
+  const mapperName = contract?.target?.mapperName;
+  const expectedDmUuid = typeof mapperName === 'string'
+    ? `CRYPT-LUKS2-${normalizedUuid}-${mapperName.replaceAll('-', '--').toUpperCase()}`
+    : '';
   if (
     !LUKS_UUID.test(luksUuid ?? '') || !validPathIdentity(sourceIdentity, 'file', true) ||
     !exactKeys(mapperBacking, MAPPER_BACKING_KEYS) ||
@@ -609,8 +623,7 @@ export function validateMapperBackingAttestation({
     !DEVICE_ID.test(mapperBacking.backingDeviceId ?? '') ||
     !DEVICE_ID.test(mapperBacking.dmDeviceId ?? '') ||
     typeof mapperBacking.dmUuid !== 'string' ||
-    !new RegExp(`^CRYPT-LUKS2-${normalizedUuid}-[A-Z0-9+_.:-]+$`, 'u')
-      .test(mapperBacking.dmUuid.toUpperCase()) ||
+    mapperBacking.dmUuid.toUpperCase() !== expectedDmUuid ||
     mapperBacking.sourceIdentityDigest !== canonicalDigest(sourceIdentity)
   ) stop('P2_HOST_MAPPER_BACKING_DRIFT');
   return freeze(structuredClone(mapperBacking));
@@ -717,7 +730,22 @@ export function validateProvisionedHostAttestation({
   if (!isDeepStrictEqual(provisioned.sourceIdentity, sourceIdentity)) {
     stop('P2_HOST_PROVISION_SOURCE_IDENTITY_DRIFT');
   }
-  if (!isDeepStrictEqual(provisioned.mapperBacking, mapperBacking)) {
+  const provisionedMapperBacking = validateMapperBackingAttestation({
+    contract,
+    luksUuid: provisioned.luksUuid,
+    sourceIdentity: provisioned.sourceIdentity,
+    mapperBacking: provisioned.mapperBacking,
+  });
+  const currentMapperBacking = validateMapperBackingAttestation({
+    contract,
+    luksUuid: provisioned.luksUuid,
+    sourceIdentity,
+    mapperBacking,
+  });
+  if (!isDeepStrictEqual(
+    stableMapperBackingIdentity(provisionedMapperBacking),
+    stableMapperBackingIdentity(currentMapperBacking),
+  )) {
     stop('P2_HOST_PROVISION_MAPPER_BACKING_DRIFT');
   }
   if (provisioned.preBackupDigest !== backup.observedDigest) {
@@ -727,12 +755,6 @@ export function validateProvisionedHostAttestation({
     provisioned.tangAttestationDigests,
     tang.map(({ observedDigest }) => observedDigest),
   )) stop('P2_HOST_PROVISION_TANG_ATTESTATION_DRIFT');
-  validateMapperBackingAttestation({
-    contract,
-    luksUuid: provisioned.luksUuid,
-    sourceIdentity,
-    mapperBacking: provisioned.mapperBacking,
-  });
   validateHostEncryptedMountAttestation({
     state,
     stateVolumeAttestation,

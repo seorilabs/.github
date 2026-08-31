@@ -346,20 +346,23 @@ if (executable === '/usr/sbin/cryptsetup') {
 }
 
 if (executable === '/usr/sbin/dmsetup') {
+  const dmUuid = scenario === 'wrong-dm-uuid'
+    ? `CRYPT-LUKS2-${LUKS_UUID.replaceAll('-', '')}-lookalike`
+    : `CRYPT-LUKS2-${LUKS_UUID.replaceAll('-', '')}-seori--auth--state`;
   output(
-    `seori-auth-state|CRYPT-LUKS2-${LUKS_UUID.replaceAll('-', '')}-seori--auth--state|` +
-    `${state.dmMajor ?? 253}|${state.dmMinor ?? 7}`,
+    `seori-auth-state|${dmUuid}|${state.dmMajor ?? 253}|${state.dmMinor ?? 7}`,
   );
 }
 
 if (executable === '/usr/sbin/losetup') {
+  const loopNumber = state.loopNumber ?? 7;
   output({
     loopdevices: [{
-      name: `/dev/loop${state.loopNumber ?? 7}`,
+      name: `/dev/loop${loopNumber}`,
       'back-file': scenario === 'wrong-backing'
         ? '/data/lookalike/seori-auth-state.luks'
         : '/data/seori-auth/seori-auth-state.luks',
-      'maj:min': '  7:7  ',
+      'maj:min': `  7:${loopNumber}  `,
     }],
   });
 }

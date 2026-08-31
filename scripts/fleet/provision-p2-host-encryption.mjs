@@ -1050,7 +1050,10 @@ function readMapperBacking(luksUuid, sourceIdentity) {
       mapperBacking: observed,
     });
   } catch (error) {
-    if (error instanceof HostCommandError) throw error;
+    if (
+      error instanceof HostCommandError ||
+      error instanceof HostEncryptionProvisioningError
+    ) throw error;
     stop('P2_HOST_MAPPER_BACKING_READBACK_FAILED');
   } finally {
     if (descriptor !== undefined) {

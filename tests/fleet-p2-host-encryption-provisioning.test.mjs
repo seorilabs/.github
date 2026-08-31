@@ -677,14 +677,6 @@ test('success path backs up, provisions once, writes canonical marker and verifi
   persistentState.dmMajor = 254;
   persistentState.dmMinor = 0;
   await writeFile(fixture.state, `${JSON.stringify(persistentState)}\n`, 'utf8');
-  await expectHostFailure(fixture, 'reboot-readback', [
-    `--kubeconfig=${fixture.kubeconfig}`,
-    ...tangFlags(fixture),
-  ], 'P2_HOST_PROVISION_MAPPER_BACKING_DRIFT');
-  persistentState.loopNumber = 7;
-  persistentState.dmMajor = 253;
-  persistentState.dmMinor = 7;
-  await writeFile(fixture.state, `${JSON.stringify(persistentState)}\n`, 'utf8');
   const rebootResult = await runHost(fixture, 'reboot-readback', [
     `--kubeconfig=${fixture.kubeconfig}`,
     ...tangFlags(fixture),
@@ -1229,6 +1221,25 @@ test('mapper readback rejects a lookalike loop backing file', async (context) =>
     `--kubeconfig=${fixture.kubeconfig}`,
     ...tangFlags(fixture),
   ], 'P2_HOST_MAPPER_BACKING_DRIFT', 'wrong-backing');
+});
+
+test('mapper readback exact-binds the dm UUID to the LUKS UUID and mapper name', async (context) => {
+  const fixture = await createFixture();
+  context.after(() => fixture.cleanup());
+  await runHost(fixture, 'backup', [
+    `--confirmation=${confirmationSet.backup}`,
+    `--kubeconfig=${fixture.kubeconfig}`,
+  ]);
+  await runHost(fixture, 'apply', [
+    `--confirmation=${confirmationSet.apply}`,
+    `--kubeconfig=${fixture.kubeconfig}`,
+    `--recovery-key-file=${fixture.recoveryKey}`,
+    ...tangFlags(fixture),
+  ]);
+  await expectHostFailure(fixture, 'readback', [
+    `--kubeconfig=${fixture.kubeconfig}`,
+    ...tangFlags(fixture),
+  ], 'P2_HOST_MAPPER_BACKING_DRIFT', 'wrong-dm-uuid');
 });
 
 test('native filesystem boundary uses fixed dirfds and atomic no-clobber operations', async () => {
