@@ -841,6 +841,16 @@ test('host fixture rejects alternate mount namespace before backup mutation', as
       ok: false,
       code: 'P2_STAGE1_INITIAL_MOUNT_NAMESPACE_REQUIRED',
     });
+    const publicResult = await runHost(root, 'backup-state', [
+      '--server=rpi4001',
+      '--public-error-channel=stdout',
+    ]);
+    assert.equal(publicResult.status, 1);
+    assert.equal(publicResult.stderr, '');
+    assert.deepEqual(JSON.parse(publicResult.stdout), {
+      ok: false,
+      code: 'P2_STAGE1_INITIAL_MOUNT_NAMESPACE_REQUIRED',
+    });
     await assert.rejects(lstat(join(
       root,
       contract.tangBackup.remoteRoot.slice(1),
@@ -1071,6 +1081,19 @@ printf '{"stdinBytes":%s}\n' "$count"
     const backupStateAccepted = await runRelay('rpi5', backupStateCommand);
     assert.equal(backupStateAccepted.status, 0);
     assert.deepEqual(JSON.parse(backupStateAccepted.stdout), {
+      stdinBytes: Buffer.byteLength(password) + 1,
+    });
+
+    const installEvidenceCommand = "sudo -S -p '' /bin/sh -c 'exec " +
+      '/usr/local/libexec/seori-auth-native launch -- /usr/local/bin/node ' +
+      '/opt/seorilabs/fleet-p2/' + 'a'.repeat(40) +
+      '/scripts/fleet/p2-stage1-tang-backup.mjs install-rpi5-evidence ' +
+      '--confirmation=fleet-p2-stage1-install-rpi5-evidence-' + 'b'.repeat(16) + ' ' +
+      '--public-error-channel=stdout 3< /var/tmp/seorilabs-fleet-p2/relay-input-' +
+      'c'.repeat(64) + ".payload </dev/null'";
+    const installEvidenceAccepted = await runRelay('rpi5', installEvidenceCommand);
+    assert.equal(installEvidenceAccepted.status, 0);
+    assert.deepEqual(JSON.parse(installEvidenceAccepted.stdout), {
       stdinBytes: Buffer.byteLength(password) + 1,
     });
 

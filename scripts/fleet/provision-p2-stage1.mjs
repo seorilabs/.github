@@ -1944,7 +1944,9 @@ async function deliverRpi5() {
       const result = parsePublicJson(await runPublicSsh(
         machine,
         nativeNodeCommand(sourceSha, remoteHostHelper(sourceSha),
-          `install-rpi5-evidence --confirmation=${confirmations().rpi5}`, rpi5Input.remotePath),
+          `install-rpi5-evidence --confirmation=${confirmations().rpi5}`,
+          rpi5Input.remotePath,
+          { publicErrors: true }),
         rpi5Input.input,
         { privileged: true },
       ), 'P2_STAGE1_RPI5_EVIDENCE_INSTALL_INVALID');

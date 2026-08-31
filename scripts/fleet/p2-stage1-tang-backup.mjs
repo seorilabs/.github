@@ -113,6 +113,8 @@ function parseOptions() {
 }
 
 const options = parseOptions();
+const publicErrorChannel = options.get('public-error-channel');
+const publicErrorsOnStdout = publicErrorChannel === 'stdout';
 
 function option(name, required = true) {
   const value = options.get(name);
@@ -121,7 +123,14 @@ function option(name, required = true) {
 }
 
 function allowedOptions(allowed) {
-  for (const key of options.keys()) if (!allowed.includes(key)) stop('P2_STAGE1_COMMAND_INVALID');
+  for (const key of options.keys()) {
+    if (!allowed.includes(key) && key !== 'public-error-channel') {
+      stop('P2_STAGE1_COMMAND_INVALID');
+    }
+  }
+  if (publicErrorChannel !== undefined && !publicErrorsOnStdout) {
+    stop('P2_STAGE1_COMMAND_INVALID');
+  }
 }
 
 function server() {
@@ -947,6 +956,8 @@ try {
     error instanceof HostEncryptionProvisioningError
     ? error.code
     : 'P2_STAGE1_FAILED';
-  process.stderr.write(`${JSON.stringify({ ok: false, code })}\n`);
+  const output = `${JSON.stringify({ ok: false, code })}\n`;
+  if (publicErrorsOnStdout) process.stdout.write(output);
+  else process.stderr.write(output);
   process.exitCode = 1;
 }

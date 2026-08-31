@@ -198,6 +198,8 @@ thumbprint, package, host identity, key inventory, signed backup envelope가 현
 RPI5에 먼저 전달된 legacy attestation도 같은 규칙으로 자체 서명과 stable field를 다시 검증한 뒤 원격
 원본 bytes를 유지한다. 로컬과 RPI5의 randomized signature digest가 서로 달라도 key inventory와 서명된
 backup envelope가 같으면 exact readback으로 수렴하며, 어느 쪽 record도 교체하지 않는다.
+원격 helper 오류는 신뢰된 relay가 `--public-error-channel=stdout`을 고정한 경우에만 값 없는 `P2_*`
+코드로 반환하고, controller는 그 allowlist 외의 출력과 실패를 결과 불명으로 유지한다.
 
 ### 6. RPI5에 공개 trust evidence 전달
 
