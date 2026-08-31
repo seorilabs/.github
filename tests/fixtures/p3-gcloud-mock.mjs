@@ -8,6 +8,7 @@ if (!statePath) process.exit(2);
 const args = process.argv.slice(2).filter((argument) => argument !== "--quiet");
 const state = JSON.parse(readFileSync(statePath, "utf8"));
 state.history ??= [];
+state.services ??= [];
 
 function save() {
   writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
@@ -104,6 +105,26 @@ function policyFor(target) {
 
 if (args[0] === "projects" && args[1] === "describe") {
   output(state.projectNumber);
+  process.exit(0);
+}
+
+if (args[0] === "services" && args[1] === "list" && args.includes("--enabled")) {
+  output([...state.services].sort().join("\n"));
+  process.exit(0);
+}
+
+if (args[0] === "services" && args[1] === "enable") {
+  const requested = args
+    .slice(2)
+    .filter((argument) => !argument.startsWith("--"));
+  for (const service of requested) {
+    if (!state.services.includes(service)) {
+      state.services.push(service);
+      state.history.push(`service:enable:${service}`);
+    }
+  }
+  state.services.sort();
+  save();
   process.exit(0);
 }
 

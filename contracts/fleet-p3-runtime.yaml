@@ -181,6 +181,17 @@ cloudBuild:
   projectId: seorilabs-ci
   projectNumber: "321365398093"
   region: asia-northeast3
+  requiredServices:
+    - artifactregistry.googleapis.com
+    - cloudbuild.googleapis.com
+    - cloudresourcemanager.googleapis.com
+    - iam.googleapis.com
+    - iamcredentials.googleapis.com
+    - logging.googleapis.com
+    - secretmanager.googleapis.com
+    - serviceusage.googleapis.com
+    - storage.googleapis.com
+    - sts.googleapis.com
   provider: projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
   wif:
     pool: fleet-p3

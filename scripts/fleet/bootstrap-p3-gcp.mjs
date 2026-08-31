@@ -74,6 +74,7 @@ try {
 }
 const cloud = contract.cloudBuild;
 const auth = contract.authBroker;
+const requiredServices = Object.freeze([...cloud.requiredServices]);
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -307,6 +308,7 @@ function publicPlan() {
     schemaVersion: 1,
     mode: "DRY_RUN",
     project: { id: cloud.projectId, number: cloud.projectNumber },
+    requiredServices,
     contractDigest,
     workflowBundleSourceSha: cloud.wif.workflowBundleSourceSha,
     workflowExecutionSha: cloud.wif.workflowExecutionSha,
@@ -351,6 +353,45 @@ function gcpPreflight() {
     "P3_GCP_PROJECT_READ_FAILED",
   );
   if (number !== cloud.projectNumber) fail("P3_GCP_PROJECT_NUMBER_MISMATCH");
+}
+
+function enabledServices() {
+  const raw = gcloudRun(
+    [
+      "services",
+      "list",
+      "--enabled",
+      `--project=${cloud.projectId}`,
+      "--format=value(config.name)",
+    ],
+    "P3_GCP_REQUIRED_SERVICES_READ_FAILED",
+  );
+  return new Set((raw ?? "").split(/\r?\n/u).filter(Boolean));
+}
+
+function requiredServiceState() {
+  const enabled = enabledServices();
+  return requiredServices.map((name) => ({ name, enabled: enabled.has(name) }));
+}
+
+function ensureRequiredServices() {
+  const missing = requiredServiceState()
+    .filter(({ enabled }) => !enabled)
+    .map(({ name }) => name);
+  if (missing.length === 0) return;
+  gcloudRun(
+    [
+      "services",
+      "enable",
+      ...missing,
+      `--project=${cloud.projectId}`,
+      "--format=none",
+    ],
+    "P3_GCP_REQUIRED_SERVICES_ENABLE_FAILED",
+  );
+  if (requiredServiceState().some(({ enabled }) => !enabled)) {
+    fail("P3_GCP_REQUIRED_SERVICES_ENABLE_FAILED");
+  }
 }
 
 function ensureServiceAccounts() {
@@ -821,6 +862,7 @@ function bindingPresent(item) {
 }
 
 function readback() {
+  const serviceState = requiredServiceState();
   const accountState = serviceAccounts.map((account) => {
     const raw = gcloudRun(
       [
@@ -847,6 +889,7 @@ function readback() {
   const bindingState = bindings.map((item) => ({ ...item, present: bindingPresent(item) }));
   return {
     project: { id: cloud.projectId, number: cloud.projectNumber },
+    requiredServices: serviceState,
     serviceAccounts: accountState,
     workloadIdentityPool: {
       exists: pool !== null,
@@ -877,6 +920,7 @@ function readback() {
     },
     iamBindings: bindingState,
     ready:
+      serviceState.every(({ enabled }) => enabled) &&
       accountState.every(({ exists, disabled }) => exists && disabled !== true) &&
       poolConfigurationMatches(pool) &&
       poolActive(pool) &&
@@ -921,6 +965,7 @@ function rollback() {
     serviceAccountsDeleted: false,
     staticKeysDeleted: false,
     existingAccessTokensRevoked: false,
+    requiredServicesDisabled: false,
     providersDisabled,
     providersAbsent,
     iamBindingsMutated: false,
@@ -935,6 +980,9 @@ if (mode === "plan") {
 } else {
   gcpPreflight();
   if (mode === "apply") {
+    // Unknown provider drift must stop before even a missing API is enabled.
+    preflightProviders();
+    ensureRequiredServices();
     ensureServiceAccounts();
     ensurePool();
     ensureProviders();

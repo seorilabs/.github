@@ -763,6 +763,7 @@ test("GCP bootstrap 기본 실행은 exact source와 5개 keyless identity의 dr
   assert.equal(output.mode, "DRY_RUN");
   assert.equal(output.project.id, "seorilabs-ci");
   assert.equal(output.project.number, "321365398093");
+  assert.deepEqual(output.requiredServices, contract.cloudBuild.requiredServices);
   assert.equal(output.serviceAccounts.length, 5);
   assert.equal(new Set(output.serviceAccounts.map(({ email }) => email)).size, 5);
   assert.equal(output.staticKeysCreated, false);
@@ -947,6 +948,9 @@ test("GCP apply는 exact legacy GitHub provider만 단조 축소하고 rollback�
   ].join(" && ");
   const initialState = {
     projectNumber: plan.project.number,
+    services: plan.requiredServices.filter(
+      (service) => service !== "sts.googleapis.com",
+    ),
     serviceAccounts: Object.fromEntries(
       plan.serviceAccounts.map(({ email }) => [email, { email, disabled: false }]),
     ),
@@ -1025,6 +1029,10 @@ test("GCP apply는 exact legacy GitHub provider만 단조 축소하고 rollback�
     const applied = await bootstrap("apply", plan.confirmation);
     assert.equal(applied.ready, true);
     const appliedState = await readState();
+    assert.deepEqual(
+      appliedState.history.filter((entry) => entry.startsWith("service:enable:")),
+      ["service:enable:sts.googleapis.com"],
+    );
     const githubProvider = plan.workloadIdentity.github.provider;
     assert.deepEqual(
       appliedState.history.filter((entry) => entry.includes(githubProvider)),
@@ -1073,11 +1081,13 @@ test("GCP apply는 exact legacy GitHub provider만 단조 축소하고 rollback�
     assert.equal(rolledBack.state, "NEW_TOKEN_EXCHANGE_REVOKED");
     assert.equal(rolledBack.iamBindingsMutated, false);
     assert.equal(rolledBack.existingAccessTokensRevoked, false);
+    assert.equal(rolledBack.requiredServicesDisabled, false);
     assert.equal(rolledBack.exactBindingsRemoved, 0);
     assert.equal(rolledBack.exactBindingsPreserved, plan.iamBindings.length);
     const rolledBackState = await readState();
     assert.deepEqual(rolledBackState.bindings, bindingSnapshot);
     assert.equal(rolledBackState.history.includes("iam:remove"), false);
+    assert.deepEqual(rolledBackState.services, plan.requiredServices);
     assert.ok(
       Object.values(rolledBackState.providers).every(
         ({ disabled }) => disabled === true,

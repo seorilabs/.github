@@ -256,11 +256,29 @@
     "cloudBuild": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["projectId", "projectNumber", "region", "provider", "wif", "submitter", "executor", "githubActions"],
+      "required": ["projectId", "projectNumber", "region", "requiredServices", "provider", "wif", "submitter", "executor", "githubActions"],
       "properties": {
         "projectId": { "const": "seorilabs-ci" },
         "projectNumber": { "const": "321365398093" },
         "region": { "const": "asia-northeast3" },
+        "requiredServices": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "prefixItems": [
+            { "const": "artifactregistry.googleapis.com" },
+            { "const": "cloudbuild.googleapis.com" },
+            { "const": "cloudresourcemanager.googleapis.com" },
+            { "const": "iam.googleapis.com" },
+            { "const": "iamcredentials.googleapis.com" },
+            { "const": "logging.googleapis.com" },
+            { "const": "secretmanager.googleapis.com" },
+            { "const": "serviceusage.googleapis.com" },
+            { "const": "storage.googleapis.com" },
+            { "const": "sts.googleapis.com" }
+          ],
+          "items": false
+        },
         "provider": { "const": "projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build" },
         "wif": {
           "type": "object",

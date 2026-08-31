@@ -176,6 +176,11 @@ renderer는 numeric project, pool, provider 경로에서 파생한 exact audienc
 cross-project `gcloud builds submit`이 staging bucket 존재 확인 중 `storage.buckets.list`를
 호출하므로 submitter에는 `seorilabs-ci` project의 `roles/storage.bucketViewer`를 명시한다.
 
+GCP bootstrap은 Cloud Build, IAM, IAM Credentials, Resource Manager, Security Token Service,
+Artifact Registry, Cloud Storage, Logging, Secret Manager, Service Usage API의 활성 상태를
+공개 이름으로 함께 readback한다. 승인된 apply는 provider drift를 먼저 검사한 뒤 누락 API만
+활성화하며, rollback은 여러 workload가 공유하는 API를 끄지 않고 exact provider만 disable한다.
+
 기존 cross-product condition은 알려진 legacy condition, mapping, issuer, audience가 모두 exact일
 때만 이관한다. active provider는 먼저 disable하고 legacy 상태를 다시 읽은 뒤 pairwise condition으로
 축소하며, disabled exact readback을 통과한 뒤에만 다시 enable한다. 알 수 없는 drift는 provider를
