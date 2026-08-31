@@ -673,6 +673,17 @@ test('success path backs up, provisions once, writes canonical marker and verifi
 
   const persistentState = JSON.parse(await readFile(fixture.state, 'utf8'));
   persistentState.bootId = '22222222-2222-4222-8222-222222222222';
+  persistentState.loopNumber = 8;
+  persistentState.dmMajor = 254;
+  persistentState.dmMinor = 0;
+  await writeFile(fixture.state, `${JSON.stringify(persistentState)}\n`, 'utf8');
+  await expectHostFailure(fixture, 'reboot-readback', [
+    `--kubeconfig=${fixture.kubeconfig}`,
+    ...tangFlags(fixture),
+  ], 'P2_HOST_PROVISION_MAPPER_BACKING_DRIFT');
+  persistentState.loopNumber = 7;
+  persistentState.dmMajor = 253;
+  persistentState.dmMinor = 7;
   await writeFile(fixture.state, `${JSON.stringify(persistentState)}\n`, 'utf8');
   const rebootResult = await runHost(fixture, 'reboot-readback', [
     `--kubeconfig=${fixture.kubeconfig}`,

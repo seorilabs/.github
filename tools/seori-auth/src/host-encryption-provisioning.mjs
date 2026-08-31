@@ -709,16 +709,24 @@ export function validateProvisionedHostAttestation({
     !SHA256.test(provisioned.headerBackupSha256 ?? '') ||
     !validPathIdentity(provisioned.headerBackupIdentity, 'file', true) ||
     !validPathIdentity(provisioned.sourceIdentity, 'file', true) ||
-    !isDeepStrictEqual(provisioned.headerBackupIdentity, headerBackupIdentity) ||
-    !isDeepStrictEqual(provisioned.sourceIdentity, sourceIdentity) ||
-    !isDeepStrictEqual(provisioned.mapperBacking, mapperBacking) ||
-    !SHA256.test(provisioned.configurationSha256 ?? '') ||
-    provisioned.preBackupDigest !== backup.observedDigest ||
-    !isDeepStrictEqual(
-      provisioned.tangAttestationDigests,
-      tang.map(({ observedDigest }) => observedDigest),
-    )
+    !SHA256.test(provisioned.configurationSha256 ?? '')
   ) stop('P2_HOST_PROVISION_ATTESTATION_MISMATCH');
+  if (!isDeepStrictEqual(provisioned.headerBackupIdentity, headerBackupIdentity)) {
+    stop('P2_HOST_PROVISION_HEADER_BACKUP_IDENTITY_DRIFT');
+  }
+  if (!isDeepStrictEqual(provisioned.sourceIdentity, sourceIdentity)) {
+    stop('P2_HOST_PROVISION_SOURCE_IDENTITY_DRIFT');
+  }
+  if (!isDeepStrictEqual(provisioned.mapperBacking, mapperBacking)) {
+    stop('P2_HOST_PROVISION_MAPPER_BACKING_DRIFT');
+  }
+  if (provisioned.preBackupDigest !== backup.observedDigest) {
+    stop('P2_HOST_PROVISION_PRE_BACKUP_DRIFT');
+  }
+  if (!isDeepStrictEqual(
+    provisioned.tangAttestationDigests,
+    tang.map(({ observedDigest }) => observedDigest),
+  )) stop('P2_HOST_PROVISION_TANG_ATTESTATION_DRIFT');
   validateMapperBackingAttestation({
     contract,
     luksUuid: provisioned.luksUuid,
