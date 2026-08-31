@@ -122,6 +122,7 @@ const fixtureScenario = invokedEntrypoint === fixtureEntrypoint
   ? process.env.SEORILABS_P2_STAGE1_FIXTURE_SCENARIO
   : undefined;
 let localProcessContext;
+const fixtureMetadataConvergenceInjected = new Set();
 
 function loadContract(path, schemaPath, code) {
   try {
@@ -277,11 +278,39 @@ function syncDirectoryPath(path) {
   }
 }
 
+function stableFileIdentity(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size &&
+    left.uid === right.uid && left.gid === right.gid && left.nlink === right.nlink &&
+    left.mtimeMs === right.mtimeMs;
+}
+
+function metadataConvergenceOnly(held, descriptorAfter, current, allowedModes) {
+  return stableFileIdentity(held, descriptorAfter) && stableFileIdentity(held, current) &&
+    allowedModes.includes(descriptorAfter.mode & 0o777) &&
+    allowedModes.includes(current.mode & 0o777);
+}
+
+function injectFixtureMetadataConvergence(path, descriptor) {
+  if (
+    fixtureScenario !== 'beestation-metadata-convergence' ||
+    !path.includes('/beestation-backups/') || fixtureMetadataConvergenceInjected.has(path)
+  ) return;
+  fixtureMetadataConvergenceInjected.add(path);
+  fchmodSync(descriptor, 0o700);
+}
+
 function readHeld(
   path,
-  { mode: modeValue, modes: modeValues, maximum = 4 * 1024 * 1024, allowEmpty = false } = {},
+  {
+    mode: modeValue,
+    modes: modeValues,
+    maximum = 4 * 1024 * 1024,
+    allowEmpty = false,
+    cloudMetadataConvergence = false,
+  } = {},
 ) {
   let descriptor;
+  let firstConvergingRead;
   try {
     if (
       modeValue !== undefined && modeValues !== undefined ||
@@ -291,37 +320,62 @@ function readHeld(
       )
     ) stop('P2_STAGE1_CREDENTIAL_FILE_INVALID');
     const allowedModes = modeValues ?? (modeValue === undefined ? undefined : [modeValue]);
-    const entry = lstatSync(path);
-    if (
-      !entry.isFile() || entry.isSymbolicLink() || realpathSync(path) !== path ||
-      entry.nlink !== 1 ||
-      (allowedModes !== undefined && !allowedModes.includes(entry.mode & 0o777)) ||
-      (fixtureCredentialRoot === undefined && entry.uid !== process.geteuid?.()) ||
-      (!allowEmpty && entry.size < 1) || entry.size > maximum
-    ) stop('P2_STAGE1_CREDENTIAL_FILE_INVALID');
-    descriptor = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-    const held = fstatSync(descriptor);
-    if (
-      held.dev !== entry.dev || held.ino !== entry.ino || held.size !== entry.size ||
-      held.mode !== entry.mode || held.uid !== entry.uid || held.gid !== entry.gid ||
-      held.nlink !== entry.nlink
-    ) stop('P2_STAGE1_CREDENTIAL_FILE_DRIFT');
-    const bytes = readFileSync(descriptor);
-    const descriptorAfter = fstatSync(descriptor);
-    const after = lstatSync(path);
-    if (
-      descriptorAfter.dev !== held.dev || descriptorAfter.ino !== held.ino ||
-      descriptorAfter.size !== held.size || descriptorAfter.mode !== held.mode ||
-      descriptorAfter.uid !== held.uid || descriptorAfter.gid !== held.gid ||
-      descriptorAfter.nlink !== held.nlink || descriptorAfter.mtimeMs !== held.mtimeMs ||
-      descriptorAfter.ctimeMs !== held.ctimeMs || after.dev !== entry.dev ||
-      after.ino !== entry.ino || after.size !== entry.size || after.mode !== entry.mode ||
-      after.uid !== entry.uid || after.gid !== entry.gid || after.nlink !== entry.nlink ||
-      after.mtimeMs !== entry.mtimeMs || after.ctimeMs !== entry.ctimeMs
-    ) {
-      stop('P2_STAGE1_CREDENTIAL_FILE_DRIFT');
+    if (cloudMetadataConvergence && allowedModes === undefined) {
+      stop('P2_STAGE1_CREDENTIAL_FILE_INVALID');
     }
-    return bytes;
+    for (let attempt = 0; attempt < (cloudMetadataConvergence ? 2 : 1); attempt += 1) {
+      const entry = lstatSync(path);
+      if (
+        !entry.isFile() || entry.isSymbolicLink() || realpathSync(path) !== path ||
+        entry.nlink !== 1 ||
+        (allowedModes !== undefined && !allowedModes.includes(entry.mode & 0o777)) ||
+        (fixtureCredentialRoot === undefined && entry.uid !== process.geteuid?.()) ||
+        (!allowEmpty && entry.size < 1) || entry.size > maximum
+      ) stop('P2_STAGE1_CREDENTIAL_FILE_INVALID');
+      descriptor = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+      const held = fstatSync(descriptor);
+      if (
+        held.dev !== entry.dev || held.ino !== entry.ino || held.size !== entry.size ||
+        held.mode !== entry.mode || held.uid !== entry.uid || held.gid !== entry.gid ||
+        held.nlink !== entry.nlink
+      ) stop('P2_STAGE1_CREDENTIAL_FILE_DRIFT');
+      const bytes = readFileSync(descriptor);
+      injectFixtureMetadataConvergence(path, descriptor);
+      const descriptorAfter = fstatSync(descriptor);
+      const after = lstatSync(path);
+      const stable =
+        descriptorAfter.dev === held.dev && descriptorAfter.ino === held.ino &&
+        descriptorAfter.size === held.size && descriptorAfter.mode === held.mode &&
+        descriptorAfter.uid === held.uid && descriptorAfter.gid === held.gid &&
+        descriptorAfter.nlink === held.nlink && descriptorAfter.mtimeMs === held.mtimeMs &&
+        descriptorAfter.ctimeMs === held.ctimeMs && after.dev === entry.dev &&
+        after.ino === entry.ino && after.size === entry.size && after.mode === entry.mode &&
+        after.uid === entry.uid && after.gid === entry.gid && after.nlink === entry.nlink &&
+        after.mtimeMs === entry.mtimeMs && after.ctimeMs === entry.ctimeMs;
+      if (stable) {
+        if (
+          firstConvergingRead !== undefined &&
+          (!stableFileIdentity(firstConvergingRead.identity, held) ||
+            firstConvergingRead.sha256 !== sha256(bytes))
+        ) {
+          bytes.fill(0);
+          stop('P2_STAGE1_CREDENTIAL_FILE_DRIFT');
+        }
+        return bytes;
+      }
+      if (
+        !cloudMetadataConvergence || attempt !== 0 ||
+        !metadataConvergenceOnly(held, descriptorAfter, after, allowedModes)
+      ) {
+        bytes.fill(0);
+        stop('P2_STAGE1_CREDENTIAL_FILE_DRIFT');
+      }
+      firstConvergingRead = Object.freeze({ identity: held, sha256: sha256(bytes) });
+      bytes.fill(0);
+      closeSync(descriptor);
+      descriptor = undefined;
+    }
+    stop('P2_STAGE1_CREDENTIAL_FILE_DRIFT');
   } catch (error) {
     if (error instanceof Stage1ControllerError) throw error;
     stop('P2_STAGE1_CREDENTIAL_FILE_INVALID');
@@ -535,9 +589,15 @@ function readLuksRecoveryKey(root) {
 
 function hashHeldRegular(
   path,
-  { mode: modeValue, modes: modeValues, maximum = 16 * 1024 * 1024 * 1024 } = {},
+  {
+    mode: modeValue,
+    modes: modeValues,
+    maximum = 16 * 1024 * 1024 * 1024,
+    cloudMetadataConvergence = false,
+  } = {},
 ) {
   let descriptor;
+  let firstConvergingRead;
   try {
     if (
       modeValue !== undefined && modeValues !== undefined ||
@@ -547,41 +607,62 @@ function hashHeldRegular(
       )
     ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
     const allowedModes = modeValues ?? (modeValue === undefined ? undefined : [modeValue]);
-    const entry = lstatSync(path);
-    if (
-      !entry.isFile() || entry.isSymbolicLink() || realpathSync(path) !== path ||
-      entry.nlink !== 1 || entry.uid !== process.geteuid?.() ||
-      (allowedModes !== undefined && !allowedModes.includes(entry.mode & 0o777)) ||
-      entry.size < 1 || entry.size > maximum
-    ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
-    descriptor = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-    const held = fstatSync(descriptor);
-    if (
-      held.dev !== entry.dev || held.ino !== entry.ino || held.mode !== entry.mode ||
-      held.uid !== entry.uid || held.gid !== entry.gid || held.size !== entry.size ||
-      held.nlink !== entry.nlink
-    ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
-    const digest = createHash('sha256');
-    const chunk = Buffer.allocUnsafe(1024 * 1024);
-    let offset = 0;
-    while (offset < held.size) {
-      const count = readSync(descriptor, chunk, 0, Math.min(chunk.length, held.size - offset), offset);
-      if (count < 1) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
-      digest.update(chunk.subarray(0, count));
-      offset += count;
+    if (cloudMetadataConvergence && allowedModes === undefined) {
+      stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
     }
-    chunk.fill(0);
-    const after = fstatSync(descriptor);
-    const current = lstatSync(path);
-    if (
-      after.dev !== held.dev || after.ino !== held.ino || after.mode !== held.mode ||
-      after.uid !== held.uid || after.gid !== held.gid || after.size !== held.size ||
-      after.nlink !== held.nlink || after.mtimeMs !== held.mtimeMs ||
-      after.ctimeMs !== held.ctimeMs || current.dev !== held.dev ||
-      current.ino !== held.ino || current.mode !== held.mode || current.size !== held.size ||
-      current.mtimeMs !== held.mtimeMs || current.ctimeMs !== held.ctimeMs
-    ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_DRIFT');
-    return Object.freeze({ sha256: digest.digest('hex'), sizeBytes: held.size });
+    for (let attempt = 0; attempt < (cloudMetadataConvergence ? 2 : 1); attempt += 1) {
+      const entry = lstatSync(path);
+      if (
+        !entry.isFile() || entry.isSymbolicLink() || realpathSync(path) !== path ||
+        entry.nlink !== 1 || entry.uid !== process.geteuid?.() ||
+        (allowedModes !== undefined && !allowedModes.includes(entry.mode & 0o777)) ||
+        entry.size < 1 || entry.size > maximum
+      ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
+      descriptor = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+      const held = fstatSync(descriptor);
+      if (
+        held.dev !== entry.dev || held.ino !== entry.ino || held.mode !== entry.mode ||
+        held.uid !== entry.uid || held.gid !== entry.gid || held.size !== entry.size ||
+        held.nlink !== entry.nlink
+      ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
+      const digest = createHash('sha256');
+      const chunk = Buffer.allocUnsafe(1024 * 1024);
+      let offset = 0;
+      while (offset < held.size) {
+        const count = readSync(descriptor, chunk, 0, Math.min(chunk.length, held.size - offset), offset);
+        if (count < 1) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
+        digest.update(chunk.subarray(0, count));
+        offset += count;
+      }
+      chunk.fill(0);
+      const digestHex = digest.digest('hex');
+      injectFixtureMetadataConvergence(path, descriptor);
+      const after = fstatSync(descriptor);
+      const current = lstatSync(path);
+      const stable =
+        after.dev === held.dev && after.ino === held.ino && after.mode === held.mode &&
+        after.uid === held.uid && after.gid === held.gid && after.size === held.size &&
+        after.nlink === held.nlink && after.mtimeMs === held.mtimeMs &&
+        after.ctimeMs === held.ctimeMs && current.dev === held.dev &&
+        current.ino === held.ino && current.mode === held.mode && current.size === held.size &&
+        current.mtimeMs === held.mtimeMs && current.ctimeMs === held.ctimeMs;
+      if (stable) {
+        if (
+          firstConvergingRead !== undefined &&
+          (!stableFileIdentity(firstConvergingRead.identity, held) ||
+            firstConvergingRead.sha256 !== digestHex)
+        ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_DRIFT');
+        return Object.freeze({ sha256: digestHex, sizeBytes: held.size });
+      }
+      if (
+        !cloudMetadataConvergence || attempt !== 0 ||
+        !metadataConvergenceOnly(held, after, current, allowedModes)
+      ) stop('P2_STAGE1_POST_BACKUP_ARTIFACT_DRIFT');
+      firstConvergingRead = Object.freeze({ identity: held, sha256: digestHex });
+      closeSync(descriptor);
+      descriptor = undefined;
+    }
+    stop('P2_STAGE1_POST_BACKUP_ARTIFACT_DRIFT');
   } catch (error) {
     if (error instanceof Stage1ControllerError) throw error;
     stop('P2_STAGE1_POST_BACKUP_ARTIFACT_INVALID');
@@ -737,6 +818,15 @@ function postBackupUnsigned(receipt) {
   return unsigned;
 }
 
+function cloudReplicaReadbackOptions(extra = {}) {
+  const policy = stage1.attestor.postBootstrapBackup.cloudReplicaReadback;
+  return Object.freeze({
+    ...extra,
+    modes: policy.allowedModes.map((value) => Number.parseInt(value, 8)),
+    cloudMetadataConvergence: policy.maxAttempts === 2,
+  });
+}
+
 function verifyPostBootstrapBackup(root, attestor, encryption) {
   const specification = stage1.attestor.postBootstrapBackup;
   verifyPostBootstrapScripts(root);
@@ -792,11 +882,11 @@ function verifyPostBootstrapBackup(root, attestor, encryption) {
         : join(dirname(root), 'beestation-backups'),
     );
     const archiveReadback = hashHeldRegular(archive, { mode: 0o600 });
-    const beeReadback = hashHeldRegular(beeArchive, { modes: [0o600, 0o700] });
+    const beeReadback = hashHeldRegular(beeArchive, cloudReplicaReadbackOptions());
     const checksum = readHeld(`${archive}.sha256`, { mode: 0o600, maximum: 4096 });
     const beeChecksum = readHeld(
       `${beeArchive}.sha256`,
-      { modes: [0o600, 0o700], maximum: 4096 },
+      cloudReplicaReadbackOptions({ maximum: 4096 }),
     );
     try {
       const expectedChecksum = `${receipt.archiveSha256}  ${basename(archive)}\n`;
@@ -836,11 +926,11 @@ function createPostBootstrapBackupReceipt(root, attestor, encryption) {
   }
   const backup = runCanonicalPostBootstrapBackup(root, attestor, encryption);
   const archive = hashHeldRegular(backup.archive, { mode: 0o600 });
-  const beeArchive = hashHeldRegular(backup.beeArchive, { modes: [0o600, 0o700] });
+  const beeArchive = hashHeldRegular(backup.beeArchive, cloudReplicaReadbackOptions());
   const checksum = readHeld(`${backup.archive}.sha256`, { mode: 0o600, maximum: 4096 });
   const beeChecksum = readHeld(
     `${backup.beeArchive}.sha256`,
-    { modes: [0o600, 0o700], maximum: 4096 },
+    cloudReplicaReadbackOptions({ maximum: 4096 }),
   );
   let signature;
   try {

@@ -270,6 +270,15 @@ test('P2 Stage1 contract fixes separate signing/encryption identities and truste
     contract.attestor.postBootstrapBackup.backupPolicy,
     'CANONICAL_FULL_LOCAL_AND_BEESTATION',
   );
+  assert.deepEqual(contract.attestor.postBootstrapBackup.cloudReplicaReadback, {
+    scope: 'BEESTATION_ARCHIVE_AND_CHECKSUM_ONLY',
+    maxAttempts: 2,
+    allowedModes: ['0600', '0700'],
+    allowedConvergence: ['mode', 'ctime'],
+    stableFields: [
+      'device', 'inode', 'owner', 'group', 'linkCount', 'size', 'mtime', 'sha256',
+    ],
+  });
   assert.ok(contract.sourceBootstrap.requiredExecutables.includes('/usr/bin/id'));
   assert.ok(contract.sourceBootstrap.requiredExecutables.includes('/usr/bin/systemctl'));
   assert.equal(
@@ -500,6 +509,20 @@ test('credential bootstrap is create-only, exact on rerun, and never emits priva
       (await runController(fixture, 'bootstrap-attestor', first.arguments_)).stdout,
     );
     assert.equal(second.state, 'STAGE1_CREDENTIALS_EXACT_READBACK');
+    await chmod(postBackupReceipt.beeArchivePath, 0o600);
+    await chmod(`${postBackupReceipt.beeArchivePath}.sha256`, 0o600);
+    const converged = JSON.parse((await runController(
+      fixture,
+      'bootstrap-attestor',
+      first.arguments_,
+      'beestation-metadata-convergence',
+    )).stdout);
+    assert.equal(converged.state, 'STAGE1_CREDENTIALS_EXACT_READBACK');
+    assert.equal((await lstat(postBackupReceipt.beeArchivePath)).mode & 0o777, 0o700);
+    assert.equal(
+      (await lstat(`${postBackupReceipt.beeArchivePath}.sha256`)).mode & 0o777,
+      0o700,
+    );
     await chmod(postBackupReceipt.beeArchivePath, 0o740);
     await expectControllerFailure(
       fixture,

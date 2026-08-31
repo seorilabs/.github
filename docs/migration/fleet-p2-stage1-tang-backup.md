@@ -57,12 +57,19 @@ source bootstrap, Tang provision과 backup은 모두 중단한다.
 - unknown response는 mutation을 반복하지 않는다. 동일 action을 다시 실행하면 remote record와 exact
   digest를 먼저 읽는다. artifact만 남은 crash state는 current live inventory와 연결한 evidence를
   복구한 뒤 로컬 decrypt/restore 비교가 최종 진위를 판정한다.
+- BeeStation File Provider가 materialize 중 owner-only mode와 ctime을 한 번 갱신할 수 있으므로 cloud
+  archive와 checksum만 최대 2회의 bounded convergence readback을 허용한다. 두 read 사이의 device,
+  inode, owner, group, link count, size, mtime과 content digest가 모두 같아야 하며 허용된 `0600` 또는
+  `0700` 이외의 mode, content 변화, 두 번째 metadata 변화는 즉시 차단한다. local archive와 credential
+  원본에는 이 예외를 적용하지 않는다.
 
 ## 실행 순서
 
 모든 명령은 최신 검토·커밋된 clean source에서 실행한다. 아래 `<node-v24-absolute>`는 먼저
 `command -v node`와 `node --version`으로 확인한 Node `v24.16.0`의 절대 경로다. `<...>` 값은 바로 앞
-plan receipt에서 복사하는 공개 SHA 또는 confirmation이며 secret이 아니다.
+plan receipt에서 복사하는 공개 SHA 또는 confirmation이며 secret이 아니다. SSH password file도
+`realpath /tmp/ssh.txt`로 확인한 canonical absolute path를 `<ssh-password-file-canonical>`에 넣는다.
+macOS의 `/tmp`는 `/private/tmp` symlink이므로 비정규 경로를 그대로 넘기면 실행기가 거부한다.
 
 ### 1. 로컬 process boundary와 exact source 설치
 
@@ -144,7 +151,7 @@ regular file, mode `0600` 또는 그보다 엄격해야 한다.
 <stage1> bootstrap-source \
   --host=<exact-host> \
   --confirmation=<source-plan-confirmation> \
-  --ssh-password-file=/tmp/ssh.txt
+  --ssh-password-file=<ssh-password-file-canonical>
 ```
 
 remote bootstrap은 git archive SHA, `package-lock.json` SHA, `npm ci --ignore-scripts`, source-built native
@@ -161,7 +168,7 @@ rotate/delete는 하지 않는다. 각 서버에 대해 Stage 1 plan의 `tangPro
   --server=<rpi4001-or-seori-m6-01> \
   --source-sha=<source-plan-source-sha> \
   --confirmation=<plan-confirmations-tangProvision-for-server> \
-  --ssh-password-file=/tmp/ssh.txt
+  --ssh-password-file=<ssh-password-file-canonical>
 ```
 
 완료 상태 `TANG_SERVER_KEYS_BACKUP_REQUIRED`는 service readback까지 통과했지만 backup gate는 아직 열려
@@ -174,7 +181,7 @@ rotate/delete는 하지 않는다. 각 서버에 대해 Stage 1 plan의 `tangPro
   --server=<rpi4001-or-seori-m6-01> \
   --source-sha=<source-plan-source-sha> \
   --confirmation=<plan-confirmations-tang-for-server> \
-  --ssh-password-file=/tmp/ssh.txt
+  --ssh-password-file=<ssh-password-file-canonical>
 ```
 
 각 서버의 완료 상태는 `TANG_BACKUP_SIGNED_AND_CATALOGED`다. canonical
@@ -190,7 +197,7 @@ attestation이 create-only로 들어가고 catalog shard가 등록된다. stdout
 <stage1> deliver-rpi5-evidence \
   --source-sha=<rpi5-source-plan-source-sha> \
   --confirmation=<plan-confirmations-rpi5> \
-  --ssh-password-file=/tmp/ssh.txt
+  --ssh-password-file=<ssh-password-file-canonical>
 ```
 
 완료 상태는 `RPI5_TANG_TRUST_EVIDENCE_INSTALLED`다. 여기까지가 Stage 1의 끝이다. 이 결과는 RPI5

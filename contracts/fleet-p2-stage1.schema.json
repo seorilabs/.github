@@ -33,7 +33,7 @@
         },
         "postBootstrapBackup": {
           "type": "object", "additionalProperties": false,
-          "required": ["backupScriptRelativePath", "backupScriptSha256", "restoreScriptRelativePath", "restoreScriptSha256", "receiptRelativePath", "receiptMode", "backupPolicy", "restorePolicy", "bindingPolicy"],
+          "required": ["backupScriptRelativePath", "backupScriptSha256", "restoreScriptRelativePath", "restoreScriptSha256", "receiptRelativePath", "receiptMode", "backupPolicy", "restorePolicy", "bindingPolicy", "cloudReplicaReadback"],
           "properties": {
             "backupScriptRelativePath": { "const": "scripts/backup-credentials.sh" },
             "backupScriptSha256": { "const": "e1661a04b15be418a4a5ebb714a11d99172efe307b2afec8e0678f19eb5b87ff" },
@@ -43,7 +43,34 @@
             "receiptMode": { "const": "0600" },
             "backupPolicy": { "const": "CANONICAL_FULL_LOCAL_AND_BEESTATION" },
             "restorePolicy": { "const": "CANONICAL_ISOLATED_RESTORE_CHECK" },
-            "bindingPolicy": { "const": "TWO_LOGICAL_IDS_PUBLIC_FINGERPRINTS_AND_ARTIFACTS_ED25519_SIGNED" }
+            "bindingPolicy": { "const": "TWO_LOGICAL_IDS_PUBLIC_FINGERPRINTS_AND_ARTIFACTS_ED25519_SIGNED" },
+            "cloudReplicaReadback": {
+              "type": "object", "additionalProperties": false,
+              "required": ["scope", "maxAttempts", "allowedModes", "allowedConvergence", "stableFields"],
+              "properties": {
+                "scope": { "const": "BEESTATION_ARCHIVE_AND_CHECKSUM_ONLY" },
+                "maxAttempts": { "const": 2 },
+                "allowedModes": {
+                  "type": "array", "minItems": 2, "maxItems": 2,
+                  "prefixItems": [{ "const": "0600" }, { "const": "0700" }],
+                  "items": false
+                },
+                "allowedConvergence": {
+                  "type": "array", "minItems": 2, "maxItems": 2,
+                  "prefixItems": [{ "const": "mode" }, { "const": "ctime" }],
+                  "items": false
+                },
+                "stableFields": {
+                  "type": "array", "minItems": 8, "maxItems": 8,
+                  "prefixItems": [
+                    { "const": "device" }, { "const": "inode" }, { "const": "owner" },
+                    { "const": "group" }, { "const": "linkCount" }, { "const": "size" },
+                    { "const": "mtime" }, { "const": "sha256" }
+                  ],
+                  "items": false
+                }
+              }
+            }
           }
         },
         "consumers": {

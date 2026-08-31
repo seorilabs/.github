@@ -26,6 +26,24 @@ attestor:
     backupPolicy: CANONICAL_FULL_LOCAL_AND_BEESTATION
     restorePolicy: CANONICAL_ISOLATED_RESTORE_CHECK
     bindingPolicy: TWO_LOGICAL_IDS_PUBLIC_FINGERPRINTS_AND_ARTIFACTS_ED25519_SIGNED
+    cloudReplicaReadback:
+      scope: BEESTATION_ARCHIVE_AND_CHECKSUM_ONLY
+      maxAttempts: 2
+      allowedModes:
+        - "0600"
+        - "0700"
+      allowedConvergence:
+        - mode
+        - ctime
+      stableFields:
+        - device
+        - inode
+        - owner
+        - group
+        - linkCount
+        - size
+        - mtime
+        - sha256
   consumers:
     - tang-backup-attestor
     - rpi4001:tang-backup-readback
