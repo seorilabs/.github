@@ -350,7 +350,7 @@ if ! (cd "$staging" && /usr/bin/env -i \
   NPM_CONFIG_PROGRESS=false \
   NPM_CONFIG_COLOR=false \
   NPM_CONFIG_LOGLEVEL=error \
-  /usr/local/bin/npm ci --ignore-scripts --no-bin-links --workspaces=false \
+  /usr/local/bin/npm ci --ignore-scripts --no-bin-links \
     >"$npm_log" 2>&1); then
   if /usr/bin/grep -Eiq 'ENOSPC|no space left on device' "$npm_log"; then
     bootstrap_step="DEPENDENCY_INSTALL_STORAGE"
@@ -375,6 +375,7 @@ if ! (cd "$staging" && /usr/bin/env -i \
   exit 126
 fi
 /usr/bin/rm -rf --one-file-system -- "$npm_home" "$npm_cache" "$npm_tmp" "$npm_log"
+bootstrap_step="DEPENDENCY_GRAPH_READBACK"
 workspace_parent="$staging/node_modules/@seorilabs"
 for workspace in repo-contract seori-auth; do
   workspace_link="$workspace_parent/$workspace"

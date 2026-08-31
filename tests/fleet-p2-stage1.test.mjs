@@ -1361,8 +1361,9 @@ test('source bootstrap validates the outer Node command symlink without collapsi
   );
   assert.match(
     source,
-    /\/usr\/bin\/env -i[\s\S]*HOME="\$npm_home"[\s\S]*NPM_CONFIG_USERCONFIG="\$npm_user_config"[\s\S]*NPM_CONFIG_GLOBALCONFIG="\$npm_global_config"[\s\S]*npm ci --ignore-scripts --no-bin-links --workspaces=false/u,
+    /\/usr\/bin\/env -i[\s\S]*HOME="\$npm_home"[\s\S]*NPM_CONFIG_USERCONFIG="\$npm_user_config"[\s\S]*NPM_CONFIG_GLOBALCONFIG="\$npm_global_config"[\s\S]*npm ci --ignore-scripts --no-bin-links/u,
   );
+  assert.doesNotMatch(source, /--workspaces=false/u);
   assert.match(source, /\/usr\/bin\/install -m 0600 \/dev\/null "\$npm_user_config"/u);
   assert.match(source, /\/usr\/bin\/install -m 0600 \/dev\/null "\$npm_global_config"/u);
   assert.match(source, />"\$npm_log" 2>&1\); then/u);
@@ -1378,6 +1379,7 @@ test('source bootstrap validates the outer Node command symlink without collapsi
   assert.match(source, /trap finish EXIT/u);
   assert.match(source, /P2_STAGE1_HOST_BOOTSTRAP_%s_FAILED/u);
   assert.match(source, /bootstrap_step="DEPENDENCY_INSTALL"/u);
+  assert.match(source, /bootstrap_step="DEPENDENCY_GRAPH_READBACK"/u);
   assert.doesNotMatch(source, /P2_STAGE1_HOST_BOOTSTRAP_\$\{[^}]+\}/u);
   assert.match(source, /expected_workspace_target="\.\.\/\.\.\/packages\/repo-contract"/u);
   assert.match(source, /expected_workspace_target="\.\.\/\.\.\/tools\/seori-auth"/u);
