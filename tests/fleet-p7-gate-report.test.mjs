@@ -1,0 +1,248 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  createFleetP7GateReport,
+  loadFleetP3RuntimeContract,
+} from "../scripts/fleet/p7-gate-report.mjs";
+
+const contract = loadFleetP3RuntimeContract();
+
+function openReadback() {
+  const app = contract.github.app;
+  return {
+    installation: {
+      app_id: app.appId,
+      app_slug: app.slug,
+      id: app.installationId,
+      repository_selection: app.repositorySelection,
+      suspended_at: null,
+      permissions: structuredClone(app.permissions),
+      events: [...app.events],
+    },
+    organizationCustomProperties: structuredClone(
+      contract.github.customProperties,
+    ),
+    rulesets: [
+      {
+        id: 1,
+        name: contract.github.ruleset.name,
+        target: contract.github.ruleset.target,
+        enforcement: contract.github.ruleset.enforcement,
+        requiredStatusChecks: [contract.github.ruleset.requiredStatusCheck],
+        repositories: contract.github.ruleset.repositories.map(
+          (name) => `seorilabs/${name}`,
+        ),
+      },
+    ],
+    defaultBranchOrgContractCallers: contract.github.ruleset.repositories.map(
+      (name) => ({ fullName: `seorilabs/${name}` }),
+    ),
+    cloudBuildBindings: {
+      workloadIdentityProvider: contract.cloudBuild.provider,
+      submitterServiceAccount: contract.cloudBuild.submitter.serviceAccountEmail,
+      executorServiceAccount: contract.cloudBuild.executor.serviceAccountEmail,
+    },
+    publicRepositories: [],
+  };
+}
+
+function gateById(report, id) {
+  return report.gates.find((gate) => gate.id === id);
+}
+
+test("모든 provider readback이 계약과 일치하면 P7 gate가 열린다", () => {
+  const report = createFleetP7GateReport(openReadback(), contract);
+  assert.equal(report.mode, "PLAN_ONLY");
+  assert.equal(report.executionAllowed, true);
+  assert.deepEqual(report.machineBlocked, []);
+  assert.deepEqual(report.humanApprovalRequired, []);
+});
+
+test("GitHub App 권한과 repository event 부족은 사람 승인 gate로 남는다", () => {
+  const readback = openReadback();
+  readback.installation.permissions.pull_requests = "read";
+  delete readback.installation.permissions.workflows;
+  readback.installation.events = readback.installation.events.filter(
+    (event) => event !== "repository",
+  );
+  const report = createFleetP7GateReport(readback, contract);
+  const gate = gateById(report, "GITHUB_APP_CAPABILITY");
+  assert.equal(gate.state, "HUMAN_APPROVAL_REQUIRED");
+  assert.equal(gate.code, "GITHUB_APP_CAPABILITY_UNVERIFIED");
+  assert.equal(gate.automaticRetry, false);
+  assert.equal(gate.requiredRole, "organization_owner");
+  assert.deepEqual(gate.detail.missingEvents, ["repository"]);
+  assert.deepEqual(gate.detail.missingPermissions, [
+    "pull_requests:read->write",
+    "workflows:absent->write",
+  ]);
+  assert.equal(report.executionAllowed, false);
+  assert.deepEqual(report.humanApprovalRequired, ["GITHUB_APP_CAPABILITY"]);
+});
+
+test("조직 custom property schema가 비어 있으면 machine gate로 닫는다", () => {
+  const readback = openReadback();
+  readback.organizationCustomProperties = [];
+  const gate = gateById(
+    createFleetP7GateReport(readback, contract),
+    "ORG_CUSTOM_PROPERTY_SCHEMA",
+  );
+  assert.equal(gate.state, "MACHINE_BLOCKED");
+  assert.equal(gate.code, "ORG_CUSTOM_PROPERTY_SCHEMA_MISSING");
+  assert.deepEqual(gate.detail.missing, [
+    "fleet-managed",
+    "fleet-profile",
+    "fleet-ruleset",
+    "fleet-state",
+  ]);
+});
+
+test("custom property는 이름만 같고 정의가 다르면 열리지 않는다", () => {
+  for (const [field, mutate] of [
+    ["value_type", (property) => {
+      property.value_type = "string";
+    }],
+    ["allowed_values", (property) => {
+      property.allowed_values = ["true", "false", "maybe"];
+    }],
+    ["values_editable_by", (property) => {
+      property.values_editable_by = "org_and_repo_actors";
+    }],
+    ["required", (property) => {
+      property.required = true;
+    }],
+  ]) {
+    const readback = openReadback();
+    const target = readback.organizationCustomProperties.find(
+      ({ property_name: name }) => name === "fleet-managed",
+    );
+    mutate(target);
+    const gate = gateById(
+      createFleetP7GateReport(readback, contract),
+      "ORG_CUSTOM_PROPERTY_SCHEMA",
+    );
+    assert.equal(gate.state, "MACHINE_BLOCKED", field);
+    assert.deepEqual(gate.detail.missing, []);
+    assert.deepEqual(gate.detail.mismatched, [`fleet-managed:${field}`]);
+  }
+});
+
+test("계약이 지정한 exact ruleset과 caller coverage가 없으면 Active 전환을 계획하지 않는다", () => {
+  for (const [mutate, blocker] of [
+    [
+      // 임의의 evaluate ruleset 하나로는 열리지 않는다.
+      (readback) => {
+        readback.rulesets = [
+          {
+            id: 2,
+            name: "Some other shadow rule",
+            target: "branch",
+            enforcement: "evaluate",
+            requiredStatusChecks: ["Org Contract / Org Contract"],
+            repositories: ["seorilabs/happy-farm", "seorilabs/lizard-tycoon"],
+          },
+        ];
+      },
+      "CONTRACT_RULESET_ABSENT",
+    ],
+    [
+      (readback) => {
+        readback.rulesets[0].enforcement = "active";
+      },
+      "CONTRACT_RULESET_MODE_MISMATCH",
+    ],
+    [
+      (readback) => {
+        readback.rulesets[0].requiredStatusChecks = ["Seori Review"];
+      },
+      "REQUIRED_STATUS_CHECK_ABSENT",
+    ],
+    [
+      (readback) => {
+        readback.rulesets[0].repositories = ["seorilabs/happy-farm"];
+      },
+      "RULESET_TARGET_COVERAGE_INCOMPLETE",
+    ],
+    [
+      (readback) => {
+        readback.defaultBranchOrgContractCallers = [];
+      },
+      "DEFAULT_BRANCH_ORG_CONTRACT_CALLER_ABSENT",
+    ],
+  ]) {
+    const readback = openReadback();
+    mutate(readback);
+    const gate = gateById(
+      createFleetP7GateReport(readback, contract),
+      "ORG_RULESET_ACTIVATION",
+    );
+    assert.equal(gate.state, "MACHINE_BLOCKED", blocker);
+    assert.equal(gate.code, "ORG_RULESET_ACTIVATION_UNSAFE");
+    assert.equal(gate.detail.requiredCheck, "Org Contract / Org Contract");
+    assert.ok(gate.detail.blockers.includes(blocker), gate.detail.blockers.join(","));
+  }
+});
+
+test("Cloud Build keyless binding이 비어 있으면 IAM을 만들지 않고 사람 승인 gate로 남는다", () => {
+  const readback = openReadback();
+  readback.cloudBuildBindings = {
+    workloadIdentityProvider:
+      "projects/138773558853/locations/global/workloadIdentityPools/github-actions/providers/seorilabs-github",
+    submitterServiceAccount: "",
+    executorServiceAccount: "",
+  };
+  const gate = gateById(
+    createFleetP7GateReport(readback, contract),
+    "CLOUD_BUILD_WIF_BINDING",
+  );
+  assert.equal(gate.state, "HUMAN_APPROVAL_REQUIRED");
+  assert.equal(gate.code, "FLEET_CLOUD_BUILD_WIF_BINDING_UNVERIFIED");
+  assert.equal(gate.operation, "FLEET_P3_CLOUD_BUILD_WIF_ACTIVATION");
+  assert.deepEqual(gate.detail.mismatched, [
+    "executorServiceAccount",
+    "submitterServiceAccount",
+    "workloadIdentityProvider",
+  ]);
+});
+
+test("readback이 없으면 열린 gate로 취급하지 않는다", () => {
+  const report = createFleetP7GateReport({}, contract);
+  assert.equal(report.executionAllowed, false);
+  assert.deepEqual(report.machineBlocked.toSorted(), [
+    "CENTRAL_PUBLIC_RELEASE_PROFILE",
+    "CLOUD_BUILD_WIF_BINDING",
+    "GITHUB_APP_CAPABILITY",
+    "ORG_CUSTOM_PROPERTY_SCHEMA",
+    "ORG_RULESET_ACTIVATION",
+  ]);
+});
+
+test("public repo가 wave에 있으면 중앙 public release profile을 먼저 요구한다", () => {
+  const readback = openReadback();
+  readback.publicRepositories = [
+    { fullName: "seorilabs/periodic-table-app", requiresRelease: true },
+    { fullName: "seorilabs/gemini-pr-bot", requiresRelease: false },
+  ];
+  const blocked = createFleetP7GateReport(readback, contract).gates.find(
+    ({ id }) => id === "CENTRAL_PUBLIC_RELEASE_PROFILE",
+  );
+  assert.equal(blocked.state, "MACHINE_BLOCKED");
+  assert.equal(blocked.code, "CENTRAL_PUBLIC_RELEASE_PROFILE_REQUIRED");
+  assert.deepEqual(blocked.detail.blockedRepositories, [
+    "seorilabs/periodic-table-app",
+  ]);
+  assert.equal(blocked.detail.requiredProfile, "public-stable-tag-release");
+
+  // 임의 문자열 profile 목록으로는 열리지 않는다. 별도 worker의 signed approved
+  // binding 계약이 중앙에 올라오기 전까지 blocker로 남는다.
+  readback.centralReleaseProfiles = ["public-stable-tag-release"];
+  const stillBlocked = createFleetP7GateReport(readback, contract).gates.find(
+    ({ id }) => id === "CENTRAL_PUBLIC_RELEASE_PROFILE",
+  );
+  assert.equal(stillBlocked.state, "MACHINE_BLOCKED");
+  assert.equal(
+    stillBlocked.detail.approvedBindingContract,
+    "pending-central-signed-profile-binding",
+  );
+});

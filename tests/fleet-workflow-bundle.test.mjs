@@ -1531,3 +1531,63 @@ test("구조만 흉내 낸 repo caller binding을 거부한다", async () => {
     /CALLER_BINDING_REQUIRED/u,
   );
 });
+
+test("thin caller는 full SHA 고정, 최소 권한, 정확한 check 이름, 허용 입력만 통과시킨다", async () => {
+  const { binding } = await approvedFixture();
+  const callerState = await callerFixture();
+  const valid = await generateOrgContractCaller({
+    approvedBundleBinding: binding,
+    callerBinding: callerState.callerBinding,
+  });
+  const check = async (caller) =>
+    validateOrgContractCaller(caller, {
+      approvedBundleBinding: binding,
+      callerBinding: callerState.callerBinding,
+      repositoryContext: callerState.repositoryContext,
+    });
+
+  // 생성기 출력 자체가 계약을 만족해야 한다.
+  const baseline = await check(valid);
+  assert.deepEqual(baseline.diagnostics, []);
+  assert.equal(baseline.ok, true);
+  assert.match(
+    valid,
+    /uses: seorilabs\/\.github\/\.github\/workflows\/[a-z0-9-]+\.yml@[0-9a-f]{40}\n/u,
+  );
+  assert.match(valid, /permissions:\n {2}contents: read\n {2}packages: read\n/u);
+
+  const floatingRef = valid.replace(/@[0-9a-f]{40}\n/u, "@main\n");
+  const shortRef = valid.replace(/@[0-9a-f]{40}\n/u, `@${"a".repeat(7)}\n`);
+  const widenedPermissions = valid.replace(
+    "  packages: read\n",
+    "  packages: read\n  id-token: write\n",
+  );
+  const renamedCheck = valid.replace(
+    "    name: Org Contract\n",
+    "    name: Static checks\n",
+  );
+  const extraInput = valid.replace(
+    "    with:\n",
+    "    with:\n      upload_market: true\n",
+  );
+  const explicitSecret = valid.replace(
+    "    with:\n",
+    "    secrets:\n      APPS_IN_TOSS_API_KEY: ${{ secrets.APPS_IN_TOSS_API_KEY }}\n    with:\n",
+  );
+
+  for (const [caller, diagnostic] of [
+    [floatingRef, "REUSABLE_WORKFLOW_FULL_SHA_REQUIRED"],
+    [shortRef, "REUSABLE_WORKFLOW_FULL_SHA_REQUIRED"],
+    [widenedPermissions, "CALLER_PERMISSIONS_INVALID"],
+    [renamedCheck, "REQUIRED_CHECK_NAME_INVALID"],
+    [extraInput, "CALLER_INPUT_NOT_ALLOWED"],
+    [explicitSecret, "STATIC_CALLER_SECRETS_FORBIDDEN"],
+  ]) {
+    const result = await check(caller);
+    assert.equal(result.ok, false);
+    assert.ok(
+      result.diagnostics.includes(diagnostic),
+      `${diagnostic} 누락: ${result.diagnostics.join(",")}`,
+    );
+  }
+});

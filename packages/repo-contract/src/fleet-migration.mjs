@@ -132,6 +132,21 @@ const CATEGORY_TO_REPLACEMENT = Object.freeze({
 });
 const NEEDS_INPUT_REASONS = new Set([
   "INITIAL_BASELINE_MISMATCH",
+  "BASELINE_SUCCESSION_NOT_ALLOWED",
+  "BASELINE_SUCCESSION_ROOT_MISMATCH",
+  "BASELINE_SUCCESSION_DETECTOR_MISMATCH",
+  "BASELINE_SUCCESSION_COUNT_MISMATCH",
+  "BASELINE_SUCCESSION_NOT_MONOTONIC",
+  "BASELINE_SUCCESSION_PRIOR_COHORT_MISMATCH",
+  "BASELINE_SUCCESSION_TRANSITION_DUPLICATE",
+  "BASELINE_SUCCESSION_TRANSITION_UNORDERED",
+  "BASELINE_SUCCESSION_TRANSITION_UNKNOWN",
+  "BASELINE_SUCCESSION_COHORT_UNEXPLAINED",
+  "BASELINE_SUCCESSION_DRIFT_UNEXPLAINED",
+  "BASELINE_SUCCESSION_TIME_MISMATCH",
+  "BASELINE_SUCCESSION_ATTESTATION_INVALID",
+  "BASELINE_SUCCESSION_ATTESTATION_UNTRUSTED",
+  "BASELINE_SUCCESSION_BINDING_MISMATCH",
   "INVENTORY_LINEAGE_REQUIRED",
   "INVENTORY_LINEAGE_MISMATCH",
   "INVENTORY_COUNTS_NOT_MONOTONIC",
@@ -529,6 +544,325 @@ export function isFleetMigrationBaselineRatificationBound(inventory) {
         detectorSourceSha: inventory.detector.sourceSha,
       }) ===
         BASELINE_RATIFICATION.cohortDigest
+    );
+  } catch {
+    return false;
+  }
+}
+
+// 승계 baseline은 ratified 기준선을 덮어쓰지 않는다. 원본 ratification은 그대로 두고,
+// active cohort가 실제로 어떻게 줄었는지를 exact repository identity로 설명한 별도 승인
+// 객체만 추가한다. 승인 서명이 없으면 BOOTSTRAP은 계속 ratified 수치만 인정한다.
+const BASELINE_SUCCESSION_PURPOSE = "FLEET_MIGRATION_BASELINE_SUCCESSION";
+const BASELINE_SUCCESSION_REASON = "ACTIVE_COHORT_LIFECYCLE_TRANSITION";
+const BASELINE_SUCCESSION_CHANGES = new Set([
+  "REMOVED_ARCHIVED",
+  "REMOVED_DELETED",
+  "ADDED",
+  "RENAMED",
+  "DEFAULT_BRANCH_CHANGED",
+]);
+const CLEANUP_COUNT_KEYS = Object.freeze([
+  "legacyOperationJson",
+  "workflowSecretsInherit",
+  "workflowFloatingRef",
+]);
+
+function baselineSuccessionPayloadObject(inventory, succession) {
+  return {
+    purpose: BASELINE_SUCCESSION_PURPOSE,
+    contractVersion: SHADOW_READINESS_CONTRACT_VERSION,
+    organizationId: inventory.organization.id,
+    installationId: inventory.coverage.installationId,
+    reason: succession.reason,
+    supersedes: succession.supersedes,
+    expectedCounts: succession.expectedCounts,
+    detector: succession.detector,
+    priorCohort: succession.priorCohort,
+    transitions: succession.transitions,
+    observedAt: succession.observedAt,
+    keyId: succession.attestation.keyId,
+    policyRevision: succession.attestation.policyRevision,
+    signedAt: succession.attestation.signedAt,
+  };
+}
+
+export function createFleetMigrationBaselineSuccessionPayload(
+  inventory,
+  succession,
+) {
+  return Buffer.from(
+    canonicalJson(baselineSuccessionPayloadObject(inventory, succession)),
+    "utf8",
+  );
+}
+
+export function computeFleetMigrationBaselineSuccessionDigest(
+  inventory,
+  succession,
+) {
+  return sha256(
+    canonicalJson({
+      ...baselineSuccessionPayloadObject(inventory, succession),
+      value: succession.attestation.value,
+    }),
+  );
+}
+
+function identityOf(entry) {
+  return {
+    fullName: entry.fullName,
+    defaultBranch: entry.defaultRef.slice("refs/heads/".length),
+  };
+}
+
+// 승계는 "빠진 repository" 목록만으로 성립하지 않는다. 직전 cohort에서 빠진 것과 새로
+// 들어온 것, 그리고 남아 있는 repository의 rename·default branch 변경까지 numeric
+// repository ID로 모두 설명해야 한다. 설명되지 않은 drift가 하나라도 있으면 차단한다.
+function cohortTransitionReasons(inventory, succession) {
+  const prior = succession.priorCohort;
+  const reasons = [];
+  if (prior.length !== INITIAL_BASELINE.activeRepositories) {
+    reasons.push("BASELINE_SUCCESSION_PRIOR_COHORT_MISMATCH");
+    return reasons;
+  }
+  // 주장한 직전 cohort가 ratified root와 같은 집합인지 digest로 먼저 증명한다.
+  const detector = prior.filter(
+    ({ id }) => id === BASELINE_RATIFICATION.detector.repositoryId,
+  );
+  let priorDigest = null;
+  try {
+    priorDigest = computeFleetMigrationShadowCohortDigest({
+      installationId: inventory.coverage.installationId,
+      repositories: prior,
+    });
+  } catch {
+    priorDigest = null;
+  }
+  if (
+    detector.length !== 1 ||
+    detector[0].sourceSha !== BASELINE_RATIFICATION.detector.sourceSha ||
+    priorDigest !== BASELINE_RATIFICATION.cohortDigest
+  ) {
+    reasons.push("BASELINE_SUCCESSION_PRIOR_COHORT_MISMATCH");
+    return reasons;
+  }
+
+  const priorById = new Map(prior.map((entry) => [entry.id, entry]));
+  const liveById = new Map(
+    inventory.repositories.map(({ repository }) => [repository.id, repository]),
+  );
+  if (
+    priorById.size !== prior.length ||
+    liveById.size !== inventory.repositories.length
+  ) {
+    reasons.push("BASELINE_SUCCESSION_PRIOR_COHORT_MISMATCH");
+    return reasons;
+  }
+
+  const transitions = succession.transitions;
+  const keys = transitions.map(({ id, change }) => `${id}:${change}`);
+  if (new Set(keys).size !== keys.length) {
+    reasons.push("BASELINE_SUCCESSION_TRANSITION_DUPLICATE");
+  }
+  if (
+    canonicalJson([...keys].sort((left, right) => compareUtf8(left, right))) !==
+    canonicalJson(keys)
+  ) {
+    reasons.push("BASELINE_SUCCESSION_TRANSITION_UNORDERED");
+  }
+
+  // 실제 관측에서 필요한 전이 집합을 먼저 구성한 뒤, 주장한 전이와 정확히 대조한다.
+  const expected = new Map();
+  for (const [id, entry] of priorById) {
+    if (liveById.has(id)) continue;
+    expected.set(`${id}:REMOVED`, {
+      id,
+      from: identityOf(entry),
+      to: null,
+    });
+  }
+  for (const [id, repository] of liveById) {
+    if (priorById.has(id)) continue;
+    expected.set(`${id}:ADDED`, {
+      id,
+      change: "ADDED",
+      from: null,
+      to: identityOf(repository),
+    });
+  }
+  for (const [id, entry] of priorById) {
+    const live = liveById.get(id);
+    if (live === undefined) continue;
+    const from = identityOf(entry);
+    const to = identityOf(live);
+    if (from.fullName !== to.fullName) {
+      expected.set(`${id}:RENAMED`, { id, change: "RENAMED", from, to });
+    }
+    if (from.defaultBranch !== to.defaultBranch) {
+      expected.set(`${id}:DEFAULT_BRANCH_CHANGED`, {
+        id,
+        change: "DEFAULT_BRANCH_CHANGED",
+        from,
+        to,
+      });
+    }
+  }
+
+  const claimed = new Map();
+  for (const transition of transitions) {
+    if (!BASELINE_SUCCESSION_CHANGES.has(transition.change)) {
+      reasons.push("BASELINE_SUCCESSION_TRANSITION_UNKNOWN");
+      continue;
+    }
+    // archive와 delete는 같은 "빠짐"을 서로 다른 lifecycle 근거로 구분한다.
+    const key = transition.change.startsWith("REMOVED_")
+      ? `${transition.id}:REMOVED`
+      : `${transition.id}:${transition.change}`;
+    if (claimed.has(key)) {
+      reasons.push("BASELINE_SUCCESSION_TRANSITION_DUPLICATE");
+      continue;
+    }
+    claimed.set(key, transition);
+  }
+
+  for (const [key, value] of expected) {
+    const transition = claimed.get(key);
+    if (transition === undefined) {
+      reasons.push("BASELINE_SUCCESSION_COHORT_UNEXPLAINED");
+      continue;
+    }
+    if (
+      canonicalJson(transition.from) !== canonicalJson(value.from) ||
+      canonicalJson(transition.to) !== canonicalJson(value.to) ||
+      (value.change !== undefined && transition.change !== value.change) ||
+      (value.change === undefined &&
+        !transition.change.startsWith("REMOVED_")) ||
+      (transition.change.startsWith("REMOVED_") &&
+        !SHA_PATTERN.test(transition.priorSourceSha ?? ""))
+    ) {
+      reasons.push("BASELINE_SUCCESSION_COHORT_UNEXPLAINED");
+    }
+    if (
+      transition.change.startsWith("REMOVED_") &&
+      transition.priorSourceSha !== priorById.get(transition.id)?.sourceSha
+    ) {
+      reasons.push("BASELINE_SUCCESSION_COHORT_UNEXPLAINED");
+    }
+  }
+  for (const key of claimed.keys()) {
+    // 관측되지 않은 전이를 주장하면 승계 자체를 무효로 본다.
+    if (!expected.has(key)) reasons.push("BASELINE_SUCCESSION_DRIFT_UNEXPLAINED");
+  }
+  return sortedUnique(reasons);
+}
+
+function baselineSuccessionReasons(
+  inventory,
+  counts,
+  { trustedInventoryKeys, baselineSuccessionDigest } = {},
+) {
+  const succession = inventory.baselineSuccession;
+  if (succession === undefined || succession === null) {
+    return ["INITIAL_BASELINE_MISMATCH"];
+  }
+  const reasons = [];
+  if (
+    succession.reason !== BASELINE_SUCCESSION_REASON ||
+    canonicalJson(succession.supersedes) !==
+      canonicalJson({
+        cohortDigest: BASELINE_RATIFICATION.cohortDigest,
+        expectedCounts: INITIAL_BASELINE,
+      })
+  ) {
+    reasons.push("BASELINE_SUCCESSION_ROOT_MISMATCH");
+  }
+  if (
+    succession.detector.repositoryId !==
+      BASELINE_RATIFICATION.detector.repositoryId ||
+    succession.detector.sourceSha !== inventory.detector.sourceSha
+  ) {
+    reasons.push("BASELINE_SUCCESSION_DETECTOR_MISMATCH");
+  }
+  if (
+    canonicalJson(succession.expectedCounts) !==
+      canonicalJson(inventory.expectedCounts) ||
+    succession.expectedCounts.activeRepositories !==
+      counts.activeRepositories ||
+    CLEANUP_COUNT_KEYS.some(
+      (key) => succession.expectedCounts[key] !== counts[key],
+    )
+  ) {
+    reasons.push("BASELINE_SUCCESSION_COUNT_MISMATCH");
+  }
+  if (
+    CLEANUP_COUNT_KEYS.some(
+      (key) => succession.expectedCounts[key] > INITIAL_BASELINE[key],
+    ) ||
+    succession.expectedCounts.activeRepositories >
+      INITIAL_BASELINE.activeRepositories
+  ) {
+    reasons.push("BASELINE_SUCCESSION_NOT_MONOTONIC");
+  }
+  reasons.push(...cohortTransitionReasons(inventory, succession));
+  const observedAt = Date.parse(succession.observedAt);
+  const signedAt = Date.parse(succession.attestation.signedAt);
+  const capturedAt = Date.parse(inventory.capturedAt);
+  if (
+    !Number.isFinite(observedAt) ||
+    !Number.isFinite(signedAt) ||
+    observedAt > capturedAt ||
+    signedAt < observedAt
+  ) {
+    reasons.push("BASELINE_SUCCESSION_TIME_MISMATCH");
+  }
+  if (
+    succession.attestation.algorithm !== "Ed25519" ||
+    succession.attestation.purpose !== BASELINE_SUCCESSION_PURPOSE
+  ) {
+    reasons.push("BASELINE_SUCCESSION_ATTESTATION_INVALID");
+  }
+  if (baselineSuccessionDigest !== undefined) {
+    if (
+      baselineSuccessionDigest !==
+      computeFleetMigrationBaselineSuccessionDigest(inventory, succession)
+    ) {
+      reasons.push("BASELINE_SUCCESSION_BINDING_MISMATCH");
+    }
+    return sortedUnique(reasons);
+  }
+  const key = trustedPublicKey(
+    trustedInventoryKeys,
+    succession.attestation.keyId,
+  );
+  const signature = decodeCanonicalEd25519Signature(
+    succession.attestation.value,
+  );
+  if (
+    key === null ||
+    signature === null ||
+    !verifyEd25519(
+      null,
+      createFleetMigrationBaselineSuccessionPayload(inventory, succession),
+      key,
+      signature,
+    )
+  ) {
+    reasons.push("BASELINE_SUCCESSION_ATTESTATION_UNTRUSTED");
+  }
+  return sortedUnique(reasons);
+}
+
+export function isFleetMigrationBaselineSuccessionBound(
+  inventory,
+  trustedInventoryKeys,
+) {
+  try {
+    return (
+      hasExactFleetMigrationBaselineRatification(inventory) &&
+      baselineSuccessionReasons(inventory, observedCounts(inventory.repositories), {
+        trustedInventoryKeys,
+      }).length === 0
     );
   } catch {
     return false;
@@ -1259,11 +1593,22 @@ function paginationReasons(inventory) {
   return reasons;
 }
 
+function matchesRatifiedBaselineCounts(inventory, counts) {
+  return (
+    canonicalJson(inventory.expectedCounts) ===
+      canonicalJson(INITIAL_BASELINE) &&
+    counts.activeRepositories === INITIAL_BASELINE.activeRepositories &&
+    counts.legacyOperationJson === INITIAL_BASELINE.legacyOperationJson &&
+    counts.workflowSecretsInherit === INITIAL_BASELINE.workflowSecretsInherit &&
+    counts.workflowFloatingRef === INITIAL_BASELINE.workflowFloatingRef
+  );
+}
+
 function inventoryAuthorityReasons(
   inventory,
   counts,
   now,
-  { requireFresh = true } = {},
+  { requireFresh = true, trustedInventoryKeys, baselineSuccessionDigest } = {},
 ) {
   const reasons = [
     ...paginationReasons(inventory),
@@ -1275,23 +1620,34 @@ function inventoryAuthorityReasons(
   if (fleetMigrationDetectorRepository(inventory) === null) {
     reasons.push("DETECTOR_SOURCE_MISMATCH");
   }
-  if (
-    inventory.lineage.mode === "BOOTSTRAP" &&
-    !isFleetMigrationBaselineRatificationBound(inventory)
+  if (inventory.lineage.mode === "BOOTSTRAP") {
+    // ratified 수치와 정확히 같으면 원본 경로를 그대로 쓰고 승계 객체는 허용하지 않는다.
+    // 다르면 수치를 덮어쓰지 않고, 어떤 repository가 cohort에서 빠졌는지 서명으로 설명한
+    // 승계 revision이 있을 때만 진행한다.
+    if (matchesRatifiedBaselineCounts(inventory, counts)) {
+      if (!isFleetMigrationBaselineRatificationBound(inventory)) {
+        reasons.push("INITIAL_BASELINE_MISMATCH");
+      }
+      if (
+        inventory.baselineSuccession !== undefined &&
+        inventory.baselineSuccession !== null
+      ) {
+        reasons.push("BASELINE_SUCCESSION_NOT_ALLOWED");
+      }
+    } else {
+      reasons.push(
+        ...baselineSuccessionReasons(inventory, counts, {
+          trustedInventoryKeys,
+          baselineSuccessionDigest,
+        }),
+      );
+    }
+  } else if (
+    inventory.baselineSuccession !== undefined &&
+    inventory.baselineSuccession !== null
   ) {
-    reasons.push("INITIAL_BASELINE_MISMATCH");
-  }
-  if (
-    inventory.lineage.mode === "BOOTSTRAP" &&
-    (canonicalJson(inventory.expectedCounts) !==
-      canonicalJson(INITIAL_BASELINE) ||
-      counts.activeRepositories !== INITIAL_BASELINE.activeRepositories ||
-      counts.legacyOperationJson !== INITIAL_BASELINE.legacyOperationJson ||
-      counts.workflowSecretsInherit !==
-        INITIAL_BASELINE.workflowSecretsInherit ||
-      counts.workflowFloatingRef !== INITIAL_BASELINE.workflowFloatingRef)
-  ) {
-    reasons.push("INITIAL_BASELINE_MISMATCH");
+    // 승계는 최초 BOOTSTRAP 기준선에만 적용한다. WAVE는 직전 inventory 수치를 잇는다.
+    reasons.push("BASELINE_SUCCESSION_NOT_ALLOWED");
   }
   if (
     inventory.coverage.activeRepositoryCount !== counts.activeRepositories ||
@@ -1624,6 +1980,7 @@ function verifyTrustedInventoryBinding({
   const counts = observedCounts(inventory.repositories);
   const authorityReasons = inventoryAuthorityReasons(inventory, counts, nowMs, {
     requireFresh: !historical,
+    trustedInventoryKeys,
   });
   if (authorityReasons.length > 0) {
     throw new Error(
@@ -1734,6 +2091,14 @@ function verifyTrustedInventoryBinding({
   const binding = deepFreeze({
     inventoryId: inventory.inventoryId,
     inventoryDigest,
+    baselineSuccessionDigest:
+      inventory.baselineSuccession === undefined ||
+      inventory.baselineSuccession === null
+        ? null
+        : computeFleetMigrationBaselineSuccessionDigest(
+            inventory,
+            inventory.baselineSuccession,
+          ),
     keyId: attestation.keyId,
     keyFingerprint: publicKeyFingerprint(key),
     policyRevision: attestation.policyRevision,
@@ -3273,7 +3638,10 @@ function buildFleetMigrationPlan(
     trustedCurrentInventoryBinding: trustedInventoryBinding,
   };
   const reasons = [
-    ...inventoryAuthorityReasons(inventory, counts, nowMs),
+    ...inventoryAuthorityReasons(inventory, counts, nowMs, {
+      baselineSuccessionDigest:
+        trustedInventoryBinding?.baselineSuccessionDigest ?? undefined,
+    }),
     ...inventoryLineageReasons(inventory, verifiedLineageInputs, nowMs),
     ...platformRegistryCollisionReasons(normalizedRepositories),
   ];

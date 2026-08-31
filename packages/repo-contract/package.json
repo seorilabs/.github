@@ -15,6 +15,7 @@
     "./fleet-migration-collector": "./src/fleet-migration-collector.mjs",
     "./fleet-migration-legacy-validator": "./src/fleet-migration-legacy-validator.mjs",
     "./fleet-migration": "./src/fleet-migration.mjs",
+    "./fleet-cleanup-reconciler": "./src/fleet-cleanup-reconciler.mjs",
     "./trusted-cleanup-executor": "./src/trusted-cleanup-executor.mjs",
     "./trusted-candidate-canary": "./src/trusted-candidate-canary.mjs",
     "./trusted-executor": "./src/trusted-executor.mjs",

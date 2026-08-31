@@ -350,6 +350,86 @@ PR 생성, legacy 파일 삭제 완료를 주장하지 않는다. `WAVE` executi
 current chain-head adapter가 연결되기 전까지 fail-closed하며, 공개 배포와 ruleset Active 전환은 이
 executor 범위가 아니다.
 
+## P7 실행면과 실행 경계
+
+Fleet cleanup wave의 중앙 실행면은 caller
+[`fleet-cleanup-reconciler.yml`](../.github/workflows/fleet-cleanup-reconciler.yml), local
+reusable executor
+[`fleet-cleanup-executor-v1.yml`](../.github/workflows/fleet-cleanup-executor-v1.yml),
+실행 경계
+[`fleet-cleanup-reconciler.mjs`](../packages/repo-contract/src/fleet-cleanup-reconciler.mjs)다.
+
+durable state, CAS reservation, GitHub mutation의 소유자는 Backoffice다. 이 저장소는 그
+provider를 중복 구현하지 않고 capability도 만들지 않는다. capability는 Backoffice admin이
+미리 ISSUE한 공개 ID이며 executor는 그것을 EXECUTE만 한다.
+
+1. caller가 같은 commit의 local reusable executor를 호출한다. 따라서 `workflow_sha`와
+   `job_workflow_sha`가 같아야 하고, 다르면 다른 commit의 executor가 실행된 것이므로
+   차단한다.
+2. caller identity는 사용자 입력이 아니라 실행 중인 run의 context에서만 만든다. 조직 ID
+   `283115031`, repository `1241442018` `seorilabs/.github`, `refs/heads/main`,
+   `workflow_dispatch`, public, GitHub-hosted가 모두 정확히 일치해야 한다.
+3. GitHub Actions OIDC로 `seorilabs-control-plane` audience token을 받아 고정 origin
+   `https://backoffice.vzyx.xyz`의
+   `POST /api/internal/fleet-migration/cleanup-capabilities`에 요청한다. origin은 계약
+   상수이며 변수나 입력으로 바꿀 수 없다. body는
+   `{operation, capabilityId, approvalScopeDigest, runId, runAttempt}` 다섯 field뿐이고
+   caller identity는 OIDC JWT claim으로 증명한다. static token과 PAT는 사용하지 않는다.
+4. `Idempotency-Key`는 `fleet-cleanup-execute:` 뒤에 capability ID를 붙인 안정적 키다.
+   `run_id`는 재실행에도 같으므로 attempt 증가는 readback-first resume이 된다.
+5. 응답 outer의 `contract`, `capabilityId`, `approvalScopeDigest`, `organizationId`,
+   `installationId`와 key 집합을 exact 검증하고, `repository`와 `digests`를 inner receipt와
+   다시 대조한다.
+
+`PLAN_ONLY`는 실행 경계를 호출하지 않고 capability도 요구하지 않는다.
+`PREPARE_AND_EXECUTE`만 EXECUTE를 부르며 이때만 capability ID와 approval scope digest 형식을
+검증한다. route가 배포되지 않았으면(404/501) `RUNTIME_NOT_OPERATIONAL`로 멈추고, 그 밖의
+비정상 응답은 임의 상태로 바꾸지 않고 실패시킨다. 승인 필요 여부는 서버가 200으로 돌려준
+structured state만 인정한다. 실행 성공은 Backoffice receipt가 Ready PR 생성을 증명할 때만
+주장한다.
+
+`.github`는 public 저장소이므로 executor는 `ubuntu-latest`에서 실행하고 ARC를 노출하지
+않으며, `secrets: inherit`와 secret 참조가 없고 action은 full SHA로 고정한다. 결과
+artifact는 3일만 보관한다.
+
+gate 판정은 [`p7-gate-report.mjs`](../scripts/fleet/p7-gate-report.mjs)가 수행한다. provider를
+직접 호출하지 않고 read-only readback 문서만 입력으로 받으며 secret, token, 승인 receipt를
+다루지 않는다.
+
+| Gate | 판정 기준 | 닫혔을 때 |
+| --- | --- | --- |
+| `GITHUB_APP_CAPABILITY` | installation의 exact identity, 수락된 permission union, `repository` event | `GITHUB_APP_PERMISSION_EXPANSION_AND_INSTALLATION_ACCEPTANCE` 사람 승인 |
+| `ORG_CUSTOM_PROPERTY_SCHEMA` | `fleet-managed`, `fleet-profile`, `fleet-ruleset`, `fleet-state` 존재 | machine gate |
+| `ORG_RULESET_ACTIVATION` | Evaluate ruleset과 `Org Contract / Org Contract`를 만드는 default branch caller 수 | machine gate |
+| `CLOUD_BUILD_WIF_BINDING` | fleet-p3 provider와 submitter/executor 공개 식별자 | `FLEET_P3_CLOUD_BUILD_WIF_ACTIVATION` 사람 승인 |
+| `CENTRAL_PUBLIC_RELEASE_PROFILE` | release가 필요한 public repository와 중앙 public profile 유무 | `CENTRAL_PUBLIC_RELEASE_PROFILE_REQUIRED` machine gate |
+
+ARC runner group은 public repository를 허용하지 않으므로 중앙 release 경로는 현재 private
+전용이다. public repository를 wave에 넣으려면 public stable-tag release profile이 중앙
+계약에 먼저 올라와야 한다. 그 profile 구현은 이 gate의 범위가 아니다.
+
+`executionAllowed`가 `true`여도 실행 허가가 아니다. 위 gate가 모두 열렸다는 뜻일 뿐이고
+wave 실행은 여전히 trusted inventory, chain-head reservation, parity 두 건을 따로 요구한다.
+
+## 승계 baseline revision
+
+ratified `BOOTSTRAP` 기준선 38/73/107/86은 그대로 둔다. active cohort가 바뀌면 상수를
+덮어쓰지 않고, 직전 cohort와 현재 cohort의 차이를 numeric repository ID로 전부 설명한
+`baselineSuccession`을 추가한다. 승계는 "빠진 repository" 목록만으로 성립하지 않는다.
+
+- `priorCohort`는 ratified 시점의 전체 repository vector이며, 그 cohort digest가 원본
+  ratification의 `cohortDigest`를 재현해야 한다. 위조된 직전 cohort는 여기서 걸린다.
+- `transitions`는 `REMOVED_ARCHIVED`, `REMOVED_DELETED`, `ADDED`, `RENAMED`,
+  `DEFAULT_BRANCH_CHANGED`를 numeric repository ID별로 고정한다. 관측된 전이가 빠지면
+  `BASELINE_SUCCESSION_COHORT_UNEXPLAINED`, 관측되지 않은 전이를 주장하면
+  `BASELINE_SUCCESSION_DRIFT_UNEXPLAINED`로 차단한다.
+- `baselineRatification`은 승계가 있어도 byte 단위로 동일해야 한다.
+- 정리 대상 세 수치는 ratified 값보다 커질 수 없다.
+- ratified 수치와 같은 cohort에는 승계를 붙일 수 없다. `WAVE`도 승계를 쓰지 않고 직전
+  inventory 수치를 잇는다.
+- `FLEET_MIGRATION_BASELINE_SUCCESSION` purpose의 Ed25519 서명이 없거나 신뢰 키가 아니면
+  `BOOTSTRAP`은 계속 ratified 수치만 인정한다.
+
 ## 강제 전환 순서
 
 1. candidate bundle과 중앙 모델을 shadow로 배포한다.

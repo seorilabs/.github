@@ -235,9 +235,27 @@ jobs:
           EXECUTOR: ${{ vars.SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
-          test "$PROVIDER" = projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
-          test "$SUBMITTER" = seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com
-          test "$EXECUTOR" = seori-cloud-build-executor@seorilabs-ci.iam.gserviceaccount.com
+          expected_provider=projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
+          expected_submitter=seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com
+          expected_executor=seori-cloud-build-executor@seorilabs-ci.iam.gserviceaccount.com
+          missing=""
+          if [ "$PROVIDER" != "$expected_provider" ]; then
+            missing="$missing GOOGLE_WORKLOAD_IDENTITY_PROVIDER"
+          fi
+          if [ "$SUBMITTER" != "$expected_submitter" ]; then
+            missing="$missing SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT"
+          fi
+          if [ "$EXECUTOR" != "$expected_executor" ]; then
+            missing="$missing SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT"
+          fi
+          if [ -n "$missing" ]; then
+            echo "오류 [FLEET_CLOUD_BUILD_WIF_BINDING_UNVERIFIED]" >&2
+            echo "계약과 다른 공개 변수:$missing" >&2
+            echo "게이트: HUMAN_APPROVAL_REQUIRED" >&2
+            echo "작업: FLEET_P3_CLOUD_BUILD_WIF_ACTIVATION" >&2
+            echo "필요 권한: organization_owner" >&2
+            exit 1
+          fi
 
       - name: Authenticate keylessly for Cloud Build
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0

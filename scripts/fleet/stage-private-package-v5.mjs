@@ -256,10 +256,36 @@ function auditedAdvisories(stdout) {
   );
 }
 
+// 감사 실패는 앱 저장소 owner가 조치해야 하므로 코드만 던지지 않고 차단 사유가 된
+// high/critical advisory 공개 식별자를 그대로 덧붙인다. 값은 GHSA ID, 패키지 이름,
+// severity, 정확한 버전뿐이며 token·registry 자격증명은 포함하지 않는다.
+function blockingAdvisorySummary(result) {
+  let advisories;
+  try {
+    advisories = auditedAdvisories(result?.stdout);
+  } catch {
+    return "";
+  }
+  if (advisories.length === 0) return "";
+  return `:${advisories
+    .map(({ ghsa, module, severity, versions }) =>
+      `${ghsa}/${module}/${severity}/${versions.join("+")}`,
+    )
+    .join(",")}`;
+}
+
 function acceptAuditResult(result, exception) {
   if (result?.status === 0 && result?.signal === null && !result?.error) {
     if (exception !== null) fail("DEPENDENCY_AUDIT_EXCEPTION_UNUSED");
     return null;
+  }
+  if (
+    result?.status === 1 &&
+    result?.signal === null &&
+    !result?.error &&
+    exception === null
+  ) {
+    fail(`DEPENDENCY_AUDIT_FAILED${blockingAdvisorySummary(result)}`);
   }
   if (
     result?.status !== 1 ||

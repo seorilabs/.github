@@ -14,6 +14,7 @@ import {
   computeFleetCredentialBindingScopeDigest,
   computeFleetEvidenceDigest,
   computeFleetFindingsDigest,
+  computeFleetMigrationBaselineSuccessionDigest,
   computeFleetMigrationChainHeadDigest,
   computeFleetMigrationInventoryDigest,
   computeFleetMigrationLineageChainDigest,
@@ -23,6 +24,7 @@ import {
   computeFleetPlatformFleetBindingDigest,
   computeFleetRepositoryReadbackDigest,
   createFleetMigrationAttestationPayload,
+  createFleetMigrationBaselineSuccessionPayload,
   createFleetMigrationChainHeadAttestationPayload,
   createFleetMigrationPlan,
   deriveFleetMigrationInventoryCheckpoint,
@@ -2917,4 +2919,333 @@ test("migration CLI는 trusted public key로 READY를 만들고 stdout 외 파�
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+
+const RATIFIED_DETECTOR_ID = "1241442018";
+
+function cohortVector({ repository }) {
+  return {
+    id: repository.id,
+    fullName: repository.fullName,
+    defaultRef: repository.defaultRef,
+    sourceSha: repository.sourceSha,
+    archived: repository.archived,
+    private: repository.private,
+    fork: repository.fork,
+  };
+}
+
+function identity({ fullName, defaultRef }) {
+  return {
+    fullName,
+    defaultBranch: defaultRef.slice("refs/heads/".length),
+  };
+}
+
+function orderTransitions(transitions) {
+  return [...transitions].sort((left, right) =>
+    `${left.id}:${left.change}` < `${right.id}:${right.change}` ? -1 : 1,
+  );
+}
+
+// 오늘의 live cohort처럼 제거와 추가가 함께 일어난 상태를 만든다.
+function succeededCohortInventory({
+  removeCount = 4,
+  addCount = 2,
+  rename = false,
+  defaultBranchChange = false,
+  mutate = () => {},
+} = {}) {
+  const inventory = makeFleetInventory();
+  const priorCohort = inventory.repositories.map(cohortVector);
+  const removable = inventory.repositories.filter(
+    ({ repository }) => repository.id !== RATIFIED_DETECTOR_ID,
+  );
+  const removed = removable.slice(-removeCount);
+  const removedIds = new Set(removed.map(({ repository }) => repository.id));
+  inventory.repositories = inventory.repositories.filter(
+    ({ repository }) => !removedIds.has(repository.id),
+  );
+
+  const transitions = removed.map(({ repository }, index) => ({
+    id: repository.id,
+    change: index % 2 === 0 ? "REMOVED_ARCHIVED" : "REMOVED_DELETED",
+    from: identity(repository),
+    to: null,
+    priorSourceSha: repository.sourceSha,
+  }));
+
+  const template = inventory.repositories.at(-1);
+  for (let index = 0; index < addCount; index += 1) {
+    const added = structuredClone(template);
+    added.repository.id = `99000000${index + 1}`;
+    added.repository.fullName = `seorilabs/fleet-added-${index + 1}`;
+    added.candidates = [];
+    added.observation.findingsDigest = computeFleetFindingsDigest({
+      repositoryId: added.repository.id,
+      sourceRef: added.repository.defaultRef,
+      sourceSha: added.repository.sourceSha,
+      treeSha: added.observation.treeSha,
+      treeReadback: added.observation.treeReadback,
+      candidates: [],
+    });
+    inventory.repositories.push(added);
+    transitions.push({
+      id: added.repository.id,
+      change: "ADDED",
+      from: null,
+      to: identity(added.repository),
+      priorSourceSha: undefined,
+    });
+  }
+
+  if (rename) {
+    const target = inventory.repositories.find(
+      ({ repository }) =>
+        repository.id !== RATIFIED_DETECTOR_ID &&
+        !repository.fullName.startsWith("seorilabs/fleet-added-"),
+    );
+    const from = identity(target.repository);
+    target.repository.fullName = "seorilabs/fleet-renamed";
+    transitions.push({
+      id: target.repository.id,
+      change: "RENAMED",
+      from,
+      to: identity(target.repository),
+    });
+  }
+  if (defaultBranchChange) {
+    const target = inventory.repositories.find(
+      ({ repository }) =>
+        repository.id !== RATIFIED_DETECTOR_ID &&
+        repository.fullName !== "seorilabs/fleet-renamed" &&
+        !repository.fullName.startsWith("seorilabs/fleet-added-"),
+    );
+    const from = identity(target.repository);
+    target.repository.defaultRef = "refs/heads/develop";
+    transitions.push({
+      id: target.repository.id,
+      change: "DEFAULT_BRANCH_CHANGED",
+      from,
+      to: identity(target.repository),
+    });
+  }
+
+  const counts = countFindings(inventory.repositories);
+  inventory.expectedCounts = structuredClone(counts);
+  const succession = {
+    reason: "ACTIVE_COHORT_LIFECYCLE_TRANSITION",
+    supersedes: {
+      cohortDigest:
+        fleetMigrationContract.initialBaseline.ratification.cohortDigest,
+      expectedCounts: structuredClone(
+        fleetMigrationContract.initialBaseline.expectedCounts,
+      ),
+    },
+    expectedCounts: structuredClone(counts),
+    detector: {
+      repositoryId: RATIFIED_DETECTOR_ID,
+      sourceSha: inventory.detector.sourceSha,
+    },
+    priorCohort,
+    transitions: orderTransitions(transitions).map((transition) =>
+      transition.priorSourceSha === undefined
+        ? {
+            id: transition.id,
+            change: transition.change,
+            from: transition.from,
+            to: transition.to,
+          }
+        : transition,
+    ),
+    observedAt: new Date(Date.parse(inventory.capturedAt) - 1000).toISOString(),
+    attestation: {
+      algorithm: "Ed25519",
+      purpose: "FLEET_MIGRATION_BASELINE_SUCCESSION",
+      keyId: INVENTORY_KEY_ID,
+      policyRevision: INVENTORY_POLICY_REVISION,
+      signedAt: inventory.capturedAt,
+      value: "",
+    },
+  };
+  mutate(succession, inventory);
+  succession.attestation.value = signEd25519(
+    null,
+    createFleetMigrationBaselineSuccessionPayload(inventory, succession),
+    INVENTORY_KEYS.privateKey,
+  ).toString("base64url");
+  inventory.baselineSuccession = succession;
+  return refreshAndSign(inventory);
+}
+
+test("승계는 제거와 추가가 함께 일어난 cohort를 ratified 기준선 보존한 채 설명한다", () => {
+  const inventory = succeededCohortInventory();
+  assert.deepEqual(
+    inventory.baselineRatification,
+    fleetMigrationContract.initialBaseline.ratification,
+  );
+  // 38 - 4 + 2 = 36. 제거 수만으로 계산하면 34가 되어 live를 설명하지 못한다.
+  assert.equal(inventory.repositories.length, 36);
+  assert.equal(inventory.expectedCounts.activeRepositories, 36);
+  const binding = trustedBinding(inventory);
+  assert.equal(
+    binding.baselineSuccessionDigest,
+    computeFleetMigrationBaselineSuccessionDigest(
+      inventory,
+      inventory.baselineSuccession,
+    ),
+  );
+  // plan은 승계와 무관한 다른 이유로 막힐 수 있다. 여기서는 기준선 관련 사유가
+  // 사라졌는지만 확인한다.
+  const plan = createFleetMigrationPlan(inventory, {
+    trustedInventoryBinding: binding,
+    now: EVALUATED_AT,
+  });
+  const baselineReasons = JSON.stringify(plan).match(
+    /INITIAL_BASELINE_MISMATCH|BASELINE_SUCCESSION_[A-Z_]+/gu,
+  );
+  assert.equal(baselineReasons, null);
+});
+
+test("rename과 default branch 변경도 numeric repository ID 전이로 증명한다", () => {
+  const inventory = succeededCohortInventory({
+    rename: true,
+    defaultBranchChange: true,
+  });
+  const changes = inventory.baselineSuccession.transitions.map(
+    ({ change }) => change,
+  );
+  assert.ok(changes.includes("RENAMED"));
+  assert.ok(changes.includes("DEFAULT_BRANCH_CHANGED"));
+  assert.doesNotThrow(() => trustedBinding(inventory));
+});
+
+test("설명되지 않은 추가·제거·rename은 승계를 차단한다", () => {
+  const cases = [
+    [
+      /BASELINE_SUCCESSION_COHORT_UNEXPLAINED/u,
+      // 새로 들어온 repository의 ADDED 전이를 지운다.
+      (succession) => {
+        succession.transitions = succession.transitions.filter(
+          ({ change }) => change !== "ADDED",
+        );
+      },
+    ],
+    [
+      /BASELINE_SUCCESSION_COHORT_UNEXPLAINED/u,
+      // 빠진 repository의 REMOVED 전이를 지운다.
+      (succession) => {
+        succession.transitions = succession.transitions.filter(
+          ({ change }) => !change.startsWith("REMOVED_"),
+        );
+      },
+    ],
+    [
+      /BASELINE_SUCCESSION_DRIFT_UNEXPLAINED/u,
+      // 실제로 변하지 않은 repository의 rename을 주장한다.
+      (succession, inventory) => {
+        succession.transitions = orderTransitions([
+          ...succession.transitions,
+          {
+            id: inventory.repositories[1].repository.id,
+            change: "RENAMED",
+            from: identity(inventory.repositories[1].repository),
+            to: { fullName: "seorilabs/never-happened", defaultBranch: "main" },
+          },
+        ]);
+      },
+    ],
+    [
+      /BASELINE_SUCCESSION_COHORT_UNEXPLAINED/u,
+      // 제거 전이의 ratified source SHA를 위조한다.
+      (succession) => {
+        const removed = succession.transitions.find(({ change }) =>
+          change.startsWith("REMOVED_"),
+        );
+        removed.priorSourceSha = "e".repeat(40);
+      },
+    ],
+    [
+      /BASELINE_SUCCESSION_PRIOR_COHORT_MISMATCH/u,
+      // 직전 cohort 자체를 위조하면 ratified digest가 깨진다.
+      (succession) => {
+        succession.priorCohort[5].sourceSha = "f".repeat(40);
+      },
+    ],
+    [
+      /BASELINE_SUCCESSION_PRIOR_COHORT_MISMATCH/u,
+      // 직전 cohort에서 한 건을 빼 38개 계약을 어긴다.
+      (succession) => {
+        succession.priorCohort = succession.priorCohort.slice(1);
+      },
+    ],
+  ];
+  for (const [pattern, mutate] of cases) {
+    assert.throws(() => trustedBinding(succeededCohortInventory({ mutate })), pattern);
+  }
+});
+
+test("승계 없이 줄어든 cohort는 ratified 기준선 불일치로 거부된다", () => {
+  const inventory = succeededCohortInventory();
+  delete inventory.baselineSuccession;
+  refreshAndSign(inventory);
+  assert.throws(
+    () => trustedBinding(inventory),
+    /FLEET_MIGRATION_INVENTORY_UNTRUSTED:.*INITIAL_BASELINE_MISMATCH/u,
+  );
+});
+
+test("ratified 수치와 같은 cohort에는 승계를 붙일 수 없다", () => {
+  const inventory = makeFleetInventory();
+  inventory.baselineSuccession = succeededCohortInventory().baselineSuccession;
+  refreshAndSign(inventory);
+  assert.throws(
+    () => trustedBinding(inventory),
+    /BASELINE_SUCCESSION_NOT_ALLOWED/u,
+  );
+});
+
+test("승계는 정리 대상 수치를 늘리거나 다른 root를 주장할 수 없다", () => {
+  for (const [pattern, mutate] of [
+    [
+      /BASELINE_SUCCESSION_ROOT_MISMATCH/u,
+      (succession) => {
+        succession.supersedes.cohortDigest = "0".repeat(64);
+      },
+    ],
+    [
+      /BASELINE_SUCCESSION_NOT_MONOTONIC/u,
+      (succession, inventory) => {
+        succession.expectedCounts.workflowFloatingRef = 87;
+        inventory.expectedCounts.workflowFloatingRef = 87;
+      },
+    ],
+    [
+      /BASELINE_SUCCESSION_DETECTOR_MISMATCH/u,
+      (succession) => {
+        succession.detector.sourceSha = "b".repeat(40);
+      },
+    ],
+  ]) {
+    assert.throws(() => trustedBinding(succeededCohortInventory({ mutate })), pattern);
+  }
+});
+
+test("승계 서명은 신뢰 키와 전용 purpose로만 검증된다", () => {
+  const foreign = generateKeyPairSync("ed25519");
+  const inventory = succeededCohortInventory();
+  inventory.baselineSuccession.attestation.value = signEd25519(
+    null,
+    createFleetMigrationBaselineSuccessionPayload(
+      inventory,
+      inventory.baselineSuccession,
+    ),
+    foreign.privateKey,
+  ).toString("base64url");
+  refreshAndSign(inventory);
+  assert.throws(
+    () => trustedBinding(inventory),
+    /BASELINE_SUCCESSION_ATTESTATION_UNTRUSTED/u,
+  );
 });

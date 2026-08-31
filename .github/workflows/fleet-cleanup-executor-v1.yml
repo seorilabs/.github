@@ -1,0 +1,93 @@
+# Fleet cleanup wave의 local reusable executor다. caller가 같은 commit의 이 파일을
+# 호출하므로 workflow_sha와 job_workflow_sha가 같은 값으로 묶인다. durable state와 GitHub
+# mutation은 Backoffice가 소유하며 이 job은 사전 ISSUE된 공개 capability를 GitHub Actions
+# OIDC로 정확히 한 번 EXECUTE하고 receipt를 검증하는 일만 한다. static token과 PAT는 쓰지
+# 않는다.
+name: Fleet Cleanup Executor v1
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+      capability_id:
+        required: false
+        default: ""
+        type: string
+      approval_scope_digest:
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    name: Fleet Cleanup Execute
+    # 이 저장소는 public이므로 self-hosted ARC runner를 노출하지 않는다.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # OIDC로만 인증한다. 조직 secret을 이 경로에 전달하지 않는다.
+      id-token: write
+    timeout-minutes: 20
+    steps:
+      - name: Checkout central source at the calling commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+
+      - name: Install exactly locked central dependencies
+        shell: bash
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify the cleanup reconciler contract on this exact commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test \
+            tests/fleet-cleanup-reconciler.test.mjs \
+            tests/fleet-p7-gate-report.test.mjs
+
+      - name: Execute the pre-issued capability exactly once
+        shell: bash
+        env:
+          FLEET_MODE: ${{ inputs.mode }}
+          FLEET_CAPABILITY_ID: ${{ inputs.capability_id }}
+          FLEET_APPROVAL_SCOPE_DIGEST: ${{ inputs.approval_scope_digest }}
+          FLEET_ORGANIZATION_ID: ${{ github.repository_owner_id }}
+          FLEET_REPOSITORY_ID: ${{ github.repository_id }}
+          FLEET_FULL_NAME: ${{ github.repository }}
+          FLEET_REF: ${{ github.ref }}
+          FLEET_EVENT: ${{ github.event_name }}
+          FLEET_VISIBILITY: ${{ github.repository_visibility }}
+          FLEET_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          FLEET_RUN_ID: ${{ github.run_id }}
+          FLEET_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          # caller가 로컬 상대 경로로 이 reusable workflow를 호출하므로 checkout된
+          # commit이 곧 caller의 commit이다. 두 값이 다르면 다른 commit의 executor가
+          # 실행된 것이므로 binding 검증에서 차단된다. OIDC의 job_workflow_ref는
+          # Backoffice가 JWT에서 별도로 검증한다.
+          FLEET_JOB_WORKFLOW_SHA="$(git rev-parse HEAD)"
+          export FLEET_JOB_WORKFLOW_SHA
+          node scripts/fleet/fleet-cleanup-execute.mjs \
+            | tee fleet-cleanup-execution-report.json
+
+      - name: Publish the execution report for review
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fleet-cleanup-execution-report
+          path: fleet-cleanup-execution-report.json
+          retention-days: 3
+          if-no-files-found: error

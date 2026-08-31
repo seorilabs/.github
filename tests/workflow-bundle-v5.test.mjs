@@ -2871,3 +2871,140 @@ test("public fork PR keeps ARC skipped and makes the required Org Contract fail"
     assert.notEqual(forkResult.status, 0, workflowPath);
   }
 });
+
+test("승인된 예외가 없는 감사 실패는 차단 advisory 공개 식별자를 그대로 보고한다", async () => {
+  const { root } = await fixtureRepository("saju-reader");
+  const cacheRoot = join(root, ".seorilabs-pnpm-store");
+  const auditReport = JSON.stringify({
+    advisories: {
+      1: {
+        github_advisory_id: "GHSA-4c9v-hjjm-x577",
+        module_name: "left-pad",
+        severity: "high",
+        findings: [{ version: "1.3.0" }],
+      },
+      2: {
+        github_advisory_id: "GHSA-2p57-rm9w-gvfp",
+        module_name: "tar-fs",
+        severity: "critical",
+        findings: [{ version: "2.1.1" }, { version: "2.1.0" }],
+      },
+      3: {
+        github_advisory_id: "GHSA-6h7j-mpqr-vwx2",
+        module_name: "ignored-low",
+        severity: "moderate",
+        findings: [{ version: "1.0.0" }],
+      },
+    },
+  });
+  await assert.rejects(
+    stageExactPlatformDependencyV5({
+      repoRoot: root,
+      dependencyRoot: ".",
+      packageManager: "pnpm",
+      cacheRoot,
+      token: "token-that-must-never-be-persisted",
+      childEnvironment: { HOME: "/tmp/fixture-home", PATH: "/usr/bin:/bin" },
+      dependencyAuditException: null,
+      auditActionClass: "STATIC_CHECK",
+      repositoryId: "1250442131",
+      fullName: "seorilabs/happy-farm",
+      sourceSha: git(root, ["rev-parse", "HEAD"]),
+      now: () => new Date("2026-08-30T00:00:00Z"),
+      spawn: (_command, _args, options) => {
+        if (!options.env.NODE_AUTH_TOKEN) {
+          return { status: 1, signal: null, stdout: auditReport };
+        }
+        mkdirSync(join(cacheRoot, "content"), { recursive: true });
+        writeFileSync(join(cacheRoot, "content", "package.tgz"), "public-package-bytes");
+        return { status: 0, signal: null };
+      },
+    }),
+    (error) => {
+      assert.equal(
+        error.message,
+        "DEPENDENCY_AUDIT_FAILED:GHSA-2p57-rm9w-gvfp/tar-fs/critical/2.1.0+2.1.1," +
+          "GHSA-4c9v-hjjm-x577/left-pad/high/1.3.0",
+      );
+      assert.doesNotMatch(error.message, /token-that-must-never-be-persisted/u);
+      return true;
+    },
+  );
+  assert.equal(await lstat(cacheRoot).catch(() => null), null);
+});
+
+test("감사 보고서를 해석할 수 없으면 실패 코드에 상세를 덧붙이지 않는다", async () => {
+  const { root } = await fixtureRepository("saju-reader");
+  const cacheRoot = join(root, ".seorilabs-pnpm-store");
+  await assert.rejects(
+    stageExactPlatformDependencyV5({
+      repoRoot: root,
+      dependencyRoot: ".",
+      packageManager: "pnpm",
+      cacheRoot,
+      token: "token-that-must-never-be-persisted",
+      childEnvironment: { HOME: "/tmp/fixture-home", PATH: "/usr/bin:/bin" },
+      dependencyAuditException: null,
+      auditActionClass: "STATIC_CHECK",
+      repositoryId: "1250442131",
+      fullName: "seorilabs/happy-farm",
+      sourceSha: git(root, ["rev-parse", "HEAD"]),
+      now: () => new Date("2026-08-30T00:00:00Z"),
+      spawn: (_command, _args, options) => {
+        if (!options.env.NODE_AUTH_TOKEN) {
+          return { status: 1, signal: null, stdout: "not-json" };
+        }
+        mkdirSync(join(cacheRoot, "content"), { recursive: true });
+        writeFileSync(join(cacheRoot, "content", "package.tgz"), "public-package-bytes");
+        return { status: 0, signal: null };
+      },
+    }),
+    (error) => {
+      assert.equal(error.message, "DEPENDENCY_AUDIT_FAILED");
+      return true;
+    },
+  );
+});
+
+test("Android cloud build은 WIF 공개 binding 불일치를 사람 승인 gate로 지목한다", async () => {
+  for (const name of [
+    "rn-build-android-cloud-v2.yml",
+    "godot-build-android-cloud-v2.yml",
+  ]) {
+    const source = await readFile(
+      new URL(`../.github/workflows/${name}`, import.meta.url),
+      "utf8",
+    );
+    const workflow = parse(source);
+    const step = Object.values(workflow.jobs)
+      .flatMap((job) => job.steps ?? [])
+      .find(({ name: stepName }) => stepName === "Validate internal WIF public bindings");
+    assert.notEqual(step, undefined, `${name}: WIF 검증 step이 있어야 한다`);
+    assert.deepEqual(Object.keys(step.env).toSorted(), [
+      "EXECUTOR",
+      "PROVIDER",
+      "SUBMITTER",
+    ]);
+    // 값 자체는 공개 변수이며 secret을 참조하지 않는다.
+    assert.doesNotMatch(source, /\bsecrets\.(?:GOOGLE|SEORI_CLOUD_BUILD)/u);
+    assert.match(step.run, /FLEET_CLOUD_BUILD_WIF_BINDING_UNVERIFIED/u);
+    assert.match(step.run, /HUMAN_APPROVAL_REQUIRED/u);
+    assert.match(step.run, /FLEET_P3_CLOUD_BUILD_WIF_ACTIVATION/u);
+    for (const variable of [
+      "GOOGLE_WORKLOAD_IDENTITY_PROVIDER",
+      "SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT",
+      "SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT",
+    ]) {
+      assert.match(step.run, new RegExp(`missing ${variable}\\b`, "u"));
+    }
+    assert.match(step.run, /exit 1/u);
+    // 진단 출력 줄은 로그에서 잘리지 않도록 폭을 제한한다. 기대값 pin은 grep 가능한
+    // 단일 리터럴로 유지해야 하므로 길이 제한에서 제외한다.
+    for (const line of step.run.split("\n")) {
+      if (!/^\s*echo /u.test(line)) continue;
+      assert.ok(line.length <= 120, `WIF 진단 줄이 너무 김: ${line}`);
+    }
+    // 빈 배열 확장으로 set -u 하에서 죽지 않도록 문자열 누적만 사용한다.
+    assert.doesNotMatch(step.run, /\$\{#\w+\[@\]\}/u);
+  }
+});
