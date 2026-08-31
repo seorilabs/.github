@@ -228,11 +228,15 @@ const serviceAccounts = [
     email: cloud.submitter.serviceAccountEmail,
     displayName: "Seori Cloud Build submitter",
   },
-  {
-    id: cloud.executor.serviceAccountEmail.split("@")[0],
-    email: cloud.executor.serviceAccountEmail,
-    displayName: "Seori Cloud Build executor",
-  },
+  ...cloud.executors.map(
+    ({ fullName, target, serviceAccountEmail }) => ({
+      id: serviceAccountEmail.split("@")[0],
+      email: serviceAccountEmail,
+      displayName:
+        `Seori ${fullName.split("/")[1]} ` +
+        (target === "ANDROID_CANARY_AAB" ? "canary" : "release"),
+    }),
+  ),
   ...auth.roles.map(({ name, googleServiceAccount }) => ({
     id: googleServiceAccount.split("@")[0],
     email: googleServiceAccount,
@@ -265,27 +269,41 @@ for (const { resource, role } of cloud.submitter.bindings) {
     `serviceAccount:${cloud.submitter.serviceAccountEmail}`,
   );
 }
-for (const { resource, role } of cloud.executor.bindings) {
-  const resourceType = resource.startsWith("projects/")
-    ? resource.includes("/repositories/")
-      ? "artifactRepository"
-      : "project"
-    : resource.startsWith("gs://")
-      ? "bucket"
-      : "serviceAccount";
+for (const executor of cloud.executors) {
+  for (const { resource, role } of cloud.executionPolicy.baseBindings) {
+    const resourceType = resource.startsWith("projects/")
+      ? resource.includes("/repositories/")
+        ? "artifactRepository"
+        : "project"
+      : "bucket";
+    binding(
+      resourceType,
+      resource,
+      role,
+      `serviceAccount:${executor.serviceAccountEmail}`,
+    );
+  }
   binding(
-    resourceType,
-    resource,
-    role,
-    `serviceAccount:${cloud.executor.serviceAccountEmail}`,
+    "serviceAccount",
+    executor.serviceAccountEmail,
+    cloud.executionPolicy.submitterImpersonationRole,
+    `serviceAccount:${cloud.submitter.serviceAccountEmail}`,
   );
+  binding(
+    "serviceAccount",
+    executor.serviceAccountEmail,
+    cloud.executionPolicy.cloudBuildServiceAgentRole,
+    `serviceAccount:service-${cloud.projectNumber}@gcp-sa-cloudbuild.iam.gserviceaccount.com`,
+  );
+  for (const { resource } of executor.secretBindings) {
+    binding(
+      "secret",
+      resource,
+      cloud.executionPolicy.releaseSecretRole,
+      `serviceAccount:${executor.serviceAccountEmail}`,
+    );
+  }
 }
-binding(
-  "serviceAccount",
-  cloud.executor.serviceAccountEmail,
-  "roles/iam.serviceAccountTokenCreator",
-  `serviceAccount:service-${cloud.projectNumber}@gcp-sa-cloudbuild.iam.gserviceaccount.com`,
-);
 for (const { repositoryId } of cloud.wif.repositories) {
   binding(
     "serviceAccount",
@@ -307,12 +325,14 @@ function publicPlan() {
   return {
     schemaVersion: 1,
     mode: "DRY_RUN",
+    approval: cloud.approval,
     project: { id: cloud.projectId, number: cloud.projectNumber },
     requiredServices,
     contractDigest,
     workflowBundleSourceSha: cloud.wif.workflowBundleSourceSha,
     workflowExecutionSha: cloud.wif.workflowExecutionSha,
     githubActions: cloud.githubActions,
+    androidExecutors: cloud.executors,
     confirmation: expectedConfirmation,
     rollbackConfirmation: expectedRollback,
     staticKeysCreated: false,
@@ -342,7 +362,7 @@ function publicPlan() {
     resume:
       "같은 apply 명령은 exact-existing 객체를 보존하고 rollback으로 disabled된 exact provider만 다시 활성화한다.",
     rollbackStrategy:
-      "IAM binding은 변경하지 않고 exact provider만 disable해 신규 token exchange를 차단한다.",
+      "IAM binding과 Kubernetes provider는 보존하고 exact GitHub provider만 disable해 신규 Actions token exchange를 차단한다.",
   };
 }
 
@@ -628,20 +648,22 @@ function providerSpecifications() {
   ];
 }
 
+function providerState(specification) {
+  const existing = providerRead(specification.id);
+  const configurationState =
+    existing === null
+      ? "MISSING"
+      : providerConfigurationMatches(existing, specification.expected)
+        ? "EXACT"
+        : specification.legacy &&
+            providerConfigurationMatches(existing, specification.legacy)
+          ? "LEGACY_MIGRATION_REQUIRED"
+          : "DRIFT";
+  return { ...specification, existing, configurationState };
+}
+
 function preflightProviders() {
-  const states = providerSpecifications().map((specification) => {
-    const existing = providerRead(specification.id);
-    const configurationState =
-      existing === null
-        ? "MISSING"
-        : providerConfigurationMatches(existing, specification.expected)
-          ? "EXACT"
-          : specification.legacy &&
-              providerConfigurationMatches(existing, specification.legacy)
-            ? "LEGACY_MIGRATION_REQUIRED"
-            : "DRIFT";
-    return { ...specification, existing, configurationState };
-  });
+  const states = providerSpecifications().map(providerState);
   for (const { configurationState, driftCode } of states) {
     if (configurationState === "DRIFT") fail(driftCode);
   }
@@ -789,6 +811,15 @@ function bindingCommand(item) {
       ...common,
     ];
   }
+  if (item.resourceType === "secret") {
+    return [
+      "secrets",
+      "add-iam-policy-binding",
+      item.resource.split("/").at(-1),
+      `--project=${cloud.projectId}`,
+      ...common,
+    ];
+  }
   const segments = item.resource.split("/");
   return [
     "artifacts",
@@ -831,6 +862,18 @@ function readPolicy(item) {
         "--format=json(bindings)",
       ],
       "P3_GCP_SERVICE_ACCOUNT_IAM_READ_FAILED",
+    );
+  }
+  if (item.resourceType === "secret") {
+    return gcloudRun(
+      [
+        "secrets",
+        "get-iam-policy",
+        item.resource.split("/").at(-1),
+        `--project=${cloud.projectId}`,
+        "--format=json(bindings)",
+      ],
+      "P3_GCP_SECRET_IAM_READ_FAILED",
     );
   }
   const segments = item.resource.split("/");
@@ -932,7 +975,14 @@ function readback() {
 }
 
 function rollback() {
-  const states = preflightProviders();
+  const states = [
+    providerState(
+      providerSpecifications().find(({ name }) => name === "github"),
+    ),
+  ];
+  if (states[0].configurationState === "DRIFT") {
+    fail(states[0].driftCode);
+  }
   const providersDisabled = [];
   const providersAbsent = [];
   for (const {

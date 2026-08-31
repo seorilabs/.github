@@ -256,8 +256,9 @@
     "cloudBuild": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["projectId", "projectNumber", "region", "requiredServices", "provider", "wif", "submitter", "executor", "githubActions"],
+      "required": ["approval", "projectId", "projectNumber", "region", "requiredServices", "provider", "wif", "submitter", "executionPolicy", "executors", "githubActions"],
       "properties": {
+        "approval": { "$ref": "#/$defs/cloudBuildApproval" },
         "projectId": { "const": "seorilabs-ci" },
         "projectNumber": { "const": "321365398093" },
         "region": { "const": "asia-northeast3" },
@@ -292,8 +293,8 @@
             "kubernetesIssuer": { "const": "https://kubernetes.default.svc" },
             "githubAudience": { "const": "https://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build" },
             "organizationId": { "const": "283115031" },
-            "workflowBundleSourceSha": { "const": "d1d672553ee57befab01675680597cedeb345496" },
-            "workflowExecutionSha": { "const": "d1d672553ee57befab01675680597cedeb345496" },
+            "workflowBundleSourceSha": { "const": "e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1" },
+            "workflowExecutionSha": { "const": "e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1" },
             "repositories": {
               "type": "array",
               "minItems": 4,
@@ -309,27 +310,14 @@
           }
         },
         "submitter": { "$ref": "#/$defs/identity" },
-        "executor": { "$ref": "#/$defs/identity" },
-        "githubActions": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["bindingRevision", "environment", "logicalCredentialId", "variables"],
-          "properties": {
-            "bindingRevision": { "const": 1 },
-            "environment": { "const": "internal" },
-            "logicalCredentialId": { "const": "shared/gcp/cloud-build" },
-            "variables": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["GOOGLE_WORKLOAD_IDENTITY_PROVIDER", "SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT", "SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT"],
-              "properties": {
-                "GOOGLE_WORKLOAD_IDENTITY_PROVIDER": { "const": "projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build" },
-                "SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT": { "const": "seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com" },
-                "SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT": { "const": "seori-cloud-build-executor@seorilabs-ci.iam.gserviceaccount.com" }
-              }
-            }
-          }
-        }
+        "executionPolicy": { "$ref": "#/$defs/cloudBuildExecutionPolicy" },
+        "executors": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/cloudBuildExecutor" }
+        },
+        "githubActions": { "$ref": "#/$defs/cloudBuildGithubActions" }
       }
     },
     "authBroker": {
@@ -790,20 +778,161 @@
       "additionalProperties": false,
       "required": ["logicalCredentialId", "serviceAccountEmail", "bindings"],
       "properties": {
-        "logicalCredentialId": { "type": "string", "pattern": "^shared/gcp/cloud-build/(submitter|executor)$" },
+        "logicalCredentialId": { "const": "shared/gcp/cloud-build/submitter" },
         "serviceAccountEmail": { "type": "string", "pattern": "^[A-Za-z0-9._%+-]+@seorilabs-ci\\.iam\\.gserviceaccount\\.com$" },
         "bindings": {
           "type": "array",
           "minItems": 1,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["resource", "role"],
-            "properties": {
-              "resource": { "type": "string", "minLength": 1 },
-              "role": { "type": "string", "pattern": "^roles/[A-Za-z0-9.]+$" }
-            }
+          "items": { "$ref": "#/$defs/iamBinding" }
+        }
+      }
+    },
+    "iamBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource", "role"],
+      "properties": {
+        "resource": { "type": "string", "minLength": 1 },
+        "role": { "type": "string", "pattern": "^roles/[A-Za-z0-9.]+$" }
+      }
+    },
+    "cloudBuildApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "operation", "requiredRole", "automaticRetry", "supersededPlan", "requiredReadback"],
+      "properties": {
+        "state": { "const": "HUMAN_APPROVAL_REQUIRED" },
+        "operation": { "const": "FLEET_P3_PER_APP_ANDROID_EXECUTOR_ACTIVATION" },
+        "requiredRole": { "const": "gcp_security_admin" },
+        "automaticRetry": { "const": false },
+        "supersededPlan": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "contractDigest", "confirmation", "applyCount", "reason"],
+          "properties": {
+            "state": { "const": "SUPERSEDED_DO_NOT_APPLY" },
+            "contractDigest": { "const": "8302531fff6496917951122b6a97a0c372902aa4309ab87afa8b8a4aa83bea48" },
+            "confirmation": { "const": "fleet-p3-8302531fff64" },
+            "applyCount": { "const": 0 },
+            "reason": { "const": "SHARED_EXECUTOR_COULD_READ_MULTIPLE_APP_SECRETS" }
           }
+        },
+        "requiredReadback": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "prefixItems": [
+            { "const": "required_services_enabled" },
+            { "const": "provider_condition_exact" },
+            { "const": "eight_executor_identities_exact" },
+            { "const": "submitter_impersonation_exact" },
+            { "const": "canary_secret_access_zero" },
+            { "const": "release_secret_access_exact" },
+            { "const": "repository_environment_variables_exact" },
+            { "const": "lizard_release_binding_exact" }
+          ],
+          "items": false
+        }
+      }
+    },
+    "cloudBuildExecutionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["submitterImpersonationRole", "cloudBuildServiceAgentRole", "releaseSecretRole", "baseBindings"],
+      "properties": {
+        "submitterImpersonationRole": { "const": "roles/iam.serviceAccountUser" },
+        "cloudBuildServiceAgentRole": { "const": "roles/iam.serviceAccountTokenCreator" },
+        "releaseSecretRole": { "const": "roles/secretmanager.secretAccessor" },
+        "baseBindings": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/iamBinding" }
+        }
+      }
+    },
+    "cloudBuildSecretBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logicalCredentialId", "resource", "versionResource", "usages"],
+      "properties": {
+        "logicalCredentialId": {
+          "type": "string",
+          "pattern": "^app/[a-z0-9-]+/(google-play/upload-key|firebase/android-runtime)$"
+        },
+        "resource": {
+          "type": "string",
+          "pattern": "^projects/seorilabs-ci/secrets/[a-z0-9-]+$"
+        },
+        "versionResource": {
+          "type": "string",
+          "pattern": "^projects/seorilabs-ci/secrets/[a-z0-9-]+/versions/[1-9][0-9]*$"
+        },
+        "usages": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["KEYSTORE_BYTES", "KEYSTORE_PASSWORD", "KEY_PASSWORD", "FIREBASE_ANDROID_CONFIG"]
+          }
+        }
+      }
+    },
+    "cloudBuildExecutor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fullName", "repositoryId", "target", "capability", "artifactClass", "buildProfile", "logicalCredentialId", "serviceAccountEmail", "state", "secretBindings"],
+      "properties": {
+        "fullName": { "enum": ["seorilabs/happy-farm", "seorilabs/lizard-tycoon", "seorilabs/babycare", "seorilabs/cycle-pair"] },
+        "repositoryId": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
+        "target": { "enum": ["ANDROID_CANARY_AAB", "ANDROID_PLAY_AAB"] },
+        "capability": { "enum": ["ANDROID_CANARY_BUILD_ONLY", "ANDROID_PLAY_PROMOTABLE_SIGNED_BUILD"] },
+        "artifactClass": { "enum": ["NON_PROMOTABLE_CANARY", "PLAY_PROMOTABLE_SIGNED"] },
+        "buildProfile": { "enum": ["react-native-android", "godot-android", "android-play-promotable-signed"] },
+        "logicalCredentialId": { "type": "string", "pattern": "^app/[a-z0-9-]+/gcp/cloud-build-(canary|release)$" },
+        "serviceAccountEmail": { "type": "string", "pattern": "^seori-[a-z0-9-]+-(canary|release)@seorilabs-ci\\.iam\\.gserviceaccount\\.com$" },
+        "state": { "enum": ["blocked_unverified", "blocked_missing_credential_binding"] },
+        "secretBindings": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/cloudBuildSecretBinding" }
+        }
+      }
+    },
+    "cloudBuildVariables": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["GOOGLE_WORKLOAD_IDENTITY_PROVIDER", "SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT", "SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT"],
+      "properties": {
+        "GOOGLE_WORKLOAD_IDENTITY_PROVIDER": { "const": "projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build" },
+        "SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT": { "const": "seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com" },
+        "SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT": { "type": "string", "pattern": "^seori-[a-z0-9-]+-canary@seorilabs-ci\\.iam\\.gserviceaccount\\.com$" }
+      }
+    },
+    "cloudBuildGithubActionBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fullName", "repositoryId", "bindingRevision", "logicalCredentialId", "variables"],
+      "properties": {
+        "fullName": { "enum": ["seorilabs/happy-farm", "seorilabs/lizard-tycoon", "seorilabs/babycare", "seorilabs/cycle-pair"] },
+        "repositoryId": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
+        "bindingRevision": { "const": 2 },
+        "logicalCredentialId": { "type": "string", "pattern": "^app/[a-z0-9-]+/gcp/cloud-build-canary$" },
+        "variables": { "$ref": "#/$defs/cloudBuildVariables" }
+      }
+    },
+    "cloudBuildGithubActions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment", "repositoryBindings"],
+      "properties": {
+        "environment": { "const": "internal" },
+        "repositoryBindings": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/cloudBuildGithubActionBinding" }
         }
       }
     },
@@ -956,7 +1085,7 @@
         "fullName": { "const": "seorilabs/happy-farm" },
         "repositoryId": { "const": "1250442131" },
         "workflow": { "const": ".github/workflows/rn-build-android-cloud-v2.yml" },
-        "sha256": { "const": "0fe59ea7652311be672dbd640192c3fbd712716f3d0016c5cb0448e56c886672" }
+        "sha256": { "const": "20b971230510eb39f500c1c81ee655a744e3bf1c436c7cbff3b02e3d52b787c3" }
       }
     },
     "godotWifRepository": {
@@ -967,7 +1096,7 @@
         "fullName": { "const": "seorilabs/lizard-tycoon" },
         "repositoryId": { "const": "1265192029" },
         "workflow": { "const": ".github/workflows/godot-build-android-cloud-v2.yml" },
-        "sha256": { "const": "eefa668ce406788b003d7e32acfa5fecf215f90d5e66b80146f1896342eb78c7" }
+        "sha256": { "const": "5b1da48888609c0a0cc045f0130556867f37577f7b49a309d4ed575dd8e6d99c" }
       }
     },
     "babycareWifRepository": {
@@ -978,7 +1107,7 @@
         "fullName": { "const": "seorilabs/babycare" },
         "repositoryId": { "const": "1298244321" },
         "workflow": { "const": ".github/workflows/rn-build-android-cloud-v2.yml" },
-        "sha256": { "const": "0fe59ea7652311be672dbd640192c3fbd712716f3d0016c5cb0448e56c886672" }
+        "sha256": { "const": "20b971230510eb39f500c1c81ee655a744e3bf1c436c7cbff3b02e3d52b787c3" }
       }
     },
     "cyclePairWifRepository": {
@@ -989,7 +1118,7 @@
         "fullName": { "const": "seorilabs/cycle-pair" },
         "repositoryId": { "const": "1298264957" },
         "workflow": { "const": ".github/workflows/rn-build-android-cloud-v2.yml" },
-        "sha256": { "const": "0fe59ea7652311be672dbd640192c3fbd712716f3d0016c5cb0448e56c886672" }
+        "sha256": { "const": "20b971230510eb39f500c1c81ee655a744e3bf1c436c7cbff3b02e3d52b787c3" }
       }
     }
   }

@@ -11,6 +11,7 @@ import {
   EXPECTED_CANARY_OUTPUT_SHA256,
   canonicalSha256,
 } from "../../tools/seori-auth/scripts/public-image-binding.mjs";
+import { ANDROID_CANARY_BUILD_TARGETS } from "./resolve-android-cloud-build-target.mjs";
 
 const contractPath = fileURLToPath(
   new URL("../../contracts/fleet-p3-runtime.yaml", import.meta.url),
@@ -76,12 +77,117 @@ function validateSemantics(contract) {
   }
   const serviceAccounts = [
     contract.cloudBuild.submitter.serviceAccountEmail,
-    contract.cloudBuild.executor.serviceAccountEmail,
+    ...contract.cloudBuild.executors.map(({ serviceAccountEmail }) =>
+      serviceAccountEmail,
+    ),
     ...contract.authBroker.roles.map(({ googleServiceAccount }) =>
       googleServiceAccount,
     ),
   ];
   if (!unique(serviceAccounts)) fail("P3_WORKLOAD_IDENTITY_REUSED");
+  const executorKeys = contract.cloudBuild.executors.map(
+    ({ repositoryId, target }) => `${repositoryId}\0${target}`,
+  );
+  const canaryExecutors = contract.cloudBuild.executors.filter(
+    ({ capability }) => capability === "ANDROID_CANARY_BUILD_ONLY",
+  );
+  const releaseExecutors = contract.cloudBuild.executors.filter(
+    ({ capability }) =>
+      capability === "ANDROID_PLAY_PROMOTABLE_SIGNED_BUILD",
+  );
+  const expectedCanaries = ANDROID_CANARY_BUILD_TARGETS.map(
+    ({ repositoryId, fullName, buildProfile, executorServiceAccount }) =>
+      [repositoryId, fullName, buildProfile, executorServiceAccount].join("\0"),
+  );
+  const actualCanaries = canaryExecutors.map(
+    ({ repositoryId, fullName, buildProfile, serviceAccountEmail }) =>
+      [repositoryId, fullName, buildProfile, serviceAccountEmail].join("\0"),
+  );
+  if (
+    contract.cloudBuild.executors.length !== 8 ||
+    !unique(executorKeys) ||
+    canaryExecutors.length !== 4 ||
+    releaseExecutors.length !== 4 ||
+    actualCanaries.toSorted().join("\n") !==
+      expectedCanaries.toSorted().join("\n") ||
+    canaryExecutors.some(
+      ({ target, artifactClass, state, secretBindings }) =>
+        target !== "ANDROID_CANARY_AAB" ||
+        artifactClass !== "NON_PROMOTABLE_CANARY" ||
+        state !== "blocked_unverified" ||
+        secretBindings.length !== 0,
+    ) ||
+    releaseExecutors.some(
+      ({ fullName, target, artifactClass, buildProfile, logicalCredentialId, serviceAccountEmail, secretBindings }) => {
+        const app = fullName.split("/")[1];
+        const secretPrefix =
+          app === "lizard-tycoon" ? "lizard-" : `${app}-`;
+        return (
+          target !== "ANDROID_PLAY_AAB" ||
+          artifactClass !== "PLAY_PROMOTABLE_SIGNED" ||
+          buildProfile !== "android-play-promotable-signed" ||
+          logicalCredentialId !== `app/${app}/gcp/cloud-build-release` ||
+          serviceAccountEmail !==
+            `seori-${app}-release@seorilabs-ci.iam.gserviceaccount.com` ||
+          secretBindings.some(
+            ({ logicalCredentialId: credentialId, resource, versionResource, usages }) =>
+              !credentialId.startsWith(`app/${app}/`) ||
+              !resource.startsWith(
+                `projects/seorilabs-ci/secrets/${secretPrefix}`,
+              ) ||
+              !versionResource.startsWith(`${resource}/versions/`) ||
+              usages.length === 0,
+          )
+        );
+      },
+    )
+  ) {
+    fail("P3_ANDROID_EXECUTOR_PARTITION_INVALID");
+  }
+  if (
+    releaseExecutors.some(({ state }) => state !== "blocked_unverified")
+  ) {
+    fail("P3_ANDROID_RELEASE_GATE_INVALID");
+  }
+  const lizardRelease = releaseExecutors.find(
+    ({ fullName }) => fullName === "seorilabs/lizard-tycoon",
+  );
+  const lizardPasswordBinding = lizardRelease?.secretBindings.find(
+    ({ resource }) =>
+      resource ===
+      "projects/seorilabs-ci/secrets/lizard-play-keystore-password",
+  );
+  if (
+    lizardRelease?.secretBindings.length !== 2 ||
+    lizardPasswordBinding?.versionResource !==
+      "projects/seorilabs-ci/secrets/lizard-play-keystore-password/versions/1" ||
+    lizardPasswordBinding?.usages.join("\0") !==
+      ["KEYSTORE_PASSWORD", "KEY_PASSWORD"].join("\0")
+  ) {
+    fail("P3_ANDROID_RELEASE_CREDENTIAL_BINDING_INVALID");
+  }
+  const environmentBindings = contract.cloudBuild.githubActions.repositoryBindings;
+  if (
+    environmentBindings.length !== 4 ||
+    environmentBindings.some((binding) => {
+      const canary = canaryExecutors.find(
+        ({ repositoryId }) => repositoryId === binding.repositoryId,
+      );
+      return (
+        canary === undefined ||
+        binding.fullName !== canary.fullName ||
+        binding.logicalCredentialId !== canary.logicalCredentialId ||
+        binding.variables.GOOGLE_WORKLOAD_IDENTITY_PROVIDER !==
+          contract.cloudBuild.provider ||
+        binding.variables.SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT !==
+          contract.cloudBuild.submitter.serviceAccountEmail ||
+        binding.variables.SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT !==
+          canary.serviceAccountEmail
+      );
+    })
+  ) {
+    fail("P3_ANDROID_ENVIRONMENT_BINDING_INVALID");
+  }
   const secretManagerBindings = contract.authBroker.secretManager.resources.map(
     ({ secretId, logicalCredentialId, consumerRole, googleServiceAccount, resource, versionResource }) =>
       [secretId, logicalCredentialId, consumerRole, googleServiceAccount, resource, versionResource].join("\0"),
@@ -121,10 +227,7 @@ function validateSemantics(contract) {
   ) {
     fail("P2_AUTH_CANARY_CONTRACT_INVALID");
   }
-  for (const identity of [
-    contract.cloudBuild.submitter,
-    contract.cloudBuild.executor,
-  ]) {
+  for (const identity of [contract.cloudBuild.submitter]) {
     const bindings = identity.bindings.map(
       ({ resource, role }) => `${resource}\0${role}`,
     );
@@ -136,6 +239,15 @@ function validateSemantics(contract) {
     ) {
       fail("P3_CLOUD_BUILD_IAM_INVALID");
     }
+  }
+  const executionBindings = contract.cloudBuild.executionPolicy.baseBindings;
+  if (
+    !unique(executionBindings.map(({ resource, role }) => `${resource}\0${role}`)) ||
+    executionBindings.some(({ role }) =>
+      ["roles/owner", "roles/editor", "roles/viewer"].includes(role),
+    )
+  ) {
+    fail("P3_CLOUD_BUILD_IAM_INVALID");
   }
   if (
     !contract.cloudBuild.submitter.bindings.some(

@@ -41,7 +41,15 @@ function openReadback() {
     cloudBuildBindings: {
       workloadIdentityProvider: contract.cloudBuild.provider,
       submitterServiceAccount: contract.cloudBuild.submitter.serviceAccountEmail,
-      executorServiceAccount: contract.cloudBuild.executor.serviceAccountEmail,
+      repositoryBindings:
+        contract.cloudBuild.githubActions.repositoryBindings.map(
+          ({ fullName, repositoryId, variables }) => ({
+            fullName,
+            repositoryId,
+            executorServiceAccount:
+              variables.SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT,
+          }),
+        ),
     },
     publicRepositories: [],
   };
@@ -190,7 +198,7 @@ test("Cloud Build keyless binding이 비어 있으면 IAM을 만들지 않고 �
     workloadIdentityProvider:
       "projects/138773558853/locations/global/workloadIdentityPools/github-actions/providers/seorilabs-github",
     submitterServiceAccount: "",
-    executorServiceAccount: "",
+    repositoryBindings: [],
   };
   const gate = gateById(
     createFleetP7GateReport(readback, contract),
@@ -198,9 +206,12 @@ test("Cloud Build keyless binding이 비어 있으면 IAM을 만들지 않고 �
   );
   assert.equal(gate.state, "HUMAN_APPROVAL_REQUIRED");
   assert.equal(gate.code, "FLEET_CLOUD_BUILD_WIF_BINDING_UNVERIFIED");
-  assert.equal(gate.operation, "FLEET_P3_CLOUD_BUILD_WIF_ACTIVATION");
+  assert.equal(
+    gate.operation,
+    "FLEET_P3_PER_APP_ANDROID_EXECUTOR_ACTIVATION",
+  );
   assert.deepEqual(gate.detail.mismatched, [
-    "executorServiceAccount",
+    "repositoryBindings",
     "submitterServiceAccount",
     "workloadIdentityProvider",
   ]);

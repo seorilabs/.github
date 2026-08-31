@@ -217,7 +217,14 @@ function cloudBuildGate(contract, bindings) {
   const expected = {
     workloadIdentityProvider: desired.provider,
     submitterServiceAccount: desired.submitter.serviceAccountEmail,
-    executorServiceAccount: desired.executor.serviceAccountEmail,
+    repositoryBindings: desired.githubActions.repositoryBindings.map(
+      ({ fullName, repositoryId, variables }) => ({
+        fullName,
+        repositoryId,
+        executorServiceAccount:
+          variables.SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT,
+      }),
+    ),
   };
   if (bindings === undefined || bindings === null) {
     return {
@@ -228,7 +235,10 @@ function cloudBuildGate(contract, bindings) {
     };
   }
   const mismatched = Object.entries(expected)
-    .filter(([key, value]) => bindings[key] !== value)
+    .filter(
+      ([key, value]) =>
+        JSON.stringify(bindings[key]) !== JSON.stringify(value),
+    )
     .map(([key]) => key)
     .sort((left, right) => left.localeCompare(right));
   const open = mismatched.length === 0;
@@ -236,8 +246,8 @@ function cloudBuildGate(contract, bindings) {
     id: "CLOUD_BUILD_WIF_BINDING",
     state: open ? "OPEN" : "HUMAN_APPROVAL_REQUIRED",
     code: open ? null : "FLEET_CLOUD_BUILD_WIF_BINDING_UNVERIFIED",
-    operation: "FLEET_P3_CLOUD_BUILD_WIF_ACTIVATION",
-    requiredRole: "organization_owner",
+    operation: desired.approval.operation,
+    requiredRole: desired.approval.requiredRole,
     automaticRetry: false,
     detail: { expected, mismatched },
   };

@@ -178,6 +178,26 @@ github:
     requiredStatusCheck: Org Contract / Org Contract
 
 cloudBuild:
+  approval:
+    state: HUMAN_APPROVAL_REQUIRED
+    operation: FLEET_P3_PER_APP_ANDROID_EXECUTOR_ACTIVATION
+    requiredRole: gcp_security_admin
+    automaticRetry: false
+    supersededPlan:
+      state: SUPERSEDED_DO_NOT_APPLY
+      contractDigest: 8302531fff6496917951122b6a97a0c372902aa4309ab87afa8b8a4aa83bea48
+      confirmation: fleet-p3-8302531fff64
+      applyCount: 0
+      reason: SHARED_EXECUTOR_COULD_READ_MULTIPLE_APP_SECRETS
+    requiredReadback:
+      - required_services_enabled
+      - provider_condition_exact
+      - eight_executor_identities_exact
+      - submitter_impersonation_exact
+      - canary_secret_access_zero
+      - release_secret_access_exact
+      - repository_environment_variables_exact
+      - lizard_release_binding_exact
   projectId: seorilabs-ci
   projectNumber: "321365398093"
   region: asia-northeast3
@@ -201,25 +221,25 @@ cloudBuild:
     kubernetesIssuer: https://kubernetes.default.svc
     githubAudience: https://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
     organizationId: "283115031"
-    workflowBundleSourceSha: d1d672553ee57befab01675680597cedeb345496
-    workflowExecutionSha: d1d672553ee57befab01675680597cedeb345496
+    workflowBundleSourceSha: e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1
+    workflowExecutionSha: e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1
     repositories:
       - fullName: seorilabs/happy-farm
         repositoryId: "1250442131"
         workflow: .github/workflows/rn-build-android-cloud-v2.yml
-        sha256: 0fe59ea7652311be672dbd640192c3fbd712716f3d0016c5cb0448e56c886672
+        sha256: 20b971230510eb39f500c1c81ee655a744e3bf1c436c7cbff3b02e3d52b787c3
       - fullName: seorilabs/lizard-tycoon
         repositoryId: "1265192029"
         workflow: .github/workflows/godot-build-android-cloud-v2.yml
-        sha256: eefa668ce406788b003d7e32acfa5fecf215f90d5e66b80146f1896342eb78c7
+        sha256: 5b1da48888609c0a0cc045f0130556867f37577f7b49a309d4ed575dd8e6d99c
       - fullName: seorilabs/babycare
         repositoryId: "1298244321"
         workflow: .github/workflows/rn-build-android-cloud-v2.yml
-        sha256: 0fe59ea7652311be672dbd640192c3fbd712716f3d0016c5cb0448e56c886672
+        sha256: 20b971230510eb39f500c1c81ee655a744e3bf1c436c7cbff3b02e3d52b787c3
       - fullName: seorilabs/cycle-pair
         repositoryId: "1298264957"
         workflow: .github/workflows/rn-build-android-cloud-v2.yml
-        sha256: 0fe59ea7652311be672dbd640192c3fbd712716f3d0016c5cb0448e56c886672
+        sha256: 20b971230510eb39f500c1c81ee655a744e3bf1c436c7cbff3b02e3d52b787c3
   submitter:
     logicalCredentialId: shared/gcp/cloud-build/submitter
     serviceAccountEmail: seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com
@@ -234,12 +254,11 @@ cloudBuild:
         role: roles/storage.objectAdmin
       - resource: gs://seorilabs-ci-build-artifacts
         role: roles/storage.objectViewer
-      - resource: seori-cloud-build-executor@seorilabs-ci.iam.gserviceaccount.com
-        role: roles/iam.serviceAccountUser
-  executor:
-    logicalCredentialId: shared/gcp/cloud-build/executor
-    serviceAccountEmail: seori-cloud-build-executor@seorilabs-ci.iam.gserviceaccount.com
-    bindings:
+  executionPolicy:
+    submitterImpersonationRole: roles/iam.serviceAccountUser
+    cloudBuildServiceAgentRole: roles/iam.serviceAccountTokenCreator
+    releaseSecretRole: roles/secretmanager.secretAccessor
+    baseBindings:
       - resource: projects/seorilabs-ci
         role: roles/logging.logWriter
       - resource: gs://seorilabs-ci_cloudbuild
@@ -248,14 +267,178 @@ cloudBuild:
         role: roles/storage.objectAdmin
       - resource: projects/seorilabs-ci/locations/asia-northeast3/repositories/builders
         role: roles/artifactregistry.reader
+  executors:
+    - fullName: seorilabs/happy-farm
+      repositoryId: "1250442131"
+      target: ANDROID_CANARY_AAB
+      capability: ANDROID_CANARY_BUILD_ONLY
+      artifactClass: NON_PROMOTABLE_CANARY
+      buildProfile: react-native-android
+      logicalCredentialId: app/happy-farm/gcp/cloud-build-canary
+      serviceAccountEmail: seori-happy-farm-canary@seorilabs-ci.iam.gserviceaccount.com
+      state: blocked_unverified
+      secretBindings: []
+    - fullName: seorilabs/happy-farm
+      repositoryId: "1250442131"
+      target: ANDROID_PLAY_AAB
+      capability: ANDROID_PLAY_PROMOTABLE_SIGNED_BUILD
+      artifactClass: PLAY_PROMOTABLE_SIGNED
+      buildProfile: android-play-promotable-signed
+      logicalCredentialId: app/happy-farm/gcp/cloud-build-release
+      serviceAccountEmail: seori-happy-farm-release@seorilabs-ci.iam.gserviceaccount.com
+      state: blocked_unverified
+      secretBindings:
+        - logicalCredentialId: app/happy-farm/google-play/upload-key
+          resource: projects/seorilabs-ci/secrets/happy-farm-play-keystore
+          versionResource: projects/seorilabs-ci/secrets/happy-farm-play-keystore/versions/1
+          usages: [KEYSTORE_BYTES]
+        - logicalCredentialId: app/happy-farm/google-play/upload-key
+          resource: projects/seorilabs-ci/secrets/happy-farm-play-keystore-password
+          versionResource: projects/seorilabs-ci/secrets/happy-farm-play-keystore-password/versions/2
+          usages: [KEYSTORE_PASSWORD]
+        - logicalCredentialId: app/happy-farm/google-play/upload-key
+          resource: projects/seorilabs-ci/secrets/happy-farm-play-key-password
+          versionResource: projects/seorilabs-ci/secrets/happy-farm-play-key-password/versions/2
+          usages: [KEY_PASSWORD]
+        - logicalCredentialId: app/happy-farm/firebase/android-runtime
+          resource: projects/seorilabs-ci/secrets/happy-farm-firebase-google-services
+          versionResource: projects/seorilabs-ci/secrets/happy-farm-firebase-google-services/versions/1
+          usages: [FIREBASE_ANDROID_CONFIG]
+    - fullName: seorilabs/lizard-tycoon
+      repositoryId: "1265192029"
+      target: ANDROID_CANARY_AAB
+      capability: ANDROID_CANARY_BUILD_ONLY
+      artifactClass: NON_PROMOTABLE_CANARY
+      buildProfile: godot-android
+      logicalCredentialId: app/lizard-tycoon/gcp/cloud-build-canary
+      serviceAccountEmail: seori-lizard-tycoon-canary@seorilabs-ci.iam.gserviceaccount.com
+      state: blocked_unverified
+      secretBindings: []
+    - fullName: seorilabs/lizard-tycoon
+      repositoryId: "1265192029"
+      target: ANDROID_PLAY_AAB
+      capability: ANDROID_PLAY_PROMOTABLE_SIGNED_BUILD
+      artifactClass: PLAY_PROMOTABLE_SIGNED
+      buildProfile: android-play-promotable-signed
+      logicalCredentialId: app/lizard-tycoon/gcp/cloud-build-release
+      serviceAccountEmail: seori-lizard-tycoon-release@seorilabs-ci.iam.gserviceaccount.com
+      state: blocked_unverified
+      secretBindings:
+        - logicalCredentialId: app/lizard-tycoon/google-play/upload-key
+          resource: projects/seorilabs-ci/secrets/lizard-play-keystore
+          versionResource: projects/seorilabs-ci/secrets/lizard-play-keystore/versions/1
+          usages: [KEYSTORE_BYTES]
+        - logicalCredentialId: app/lizard-tycoon/google-play/upload-key
+          resource: projects/seorilabs-ci/secrets/lizard-play-keystore-password
+          versionResource: projects/seorilabs-ci/secrets/lizard-play-keystore-password/versions/1
+          usages: [KEYSTORE_PASSWORD, KEY_PASSWORD]
+    - fullName: seorilabs/babycare
+      repositoryId: "1298244321"
+      target: ANDROID_CANARY_AAB
+      capability: ANDROID_CANARY_BUILD_ONLY
+      artifactClass: NON_PROMOTABLE_CANARY
+      buildProfile: react-native-android
+      logicalCredentialId: app/babycare/gcp/cloud-build-canary
+      serviceAccountEmail: seori-babycare-canary@seorilabs-ci.iam.gserviceaccount.com
+      state: blocked_unverified
+      secretBindings: []
+    - fullName: seorilabs/babycare
+      repositoryId: "1298244321"
+      target: ANDROID_PLAY_AAB
+      capability: ANDROID_PLAY_PROMOTABLE_SIGNED_BUILD
+      artifactClass: PLAY_PROMOTABLE_SIGNED
+      buildProfile: android-play-promotable-signed
+      logicalCredentialId: app/babycare/gcp/cloud-build-release
+      serviceAccountEmail: seori-babycare-release@seorilabs-ci.iam.gserviceaccount.com
+      state: blocked_unverified
+      secretBindings:
+        - logicalCredentialId: app/babycare/google-play/upload-key
+          resource: projects/seorilabs-ci/secrets/babycare-play-keystore
+          versionResource: projects/seorilabs-ci/secrets/babycare-play-keystore/versions/1
+          usages: [KEYSTORE_BYTES]
+        - logicalCredentialId: app/babycare/google-play/upload-key
+          resource: projects/seorilabs-ci/secrets/babycare-play-keystore-password
+          versionResource: projects/seorilabs-ci/secrets/babycare-play-keystore-password/versions/1
+          usages: [KEYSTORE_PASSWORD]
+        - logicalCredentialId: app/babycare/google-play/upload-key
+          resource: projects/seorilabs-ci/secrets/babycare-play-key-password
+          versionResource: projects/seorilabs-ci/secrets/babycare-play-key-password/versions/1
+          usages: [KEY_PASSWORD]
+        - logicalCredentialId: app/babycare/firebase/android-runtime
+          resource: projects/seorilabs-ci/secrets/babycare-firebase-google-services
+          versionResource: projects/seorilabs-ci/secrets/babycare-firebase-google-services/versions/1
+          usages: [FIREBASE_ANDROID_CONFIG]
+    - fullName: seorilabs/cycle-pair
+      repositoryId: "1298264957"
+      target: ANDROID_CANARY_AAB
+      capability: ANDROID_CANARY_BUILD_ONLY
+      artifactClass: NON_PROMOTABLE_CANARY
+      buildProfile: react-native-android
+      logicalCredentialId: app/cycle-pair/gcp/cloud-build-canary
+      serviceAccountEmail: seori-cycle-pair-canary@seorilabs-ci.iam.gserviceaccount.com
+      state: blocked_unverified
+      secretBindings: []
+    - fullName: seorilabs/cycle-pair
+      repositoryId: "1298264957"
+      target: ANDROID_PLAY_AAB
+      capability: ANDROID_PLAY_PROMOTABLE_SIGNED_BUILD
+      artifactClass: PLAY_PROMOTABLE_SIGNED
+      buildProfile: android-play-promotable-signed
+      logicalCredentialId: app/cycle-pair/gcp/cloud-build-release
+      serviceAccountEmail: seori-cycle-pair-release@seorilabs-ci.iam.gserviceaccount.com
+      state: blocked_unverified
+      secretBindings:
+        - logicalCredentialId: app/cycle-pair/google-play/upload-key
+          resource: projects/seorilabs-ci/secrets/cycle-pair-play-keystore
+          versionResource: projects/seorilabs-ci/secrets/cycle-pair-play-keystore/versions/1
+          usages: [KEYSTORE_BYTES]
+        - logicalCredentialId: app/cycle-pair/google-play/upload-key
+          resource: projects/seorilabs-ci/secrets/cycle-pair-play-keystore-password
+          versionResource: projects/seorilabs-ci/secrets/cycle-pair-play-keystore-password/versions/1
+          usages: [KEYSTORE_PASSWORD]
+        - logicalCredentialId: app/cycle-pair/google-play/upload-key
+          resource: projects/seorilabs-ci/secrets/cycle-pair-play-key-password
+          versionResource: projects/seorilabs-ci/secrets/cycle-pair-play-key-password/versions/1
+          usages: [KEY_PASSWORD]
+        - logicalCredentialId: app/cycle-pair/firebase/android-runtime
+          resource: projects/seorilabs-ci/secrets/cycle-pair-firebase-google-services
+          versionResource: projects/seorilabs-ci/secrets/cycle-pair-firebase-google-services/versions/1
+          usages: [FIREBASE_ANDROID_CONFIG]
   githubActions:
-    bindingRevision: 1
     environment: internal
-    logicalCredentialId: shared/gcp/cloud-build
-    variables:
-      GOOGLE_WORKLOAD_IDENTITY_PROVIDER: projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
-      SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT: seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com
-      SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT: seori-cloud-build-executor@seorilabs-ci.iam.gserviceaccount.com
+    repositoryBindings:
+      - fullName: seorilabs/happy-farm
+        repositoryId: "1250442131"
+        bindingRevision: 2
+        logicalCredentialId: app/happy-farm/gcp/cloud-build-canary
+        variables:
+          GOOGLE_WORKLOAD_IDENTITY_PROVIDER: projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
+          SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT: seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com
+          SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT: seori-happy-farm-canary@seorilabs-ci.iam.gserviceaccount.com
+      - fullName: seorilabs/lizard-tycoon
+        repositoryId: "1265192029"
+        bindingRevision: 2
+        logicalCredentialId: app/lizard-tycoon/gcp/cloud-build-canary
+        variables:
+          GOOGLE_WORKLOAD_IDENTITY_PROVIDER: projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
+          SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT: seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com
+          SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT: seori-lizard-tycoon-canary@seorilabs-ci.iam.gserviceaccount.com
+      - fullName: seorilabs/babycare
+        repositoryId: "1298244321"
+        bindingRevision: 2
+        logicalCredentialId: app/babycare/gcp/cloud-build-canary
+        variables:
+          GOOGLE_WORKLOAD_IDENTITY_PROVIDER: projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
+          SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT: seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com
+          SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT: seori-babycare-canary@seorilabs-ci.iam.gserviceaccount.com
+      - fullName: seorilabs/cycle-pair
+        repositoryId: "1298264957"
+        bindingRevision: 2
+        logicalCredentialId: app/cycle-pair/gcp/cloud-build-canary
+        variables:
+          GOOGLE_WORKLOAD_IDENTITY_PROVIDER: projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
+          SEORI_CLOUD_BUILD_SUBMITTER_SERVICE_ACCOUNT: seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com
+          SEORI_CLOUD_BUILD_EXECUTOR_SERVICE_ACCOUNT: seori-cycle-pair-canary@seorilabs-ci.iam.gserviceaccount.com
 
 authBroker:
   namespace: auth-broker
