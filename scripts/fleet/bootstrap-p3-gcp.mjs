@@ -106,7 +106,7 @@ if (mode === "rollback" && confirmation !== expectedRollback) {
   fail("P3_GCP_ROLLBACK_CONFIRMATION_REQUIRED");
 }
 
-function run(executable, args, code) {
+function run(executable, args, code, { allowNotFound = false } = {}) {
   try {
     return execFileSync(executable, args, {
       encoding: "utf8",
@@ -114,16 +114,23 @@ function run(executable, args, code) {
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
   } catch (error) {
-    const diagnostic = `${error?.stdout ?? ""}\n${error?.stderr ?? ""}`;
-    if (/not found|NOT_FOUND|does not exist|was not found/iu.test(diagnostic)) {
+    const diagnostic = String(error?.stderr ?? "").trim();
+    const primaryError = diagnostic.split(/\r?\n/u)
+      .find((line) => line.startsWith("ERROR: ")) ?? diagnostic;
+    // Permission errors can mention missing resources; only trust the status.
+    if (
+      allowNotFound &&
+      error?.status === 1 &&
+      /^(?:ERROR: \(gcloud\.[^)\r\n]+\) )?NOT_FOUND(?::|$)/u.test(primaryError)
+    ) {
       return null;
     }
     fail(code);
   }
 }
 
-function gcloudRun(args, code) {
-  return run(gcloud, ["--quiet", ...args], code);
+function gcloudRun(args, code, options) {
+  return run(gcloud, ["--quiet", ...args], code, options);
 }
 
 function localSourcePreflight() {
@@ -386,7 +393,7 @@ function enabledServices() {
     ],
     "P3_GCP_REQUIRED_SERVICES_READ_FAILED",
   );
-  return new Set((raw ?? "").split(/\r?\n/u).filter(Boolean));
+  return new Set(raw.split(/\r?\n/u).filter(Boolean));
 }
 
 function requiredServiceState() {
@@ -426,6 +433,7 @@ function ensureServiceAccounts() {
         "--format=value(email)",
       ],
       "P3_GCP_SERVICE_ACCOUNT_READ_FAILED",
+      { allowNotFound: true },
     );
     if (existing === null) {
       gcloudRun(
@@ -458,6 +466,7 @@ function poolRead() {
       "--format=json(name,displayName,description,disabled,state)",
     ],
     "P3_GCP_WIF_POOL_READ_FAILED",
+    { allowNotFound: true },
   );
   return raw === null
     ? null
@@ -518,6 +527,7 @@ function providerRead(provider) {
       "--format=json(attributeCondition,attributeMapping,disabled,oidc.allowedAudiences,oidc.issuerUri)",
     ],
     "P3_GCP_WIF_PROVIDER_READ_FAILED",
+    { allowNotFound: true },
   );
   return raw === null
     ? null
@@ -839,16 +849,18 @@ function applyBindings() {
 }
 
 function readPolicy(item) {
+  // json(bindings) projects a valid policy without bindings to JSON null.
   if (item.resourceType === "project") {
     return gcloudRun(
-      ["projects", "get-iam-policy", cloud.projectId, "--format=json(bindings)"],
+      ["projects", "get-iam-policy", cloud.projectId, "--format=json"],
       "P3_GCP_PROJECT_IAM_READ_FAILED",
     );
   }
   if (item.resourceType === "bucket") {
     return gcloudRun(
-      ["storage", "buckets", "get-iam-policy", item.resource, "--format=json(bindings)"],
+      ["storage", "buckets", "get-iam-policy", item.resource, "--format=json"],
       "P3_GCP_BUCKET_IAM_READ_FAILED",
+      { allowNotFound: true },
     );
   }
   if (item.resourceType === "serviceAccount") {
@@ -859,9 +871,10 @@ function readPolicy(item) {
         "get-iam-policy",
         item.resource,
         `--project=${cloud.projectId}`,
-        "--format=json(bindings)",
+        "--format=json",
       ],
       "P3_GCP_SERVICE_ACCOUNT_IAM_READ_FAILED",
+      { allowNotFound: true },
     );
   }
   if (item.resourceType === "secret") {
@@ -871,9 +884,10 @@ function readPolicy(item) {
         "get-iam-policy",
         item.resource.split("/").at(-1),
         `--project=${cloud.projectId}`,
-        "--format=json(bindings)",
+        "--format=json",
       ],
       "P3_GCP_SECRET_IAM_READ_FAILED",
+      { allowNotFound: true },
     );
   }
   const segments = item.resource.split("/");
@@ -885,9 +899,10 @@ function readPolicy(item) {
       segments.at(-1),
       `--project=${cloud.projectId}`,
       `--location=${segments[3]}`,
-      "--format=json(bindings)",
+      "--format=json",
     ],
     "P3_GCP_ARTIFACT_IAM_READ_FAILED",
+    { allowNotFound: true },
   );
 }
 
@@ -895,6 +910,14 @@ function bindingPresent(item) {
   const raw = readPolicy(item);
   if (raw === null) return false;
   const policy = parsePublicJson(raw, "P3_GCP_IAM_RESPONSE_INVALID");
+  if (
+    policy === null ||
+    typeof policy !== "object" ||
+    Array.isArray(policy) ||
+    (policy.bindings !== undefined && !Array.isArray(policy.bindings))
+  ) {
+    fail("P3_GCP_IAM_RESPONSE_INVALID");
+  }
   return (policy.bindings ?? []).some(
     ({ role, members, condition }) =>
       role === item.role &&
@@ -917,6 +940,7 @@ function readback() {
         "--format=json(email,disabled)",
       ],
       "P3_GCP_SERVICE_ACCOUNT_READ_FAILED",
+      { allowNotFound: true },
     );
     return raw === null
       ? { email: account.email, exists: false }

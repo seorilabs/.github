@@ -54,6 +54,19 @@ function parsePublicJson(raw, code) {
   }
 }
 
+function parseIamPolicy(raw, code) {
+  const policy = parsePublicJson(raw, code);
+  if (
+    policy === null ||
+    typeof policy !== "object" ||
+    Array.isArray(policy) ||
+    (policy.bindings !== undefined && !Array.isArray(policy.bindings))
+  ) {
+    fail(code);
+  }
+  return policy;
+}
+
 let contract;
 try {
   contract = parse(readFileSync(contractPath, "utf8"));
@@ -97,7 +110,7 @@ function validateGcloudExecutable() {
   }
 }
 
-function gcloudRun(args, code) {
+function gcloudRun(args, code, { allowNotFound = false } = {}) {
   try {
     return execFileSync(gcloud, ["--quiet", ...args], {
       encoding: "utf8",
@@ -105,8 +118,15 @@ function gcloudRun(args, code) {
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
   } catch (error) {
-    const diagnostic = `${error?.stdout ?? ""}\n${error?.stderr ?? ""}`;
-    if (/not found|NOT_FOUND|does not exist|was not found/iu.test(diagnostic)) {
+    const diagnostic = String(error?.stderr ?? "").trim();
+    const primaryError = diagnostic.split(/\r?\n/u)
+      .find((line) => line.startsWith("ERROR: ")) ?? diagnostic;
+    // Permission errors can mention missing resources; only trust the status.
+    if (
+      allowNotFound &&
+      error?.status === 1 &&
+      /^(?:ERROR: \(gcloud\.[^)\r\n]+\) )?NOT_FOUND(?::|$)/u.test(primaryError)
+    ) {
       return null;
     }
     fail(code);
@@ -162,6 +182,7 @@ function providerRead(provider) {
       "--format=json(attributeCondition,attributeMapping,disabled,oidc.allowedAudiences,oidc.issuerUri)",
     ],
     "P3_SECRET_MANAGER_WIF_PROVIDER_READ_FAILED",
+    { allowNotFound: true },
   );
   return raw === null
     ? null
@@ -222,6 +243,7 @@ function secretRead(resource) {
       "--format=json(name)",
     ],
     "P3_SECRET_MANAGER_RESOURCE_READ_FAILED",
+    { allowNotFound: true },
   );
   const versionsRaw = raw === null
     ? null
@@ -259,19 +281,21 @@ function secretRead(resource) {
 }
 
 function policyRead(resource) {
+  // Keep metadata so an empty policy remains an object, not JSON null.
   const raw = gcloudRun(
     [
       "secrets",
       "get-iam-policy",
       resource.secretId,
       `--project=${manager.projectId}`,
-      "--format=json(bindings)",
+      "--format=json",
     ],
     "P3_SECRET_MANAGER_IAM_READ_FAILED",
+    { allowNotFound: true },
   );
   return raw === null
     ? { bindings: [] }
-    : parsePublicJson(raw, "P3_SECRET_MANAGER_IAM_RESPONSE_INVALID");
+    : parseIamPolicy(raw, "P3_SECRET_MANAGER_IAM_RESPONSE_INVALID");
 }
 
 function member(resource) {
@@ -299,12 +323,11 @@ function projectPolicyRead() {
       "projects",
       "get-iam-policy",
       manager.projectId,
-      "--format=json(bindings)",
+      "--format=json",
     ],
     "P3_SECRET_MANAGER_PROJECT_IAM_READ_FAILED",
   );
-  if (raw === null) fail("P3_SECRET_MANAGER_PROJECT_IAM_READ_FAILED");
-  return parsePublicJson(
+  return parseIamPolicy(
     raw,
     "P3_SECRET_MANAGER_PROJECT_IAM_RESPONSE_INVALID",
   );

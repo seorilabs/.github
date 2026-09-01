@@ -23,7 +23,7 @@ function output(value) {
 }
 
 function notFound() {
-  process.stderr.write("NOT_FOUND\n");
+  process.stderr.write(state.notFoundDiagnostic ?? "NOT_FOUND\n");
   process.exit(1);
 }
 
@@ -99,8 +99,21 @@ function policyFor(target) {
     roles.set(item.role, members);
   }
   return {
-    bindings: [...roles.entries()].map(([role, members]) => ({ role, members })),
+    etag: "mock-policy-etag",
+    version: 1,
+    ...(roles.size === 0 ? {} : {
+      bindings: [...roles.entries()].map(([role, members]) => ({ role, members })),
+    }),
   };
+}
+
+const commandFailure = state.commandFailures?.find(({ prefix }) =>
+  prefix.every((argument, index) => args[index] === argument),
+);
+if (commandFailure) {
+  process.stdout.write(commandFailure.stdout ?? "");
+  process.stderr.write(commandFailure.stderr ?? "");
+  process.exit(1);
 }
 
 if (args[0] === "projects" && args[1] === "describe") {
@@ -263,7 +276,10 @@ if (
   const target = bindingTarget();
   const verb = bindingVerb();
   if (verb === "get-iam-policy") {
-    output(policyFor(target));
+    const policy = policyFor(target);
+    output(args.includes("--format=json(bindings)")
+      ? (policy.bindings === undefined ? null : { bindings: policy.bindings })
+      : policy);
     process.exit(0);
   }
   const item = {
