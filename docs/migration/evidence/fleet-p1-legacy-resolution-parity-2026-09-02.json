@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "scope": "FLEET_P1_LEGACY_CONFIG_RESOLUTION_AND_FULL_PARITY",
+  "observedAt": "2026-09-01T17:00:58Z",
+  "backoffice": {
+    "sourceSha": "99fa5aabef593cf1b01430f5f67eb4f4f34aacb5",
+    "image": "registry.vzyx.xyz/seorilabs/seorilabs-backoffice@sha256:6e98ad07e099f8607dec1b42933d8bbb8f9165df1a3b76e159629d32093ee1d8"
+  },
+  "automaticResolutions": {
+    "policy": "NO_LEGACY_DESIRED_STATE_ONLY",
+    "approvalKind": "AUTOMATION",
+    "mutationPath": "POST /api/control-plane/legacy-config-resolutions",
+    "secretValuesReturned": false,
+    "count": 5,
+    "apps": [
+      {
+        "repository": "seorilabs/animal-chess",
+        "resolutionId": "cmtiwvvht5j3frn010r26vm47",
+        "revision": 2
+      },
+      {
+        "repository": "seorilabs/immunity-war",
+        "resolutionId": "cmtiwvvj75j3irn01b07bago5",
+        "revision": 2
+      },
+      {
+        "repository": "seorilabs/keeum",
+        "resolutionId": "cmtiwvvl75j3lrn018p714zi8",
+        "revision": 1
+      },
+      {
+        "repository": "seorilabs/merge-battle",
+        "resolutionId": "cmtiwvvme5j3orn01gvgkgudt",
+        "revision": 2
+      },
+      {
+        "repository": "seorilabs/minimax-defense",
+        "resolutionId": "cmtiwvvos5j3rrn01z3kfpma0",
+        "revision": 2
+      }
+    ]
+  },
+  "fullParity": {
+    "waveId": "cmtiwwiov0000kt01wsfl4oss",
+    "jobName": "backoffice-fleet-parity-99fa5aabef59-r2-20260902",
+    "jobUid": "1aad0a3d-0601-4ae8-8bfc-31d8d385f6ff",
+    "podName": "backoffice-fleet-parity-99fa5aabef59-r2-20260902-zq8rv",
+    "podUid": "ce434c69-d692-4be1-9acc-01329aa746fd",
+    "node": "rpi5",
+    "restartCount": 0,
+    "exitCode": 1,
+    "status": "BLOCKED",
+    "scope": "FULL",
+    "contractVersion": "legacy-config-v1",
+    "cohortDigest": "defd1705123492e1b9513f143131a527966a3c91437960c274d2639a784e9938",
+    "vectorDigest": "4045bab586935b6951245bd5756ad541d365f5cb2ec6754bf042e85f7a2e7dd5",
+    "evidenceDigest": "3196f607699dde6164c768c79294c0f13e864d96e7ae78a3d7794171cb8ad041",
+    "resultCount": 22,
+    "matchCount": 5,
+    "consecutiveMatchCount": 0,
+    "cleanupAllowed": false,
+    "reasonCodes": [
+      "TRANSFORM_NEEDS_INPUT"
+    ]
+  },
+  "previousFullParity": {
+    "waveId": "cmtiwm8w10000f401a28fyvbq",
+    "matchCount": 0,
+    "resultCount": 22,
+    "preserved": true,
+    "recreated": false
+  },
+  "remainingHumanGate": {
+    "count": 17,
+    "approvalKind": "HUMAN",
+    "surface": "/settings",
+    "reasonCounts": {
+      "FREE_TEXT_REQUIRES_INPUT": 16,
+      "LEGAL_COMPLIANCE_AMBIGUITY": 16,
+      "LOCALIZATION_LOCALE_MISSING": 1,
+      "PROVIDER_STATE_AMBIGUITY": 16,
+      "SECRET_LIKE_KEY": 3,
+      "UNSUPPORTED_FIELD": 17
+    },
+    "reasonFamilies": [
+      "FREE_TEXT_REQUIRES_INPUT",
+      "LEGAL_COMPLIANCE_AMBIGUITY",
+      "LOCALIZATION_LOCALE_MISSING",
+      "PROVIDER_STATE_AMBIGUITY",
+      "SECRET_LIKE_KEY",
+      "UNSUPPORTED_FIELD"
+    ]
+  },
+  "excluded": [
+    "HUMAN_LEGAL_OR_COMPLIANCE_APPROVAL",
+    "PROVIDER_STATE_ASSUMPTION",
+    "LEGACY_CONSUMER_DELETION",
+    "RULESET_ACTIVE_TRANSITION",
+    "MARKET_UPLOAD",
+    "REVIEW_SUBMISSION",
+    "PUBLIC_APP_RELEASE"
+  ]
+}
