@@ -16,4 +16,5 @@ steps:
         echo "--- 검증 통과"
 timeout: 300s
 options:
+  machineType: E2_STANDARD_2
   logging: CLOUD_LOGGING_ONLY

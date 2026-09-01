@@ -1,5 +1,11 @@
 # Fleet P2 GHCR와 non-secret canary gate
 
+> 2026-09-02 KST 갱신: 조직 owner 승인으로 `seori-auth`만 public 전환했다.
+> 조직의 Public package creation 설정은 변경 직후 원복했다. 승인 image와 최신 image의
+> anonymous 전체 다운로드·digest 대조는 성공했고, RPI5의 첫 canary는 `EROFS`로 실패했다.
+> 아래 private/미실행 기록은 2026-08-29 기준선이며 현재 blocker가 아니다.
+> [공개 전환과 실행 결과](evidence/fleet-p2-public-image-2026-09-02.json)를 따른다.
+
 기준 source는 `seorilabs/.github@3412423c7bd649e0714e5af1cc09ff4d2511f758`다. 이 문서는
 2026-08-29 KST의 secret-free readback과 다음 배포 계약을 기록한다. credential 값, Kubernetes
 Secret data, Secret Manager payload는 조회하지 않았다.

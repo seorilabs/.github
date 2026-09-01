@@ -65,6 +65,14 @@ jobs:
           --tmpfs /var/lib/seori-auth:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532
           "${IMAGE}:${GITHUB_SHA}-canary"
 
+      - name: Run Kubernetes volume ownership canary
+        run: >-
+          docker run --rm --network none --read-only --cap-drop ALL
+          --security-opt no-new-privileges
+          --tmpfs /run/seori-auth:rw,noexec,nosuid,nodev,mode=2777,uid=0,gid=65532
+          --tmpfs /var/lib/seori-auth:rw,noexec,nosuid,nodev,mode=2777,uid=0,gid=65532
+          "${IMAGE}:${GITHUB_SHA}-canary"
+
       - name: Publish immutable ARM64 image with provenance
         id: publish
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
@@ -92,8 +100,8 @@ jobs:
           fi
           docker run --rm --network none --read-only --cap-drop ALL \
             --security-opt no-new-privileges \
-            --tmpfs /run/seori-auth:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532 \
-            --tmpfs /var/lib/seori-auth:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532 \
+            --tmpfs /run/seori-auth:rw,noexec,nosuid,nodev,mode=2777,uid=0,gid=65532 \
+            --tmpfs /var/lib/seori-auth:rw,noexec,nosuid,nodev,mode=2777,uid=0,gid=65532 \
             "${IMAGE}@${IMAGE_DIGEST}"
           printf 'image=%s@%s\nsource_sha=%s\n' \
             "$IMAGE" "$IMAGE_DIGEST" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

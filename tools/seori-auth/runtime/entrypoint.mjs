@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 import { createHash, randomBytes } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { withCanaryDirectories } from './canary-directories.mjs';
 
 import {
   DurableAuthState,
@@ -920,43 +920,10 @@ async function canaryBrowserLogin() {
 }
 
 async function canaryBrowserBoundaries(nativeBoundary) {
-  const suffix = randomBytes(8).toString('hex');
-  let useProductionRoots = false;
-  if (process.platform === 'linux') {
-    try {
-      const [runtime, vault] = await Promise.all([
-        lstat('/run/seori-auth'),
-        lstat('/var/lib/seori-auth'),
-      ]);
-      useProductionRoots = [runtime, vault].every((entry) =>
-        entry.isDirectory() && !entry.isSymbolicLink() && entry.uid === process.getuid?.() && (entry.mode & 0o077) === 0,
-      );
-    } catch {
-      useProductionRoots = false;
-    }
-  }
-  const localRoot = useProductionRoots
-    ? undefined
-    : await mkdtemp(join(tmpdir(), 'seori-auth-runtime-canary-'));
-  const paths = useProductionRoots
-    ? {
-        runtimeRoot: join('/run/seori-auth', `canary-${suffix}`),
-        vaultRoot: join('/var/lib/seori-auth', `canary-${suffix}`),
-      }
-    : {
-        runtimeRoot: join(localRoot, 'runtime'),
-        vaultRoot: join(localRoot, 'vault'),
-      };
-  try {
-    await mkdir(paths.runtimeRoot, { recursive: true, mode: 0o700 });
-    await mkdir(paths.vaultRoot, { recursive: true, mode: 0o700 });
+  await withCanaryDirectories(async (paths) => {
     await canaryBrowserVault(nativeBoundary, paths);
     await canaryBrowserLogin();
-  } finally {
-    await rm(paths.runtimeRoot, { recursive: true, force: true }).catch(() => {});
-    await rm(paths.vaultRoot, { recursive: true, force: true }).catch(() => {});
-    if (localRoot) await rm(localRoot, { recursive: true, force: true }).catch(() => {});
-  }
+  });
 }
 
 try {

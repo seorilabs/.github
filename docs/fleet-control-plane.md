@@ -437,10 +437,12 @@ authoritative issuer activation에는 아래 canonical logical credential이 아
 - `shared/platform/fleet-migration-inventory-issuer-client-mtls`
 - `shared/github/backoffice-app`
 
-Auth Broker exact image package는 존재하지만 GHCR visibility가 `private`이고
-`shared/github/packages-reader`도 등록되지 않았다. 공개 패키지 전환 또는 조직 machine-user의
-`read:packages` identity 중 하나를 조직 owner가 선택하고 공개 readback하기 전에는 workload를
-적용하지 않는다.
+2026-09-02 KST, 조직 owner 승인으로 Auth Broker package를 public 전환했다. 조직의
+Public package creation 설정은 즉시 원복했고, 승인 image와 최신 image를 개인 자격증명 없이
+전체 다운로드해 digest를 검증했다. registry의 정본은 `PUBLIC`/`verified_public`이며 별도
+packages reader나 pull Secret은 만들지 않는다. RPI5의 첫 non-secret canary는 image pull 뒤
+`EROFS`로 실패했다. 실패한 Job을 재생성하지 않았고 production broker는 활성화하지 않았다.
+자세한 범위와 다음 수정은 [공개 전환 기록](migration/evidence/fleet-p2-public-image-2026-09-02.json)을 본다.
 
 ## 승계 baseline revision
 

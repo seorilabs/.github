@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "scope": "SEORI_AUTH_PUBLIC_PACKAGE_AND_NONSECRET_CANARY",
+  "executionSourceSha": "6e4e48825c6bb5f3e0ab6fdddc50c4ce5f992d95",
+  "package": "ghcr.io/seorilabs/seori-auth",
+  "packageUrl": "https://github.com/orgs/seorilabs/packages/container/package/seori-auth",
+  "visibility": "public",
+  "ownerApproval": "EXPLICIT_PACKAGE_PUBLICATION_REQUEST",
+  "organizationPolicy": {
+    "publicPackageCreationBefore": false,
+    "publicPackageCreationAfter": false,
+    "internalPackageCreationBefore": false,
+    "internalPackageCreationAfter": false,
+    "inheritedAccessBefore": true,
+    "inheritedAccessAfter": true,
+    "temporaryPublicCreationAllowanceRestored": true,
+    "otherPackageVisibilityMutations": 0
+  },
+  "prepublicationAudit": {
+    "completedAt": "2026-09-01T15:49:32.058Z",
+    "versions": 96,
+    "taggedVersions": 32,
+    "manifests": 96,
+    "uniqueBlobs": 186,
+    "files": 8341,
+    "bytesDownloaded": 169897559,
+    "versionSetDigest": "sha256:d5bbca60785434fc216ceac87984d8c221150ef1bd219901afcad0ca566e8e5d",
+    "unchangedVersionSetReadbackAt": "2026-09-01T16:05:48.715Z",
+    "privateKeyHeaderFindings": 5,
+    "findingsMatchedOfficialPublicBase": 5,
+    "baseComparisonCompletedAt": "2026-09-01T15:54:32.218Z",
+    "officialPublicBase": "docker.io/library/node@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203",
+    "matchingPublicLayers": [
+      "sha256:402614bd39aaec1e4bdcf25aa67f88588fc8d93997a2551c4e130e6ed2b06c7a",
+      "sha256:e4b6cb3d20342d8c25325fdb3ab84a9fa1bd1d4d691a572daa10a18a3a14aaf8"
+    ],
+    "classification": "Five files containing private-key headers match the already-public official Node base layers; four are npm examples and one is libgnutls binary content. This classification does not assert that the binary lacks encoded key material.",
+    "activeOperatorOrRegistryCredentialFindings": 0,
+    "privateCredentialStatePathFindings": 0
+  },
+  "anonymousPull": {
+    "state": "ANONYMOUS_PULL_VERIFIED",
+    "observedAt": "2026-09-01T16:08:44.636Z",
+    "images": [
+      "sha256:0691542ca7de05339e258b9a767f44360e45a7207a1b6fab41c06f2cc9db04de",
+      "sha256:0aba91e846ba6bda73cc4491c11c3e13c1139a43d6180e182919a5a389d46922"
+    ],
+    "manifests": 6,
+    "blobs": 26,
+    "bytesVerified": 86502730,
+    "userCredentialsUsed": false,
+    "allDigestsExact": true
+  },
+  "kubernetesCanary": {
+    "context": "vzyx-cluster",
+    "namespace": "auth-broker",
+    "node": "rpi5",
+    "jobName": "seori-auth-nonsecret-canary-8f50712ff9ea8207",
+    "jobUid": "a0156ba8-5a75-4cc2-b125-521a242b6072",
+    "podName": "seori-auth-nonsecret-canary-8f50712ff9ea8207-znwnx",
+    "idempotencyKey": "8f50712ff9ea8207b33eee8bc654b1de97243725f30dfe9f05d3e7daa7d11f36",
+    "imageDigest": "sha256:0691542ca7de05339e258b9a767f44360e45a7207a1b6fab41c06f2cc9db04de",
+    "imagePull": "SUCCEEDED",
+    "startedAt": "2026-09-01T16:09:45Z",
+    "finishedAt": "2026-09-01T16:09:46Z",
+    "state": "FAILED",
+    "exitCode": 1,
+    "errorCode": "EROFS",
+    "rawLogExposed": false,
+    "logBytes": 34,
+    "logSha256": "c1d7aa45f9b31eaede687a4c6703bcb2d85cd21f994d1a50472c97a596494b10",
+    "restartCount": 0,
+    "failedJobPreserved": true,
+    "recreated": false,
+    "productionBrokerActivated": false,
+    "nextAction": "Make canary private directories work with Kubernetes emptyDir ownership while retaining read-only root, non-root execution and private directory permissions; verify a new immutable revision without recreating this failed occurrence."
+  },
+  "focusedTests": {
+    "passed": 35,
+    "failed": 0,
+    "files": [
+      "tests/fleet-p3-runtime.test.mjs",
+      "tools/seori-auth/test/k8s-nonsecret-canary-render.test.mjs",
+      "tools/seori-auth/test/k8s-nonsecret-canary-executor.test.mjs"
+    ],
+    "packageCheck": "PASSED"
+  },
+  "excluded": [
+    "PRODUCTION_BROKER_ACTIVATION",
+    "SECRET_MANAGER_PAYLOADS",
+    "REAL_PROVIDER_LOGIN",
+    "REVIEW_SUBMISSION",
+    "PUBLIC_APP_RELEASE"
+  ]
+}
