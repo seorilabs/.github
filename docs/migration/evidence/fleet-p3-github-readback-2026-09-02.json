@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "scope": "FLEET_P3_GITHUB_APP_PERMISSION_AND_BOOTSTRAP_READBACK",
+  "observedAt": "2026-09-01T16:46:44Z",
+  "sourceSha": "6b3789072f7da6e3040a9ea68e3b1cffdb434c06",
+  "organization": "seorilabs",
+  "app": {
+    "appId": 4124446,
+    "slug": "seorilabs-backoffice",
+    "installationId": 142120077,
+    "targetType": "Organization",
+    "repositorySelection": "all",
+    "suspendedAt": null,
+    "identityExact": true,
+    "installationAcceptanceRequired": false,
+    "permissionChanges": [],
+    "eventAdditions": [],
+    "requiredPermissionAndEventUnionReady": true
+  },
+  "currentPermissions": {
+    "actions": "write",
+    "administration": "write",
+    "checks": "read",
+    "contents": "write",
+    "environments": "write",
+    "issues": "write",
+    "members": "read",
+    "metadata": "read",
+    "organization_administration": "write",
+    "organization_custom_properties": "admin",
+    "pull_requests": "write",
+    "repository_custom_properties": "write",
+    "workflows": "write"
+  },
+  "currentEvents": [
+    "issue_comment",
+    "issues",
+    "pull_request",
+    "push",
+    "repository",
+    "workflow_run"
+  ],
+  "trustedExecution": {
+    "state": "BLOCKED_UNVERIFIED",
+    "ambientPersonalTokenAllowed": false,
+    "missingLogicalCredentialIds": [
+      "shared/github/backoffice-app-private-key",
+      "shared/github/backoffice-app-webhook"
+    ],
+    "catalogEntries": 116,
+    "catalogWarnings": 0,
+    "catalogErrors": 0,
+    "offlineRecoveryApproved": false,
+    "mutationAttempted": false
+  },
+  "desiredStateReadback": {
+    "organizationCustomProperties": {
+      "expected": 4,
+      "existingExact": 0
+    },
+    "pilotRepositories": {
+      "expected": 2,
+      "existing": 2,
+      "exact": 0
+    },
+    "evaluateRuleset": {
+      "exists": false,
+      "exact": false
+    }
+  },
+  "nextHumanGate": {
+    "operation": "GITHUB_APP_CREDENTIAL_OFFLINE_RECOVERY",
+    "requiredRole": "credential_custodian",
+    "newKeyGenerationAllowed": false,
+    "requiredTargets": [
+      "shared/github/backoffice-app-private-key",
+      "shared/github/backoffice-app-webhook"
+    ]
+  },
+  "excluded": [
+    "NEW_GITHUB_APP_OR_KEY_CREATION",
+    "CREDENTIAL_VALUE_READBACK",
+    "GITHUB_ORGANIZATION_MUTATION",
+    "RULESET_ACTIVE_TRANSITION",
+    "MARKET_UPLOAD",
+    "REVIEW_SUBMISSION",
+    "PUBLIC_APP_RELEASE"
+  ]
+}
