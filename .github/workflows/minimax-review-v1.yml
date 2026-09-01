@@ -22,7 +22,9 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Checkout PR head
+      # ref 미지정 checkout은 pull_request 이벤트에서 merge commit을 받는다.
+      # 리뷰는 base에 병합된 결과를 보는 것이 의도이므로 그대로 둔다.
+      - name: Checkout PR merge commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
