@@ -101,6 +101,7 @@ export function resolveXcodeCloudTagBinding({ tag, repository, infoPlist, expect
     sourceSha: headSha,
     infoPlist: filePath,
     mode,
+    runtimeVersionCode: version.androidVersionCode,
     appleMarketingVersion: version.appleMarketingVersion,
     appleBuildNumber: version.appleBuildNumber,
   });
@@ -154,6 +155,7 @@ function main() {
   const publicResult = {
     tag: binding.tag,
     sourceSha: binding.sourceSha,
+    runtimeVersionCode: binding.runtimeVersionCode,
     appleMarketingVersion: binding.appleMarketingVersion,
     appleBuildNumber: binding.appleBuildNumber,
     applied: args.get('dry-run') !== true,
