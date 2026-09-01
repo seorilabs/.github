@@ -13,6 +13,8 @@
 - **러너**: AIT·Godot·web·lint/test → `seorilabs-rpi-arm64`(ARC). Android AAB·Play → x64 Linux. Apple archive·App Store 업로드 → Xcode Cloud. public PR job은 ARC 금지.
 - **호출 계약**: reusable workflow는 검증된 full commit SHA로 고정하고, secret은 `workflow_call.secrets`에 선언한 이름만 명시적으로 전달한다.
 - **아티팩트 retention = 3.**
+  Docker 자동 build record도 `DOCKER_BUILD_RECORD_RETENTION_DAYS: "3"`을 명시한다.
+  미지정 또는 `0`은 저장소·조직 기본 보존 기간을 사용하므로 허용하지 않는다.
 - **private GitHub Packages 소비**: caller는 `permissions.packages: read`만 선언한다. v2
   재사용 워크플로우가 고정 registry와 scope를 설정하고 install child process에만
   `github.token`을 제공한다.

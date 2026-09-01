@@ -18,6 +18,8 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/seorilabs/seori-auth
+  # Docker 자동 build record도 contracts/release-policy.yaml의 보존 기간을 따른다.
+  DOCKER_BUILD_RECORD_RETENTION_DAYS: "3"
 
 jobs:
   publish:
