@@ -52,6 +52,7 @@ test("리뷰는 플러그인 의존 없이 준비된 diff와 직접 프롬프트
   assert.equal(reviewStep.with.plugin_marketplaces, undefined);
   assert.match(reviewStep.with.prompt, /pr\.diff/u);
   assert.match(reviewStep.with.prompt, /summary\.md/u);
+  assert.match(reviewStep.with.prompt, /## 잔소리/u);
   assert.match(reviewStep.with.claude_args, /--max-turns 30/u);
   assert.match(
     reviewStep.with.claude_args,
@@ -71,7 +72,7 @@ test("게시는 Jansoree 앱 토큰 명의로 수행되고 GITHUB_TOKEN은 읽�
   const tokenStep = steps.find((step) => step.id === "jansoree-token");
   assert.ok(tokenStep, "앱 토큰 발급 스텝이 있어야 한다");
   assert.match(tokenStep.uses, /^actions\/create-github-app-token@[0-9a-f]{40}/u);
-  assert.equal(tokenStep.with["app-id"], "${{ vars.JANSOREE_APP_ID }}");
+  assert.equal(tokenStep.with["client-id"], "${{ vars.JANSOREE_CLIENT_ID }}");
   assert.equal(
     tokenStep.with["private-key"],
     "${{ secrets.JANSOREE_APP_PRIVATE_KEY }}",
@@ -98,6 +99,7 @@ test("요약 코멘트는 summary 생성 여부와 무관하게 항상 게시된
   assert.equal(postStep.if, "${{ !cancelled() }}");
   assert.match(postStep.run, /node --input-type=module/u);
   assert.match(postStep.run, /"\/issues\/" \+ process\.env\.PR_NUMBER \+ "\/comments"/u);
+  assert.match(postStep.run, /## 잔소리/u);
   assert.match(postStep.run, /리뷰 세션이 요약을 생성하지 못했습니다/u);
   assert.doesNotMatch(postStep.run, /\bgh\b/u, "ARC 러너에는 gh CLI가 없다");
 });
