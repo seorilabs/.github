@@ -74,6 +74,10 @@
     "count": 17,
     "approvalKind": "HUMAN",
     "surface": "/settings",
+    "centralEvidencePresentCount": 1,
+    "missingEvidenceCounts": {
+      "COMPLIANCE_PROFILE": 16
+    },
     "reasonCounts": {
       "FREE_TEXT_REQUIRES_INPUT": 16,
       "LEGAL_COMPLIANCE_AMBIGUITY": 16,
