@@ -73,13 +73,15 @@ function decryptCiphertext(ciphertextBase64, label, privateKeys) {
     ciphertext = Buffer.from(ciphertextBase64, "base64");
     if (ciphertext.length < 2) fail("P3_GITHUB_CIPHERTEXT_INVALID");
     const rsaLength = ciphertext.readUInt16BE(0);
-    if (rsaLength < 128 || ciphertext.length < 2 + rsaLength + 28) {
+    if (rsaLength < 128 || ciphertext.length < 2 + rsaLength + 16) {
       fail("P3_GITHUB_CIPHERTEXT_INVALID");
     }
     const rsaCiphertext = ciphertext.subarray(2, 2 + rsaLength);
     const encryptedPayload = ciphertext.subarray(2 + rsaLength);
-    const nonce = encryptedPayload.subarray(0, 12);
-    const body = encryptedPayload.subarray(12, encryptedPayload.length - 16);
+    // Sealed Secrets uses a fresh AES key for every value and an implicit zero
+    // nonce. The wire payload does not contain a nonce prefix.
+    const nonce = Buffer.alloc(12);
+    const body = encryptedPayload.subarray(0, encryptedPayload.length - 16);
     const tag = encryptedPayload.subarray(encryptedPayload.length - 16);
     for (const privateKey of privateKeys) {
       let sessionKey;
@@ -259,7 +261,7 @@ export async function recoverGithubAppCredentials({
     }
     const privateKeys = recoverySecrets(recoveryBytes);
     const label = Buffer.from(
-      `${recovery.source.namespace}${recovery.source.name}`,
+      `${recovery.source.namespace}/${recovery.source.name}`,
       "utf8",
     );
     try {
@@ -289,7 +291,13 @@ export async function recoverGithubAppCredentials({
     stored = true;
     registered = true;
     await adapters.catalog.registerBatch(
-      publicPlan.targets.map((target) => ({ ...target, status: "active" })),
+      publicPlan.targets.map((target) => ({
+        ...target,
+        status: "active",
+        fingerprintSha256: target.encryptedKey === "GITHUB_PRIVATE_KEY"
+          ? appPublicKeyFingerprintSha256
+          : webhookFingerprintSha256,
+      })),
     );
     if (!(await adapters.backupRestore.verify("post-recovery"))) {
       fail("P3_GITHUB_RECOVERY_POST_BACKUP_RESTORE_REQUIRED");

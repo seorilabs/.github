@@ -330,7 +330,7 @@ test("GitHub App readback은 기존 permission/event를 보존한 최소 union�
 
 function sealForRecovery(plaintext, publicKey, label) {
   const sessionKey = randomBytes(32);
-  const nonce = randomBytes(12);
+  const nonce = Buffer.alloc(12);
   try {
     const rsa = publicEncrypt(
       {
@@ -343,7 +343,6 @@ function sealForRecovery(plaintext, publicKey, label) {
     );
     const cipher = createCipheriv("aes-256-gcm", sessionKey, nonce);
     const encrypted = Buffer.concat([
-      nonce,
       cipher.update(plaintext),
       cipher.final(),
       cipher.getAuthTag(),
@@ -357,7 +356,7 @@ function sealForRecovery(plaintext, publicKey, label) {
   }
 }
 
-function tamperSealedNonce(ciphertextBase64) {
+function tamperSealedPayload(ciphertextBase64) {
   const bytes = Buffer.from(ciphertextBase64, "base64");
   const rsaLength = bytes.readUInt16BE(0);
   bytes[2 + rsaLength] ^= 0x01;
@@ -397,7 +396,7 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
     appPair.privateKey.export({ format: "pem", type: "pkcs8" }),
   );
   const webhook = randomBytes(48);
-  const label = Buffer.from("platformbackoffice-secrets");
+  const label = Buffer.from("platform/backoffice-secrets");
   const source = {
     apiVersion: "bitnami.com/v1alpha1",
     kind: "SealedSecret",
@@ -482,6 +481,10 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
     ],
   );
   assert.equal(registered.length, 2);
+  assert.deepEqual(
+    registered.map(({ fingerprintSha256 }) => fingerprintSha256),
+    [result.appPublicKeyFingerprintSha256, result.webhookFingerprintSha256],
+  );
   const appPublicKey = Buffer.from(
     appPair.publicKey.export({ format: "der", type: "spki" }),
   );
@@ -502,7 +505,7 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
   assert.doesNotMatch(JSON.stringify(result), /BEGIN PRIVATE|github_pat_|webhook-secret/u);
 
   const tamperedSource = structuredClone(source);
-  tamperedSource.spec.encryptedData.GITHUB_WEBHOOK_SECRET = tamperSealedNonce(
+  tamperedSource.spec.encryptedData.GITHUB_WEBHOOK_SECRET = tamperSealedPayload(
     tamperedSource.spec.encryptedData.GITHUB_WEBHOOK_SECRET,
   );
   const tamperedBytes = Buffer.from(stringify(tamperedSource));

@@ -143,8 +143,13 @@ test("Security.framework helper source는 prompt 없는 exact ACL과 자체 보�
     "SecAccessCopyACLList",
     "SecACLCopyAuthorizations",
     "SecACLCopyContents",
+    "SecACLSetContents",
+    "SecACLUpdateAuthorizations",
+    "validateAccessPolicy",
     "interactionNotAllowed = true",
     "SecItemCopyMatching",
+    "SecKeychainItemCopyAccess",
+    "kSecReturnRef",
     "SecItemAdd",
     "SecItemDelete",
     "errSecItemNotFound",
@@ -179,4 +184,30 @@ test("macOS fixture native helper는 item-not-found와 부분 batch 보상을 �
   });
   assert.equal(JSON.parse(attestation.stdout).state, "FIXTURE");
   assert.equal(basename(nativeFixture), "github-keychain-helper-fixture");
+
+  const frameCursor = await execFileAsync(
+    nativeFixture,
+    ["fixture-frame-cursor-self-test"],
+    { env: { LANG: "C", PATH: "/usr/bin:/bin" } },
+  );
+  assert.equal(frameCursor.stderr, "");
+  assert.deepEqual(JSON.parse(frameCursor.stdout), {
+    schemaVersion: 1,
+    state: "FIXTURE_FRAME_CURSOR_VERIFIED",
+    uint32BoundsVerified: true,
+    fixtureOnly: true,
+  });
+
+  const nativeAcl = await execFileAsync(
+    nativeFixture,
+    ["fixture-native-acl-self-test"],
+    { env: { LANG: "C", PATH: "/usr/bin:/bin" } },
+  );
+  assert.equal(nativeAcl.stderr, "");
+  assert.deepEqual(JSON.parse(nativeAcl.stdout), {
+    schemaVersion: 1,
+    state: "FIXTURE_NATIVE_ACL_VERIFIED",
+    keychainItemsAccessed: false,
+    fixtureOnly: true,
+  });
 });

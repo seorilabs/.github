@@ -40,7 +40,7 @@ receipt, lease token은 기록하지 않는다.
 - `scripts/fleet/bootstrap-p3-github.mjs`: 기존 Backoffice App exact identity와 permission/event
   union readback, 사람 전용 최소 증설 gate, additive custom property, pilot 값, Evaluate ruleset의
   기본 dry-run과 exact readback
-- `scripts/fleet/github-credential-recovery.mjs`: nonce-prefixed SealedSecret hybrid ciphertext를
+- `scripts/fleet/github-credential-recovery.mjs`: 공식 SealedSecret hybrid ciphertext를
   process-local memory에서 해제하되 signed native Keychain helper 전에는 write를 차단하는 adapter
 - `scripts/fleet/bootstrap-p3-secret-manager.mjs`: broker/password/TOTP별 네 exact secret version과
   secret-level accessor binding의 기본 dry-run, two-phase apply, readback, provider-disable rollback
@@ -133,8 +133,12 @@ private key와 webhook의 local canonical source는 현재 없다. exact source
 `shared/github/backoffice-app-webhook`으로 분리 등록하는 작업은 새 key를 생성하지 않는 offline
 사람 승인 gate다. source digest 및 encrypted key 존재, recovery credential active, target ID
 부재, 복구 전 backup/restore 검증을 모두 확인해야 시작할 수 있다. plaintext는 stdout, argv,
-environment, log, 파일, commit, PR을 통과할 수 없다. trusted adapter는 nonce-prefixed
+environment, log, 파일, commit, PR을 통과할 수 없다. trusted adapter는
 AES-256-GCM/RSA-OAEP ciphertext와 recovery key를 process-local memory에서 처리한다.
+공식 wire 형식은 `RSA 길이 → RSA ciphertext → AES ciphertext와 tag`이며 nonce prefix는 없다.
+각 값마다 새로운 AES key를 사용하므로 GCM nonce는 12바이트 zero이고, strict scope의 OAEP
+label은 `namespace/name`이다. 근거는 [공식 HybridEncrypt/HybridDecrypt](https://github.com/bitnami-labs/sealed-secrets/blob/54c805dbf4ab7fae87cce28648da252e8c69347f/pkg/crypto/crypto.go)와
+[EncryptionLabel](https://github.com/bitnami-labs/sealed-secrets/blob/54c805dbf4ab7fae87cce28648da252e8c69347f/pkg/apis/sealedsecrets/v1alpha1/sealedsecret_expansion.go)이다.
 `scripts/fleet/native/github-keychain-helper.swift`와
 `scripts/fleet/github-keychain-native-store.mjs`는 두 고정 logical ID만 받는 binary-stdin 경계,
 자체 code-signature 검증, exact self-only ACL readback, UI 금지, item-not-found 분리와 부분 batch
@@ -160,6 +164,23 @@ production build는 승인된 코드서명 identity와 공개 Team ID를 명시�
 runtime 서명·strict verification·helper self-attestation을 모두 통과한 뒤에만 산출물을 교체한다.
 그 다음 별도 승인 run에서 public helper binding을 고정하고 `preflight`의 exact item-not-found를
 확인한다. 이 단계까지는 Keychain write도 credential catalog mutation도 수행하지 않는다.
+
+실제 승인 복구 진입점은 `scripts/fleet/run-github-credential-recovery.mjs`다. 승인 operation,
+canonical credential root, source checkout, signed helper의 경로·SHA-256·Team ID,
+process-hardening native module의 경로·SHA-256만 CLI 인수로 받는다. `ulimit -S -c 0`,
+`ulimit -H -c 0`과 `SEORI_AUTH_NATIVE_LAUNCHED=1`로 시작하고 native module이 실제 core limit과
+debugger attach 차단을 확인한 뒤에만 recovery key를 읽는다. 비밀값 인수·환경변수는 없다.
+등록은 기존 catalog를 수정하지 않고 `catalog/github-backoffice-app.yaml`과 두 공개 reference를
+원자적으로 추가한다. 실패하면 이번 실행이 생성했고 변경되지 않은 파일·Keychain item만 보상한다.
+복구 전후 각각 local·BeeStation 백업의 임시 복원 검증을 모두 요구한다.
+
+macOS 실제 실행 검증에서 확인한 두 native 제약도 fail-closed로 처리한다. 32-bit frame 길이는
+64-bit `Int.max`를 `UInt32`로 좁히지 않고 비교한다. `SecAccessCreate`의 기본 owner ACL과
+encryption ACL은 그대로 사용하지 않고 모든 simple entry를 exact self로 지정한다. 삭제는
+복구 실패 보상에 필요한 restricted entry에만 추가한다. 생성 전에는 ACL을 메모리에서 검증하고,
+생성 후에는 item reference의 `SecKeychainItemCopyAccess`로 저장된 ACL을 읽는다. 근거는
+[Apple SecAccessCreate](https://developer.apple.com/documentation/security/secaccesscreate(_:_:_:))와
+[SecKeychainItemCopyAccess](https://developer.apple.com/documentation/security/seckeychainitemcopyaccess(_:_:))다.
 
 같은 readback에서 개인 `shared/github/operator`의 private package metadata 접근은 확인됐지만
 조직 canonical identity로 승격하지 않는다. GitHub의 non-Actions private GHCR pull 경계에 따라

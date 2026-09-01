@@ -98,7 +98,7 @@ private struct FrameCursor {
     for _ in 0..<4 {
       value = (value << 8) | UInt32(try readByte())
     }
-    guard value <= UInt32(Int.max) else { throw PublicFailure("FRAME_INVALID") }
+    guard UInt64(value) <= UInt64(Int.max) else { throw PublicFailure("FRAME_INVALID") }
     return Int(value)
   }
 
@@ -340,6 +340,12 @@ private final class SecurityKeychainBackend: KeychainBackend {
     expectedTrustedApplicationData = applicationData as Data
   }
 
+  func validateAccessPolicy() throws {
+    // Construct and inspect access in memory before any secret is requested or
+    // any Keychain item is written. SecAccess defaults can differ by macOS.
+    for target in allowedTargets { _ = try accessForSelf(target) }
+  }
+
   private func query(
     _ target: Target,
     readback: Bool,
@@ -356,6 +362,7 @@ private final class SecurityKeychainBackend: KeychainBackend {
     ]
     if readback {
       query[kSecReturnAttributes] = true
+      query[kSecReturnRef] = true
     }
     if returnData {
       query[kSecReturnData] = true
@@ -380,6 +387,33 @@ private final class SecurityKeychainBackend: KeychainBackend {
       ) == errSecSuccess, let access
     else {
       throw PublicFailure("ACL_POLICY_UNAVAILABLE")
+    }
+    // SecAccessCreate leaves its owner ACL empty and its encryption ACL open.
+    // Configure every simple entry explicitly; retain the single owner entry
+    // and add delete only to the restricted entry used for compensation.
+    var aclList: CFArray?
+    guard SecAccessCopyACLList(access, &aclList) == errSecSuccess,
+      let acls = aclList as? [SecACL], !acls.isEmpty
+    else {
+      throw PublicFailure("ACL_POLICY_UNAVAILABLE")
+    }
+    for acl in acls {
+      guard let authorizations = SecACLCopyAuthorizations(acl) as? [String],
+        SecACLSetContents(
+          acl,
+          applications,
+          "Seorilabs Fleet \(target.credentialId)" as CFString,
+          []
+        ) == errSecSuccess
+      else {
+        throw PublicFailure("ACL_POLICY_UNAVAILABLE")
+      }
+      if authorizations.contains(kSecACLAuthorizationDecrypt as String) {
+        let restricted = Array(Set(authorizations + [kSecACLAuthorizationDelete as String]))
+        guard SecACLUpdateAuthorizations(acl, restricted as CFArray) == errSecSuccess else {
+          throw PublicFailure("ACL_POLICY_UNAVAILABLE")
+        }
+      }
     }
     try verifyAccess(access, target: target)
     return access
@@ -447,27 +481,40 @@ private final class SecurityKeychainBackend: KeychainBackend {
       &result
     )
     if status == errSecItemNotFound { return .notFound }
-    guard status == errSecSuccess,
-      let dictionary = result as? [CFString: Any],
+    guard status == errSecSuccess else { throw publicKeychainFailure(status) }
+    guard let dictionary = result as? [CFString: Any] else {
+      throw PublicFailure("KEYCHAIN_ATTRIBUTES_UNAVAILABLE")
+    }
+    guard
       dictionary[kSecAttrService] as? String == target.service,
       dictionary[kSecAttrAccount] as? String == target.credentialId,
       dictionary[kSecAttrLabel] as? String == "Seorilabs Fleet GitHub credential",
       dictionary[kSecAttrDescription] as? String
         == "Managed by signed Seorilabs GitHub Keychain helper",
-      dictionary[kSecAttrSynchronizable] as? Bool != true,
-      let rawAccess = dictionary[kSecAttrAccess],
-      CFGetTypeID(rawAccess as CFTypeRef) == SecAccessGetTypeID()
+      dictionary[kSecAttrSynchronizable] as? Bool != true
     else {
-      if status != errSecSuccess { throw publicKeychainFailure(status) }
-      throw PublicFailure("KEYCHAIN_READBACK_MISMATCH")
+      throw PublicFailure("KEYCHAIN_ITEM_IDENTITY_MISMATCH")
     }
-    let access = unsafeBitCast(rawAccess as CFTypeRef, to: SecAccess.self)
+    // Read the ACL from the item reference; SecItemCopyMatching does not
+    // consistently include kSecAttrAccess in its attribute dictionary.
+    guard let rawItem = dictionary[kSecValueRef],
+      CFGetTypeID(rawItem as CFTypeRef) == SecKeychainItemGetTypeID()
+    else {
+      throw PublicFailure("KEYCHAIN_ITEM_REFERENCE_UNAVAILABLE")
+    }
+    let item = unsafeBitCast(rawItem as CFTypeRef, to: SecKeychainItem.self)
+    var copiedAccess: SecAccess?
+    guard SecKeychainItemCopyAccess(item, &copiedAccess) == errSecSuccess,
+      let access = copiedAccess
+    else {
+      throw PublicFailure("KEYCHAIN_ACCESS_UNAVAILABLE")
+    }
     try verifyAccess(access, target: target)
     if let expectedSecret {
       guard let data = dictionary[kSecValueData] as? Data,
         data.elementsEqual(expectedSecret)
       else {
-        throw PublicFailure("KEYCHAIN_READBACK_MISMATCH")
+        throw PublicFailure("KEYCHAIN_SECRET_READBACK_MISMATCH")
       }
     }
     return .present
@@ -657,6 +704,27 @@ private func attest() throws {
       "fixtureOnly": true,
     ])
   }
+
+  private func fixtureFrameCursorSelfTest() throws {
+    var zeroCursor = FrameCursor(bytes: Data(repeating: 0, count: 4))
+    defer { zeroCursor.zeroize() }
+    guard try zeroCursor.readUInt32() == 0, zeroCursor.offset == 4 else {
+      throw PublicFailure("FIXTURE_FRAME_CURSOR_INVALID")
+    }
+
+    var maximumCursor = FrameCursor(bytes: Data(repeating: 0xff, count: 4))
+    defer { maximumCursor.zeroize() }
+    guard try maximumCursor.readUInt32() == Int(UInt32.max), maximumCursor.offset == 4 else {
+      throw PublicFailure("FIXTURE_FRAME_CURSOR_INVALID")
+    }
+
+    emit([
+      "schemaVersion": 1,
+      "state": "FIXTURE_FRAME_CURSOR_VERIFIED",
+      "uint32BoundsVerified": true,
+      "fixtureOnly": true,
+    ])
+  }
 #endif
 
 @main
@@ -675,9 +743,25 @@ private enum GithubKeychainHelperMain {
           try fixtureSelfTest()
           return
         }
+        if command == "fixture-frame-cursor-self-test" {
+          try fixtureFrameCursorSelfTest()
+          return
+        }
+        if command == "fixture-native-acl-self-test" {
+          let backend = try SecurityKeychainBackend()
+          try backend.validateAccessPolicy()
+          emit([
+            "schemaVersion": 1,
+            "state": "FIXTURE_NATIVE_ACL_VERIFIED",
+            "keychainItemsAccessed": false,
+            "fixtureOnly": true,
+          ])
+          return
+        }
       #endif
       _ = try verifyCodeIdentity()
-      let backend: KeychainBackend = try SecurityKeychainBackend()
+      let backend = try SecurityKeychainBackend()
+      try backend.validateAccessPolicy()
       if command == "preflight" {
         var request = try readRequest(expectedOperation: 0, includesSecrets: false)
         defer { request.zeroize() }
