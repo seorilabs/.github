@@ -7,14 +7,14 @@ import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
-const WORKFLOW_PATH = ".github/workflows/minimax-review-v1.yml";
+const WORKFLOW_PATH = ".github/workflows/jansoree-review-v1.yml";
 
 async function loadWorkflow() {
   const source = await readFile(resolve(REPOSITORY_ROOT, WORKFLOW_PATH), "utf8");
   return { source, workflow: parseDocument(source).toJS() };
 }
 
-test("MiniMax review workflow는 private repo를 seorilabs-rpi-arm64로 라우팅한다", async () => {
+test("Jansoree review workflow는 private repo를 seorilabs-rpi-arm64로 라우팅한다", async () => {
   const { workflow } = await loadWorkflow();
   const job = workflow.jobs.review;
   assert.equal(
@@ -23,7 +23,7 @@ test("MiniMax review workflow는 private repo를 seorilabs-rpi-arm64로 라우�
   );
 });
 
-test("MiniMax review workflow는 fork PR과 draft를 배제한다", async () => {
+test("Jansoree review workflow는 fork PR과 draft를 배제한다", async () => {
   const { workflow } = await loadWorkflow();
   const condition = workflow.jobs.review.if;
   assert.match(condition, /github\.event_name == 'pull_request'/u);
@@ -41,7 +41,7 @@ test("리뷰는 플러그인 의존 없이 준비된 diff와 직접 프롬프트
   const exportStep = steps.find((step) => step.name === "Export PR metadata and diff");
   assert.ok(exportStep, "diff를 준비하는 스텝이 있어야 한다");
   assert.match(exportStep.run, /application\/vnd\.github\.v3\.diff/u);
-  assert.match(exportStep.run, /test -s "\$RUNNER_TEMP\/minimax-review\/pr\.diff"/u);
+  assert.match(exportStep.run, /test -s "\$RUNNER_TEMP\/jansoree-review\/pr\.diff"/u);
   assert.doesNotMatch(exportStep.run, /\bgh\b/u, "ARC 러너에는 gh CLI가 없다");
 
   const reviewStep = steps.find(
@@ -59,6 +59,36 @@ test("리뷰는 플러그인 의존 없이 준비된 diff와 직접 프롬프트
   );
 });
 
+test("게시는 Jansoree 앱 토큰 명의로 수행되고 GITHUB_TOKEN은 읽기 전용이다", async () => {
+  const { workflow } = await loadWorkflow();
+  const steps = workflow.jobs.review.steps;
+
+  assert.deepEqual(workflow.permissions, {
+    contents: "read",
+    "pull-requests": "read",
+  });
+
+  const tokenStep = steps.find((step) => step.id === "jansoree-token");
+  assert.ok(tokenStep, "앱 토큰 발급 스텝이 있어야 한다");
+  assert.match(tokenStep.uses, /^actions\/create-github-app-token@[0-9a-f]{40}/u);
+  assert.equal(tokenStep.with["app-id"], "${{ vars.JANSOREE_APP_ID }}");
+  assert.equal(
+    tokenStep.with["private-key"],
+    "${{ secrets.JANSOREE_APP_PRIVATE_KEY }}",
+  );
+
+  const reviewStep = steps.find(
+    (step) => step.name === "Review with MiniMax-brained Claude Code",
+  );
+  assert.equal(
+    reviewStep.with.github_token,
+    "${{ steps.jansoree-token.outputs.token }}",
+  );
+
+  const postStep = steps.find((step) => step.name === "Post review summary");
+  assert.equal(postStep.env.GH_TOKEN, "${{ steps.jansoree-token.outputs.token }}");
+});
+
 test("요약 코멘트는 summary 생성 여부와 무관하게 항상 게시된다", async () => {
   const { workflow } = await loadWorkflow();
   const postStep = workflow.jobs.review.steps.find(
@@ -72,10 +102,11 @@ test("요약 코멘트는 summary 생성 여부와 무관하게 항상 게시된
   assert.doesNotMatch(postStep.run, /\bgh\b/u, "ARC 러너에는 gh CLI가 없다");
 });
 
-test("MINIMAX_API_KEY는 workflow_call.secrets 명시 선언으로만 전달된다", async () => {
+test("MINIMAX_API_KEY와 JANSOREE_APP_PRIVATE_KEY는 workflow_call.secrets 명시 선언으로만 전달된다", async () => {
   const { source, workflow } = await loadWorkflow();
   assert.deepEqual(workflow.on.workflow_call.secrets, {
     MINIMAX_API_KEY: { required: true },
+    JANSOREE_APP_PRIVATE_KEY: { required: true },
   });
   assert.doesNotMatch(source, /secrets:\s*inherit/u);
 });
