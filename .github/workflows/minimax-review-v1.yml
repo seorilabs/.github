@@ -30,6 +30,13 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      # ARC 러너 이미지에는 gh CLI가 없으므로 GitHub 조작은 curl과 node만 사용한다.
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+
       # diff 확보를 모델의 도구 호출에 맡기지 않고 결정적으로 준비한다.
       - name: Export PR metadata and diff
         env:
@@ -38,9 +45,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/minimax-review"
-          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
-            --json title,body,baseRefName,headRefName > "$RUNNER_TEMP/minimax-review/pr.json"
-          gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/minimax-review/pr.diff"
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            > "$RUNNER_TEMP/minimax-review/pr.json"
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3.diff" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            > "$RUNNER_TEMP/minimax-review/pr.diff"
+          test -s "$RUNNER_TEMP/minimax-review/pr.diff"
 
       - name: Review with MiniMax-brained Claude Code
         uses: anthropics/claude-code-action@833fb0f8c9f6686b33d963a8bae0a94f4936ab2a # v1.0.211
@@ -77,12 +92,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          SUMMARY_PATH: ${{ runner.temp }}/minimax-review/summary.md
         run: |
           set -euo pipefail
-          summary="$RUNNER_TEMP/minimax-review/summary.md"
-          if [ -s "$summary" ]; then
-            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$summary"
-          else
-            printf '## MiniMax Review\n\n리뷰 세션이 요약을 생성하지 못했습니다. workflow run 로그를 확인해 주세요.\n' \
-              | gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file -
-          fi
+          node --input-type=module -e '
+            import { readFileSync, existsSync } from "node:fs";
+            const path = process.env.SUMMARY_PATH;
+            const fallback = "## MiniMax Review\n\n리뷰 세션이 요약을 생성하지 못했습니다. workflow run 로그를 확인해 주세요.\n";
+            const summary = existsSync(path) ? readFileSync(path, "utf8").trim() : "";
+            const body = summary.length > 0 ? summary : fallback;
+            const url = "https://api.github.com/repos/" + process.env.GITHUB_REPOSITORY
+              + "/issues/" + process.env.PR_NUMBER + "/comments";
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                authorization: "Bearer " + process.env.GH_TOKEN,
+                accept: "application/vnd.github+json",
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({ body }),
+            });
+            if (!response.ok) {
+              console.error("comment post failed:", response.status, await response.text());
+              process.exit(1);
+            }
+          '

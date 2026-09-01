@@ -40,8 +40,9 @@ test("리뷰는 플러그인 의존 없이 준비된 diff와 직접 프롬프트
 
   const exportStep = steps.find((step) => step.name === "Export PR metadata and diff");
   assert.ok(exportStep, "diff를 준비하는 스텝이 있어야 한다");
-  assert.match(exportStep.run, /gh pr diff/u);
-  assert.match(exportStep.run, /gh pr view/u);
+  assert.match(exportStep.run, /application\/vnd\.github\.v3\.diff/u);
+  assert.match(exportStep.run, /test -s "\$RUNNER_TEMP\/minimax-review\/pr\.diff"/u);
+  assert.doesNotMatch(exportStep.run, /\bgh\b/u, "ARC 러너에는 gh CLI가 없다");
 
   const reviewStep = steps.find(
     (step) => step.name === "Review with MiniMax-brained Claude Code",
@@ -65,9 +66,10 @@ test("요약 코멘트는 summary 생성 여부와 무관하게 항상 게시된
   );
   assert.ok(postStep, "요약 게시 스텝이 있어야 한다");
   assert.equal(postStep.if, "${{ !cancelled() }}");
-  assert.match(postStep.run, /if \[ -s "\$summary" \]/u);
-  assert.match(postStep.run, /--body-file "\$summary"/u);
+  assert.match(postStep.run, /node --input-type=module/u);
+  assert.match(postStep.run, /"\/issues\/" \+ process\.env\.PR_NUMBER \+ "\/comments"/u);
   assert.match(postStep.run, /리뷰 세션이 요약을 생성하지 못했습니다/u);
+  assert.doesNotMatch(postStep.run, /\bgh\b/u, "ARC 러너에는 gh CLI가 없다");
 });
 
 test("MINIMAX_API_KEY는 workflow_call.secrets 명시 선언으로만 전달된다", async () => {
