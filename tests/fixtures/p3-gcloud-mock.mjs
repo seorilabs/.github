@@ -98,12 +98,19 @@ function policyFor(target) {
     if (!members.includes(item.member)) members.push(item.member);
     roles.set(item.role, members);
   }
+  const conditionalBindings = (state.conditionalPolicies ?? [])
+    .filter(({ resourceType, resource }) =>
+      resourceType === target.resourceType && resource === target.resource,
+    )
+    .flatMap(({ bindings }) => bindings);
+  const bindings = [
+    ...[...roles.entries()].map(([role, members]) => ({ role, members })),
+    ...conditionalBindings,
+  ];
   return {
     etag: "mock-policy-etag",
-    version: 1,
-    ...(roles.size === 0 ? {} : {
-      bindings: [...roles.entries()].map(([role, members]) => ({ role, members })),
-    }),
+    version: conditionalBindings.length === 0 ? 1 : 3,
+    ...(bindings.length === 0 ? {} : { bindings }),
   };
 }
 
@@ -281,6 +288,14 @@ if (
       ? (policy.bindings === undefined ? null : { bindings: policy.bindings })
       : policy);
     process.exit(0);
+  }
+  if (
+    verb === "add-iam-policy-binding" &&
+    policyFor(target).bindings?.some(({ condition }) => condition !== undefined) &&
+    flag("--condition") !== "None"
+  ) {
+    process.stderr.write("IAM_CONDITION_MUST_BE_EXPLICIT\n");
+    process.exit(1);
   }
   const item = {
     ...target,

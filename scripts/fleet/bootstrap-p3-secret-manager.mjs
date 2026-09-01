@@ -450,6 +450,7 @@ function apply() {
         `--project=${manager.projectId}`,
         "--role=roles/secretmanager.secretAccessor",
         `--member=${member(resource)}`,
+        "--condition=None",
         "--format=none",
       ],
       "P3_SECRET_MANAGER_IAM_APPLY_FAILED",

@@ -798,7 +798,12 @@ function ensureProviders() {
 }
 
 function bindingCommand(item) {
-  const common = [`--member=${item.member}`, `--role=${item.role}`, "--format=none"];
+  const common = [
+    `--member=${item.member}`,
+    `--role=${item.role}`,
+    "--condition=None",
+    "--format=none",
+  ];
   if (item.resourceType === "project") {
     return ["projects", "add-iam-policy-binding", cloud.projectId, ...common];
   }

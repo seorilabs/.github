@@ -215,4 +215,35 @@ for (const script of [bootstrapPath, secretBootstrapPath]) {
     assert.equal(JSON.parse(result.stdout).ready, false);
     assert.deepEqual(JSON.parse(await readFile(statePath, "utf8")).history, []);
   });
+
+  test(`${script}는 기존 기한부 권한을 보존하고 조건 없는 운영 권한을 명시한다`, async (context) => {
+    const directory = await mkdtemp(join(tmpdir(), "seori-p3-conditional-policy-"));
+    context.after(() => rm(directory, { recursive: true, force: true }));
+    const statePath = join(directory, "state.json");
+    const state = initialState();
+    const target = script === bootstrapPath
+      ? { resourceType: "project", resource: `projects/${plan.project.id}` }
+      : { resourceType: "secret", resource: `projects/${plan.project.id}/secrets/${secretPlan.resources[0].secretId}` };
+    state.conditionalPolicies = [{
+      ...target,
+      bindings: [{
+        role: "roles/iam.securityAdmin",
+        members: ["serviceAccount:approved-installer@example.iam.gserviceaccount.com"],
+        condition: {
+          title: "fleet-p3-bootstrap",
+          expression: "request.time < timestamp('2026-09-01T15:46:47Z')",
+        },
+      }],
+    }];
+    await writeFile(statePath, JSON.stringify(state), "utf8");
+    const confirmation = script === bootstrapPath ? plan.confirmation : secretPlan.confirmation;
+    const result = await execFileAsync(process.execPath, [script, "apply", confirmation], {
+      env: { ...process.env, SEORILABS_GCLOUD_CLI: gcloudMock, P3_GCLOUD_MOCK_STATE: statePath },
+    });
+    assert.equal(result.stderr, "");
+    assert.equal(JSON.parse(result.stdout).ready, true);
+    const applied = JSON.parse(await readFile(statePath, "utf8"));
+    assert.deepEqual(applied.conditionalPolicies, state.conditionalPolicies);
+    assert.ok(applied.history.includes("iam:add"));
+  });
 }
