@@ -15,6 +15,7 @@
 
 - 로컬 예약 작업은 `autopilot:local`과 `autopilot:cloud`을 모두 처리할 수 있다.
 - 클라우드 실행은 `autopilot:cloud`만 처리한다. `autopilot:local`을 클라우드 도구로 추측하거나 우회하지 않는다.
+- 모든 실행은 정책 `lease.agentIds` 중 자기 식별자 하나로 동작한다. Claude 로컬 예약은 `claude-local`, Claude Cloud 루틴은 `claude-cloud`, Codex 클라우드 예약은 `codex-cloud`다. 식별자를 정할 수 없으면 전역 안전 차단으로 종료한다.
 - `processing=EXCLUDED`는 가장 앞선 차단 gate다. 해당 저장소를 clone하거나 이슈·PR을 변경하지 않는다.
 - `processing=DISABLED` 또는 정책에 없는 저장소도 건드리지 않는다.
 
@@ -45,7 +46,7 @@ flowchart LR
 ## 진행 중인 PR 우선
 
 - ENABLED 저장소의 열린 PR과 `closingIssuesReferences`를 완전 pagination으로 확인한다.
-- `autopilot` 이슈를 닫는 PR은 새 구현 후보보다 먼저 정렬하고 현재 HEAD, CI, Seori·잔소리 thread와 mergeability를 확인한다.
+- `autopilot` 이슈를 닫는 PR은 새 구현 후보보다 먼저 정렬하고 현재 HEAD, CI, Seori·잔소리 thread와 mergeability를 확인한다. 단 자기 `<agentId>/` 접두사 브랜치의 PR만 이어받는다. 타 에이전트 PR은 lease 절의 인수 조건을 만족할 때만 다룬다.
 - 한 PR을 갱신·대기·판정하는 동안 다른 이슈를 구현하지 않는다. repo당 열린 자율 PR은 하나를 넘기지 않는다.
 - PR이 사람 승인, 외부 상태 또는 저장소별 실패로 막히면 정확한 blocker와 현재 HEAD를 기록하고 그 `repository#issue`를 이번 실행의 시도 완료로 표시한다. 공유 mutation 경계가 정상이라면 다음 미시도 저장소·이슈로 진행한다.
 
@@ -60,6 +61,7 @@ flowchart LR
 - `P1`~`P4` 중 정확히 하나
 - `no-autopilot`, `blocked`, `approval:*` 없음
 - 같은 이슈를 닫는 열린 PR 없음
+- 만료되지 않은 타 에이전트 lease claim 없음
 - 현재 실행 환경이 실행 라벨을 지원
 
 라벨이 누락되거나 상충하면 자동으로 추측해 고치지 않고 부적격 사유를 보고한다. 제목의 레거시 말머리나 `U숫자`·`N숫자`를 선택 순서로 사용하지 않는다.
@@ -91,10 +93,27 @@ flowchart LR
 - 공유 lease/CAS/mutation broker의 generation 또는 readback 무결성을 확인할 수 없음
 - 다음 항목을 안전하게 시작할 실행 예산이 없음
 
+## 이슈 lease — 에이전트 간 중복 픽업 방지
+
+여러 예약 실행(Claude 로컬·클라우드, Codex)이 같은 큐를 공유하므로, 재검증과 PR 생성 사이의 창에서 같은 이슈를 중복 구현하지 않도록 정책 `lease` 절의 claim 코멘트 프로토콜을 따른다. GitHub 이슈 상태는 OPEN/CLOSED뿐이고 두 에이전트가 같은 계정으로 동작할 수 있으므로, 잠금은 상태·assignee가 아니라 이슈 코멘트의 전역 단조 증가 id로 중재한다.
+
+1. 재검증을 통과한 이슈에 구현 시작 전 claim 코멘트를 게시한다: `autopilot-lease claim agent=<agentId> run=<runId> expires=<ISO8601 UTC>`. `expires`는 현재 시각 + 정책 `ttlMinutes`다.
+2. 게시 직후 이슈 코멘트 전체를 다시 읽는다. 활성 claim은 만료 전이고 같은 `run`의 release가 없는 것이다. 활성 claim 중 comment id가 가장 낮은 쪽이 승자다. 패자의 readback은 자기 게시 이후이므로 더 낮은 id의 승자 코멘트를 반드시 본다.
+3. 패자는 `autopilot-lease release agent=<agentId> run=<runId> reason=lost-arbitration`을 남기고, 그 이슈를 항목별 차단으로 기록한 뒤 다음 미시도 항목으로 진행한다.
+4. 승자는 TTL 안에 closing PR을 만든다. 구현이 길어지면 만료 전 `renew`로 `expires`를 연장한다. PR을 만들면 `release reason=pr-opened pr=#<번호>`를 남긴다. 이후에는 열린 closing PR gate가 잠금을 대신한다.
+5. 항목이 차단되거나 실행이 끝나면 `release reason=item-blocked` 또는 `reason=run-end`를 남긴다. release 없이 만료된 claim은 죽은 실행으로 간주하고 무시한다. 만료된 lease만 남은 이슈는 새로 claim할 수 있다.
+6. claim 게시나 readback이 실패하거나 결과가 불명확하면 그 이슈는 `READBACK_FIRST` 항목 차단으로 남기고 재시도하지 않는다.
+
+자율 PR의 소유는 head 브랜치의 `<agentId>/` 접두사로 판별한다.
+
+- 자기 접두사의 자율 PR만 갱신·리뷰 대응·머지한다.
+- 타 에이전트의 자율 PR은 항목별 차단으로 기록하고 건너뛴다.
+- 예외로, 타 에이전트 PR이 `staleAdoptionAfterHours` 이상 커밋·코멘트 없이 방치되고 이슈 lease도 만료됐으면, 그 PR에 claim 코멘트를 남겨 같은 중재를 거친 뒤 인수할 수 있다. 접두사 없는 레거시 자율 PR도 이 인수 절차로만 다룬다.
+
 ## 격리 구현과 검증
 
 - 기본 checkout의 dirty·untracked 변경을 보존한다. `reset`, `clean`, `stash`, `rebase`, `checkout`으로 사용자 상태를 바꾸지 않는다.
-- 최신 원격 기본 브랜치에서 이슈 전용 격리 worktree와 브랜치를 만든다.
+- 최신 원격 기본 브랜치에서 이슈 전용 격리 worktree와 브랜치를 만든다. 브랜치 이름은 `<agentId>/`로 시작한다.
 - 인수조건을 충족하는 최소 변경만 하고 관련 없는 리팩터링·기능 확장을 하지 않는다.
 - 각 인수조건을 검증하는 테스트를 추가하거나 갱신한다. 버그 수정에는 회귀 테스트를 동반한다.
 - 순수 문서·설정·생성 파일·헤드리스로 검증할 수 없는 시각·실기기 동작은 테스트 면제 사유와 미검증 범위를 PR에 적는다.
@@ -134,4 +153,4 @@ PR 본문에는 다음을 분리해 기록한다.
 - 적격 큐 소진, 실행 예산 소진 또는 전역 안전 차단에서만 전체 실행을 종료한다.
 - 릴리스 생성, artifact upload, 실기기 QA, 마켓 심사, 승인, 배포와 공개 상태는 별도 단계다. 이 루틴은 사람 승인 없이 이를 수행하거나 완료로 표현하지 않는다.
 
-실행 보고에는 실행 시작 후보 수와 정렬 digest, 시도한 각 저장소·이슈·실행 라벨, 구현·검증·PR·review·merge 상태, 항목별 blocker, 종료 조건을 한국어로 구분해 남긴다. 같은 항목을 한 실행에서 두 번 시도하지 않았고 동시 처리 수가 1이었음을 공개 필드로 확인할 수 있어야 한다.
+실행 보고에는 실행 시작 후보 수와 정렬 digest, 시도한 각 저장소·이슈·실행 라벨, lease 결과(승자·패자·인수·release 사유), 구현·검증·PR·review·merge 상태, 항목별 blocker, 종료 조건을 한국어로 구분해 남긴다. 같은 항목을 한 실행에서 두 번 시도하지 않았고 동시 처리 수가 1이었음을 공개 필드로 확인할 수 있어야 한다.

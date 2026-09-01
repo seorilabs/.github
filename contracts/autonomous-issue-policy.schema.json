@@ -12,6 +12,7 @@
     "labels",
     "titlePolicy",
     "executionRouting",
+    "lease",
     "issueBody",
     "repositories"
   ],
@@ -190,6 +191,63 @@
           "minItems": 1,
           "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true
+        }
+      }
+    },
+    "lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "appliesTo",
+        "agentIds",
+        "claimComment",
+        "ttlMinutes",
+        "arbitration",
+        "claimBeforeImplementation",
+        "releaseReasons",
+        "branchOwnership"
+      ],
+      "properties": {
+        "appliesTo": { "const": "processing" },
+        "agentIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "uniqueItems": true
+        },
+        "claimComment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["marker", "actions", "format"],
+          "properties": {
+            "marker": { "const": "autopilot-lease" },
+            "actions": {
+              "type": "array",
+              "const": ["claim", "renew", "release"]
+            },
+            "format": { "type": "string", "minLength": 1 }
+          }
+        },
+        "ttlMinutes": { "type": "integer", "minimum": 15, "maximum": 720 },
+        "arbitration": { "const": "lowest-unexpired-claim-comment-id" },
+        "claimBeforeImplementation": { "const": true },
+        "releaseReasons": {
+          "type": "array",
+          "const": ["pr-opened", "lost-arbitration", "item-blocked", "run-end"]
+        },
+        "branchOwnership": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "branchPrefix",
+            "foreignAutonomousPrPolicy",
+            "staleAdoptionAfterHours"
+          ],
+          "properties": {
+            "branchPrefix": { "const": "<agentId>/" },
+            "foreignAutonomousPrPolicy": { "const": "item-blocked" },
+            "staleAdoptionAfterHours": { "type": "integer", "minimum": 1, "maximum": 168 }
+          }
         }
       }
     },

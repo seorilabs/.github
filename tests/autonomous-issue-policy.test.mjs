@@ -120,6 +120,49 @@ function issueAttemptKey(issue) {
   return `${issue.repository}#${issue.number}`;
 }
 
+function parseLeaseComment(body) {
+  const match = body.match(
+    new RegExp(
+      `^${policy.lease.claimComment.marker} (claim|renew|release) agent=(\\S+) run=(\\S+)(?: expires=(\\S+))?`,
+      "u",
+    ),
+  );
+  if (!match) return null;
+  return { action: match[1], agent: match[2], run: match[3], expires: match[4] ?? null };
+}
+
+function activeLeaseWinner(comments, now) {
+  const events = comments
+    .map((comment) => ({ ...comment, lease: parseLeaseComment(comment.body) }))
+    .filter((comment) => comment.lease);
+  const released = new Set(
+    events
+      .filter(({ lease }) => lease.action === "release")
+      .map(({ lease }) => lease.run),
+  );
+  const claims = new Map();
+  for (const { id, lease } of events) {
+    if (lease.action === "release") continue;
+    const claim = claims.get(lease.run) ?? { run: lease.run, agent: lease.agent, commentId: id, expires: 0 };
+    claim.expires = Math.max(claim.expires, Date.parse(lease.expires));
+    claims.set(lease.run, claim);
+  }
+  const active = [...claims.values()]
+    .filter((claim) => !released.has(claim.run) && claim.expires > now)
+    .sort((left, right) => left.commentId - right.commentId);
+  return active[0] ?? null;
+}
+
+function claimableBy(agentId, comments, now) {
+  const winner = activeLeaseWinner(comments, now);
+  return winner === null || winner.agent === agentId;
+}
+
+function ownsAutonomousPullRequest(agentId, headBranch) {
+  const prefix = policy.lease.branchOwnership.branchPrefix.replace("<agentId>", agentId);
+  return headBranch.startsWith(prefix);
+}
+
 function orderedEligibleQueue(issues, environment = "local", attempted = new Set()) {
   const priority = new Map(
     policy.schedules.processing.priorityOrder.map((label, index) => [label, index]),
@@ -272,6 +315,60 @@ test("처리 후보 전체를 차단 gate 뒤 P1부터 오래된 순으로 정�
       .map(({ number }) => number),
     [8, 9],
   );
+});
+
+test("lease 경합은 가장 낮은 활성 claim comment id가 이긴다", () => {
+  const now = Date.parse("2026-09-02T06:30:00Z");
+  const comments = [
+    { id: 101, body: "autopilot-lease claim agent=claude-cloud run=r-1 expires=2026-09-02T08:00:00Z" },
+    { id: 102, body: "autopilot-lease claim agent=codex-cloud run=r-2 expires=2026-09-02T08:00:00Z" },
+  ];
+  assert.deepEqual(activeLeaseWinner(comments, now), {
+    run: "r-1",
+    agent: "claude-cloud",
+    commentId: 101,
+    expires: Date.parse("2026-09-02T08:00:00Z"),
+  });
+  assert.equal(claimableBy("claude-cloud", comments, now), true);
+  assert.equal(claimableBy("codex-cloud", comments, now), false);
+});
+
+test("만료·release된 claim은 잠금이 아니고 renew는 만료를 연장한다", () => {
+  const now = Date.parse("2026-09-02T06:30:00Z");
+  assert.equal(
+    activeLeaseWinner(
+      [{ id: 1, body: "autopilot-lease claim agent=codex-cloud run=r-1 expires=2026-09-02T05:00:00Z" }],
+      now,
+    ),
+    null,
+  );
+  assert.equal(
+    activeLeaseWinner(
+      [
+        { id: 1, body: "autopilot-lease claim agent=codex-cloud run=r-1 expires=2026-09-02T08:00:00Z" },
+        { id: 2, body: "autopilot-lease release agent=codex-cloud run=r-1" },
+      ],
+      now,
+    ),
+    null,
+  );
+  const renewed = activeLeaseWinner(
+    [
+      { id: 1, body: "autopilot-lease claim agent=codex-cloud run=r-1 expires=2026-09-02T06:00:00Z" },
+      { id: 2, body: "autopilot-lease renew agent=codex-cloud run=r-1 expires=2026-09-02T07:30:00Z" },
+    ],
+    now,
+  );
+  assert.equal(renewed?.run, "r-1");
+  assert.equal(renewed?.commentId, 1);
+  assert.equal(claimableBy("claude-cloud", [], now), true);
+});
+
+test("자율 PR은 자기 agentId 접두사 브랜치만 이어받는다", () => {
+  assert.equal(ownsAutonomousPullRequest("claude-cloud", "claude-cloud/fix-boot-recovery"), true);
+  assert.equal(ownsAutonomousPullRequest("claude-cloud", "codex-cloud/fix-boot-recovery"), false);
+  assert.equal(ownsAutonomousPullRequest("claude-cloud", "fix/legacy-branch"), false);
+  assert.equal(policy.lease.branchOwnership.foreignAutonomousPrPolicy, "item-blocked");
 });
 
 test("클라우드는 cloud 라벨만 선택하고 제외 저장소는 항상 건너뛴다", () => {

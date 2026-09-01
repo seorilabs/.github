@@ -100,6 +100,32 @@ executionRouting:
     - obsidian
     - local-assets
 
+lease:
+  appliesTo: processing
+  agentIds:
+    - claude-local
+    - claude-cloud
+    - codex-cloud
+  claimComment:
+    marker: autopilot-lease
+    actions:
+      - claim
+      - renew
+      - release
+    format: "autopilot-lease <action> agent=<agentId> run=<runId> expires=<ISO8601 UTC>"
+  ttlMinutes: 90
+  arbitration: lowest-unexpired-claim-comment-id
+  claimBeforeImplementation: true
+  releaseReasons:
+    - pr-opened
+    - lost-arbitration
+    - item-blocked
+    - run-end
+  branchOwnership:
+    branchPrefix: "<agentId>/"
+    foreignAutonomousPrPolicy: item-blocked
+    staleAdoptionAfterHours: 24
+
 issueBody:
   requiredSections:
     - customerValue
