@@ -43,9 +43,9 @@ jobs:
         with:
           # anthropic_api_key는 액션의 인증 입력 검증을 통과시키기 위한 값이고 env가 우선한다.
           anthropic_api_key: ${{ secrets.MINIMAX_API_KEY }}
-          # GITHUB_TOKEN을 명시해 Anthropic 측 앱 토큰 교환 의존을 제거한다.
+          # github.token을 명시해 Anthropic 측 앱 토큰 교환 의존을 제거한다.
           # 리뷰 코멘트는 github-actions 계정으로 게시된다.
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ github.token }}
           plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
           plugins: "code-review@claude-code-plugins"
           prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
