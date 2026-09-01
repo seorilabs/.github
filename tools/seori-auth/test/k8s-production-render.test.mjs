@@ -84,7 +84,7 @@ function deploymentConfig() {
       podSelector: { 'app.kubernetes.io/component': 'provider-execution-signer' },
     },
     egressProxy: {
-      namespaceSelector: { 'kubernetes.io/metadata.name': 'auth-egress' },
+      namespaceSelector: { 'kubernetes.io/metadata.name': 'auth-broker' },
       podSelector: { 'app.kubernetes.io/name': 'seori-auth-egress-proxy' },
       port: 8443,
     },

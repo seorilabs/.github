@@ -103,11 +103,7 @@ test("Org Contract 정책과 프로필 YAML이 중복 key 없이 파싱된다", 
     );
     assert.deepEqual(document.errors, [], contractPath);
     const value = document.toJS();
-    assert.equal(
-      value.schemaVersion,
-      YAML_SCHEMA_VERSIONS.get(contractPath) ?? 1,
-      contractPath,
-    );
+    assert.equal(value.schemaVersion, YAML_SCHEMA_VERSIONS.get(contractPath) ?? 1, contractPath);
     assert.equal(typeof value.id, "string", contractPath);
   }
 });

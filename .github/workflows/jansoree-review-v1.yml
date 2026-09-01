@@ -1,0 +1,127 @@
+# Jansoree 봇 명의로 PR diff를 리뷰하고 코멘트를 게시한다. 브레인은 MiniMax(Anthropic 호환).
+# contracts/review-policy.yaml의 code-review stage(provider: copilot)를 아직 대체하지 않는
+# 병행 파일럿 경로이며, 계약 전환은 파일럿 검증 후 별도 PR로 진행한다.
+name: Jansoree Review v1
+
+on:
+  workflow_call:
+    secrets:
+      MINIMAX_API_KEY:
+        required: true
+      JANSOREE_APP_PRIVATE_KEY:
+        required: true
+
+# 쓰기는 전부 Jansoree 앱 토큰이 담당하므로 GITHUB_TOKEN은 읽기 전용이다.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  review:
+    name: Jansoree Review
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft == false }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    timeout-minutes: 20
+
+    steps:
+      # ref 미지정 checkout은 pull_request 이벤트에서 merge commit을 받는다.
+      # 리뷰는 base에 병합된 결과를 보는 것이 의도이므로 그대로 둔다.
+      - name: Checkout PR merge commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      # ARC 러너 이미지에는 gh CLI가 없으므로 GitHub 조작은 curl과 node만 사용한다.
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+
+      # diff 확보를 모델의 도구 호출에 맡기지 않고 결정적으로 준비한다.
+      - name: Export PR metadata and diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/jansoree-review"
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            > "$RUNNER_TEMP/jansoree-review/pr.json"
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3.diff" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            > "$RUNNER_TEMP/jansoree-review/pr.diff"
+          test -s "$RUNNER_TEMP/jansoree-review/pr.diff"
+
+      - name: Create Jansoree app token
+        id: jansoree-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.JANSOREE_CLIENT_ID }}
+          private-key: ${{ secrets.JANSOREE_APP_PRIVATE_KEY }}
+
+      - name: Review with MiniMax-brained Claude Code
+        uses: anthropics/claude-code-action@833fb0f8c9f6686b33d963a8bae0a94f4936ab2a # v1.0.211
+        env:
+          # Claude Code는 ANTHROPIC_AUTH_TOKEN(Bearer)을 우선하므로 실제 모델 인증은 이 값이 담당한다.
+          ANTHROPIC_BASE_URL: https://api.minimax.io/anthropic
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.MINIMAX_API_KEY }}
+          ANTHROPIC_MODEL: "MiniMax-M3[1m]"
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "MiniMax-M3[1m]"
+          ANTHROPIC_DEFAULT_OPUS_MODEL: "MiniMax-M3[1m]"
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "MiniMax-M3[1m]"
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW: "1000000"
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+        with:
+          # anthropic_api_key는 액션의 인증 입력 검증을 통과시키기 위한 값이고 env가 우선한다.
+          anthropic_api_key: ${{ secrets.MINIMAX_API_KEY }}
+          # Jansoree 앱 토큰으로 게시해 인라인 코멘트가 jansoree 명의가 된다.
+          github_token: ${{ steps.jansoree-token.outputs.token }}
+          prompt: |
+            seorilabs 조직 PR의 코드 리뷰어로서 다음을 순서대로 수행한다.
+
+            1. ${{ runner.temp }}/jansoree-review/pr.json 과 ${{ runner.temp }}/jansoree-review/pr.diff 를 Read로 읽는다. 이 diff가 리뷰 대상의 전부다.
+            2. 변경된 코드에서 실제 결함만 찾는다: 정확성 오류, 경계·널·예외 처리 누락, 리소스 누수, 보안·프라이버시 노출, 데이터 손실·손상, 명백한 로직 오류. 맥락이 필요하면 체크아웃된 저장소 파일을 Read, Grep, Glob으로 확인한다. 스타일, 네이밍, 취향, 추측성 리스크, 이 PR 범위 밖 개선은 지적하지 않는다.
+            3. 확실한 결함마다 mcp__github_inline_comment__create_inline_comment 도구로 해당 파일과 라인에 한국어 인라인 코멘트를 남긴다. 각 코멘트에는 결함 설명과 구체적 실패 시나리오를 담는다. 확신이 없으면 남기지 않는다.
+            4. 마지막으로 ${{ runner.temp }}/jansoree-review/summary.md 파일을 Write로 작성한다. 첫 줄은 "## 잔소리", 이어서 발견한 결함 수와 결함별 한 줄 요약 목록을 쓴다. 결함이 없으면 "지적할 결함을 찾지 못했습니다." 한 줄만 쓴다.
+
+            도구 호출은 위 목적에 필요한 것만 수행한다.
+          claude_args: '--max-turns 30 --allowedTools "Read,Grep,Glob,Write,mcp__github_inline_comment__create_inline_comment"'
+
+      # 요약 게시를 모델에 맡기지 않아 "green인데 무게시" 상태를 방지한다.
+      - name: Post review summary
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ steps.jansoree-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SUMMARY_PATH: ${{ runner.temp }}/jansoree-review/summary.md
+        run: |
+          set -euo pipefail
+          node --input-type=module -e '
+            import { readFileSync, existsSync } from "node:fs";
+            const path = process.env.SUMMARY_PATH;
+            const fallback = "## 잔소리\n\n리뷰 세션이 요약을 생성하지 못했습니다. workflow run 로그를 확인해 주세요.\n";
+            const summary = existsSync(path) ? readFileSync(path, "utf8").trim() : "";
+            const body = summary.length > 0 ? summary : fallback;
+            const url = "https://api.github.com/repos/" + process.env.GITHUB_REPOSITORY
+              + "/issues/" + process.env.PR_NUMBER + "/comments";
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                authorization: "Bearer " + process.env.GH_TOKEN,
+                accept: "application/vnd.github+json",
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({ body }),
+            });
+            if (!response.ok) {
+              console.error("comment post failed:", response.status, await response.text());
+              process.exit(1);
+            }
+          '

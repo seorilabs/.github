@@ -22,13 +22,16 @@ schedules:
       - "18:25"
       - "21:25"
     mode: sequential-drain
-    workItemConcurrency: 1
-    workItemAttemptsPerRun: 1
-    continueAfterItemBlocker: true
+    candidateSet: run-start
+    revalidateBeforeEachAttempt: true
+    maxConcurrentIssues: 1
+    maxAttemptsPerIssuePerRun: 1
+    blockedIssuePolicy: continue-next-unattempted
+    executionBudgetSource: automation-occurrence
     stopConditions:
-      - no-unattempted-eligible-work
+      - eligible-queue-exhausted
       - execution-budget-exhausted
-      - global-safety-blocker
+      - global-safety-blocked
     priorityOrder:
       - P1
       - P2

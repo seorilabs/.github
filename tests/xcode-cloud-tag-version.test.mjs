@@ -54,6 +54,7 @@ test('Xcode Cloud는 exact tag commit에서만 Apple version binding을 만든�
       infoPlist: fixture.infoPlist,
       expectedSourceSha: fixture.sourceSha,
     });
+    assert.equal(binding.runtimeVersionCode, 1001002003);
     assert.equal(binding.appleMarketingVersion, '1.2.3');
     assert.equal(binding.appleBuildNumber, 1002003);
     assert.equal(binding.sourceSha, fixture.sourceSha);
@@ -131,6 +132,7 @@ test('Xcode Cloud CLI dry-run은 plist를 바꾸지 않고 공개 binding만 출
     assert.deepEqual(JSON.parse(result.stdout), {
       tag: 'v1.2.3',
       sourceSha: fixture.sourceSha,
+      runtimeVersionCode: 1001002003,
       appleMarketingVersion: '1.2.3',
       appleBuildNumber: 1002003,
       applied: false,

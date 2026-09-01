@@ -8,6 +8,7 @@ import { parse } from 'yaml';
 import {
   buildHostEncryptedMountAttestation,
   buildRuntimeStateAttestationMarker,
+  validateHostEncryptionPolicy,
   validateHostEncryptedMountAttestation,
   validateHostEncryptedMountMarkerDigest,
   validateRuntimeStateAttestationMarker,
@@ -22,6 +23,32 @@ const fleet = parse(await readFile(
   'utf8',
 ));
 const state = fleet.authBroker.state;
+
+test('verified host policy requires the exact reboot receipt evidence', () => {
+  assert.equal(validateHostEncryptionPolicy(state).status, 'verified');
+
+  const missing = structuredClone(state);
+  delete missing.hostEncryption.verification;
+  assert.throws(
+    () => validateHostEncryptionPolicy(missing),
+    (error) => error?.code === 'HOST_ENCRYPTION_POLICY_INVALID',
+  );
+
+  const tampered = structuredClone(state);
+  tampered.hostEncryption.verification.receipt.currentBootId =
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  assert.throws(
+    () => validateHostEncryptionPolicy(tampered),
+    (error) => error?.code === 'HOST_ENCRYPTION_POLICY_INVALID',
+  );
+
+  const blockedWithEvidence = structuredClone(state);
+  blockedWithEvidence.hostEncryption.status = 'blocked_unverified';
+  assert.throws(
+    () => validateHostEncryptionPolicy(blockedWithEvidence),
+    (error) => error?.code === 'HOST_ENCRYPTION_POLICY_INVALID',
+  );
+});
 
 function fixture() {
   const desired = structuredClone(buildRetainVolumeList(state));

@@ -10,6 +10,28 @@ archive_sha=""
 lock_sha=""
 contract_digest=""
 confirmation=""
+bootstrap_step="INPUT_VALIDATION"
+created_staging=false
+staging=""
+
+cleanup() {
+  if [[ "$created_staging" == true ]] && [[ -d "$staging" ]] && [[ ! -L "$staging" ]]; then
+    /usr/bin/rm -rf --one-file-system -- "$staging"
+  fi
+}
+
+finish() {
+  local status="$?"
+  trap - EXIT
+  set +e
+  cleanup
+  if [[ "$status" -ne 0 ]]; then
+    printf '{"ok":false,"code":"P2_STAGE1_HOST_BOOTSTRAP_%s_FAILED"}\n' "$bootstrap_step"
+  fi
+  exit "$status"
+}
+
+trap finish EXIT
 
 for argument in "$@"; do
   case "$argument" in
@@ -59,6 +81,7 @@ for executable in "${required_executables[@]}"; do
   if [[ ! -x "$executable" ]]; then exit 126; fi
 done
 
+bootstrap_step="HOST_IDENTITY_READBACK"
 if [[ "$(/usr/bin/hostname --short)" != "$expected_hostname" ]] || \
    [[ "$(/usr/bin/uname --machine)" != "$expected_machine" ]] || \
    ! /usr/bin/ip -4 -o address show scope global | /usr/bin/awk '{print $4}' | \
@@ -76,6 +99,7 @@ if [[ "$initial_namespace" != "$self_namespace" ]] || [[ "$initial_type" != "6e7
 fi
 
 node_root="/opt/seorilabs/node-v24.16.0-linux-${node_arch}"
+bootstrap_step="NODE_RUNTIME_READBACK"
 for command in node npm npx corepack; do
   link="/usr/local/bin/${command}"
   target="${node_root}/bin/${command}"
@@ -262,10 +286,13 @@ verify_process_boundary() {
 }
 
 if [[ -e "$target" ]] || [[ -L "$target" ]]; then
+  bootstrap_step="EXISTING_SOURCE_READBACK"
   readback || exit 126
+  bootstrap_step="SHARED_BOUNDARY_RECONCILE"
   ensure_regular_file_askpass_manager \
     "$regular_file_askpass_source" "$regular_file_askpass_dropin_source"
   ensure_apply_sudoers
+  bootstrap_step="PROCESS_BOUNDARY_READBACK"
   verify_process_boundary || exit 126
   /usr/local/bin/node -e '
     const [nodeName, sourceSha, archiveSha256, packageLockSha256] = process.argv.slice(1);
@@ -275,6 +302,7 @@ if [[ -e "$target" ]] || [[ -L "$target" ]]; then
   exit 0
 fi
 
+bootstrap_step="SOURCE_ARCHIVE_READBACK"
 if [[ -L "$archive_path" ]] || [[ ! -f "$archive_path" ]]; then exit 126; fi
 archive_identity="$(/usr/bin/stat -Lc '%d:%i:%u:%g:%a:%s' "$archive_path")"
 exec 8<"$archive_path"
@@ -292,12 +320,6 @@ fi
 staging="${install_root}/.${source_sha}.staging.$$"
 /usr/bin/mkdir -m 0700 "$staging"
 created_staging=true
-cleanup() {
-  if [[ "${created_staging:-false}" == true ]] && [[ -d "$staging" ]] && [[ ! -L "$staging" ]]; then
-    /usr/bin/rm -rf --one-file-system -- "$staging"
-  fi
-}
-trap cleanup EXIT INT TERM
 
 /usr/bin/tar --extract --file=/proc/self/fd/8 --directory="$staging" --no-same-owner --no-same-permissions
 if /usr/bin/find "$staging" -type l -print -quit | /usr/bin/grep -q .; then exit 126; fi
@@ -305,8 +327,55 @@ if [[ "$(/usr/bin/sha256sum "$staging/package-lock.json" | /usr/bin/awk '{print 
   exit 126
 fi
 
-(cd "$staging" && /usr/local/bin/npm ci --ignore-scripts --no-bin-links --workspaces=false \
-  --audit=false --fund=false >/dev/null)
+bootstrap_step="DEPENDENCY_INSTALL"
+npm_home="$staging/.npm-home"
+npm_cache="$staging/.npm-cache"
+npm_tmp="$staging/.npm-tmp"
+npm_log="$staging/.npm-install.log"
+npm_user_config="$npm_home/user.npmrc"
+npm_global_config="$npm_home/global.npmrc"
+/usr/bin/mkdir -m 0700 "$npm_home" "$npm_cache" "$npm_tmp"
+/usr/bin/install -m 0600 /dev/null "$npm_user_config"
+/usr/bin/install -m 0600 /dev/null "$npm_global_config"
+if ! (cd "$staging" && /usr/bin/env -i \
+  HOME="$npm_home" \
+  PATH=/usr/local/bin:/usr/bin:/bin \
+  TMPDIR="$npm_tmp" \
+  NPM_CONFIG_CACHE="$npm_cache" \
+  NPM_CONFIG_USERCONFIG="$npm_user_config" \
+  NPM_CONFIG_GLOBALCONFIG="$npm_global_config" \
+  NPM_CONFIG_AUDIT=false \
+  NPM_CONFIG_FUND=false \
+  NPM_CONFIG_UPDATE_NOTIFIER=false \
+  NPM_CONFIG_PROGRESS=false \
+  NPM_CONFIG_COLOR=false \
+  NPM_CONFIG_LOGLEVEL=error \
+  /usr/local/bin/npm ci --ignore-scripts --no-bin-links \
+    >"$npm_log" 2>&1); then
+  if /usr/bin/grep -Eiq 'ENOSPC|no space left on device' "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_STORAGE"
+  elif /usr/bin/grep -Eiq \
+    'EAI_AGAIN|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|ECONNREFUSED|ECONNRESET' \
+    "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_NETWORK"
+  elif /usr/bin/grep -Eiq \
+    'CERT_|certificate|UNABLE_TO_VERIFY_LEAF_SIGNATURE|SELF_SIGNED_CERT' "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_TLS"
+  elif /usr/bin/grep -Eiq 'E401|E403|Unable to authenticate|authentication token' "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_REGISTRY_AUTH"
+  elif /usr/bin/grep -Eiq 'EINTEGRITY|integrity checksum failed' "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_INTEGRITY"
+  elif /usr/bin/grep -Eiq 'EACCES|EPERM' "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_FILE_ACCESS"
+  elif /usr/bin/grep -Eiq 'EUSAGE|package-lock|npm-shrinkwrap' "$npm_log"; then
+    bootstrap_step="DEPENDENCY_INSTALL_LOCKFILE"
+  else
+    bootstrap_step="DEPENDENCY_INSTALL_UNKNOWN"
+  fi
+  exit 126
+fi
+/usr/bin/rm -rf --one-file-system -- "$npm_home" "$npm_cache" "$npm_tmp" "$npm_log"
+bootstrap_step="DEPENDENCY_GRAPH_READBACK"
 workspace_parent="$staging/node_modules/@seorilabs"
 for workspace in repo-contract seori-auth; do
   workspace_link="$workspace_parent/$workspace"
@@ -322,6 +391,7 @@ for workspace in repo-contract seori-auth; do
   /usr/bin/rm -- "$workspace_link"
 done
 /usr/bin/rmdir -- "$workspace_parent"
+bootstrap_step="NATIVE_BOUNDARY_BUILD"
 /usr/local/bin/node "$staging/tools/seori-auth/scripts/build-native.mjs" \
   "$staging/tools/seori-auth/.build/seori-auth-native" >/dev/null
 /usr/local/bin/node "$staging/scripts/fleet/build-p2-process-hardening-boundary.mjs" \
@@ -341,6 +411,7 @@ staging_regular_file_askpass_dropin="$staging/contracts/systemd/clevis-luks-askp
 native_sha="$(/usr/bin/sha256sum "$staging_native" | /usr/bin/awk '{print $1}')"
 process_sha="$(/usr/bin/sha256sum "$staging_process" | /usr/bin/awk '{print $1}')"
 record_sha="$(/usr/bin/sha256sum "$staging_record" | /usr/bin/awk '{print $1}')"
+bootstrap_step="SHARED_BOUNDARY_RECONCILE"
 /usr/bin/install -d -o root -g root -m 0755 /usr/local/libexec
 install_exact_helper "$staging_native" "$native_launcher" "$native_sha"
 install_exact_helper "$staging_process" "$process_boundary" "$process_sha"
@@ -353,6 +424,7 @@ else
   regular_file_askpass_sha=""
   regular_file_askpass_dropin_sha=""
 fi
+bootstrap_step="SOURCE_RECEIPT_PUBLISH"
 /usr/local/bin/node -e '
   const fs = require("node:fs");
   const [path,nodeName,sourceSha,archiveSha256,packageLockSha256,nativeHelperPath,nativeHelperSha256,
@@ -382,10 +454,14 @@ fi
 /usr/bin/find "$staging" -type d -exec /usr/bin/chmod go-w {} +
 /usr/bin/find "$staging" -type f -exec /usr/bin/chmod go-w {} +
 
+bootstrap_step="SOURCE_DIRECTORY_PUBLISH"
 /usr/bin/mv --no-clobber -T "$staging" "$target"
 created_staging=false
+bootstrap_step="FINAL_SOURCE_READBACK"
 readback || exit 126
+bootstrap_step="SUDOERS_RECONCILE"
 ensure_apply_sudoers
+bootstrap_step="PROCESS_BOUNDARY_READBACK"
 verify_process_boundary || exit 126
 /usr/bin/sync -f "$install_root"
 /usr/local/bin/node -e '

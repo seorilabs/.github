@@ -54,6 +54,11 @@ test("registry 정적 자격증명 없이 repository identity만 사용한다", 
   assert.doesNotMatch(source, /REGISTRY_(?:USERNAME|PASSWORD)|PAT/u);
 });
 
+test("Auth Broker image는 Actions cache storage를 사용하지 않는다", () => {
+  assert.doesNotMatch(source, /cache-(?:from|to):\s*type=gha/u);
+  assert.doesNotMatch(source, /scope=seori-auth-arm64/u);
+});
+
 test("발행 tag는 source SHA이고 소비 증거는 exact digest다", () => {
   const publishStep = step("Publish immutable ARM64 image with provenance");
   const verify = step("Verify the exact pushed digest");

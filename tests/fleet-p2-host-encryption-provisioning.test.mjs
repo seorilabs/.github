@@ -673,12 +673,27 @@ test('success path backs up, provisions once, writes canonical marker and verifi
 
   const persistentState = JSON.parse(await readFile(fixture.state, 'utf8'));
   persistentState.bootId = '22222222-2222-4222-8222-222222222222';
+  persistentState.loopNumber = 8;
+  persistentState.dmMajor = 254;
+  persistentState.dmMinor = 0;
   await writeFile(fixture.state, `${JSON.stringify(persistentState)}\n`, 'utf8');
   const rebootResult = await runHost(fixture, 'reboot-readback', [
     `--kubeconfig=${fixture.kubeconfig}`,
     ...tangFlags(fixture),
   ]);
   assert.equal(JSON.parse(rebootResult.stdout).state, 'HOST_ENCRYPTED_MOUNT_REBOOT_VERIFIED');
+  const rebootCallsBeforeRetry = (await readFile(fixture.log, 'utf8')).trim().split('\n').length;
+  const retriedRebootResult = await runHost(fixture, 'reboot-readback', [
+    `--kubeconfig=${fixture.kubeconfig}`,
+    ...tangFlags(fixture),
+  ]);
+  assert.deepEqual(JSON.parse(retriedRebootResult.stdout), JSON.parse(rebootResult.stdout));
+  const retryCalls = (await readFile(fixture.log, 'utf8')).trim().split('\n')
+    .slice(rebootCallsBeforeRetry)
+    .map((line) => JSON.parse(line));
+  assert.equal(retryCalls.some(({ executable, args }) =>
+    executable === filesystemBoundaryExecutable &&
+    args.join('\0') === ['publish-record', 'reboot'].join('\0')), false);
   const markerPath = join(
     fixture.root,
     'var/lib/seori-auth/.seorilabs-host-encrypted-mount.json',
@@ -1218,6 +1233,25 @@ test('mapper readback rejects a lookalike loop backing file', async (context) =>
     `--kubeconfig=${fixture.kubeconfig}`,
     ...tangFlags(fixture),
   ], 'P2_HOST_MAPPER_BACKING_DRIFT', 'wrong-backing');
+});
+
+test('mapper readback exact-binds the dm UUID to the LUKS UUID and mapper name', async (context) => {
+  const fixture = await createFixture();
+  context.after(() => fixture.cleanup());
+  await runHost(fixture, 'backup', [
+    `--confirmation=${confirmationSet.backup}`,
+    `--kubeconfig=${fixture.kubeconfig}`,
+  ]);
+  await runHost(fixture, 'apply', [
+    `--confirmation=${confirmationSet.apply}`,
+    `--kubeconfig=${fixture.kubeconfig}`,
+    `--recovery-key-file=${fixture.recoveryKey}`,
+    ...tangFlags(fixture),
+  ]);
+  await expectHostFailure(fixture, 'readback', [
+    `--kubeconfig=${fixture.kubeconfig}`,
+    ...tangFlags(fixture),
+  ], 'P2_HOST_MAPPER_BACKING_DRIFT', 'wrong-dm-uuid');
 });
 
 test('native filesystem boundary uses fixed dirfds and atomic no-clobber operations', async () => {

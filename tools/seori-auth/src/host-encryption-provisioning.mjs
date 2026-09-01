@@ -592,6 +592,16 @@ export function validateMountedFilesystem({ source, filesystemType, target, cont
   return freeze({ source, filesystemType, target });
 }
 
+function stableMapperBackingIdentity(mapperBacking) {
+  return {
+    mapperName: mapperBacking.mapperName,
+    mapperPath: mapperBacking.mapperPath,
+    dmUuid: mapperBacking.dmUuid.toUpperCase(),
+    sourcePath: mapperBacking.sourcePath,
+    sourceIdentityDigest: mapperBacking.sourceIdentityDigest,
+  };
+}
+
 export function validateMapperBackingAttestation({
   contract,
   luksUuid,
@@ -599,6 +609,11 @@ export function validateMapperBackingAttestation({
   mapperBacking,
 }) {
   const normalizedUuid = luksUuid?.replaceAll('-', '').toUpperCase();
+  const mapperName = contract?.target?.mapperName;
+  // cryptsetup dm_prepare_uuid appends the mapper name verbatim after the normalized LUKS UUID.
+  const expectedDmUuid = typeof mapperName === 'string'
+    ? `CRYPT-LUKS2-${normalizedUuid}-${mapperName.toUpperCase()}`
+    : '';
   if (
     !LUKS_UUID.test(luksUuid ?? '') || !validPathIdentity(sourceIdentity, 'file', true) ||
     !exactKeys(mapperBacking, MAPPER_BACKING_KEYS) ||
@@ -609,8 +624,7 @@ export function validateMapperBackingAttestation({
     !DEVICE_ID.test(mapperBacking.backingDeviceId ?? '') ||
     !DEVICE_ID.test(mapperBacking.dmDeviceId ?? '') ||
     typeof mapperBacking.dmUuid !== 'string' ||
-    !new RegExp(`^CRYPT-LUKS2-${normalizedUuid}-[A-Z0-9+_.:-]+$`, 'u')
-      .test(mapperBacking.dmUuid.toUpperCase()) ||
+    mapperBacking.dmUuid.toUpperCase() !== expectedDmUuid ||
     mapperBacking.sourceIdentityDigest !== canonicalDigest(sourceIdentity)
   ) stop('P2_HOST_MAPPER_BACKING_DRIFT');
   return freeze(structuredClone(mapperBacking));
@@ -709,22 +723,39 @@ export function validateProvisionedHostAttestation({
     !SHA256.test(provisioned.headerBackupSha256 ?? '') ||
     !validPathIdentity(provisioned.headerBackupIdentity, 'file', true) ||
     !validPathIdentity(provisioned.sourceIdentity, 'file', true) ||
-    !isDeepStrictEqual(provisioned.headerBackupIdentity, headerBackupIdentity) ||
-    !isDeepStrictEqual(provisioned.sourceIdentity, sourceIdentity) ||
-    !isDeepStrictEqual(provisioned.mapperBacking, mapperBacking) ||
-    !SHA256.test(provisioned.configurationSha256 ?? '') ||
-    provisioned.preBackupDigest !== backup.observedDigest ||
-    !isDeepStrictEqual(
-      provisioned.tangAttestationDigests,
-      tang.map(({ observedDigest }) => observedDigest),
-    )
+    !SHA256.test(provisioned.configurationSha256 ?? '')
   ) stop('P2_HOST_PROVISION_ATTESTATION_MISMATCH');
-  validateMapperBackingAttestation({
+  if (!isDeepStrictEqual(provisioned.headerBackupIdentity, headerBackupIdentity)) {
+    stop('P2_HOST_PROVISION_HEADER_BACKUP_IDENTITY_DRIFT');
+  }
+  if (!isDeepStrictEqual(provisioned.sourceIdentity, sourceIdentity)) {
+    stop('P2_HOST_PROVISION_SOURCE_IDENTITY_DRIFT');
+  }
+  const provisionedMapperBacking = validateMapperBackingAttestation({
+    contract,
+    luksUuid: provisioned.luksUuid,
+    sourceIdentity: provisioned.sourceIdentity,
+    mapperBacking: provisioned.mapperBacking,
+  });
+  const currentMapperBacking = validateMapperBackingAttestation({
     contract,
     luksUuid: provisioned.luksUuid,
     sourceIdentity,
-    mapperBacking: provisioned.mapperBacking,
+    mapperBacking,
   });
+  if (!isDeepStrictEqual(
+    stableMapperBackingIdentity(provisionedMapperBacking),
+    stableMapperBackingIdentity(currentMapperBacking),
+  )) {
+    stop('P2_HOST_PROVISION_MAPPER_BACKING_DRIFT');
+  }
+  if (provisioned.preBackupDigest !== backup.observedDigest) {
+    stop('P2_HOST_PROVISION_PRE_BACKUP_DRIFT');
+  }
+  if (!isDeepStrictEqual(
+    provisioned.tangAttestationDigests,
+    tang.map(({ observedDigest }) => observedDigest),
+  )) stop('P2_HOST_PROVISION_TANG_ATTESTATION_DRIFT');
   validateHostEncryptedMountAttestation({
     state,
     stateVolumeAttestation,

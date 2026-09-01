@@ -116,12 +116,16 @@ function eligible(issue, environment = "local") {
   return environment === "local" || issue.labels.includes("autopilot:cloud");
 }
 
-function orderedQueue(issues, environment = "local") {
+function issueAttemptKey(issue) {
+  return `${issue.repository}#${issue.number}`;
+}
+
+function orderedEligibleQueue(issues, environment = "local", attempted = new Set()) {
   const priority = new Map(
     policy.schedules.processing.priorityOrder.map((label, index) => [label, index]),
   );
   return issues
-    .filter((issue) => eligible(issue, environment))
+    .filter((issue) => eligible(issue, environment) && !attempted.has(issueAttemptKey(issue)))
     .sort((left, right) => {
       const leftPriority = left.labels.find((label) => priority.has(label));
       const rightPriority = right.labels.find((label) => priority.has(label));
@@ -140,19 +144,28 @@ test("자율 이슈 정책은 JSON Schema를 통과한다", () => {
   assert.equal(validate(policy), true, JSON.stringify(validate.errors));
 });
 
-test("처리는 실행당 건수 상한 없이 한 항목씩 직렬로 큐를 소진한다", () => {
+test("v2 처리 계약은 등록 1건 상한과 실행당 직렬 drain을 분리한다", () => {
   assert.equal(policy.schemaVersion, 2);
   assert.equal(policy.id, "seorilabs-autonomous-issue-policy-v2");
-  assert.equal("maxIssuesPerRun" in policy.schedules.processing, false);
-  assert.equal(policy.schedules.processing.mode, "sequential-drain");
-  assert.equal(policy.schedules.processing.workItemConcurrency, 1);
-  assert.equal(policy.schedules.processing.workItemAttemptsPerRun, 1);
-  assert.equal(policy.schedules.processing.continueAfterItemBlocker, true);
-  assert.deepEqual(policy.schedules.processing.stopConditions, [
-    "no-unattempted-eligible-work",
-    "execution-budget-exhausted",
-    "global-safety-blocker",
-  ]);
+  assert.equal(policy.schedules.registration.maxIssuesPerRun, 1);
+  assert.equal(Object.hasOwn(policy.schedules.processing, "maxIssuesPerRun"), false);
+  assert.deepEqual(policy.schedules.processing, {
+    localTimes: ["06:25", "09:25", "12:25", "15:25", "18:25", "21:25"],
+    mode: "sequential-drain",
+    candidateSet: "run-start",
+    revalidateBeforeEachAttempt: true,
+    maxConcurrentIssues: 1,
+    maxAttemptsPerIssuePerRun: 1,
+    blockedIssuePolicy: "continue-next-unattempted",
+    executionBudgetSource: "automation-occurrence",
+    stopConditions: [
+      "eligible-queue-exhausted",
+      "execution-budget-exhausted",
+      "global-safety-blocked",
+    ],
+    priorityOrder: ["P1", "P2", "P3", "P4"],
+    tieBreakers: ["createdAt", "number"],
+  });
 });
 
 test("22개 제품은 양쪽 ENABLED이고 6개 제외 제품은 양쪽 EXCLUDED다", () => {
@@ -240,20 +253,25 @@ test("로컬 의존성은 local, 저장소와 CI만 필요한 작업은 cloud로
   assert.equal(routeFor({ sources: ["unknown-source"], requirements: [] }), "autopilot:local");
 });
 
-test("처리 큐는 차단 gate 뒤 P1부터 오래된 순으로 모든 적격 항목을 정렬한다", () => {
+test("처리 후보 전체를 차단 gate 뒤 P1부터 오래된 순으로 정렬한다", () => {
   const base = {
     repository: "seorilabs/lizard-tycoon",
     state: "OPEN",
     hasClosingPullRequest: false,
   };
-  const queue = orderedQueue([
+  const issues = [
     { ...base, number: 9, createdAt: "2026-08-01T00:00:00Z", labels: ["autopilot", "autopilot:local", "P2"] },
     { ...base, number: 8, createdAt: "2026-08-02T00:00:00Z", labels: ["autopilot", "autopilot:cloud", "P1"] },
     { ...base, number: 7, createdAt: "2026-08-01T00:00:00Z", labels: ["autopilot", "autopilot:cloud", "P1"] },
     { ...base, number: 6, createdAt: "2026-07-01T00:00:00Z", labels: ["autopilot", "autopilot:cloud", "P1", "blocked"] },
     { ...base, number: 5, createdAt: "2026-06-01T00:00:00Z", labels: ["autopilot", "autopilot:cloud", "P1", "approval:planning"] },
-  ]);
-  assert.deepEqual(queue.map(({ number }) => number), [7, 8, 9]);
+  ];
+  assert.deepEqual(orderedEligibleQueue(issues).map(({ number }) => number), [7, 8, 9]);
+  assert.deepEqual(
+    orderedEligibleQueue(issues, "local", new Set(["seorilabs/lizard-tycoon#7"]))
+      .map(({ number }) => number),
+    [8, 9],
+  );
 });
 
 test("클라우드는 cloud 라벨만 선택하고 제외 저장소는 항상 건너뛴다", () => {
@@ -283,5 +301,5 @@ test("클라우드는 cloud 라벨만 선택하고 제외 저장소는 항상 �
       labels: ["autopilot", "autopilot:cloud", "P1"],
     },
   ];
-  assert.deepEqual(orderedQueue(issues, "cloud").map(({ number }) => number), [2]);
+  assert.deepEqual(orderedEligibleQueue(issues, "cloud").map(({ number }) => number), [2]);
 });

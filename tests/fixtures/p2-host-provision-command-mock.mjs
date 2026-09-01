@@ -306,7 +306,7 @@ if (executable === '/usr/sbin/cryptsetup') {
     outputRaw([
       '/dev/mapper/seori-auth-state is active and is in use.',
       '  type:    LUKS2',
-      '  device:  /dev/loop7',
+      `  device:  /dev/loop${state.loopNumber ?? 7}`,
       `  loop:    ${scenario === 'wrong-backing' ? '/data/lookalike/seori-auth-state.luks' : '/data/seori-auth/seori-auth-state.luks'}`,
       '',
     ].join('\n'));
@@ -346,17 +346,23 @@ if (executable === '/usr/sbin/cryptsetup') {
 }
 
 if (executable === '/usr/sbin/dmsetup') {
-  output(`seori-auth-state|CRYPT-LUKS2-${LUKS_UUID.replaceAll('-', '')}-seori--auth--state|253|7`);
+  const dmUuid = scenario === 'wrong-dm-uuid'
+    ? `CRYPT-LUKS2-${LUKS_UUID.replaceAll('-', '')}-lookalike`
+    : `CRYPT-LUKS2-${LUKS_UUID.replaceAll('-', '')}-seori-auth-state`;
+  output(
+    `seori-auth-state|${dmUuid}|${state.dmMajor ?? 253}|${state.dmMinor ?? 7}`,
+  );
 }
 
 if (executable === '/usr/sbin/losetup') {
+  const loopNumber = state.loopNumber ?? 7;
   output({
     loopdevices: [{
-      name: '/dev/loop7',
+      name: `/dev/loop${loopNumber}`,
       'back-file': scenario === 'wrong-backing'
         ? '/data/lookalike/seori-auth-state.luks'
         : '/data/seori-auth/seori-auth-state.luks',
-      'maj:min': '  7:7  ',
+      'maj:min': `  7:${loopNumber}  `,
     }],
   });
 }

@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   FoundationReadinessError,
   auditFoundationReadiness,
+  loadHostReadbackRbac,
 } from '../tools/seori-auth/scripts/audit-foundation-readiness.mjs';
 import { buildRetainVolumeList } from '../tools/seori-auth/src/state-envelope.mjs';
 
@@ -17,6 +18,7 @@ const { stdout } = await execFileAsync(process.execPath, [
   'auth-broker-foundation',
 ]);
 const desired = JSON.parse(stdout);
+const declaredRbac = await loadHostReadbackRbac();
 const namespace = 'auth-broker';
 
 function liveResource(resource) {
@@ -30,7 +32,7 @@ function liveResource(resource) {
   if (['Certificate', 'Issuer'].includes(resource.kind)) {
     live.status = { conditions: [{ type: 'Ready', status: 'True' }] };
   }
-  if (resource.kind === 'Role') live.rules = null;
+  if (resource.kind === 'Role' && resource.rules?.length === 0) live.rules = null;
   if (resource.kind === 'Service') {
     live.spec = {
       clusterIP: '10.152.183.10',
@@ -61,6 +63,7 @@ function withExternalGateState(source, ready) {
   binding.secretManager.provisioning.state = externalState;
   binding.state.protection.status = ready ? 'verified' : 'blocked_unverified';
   binding.state.hostEncryption.status = ready ? 'verified' : 'blocked_unverified';
+  if (!ready) delete binding.state.hostEncryption.verification;
   configMap.data['bindings.json'] = JSON.stringify(binding);
   return copy;
 }
@@ -89,6 +92,7 @@ function liveStateResources(desiredState) {
 function readerFixture({
   allowedSecretAuthorization = [],
   desiredState = desired,
+  missingResources = [],
   mutate,
   networkSurfaceItems,
   namespaceRbacItems,
@@ -97,11 +101,12 @@ function readerFixture({
   stateMutation,
   staleConfigMaps = [],
 } = {}) {
-  const resources = new Map(desiredState.items.map((resource) => {
+  const resources = new Map([...desiredState.items, ...declaredRbac.items].map((resource) => {
     const live = liveResource(resource);
     mutate?.(live);
     return [resourceKey(resource.kind, resource.metadata.name), live];
   }));
+  for (const { kind, name } of missingResources) resources.delete(resourceKey(kind, name));
   const stateResources = liveStateResources(desiredState);
   stateMutation?.(stateResources);
   if (!['missing-both', 'missing-pv'].includes(stateScenario)) {
@@ -131,7 +136,7 @@ function readerFixture({
         return { apiVersion: 'v1', kind: 'List', items: [current, ...staleConfigMaps] };
       }
       if (kinds.includes('roles')) {
-        const exact = desiredState.items
+        const exact = [...desiredState.items, ...declaredRbac.items]
           .filter(({ kind }) => ['Role', 'RoleBinding'].includes(kind))
           .map(({ kind, metadata }) => resources.get(resourceKey(kind, metadata.name)));
         return { apiVersion: 'v1', kind: 'List', items: namespaceRbacItems ?? exact };
@@ -179,6 +184,44 @@ test('readiness auditor exact-matches live foundation and remains blocked by cur
   assert.ok(reader.calls.every((call) => ['get', 'list', 'canI'].includes(call.operation)));
   assert.ok(reader.calls.every((call) =>
     call.operation === 'canI' || (call.kind !== 'Secret' && !call.kinds?.includes('secrets'))));
+  assert.ok(reader.calls.some(({ operation, kind }) => operation === 'get' && kind === 'ClusterRole'));
+  assert.ok(reader.calls.some(({ operation, kind }) => operation === 'get' && kind === 'ClusterRoleBinding'));
+});
+
+test('host readback RBAC는 중앙 계약과 정확히 일치해야 하고 권한 확대를 거부한다', async () => {
+  const drift = await auditFoundationReadiness({
+    desired,
+    reader: readerFixture({
+      mutate(resource) {
+        if (resource.kind === 'ClusterRole' && resource.metadata.name === 'seori-p2-host-readback-rpi5') {
+          resource.rules[0].resources.push('secrets');
+        }
+      },
+    }),
+    context,
+  });
+  assert.ok(drift.diagnostics.some(({ code, kind }) =>
+    code === 'HOST_READBACK_RBAC_RESOURCE_DRIFT' && kind === 'ClusterRole'));
+
+  const missing = await auditFoundationReadiness({
+    desired,
+    reader: readerFixture({
+      missingResources: [{ kind: 'ClusterRoleBinding', name: 'seori-p2-host-readback-rpi5' }],
+    }),
+    context,
+  });
+  assert.ok(missing.diagnostics.some(({ code, kind }) =>
+    code === 'HOST_READBACK_RBAC_RESOURCE_MISSING' && kind === 'ClusterRoleBinding'));
+
+  const unsafeContract = structuredClone(declaredRbac);
+  unsafeContract.items.find(({ kind }) => kind === 'Role').rules[0].resources.push('secrets');
+  const reader = readerFixture();
+  await assert.rejects(
+    auditFoundationReadiness({ desired, declaredRbac: unsafeContract, reader, context }),
+    (error) => error instanceof FoundationReadinessError &&
+      error.code === 'HOST_READBACK_RBAC_CONTRACT_INVALID',
+  );
+  assert.deepEqual(reader.calls, []);
 });
 
 test('self-declared verified 상태는 exact PV/PVC readback 없이는 READY가 되지 않는다', async () => {
@@ -286,7 +329,7 @@ test('readiness auditor rejects additive namespace and effective cluster Secret 
     roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'Role', name: 'secret-reader' },
     subjects: [{ kind: 'ServiceAccount', name: 'auth-broker', namespace }],
   };
-  const expectedRbac = desired.items
+  const expectedRbac = [...desired.items, ...declaredRbac.items]
     .filter(({ kind }) => ['Role', 'RoleBinding'].includes(kind))
     .map(liveResource);
   const clusterBinding = {

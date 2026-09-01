@@ -53,9 +53,12 @@
           "required": [
             "localTimes",
             "mode",
-            "workItemConcurrency",
-            "workItemAttemptsPerRun",
-            "continueAfterItemBlocker",
+            "candidateSet",
+            "revalidateBeforeEachAttempt",
+            "maxConcurrentIssues",
+            "maxAttemptsPerIssuePerRun",
+            "blockedIssuePolicy",
+            "executionBudgetSource",
             "stopConditions",
             "priorityOrder",
             "tieBreakers"
@@ -66,15 +69,18 @@
               "const": ["06:25", "09:25", "12:25", "15:25", "18:25", "21:25"]
             },
             "mode": { "const": "sequential-drain" },
-            "workItemConcurrency": { "const": 1 },
-            "workItemAttemptsPerRun": { "const": 1 },
-            "continueAfterItemBlocker": { "const": true },
+            "candidateSet": { "const": "run-start" },
+            "revalidateBeforeEachAttempt": { "const": true },
+            "maxConcurrentIssues": { "const": 1 },
+            "maxAttemptsPerIssuePerRun": { "const": 1 },
+            "blockedIssuePolicy": { "const": "continue-next-unattempted" },
+            "executionBudgetSource": { "const": "automation-occurrence" },
             "stopConditions": {
               "type": "array",
               "const": [
-                "no-unattempted-eligible-work",
+                "eligible-queue-exhausted",
                 "execution-budget-exhausted",
-                "global-safety-blocker"
+                "global-safety-blocked"
               ]
             },
             "priorityOrder": {

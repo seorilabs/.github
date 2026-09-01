@@ -54,8 +54,8 @@ jobs:
           build-args: SOURCE_REVISION=${{ github.sha }}
           provenance: false
           sbom: false
-          cache-from: type=gha,scope=seori-auth-arm64
-          cache-to: type=gha,mode=max,scope=seori-auth-arm64
+          # 같은 job의 publish step이 동일 Buildx builder를 재사용한다. run 간
+          # GHA cache export는 작은 broker image보다 저장공간 비용이 더 크다.
 
       - name: Run non-secret container canary
         run: >-
@@ -80,7 +80,6 @@ jobs:
           build-args: SOURCE_REVISION=${{ github.sha }}
           provenance: mode=max
           sbom: true
-          cache-from: type=gha,scope=seori-auth-arm64
 
       - name: Verify the exact pushed digest
         env:

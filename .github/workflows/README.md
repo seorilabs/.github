@@ -45,6 +45,7 @@
 | `rn-deploy-app-store.yml` | RN GitHub-hosted App Store 경로 — legacy migration 대상 | macos-26 |
 | `godot-deploy-app-store.yml` | Godot GitHub-hosted App Store 경로 — legacy migration 대상 | macos-26 |
 | `cleanup-actions-storage.yml` | 아티팩트/캐시 정리 | ARC |
+| `jansoree-review-v1.yml` | PR diff를 MiniMax 브레인 Claude Code로 리뷰하고 jansoree 앱 명의로 코멘트 게시(파일럿, review-policy 계약 미전환) | private ARC, public ubuntu |
 
 ## @ref 핀 정책
 

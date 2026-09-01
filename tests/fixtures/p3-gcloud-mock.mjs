@@ -23,7 +23,7 @@ function output(value) {
 }
 
 function notFound() {
-  process.stderr.write("NOT_FOUND\n");
+  process.stderr.write(state.notFoundDiagnostic ?? "NOT_FOUND\n");
   process.exit(1);
 }
 
@@ -98,9 +98,29 @@ function policyFor(target) {
     if (!members.includes(item.member)) members.push(item.member);
     roles.set(item.role, members);
   }
+  const conditionalBindings = (state.conditionalPolicies ?? [])
+    .filter(({ resourceType, resource }) =>
+      resourceType === target.resourceType && resource === target.resource,
+    )
+    .flatMap(({ bindings }) => bindings);
+  const bindings = [
+    ...[...roles.entries()].map(([role, members]) => ({ role, members })),
+    ...conditionalBindings,
+  ];
   return {
-    bindings: [...roles.entries()].map(([role, members]) => ({ role, members })),
+    etag: "mock-policy-etag",
+    version: conditionalBindings.length === 0 ? 1 : 3,
+    ...(bindings.length === 0 ? {} : { bindings }),
   };
+}
+
+const commandFailure = state.commandFailures?.find(({ prefix }) =>
+  prefix.every((argument, index) => args[index] === argument),
+);
+if (commandFailure) {
+  process.stdout.write(commandFailure.stdout ?? "");
+  process.stderr.write(commandFailure.stderr ?? "");
+  process.exit(1);
 }
 
 if (args[0] === "projects" && args[1] === "describe") {
@@ -263,8 +283,19 @@ if (
   const target = bindingTarget();
   const verb = bindingVerb();
   if (verb === "get-iam-policy") {
-    output(policyFor(target));
+    const policy = policyFor(target);
+    output(args.includes("--format=json(bindings)")
+      ? (policy.bindings === undefined ? null : { bindings: policy.bindings })
+      : policy);
     process.exit(0);
+  }
+  if (
+    verb === "add-iam-policy-binding" &&
+    policyFor(target).bindings?.some(({ condition }) => condition !== undefined) &&
+    flag("--condition") !== "None"
+  ) {
+    process.stderr.write("IAM_CONDITION_MUST_BE_EXPLICIT\n");
+    process.exit(1);
   }
   const item = {
     ...target,

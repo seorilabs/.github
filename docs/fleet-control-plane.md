@@ -107,6 +107,10 @@ NetworkPolicy, cert-manager 내부 TLS와 공개 binding만 생성한다. GCP se
 실제 생성·readback되고 application envelope/Retain PVC 및 private GHCR pull identity가 확인되기
 전에는 workload와 PVC를 만들지 않는다. 현재 적용 및 blocker 근거는
 [Fleet P3 runtime 전환 기록](migration/fleet-p3-runtime-2026-08-28.md)에 고정한다.
+외부 HTTPS는 empty-RBAC `seori-auth-egress-proxy` Pod를 유일한 출구로 사용한다. namespace-scoped
+`auth-broker-egress-ca`의 private key를 다른 namespace로 복제하지 않도록 proxy도 `auth-broker`에 두되,
+exact pod selector와 mTLS SPIFFE allowlist로 broker/factor/runtime과 분리한다. 호출 workload에는 Internet
+443 egress가 없고 proxy만 exact CONNECT hostname과 public DNS answer를 검증한 뒤 443을 연다.
 rollback renderer는 namespace를 보존하며 foundation이 소유한 객체만 반환한다.
 GitHub와 GCP bootstrap은 기본 실행이 dry-run이며 exact 공개 confirmation 없이는 mutation을
 거부한다. GitHub bootstrap은 새 App을 만들지 않는다. App `4124446`, installation
@@ -411,6 +415,32 @@ ARC runner group은 public repository를 허용하지 않으므로 중앙 releas
 
 `executionAllowed`가 `true`여도 실행 허가가 아니다. 위 gate가 모두 열렸다는 뜻일 뿐이고
 wave 실행은 여전히 trusted inventory, chain-head reservation, parity 두 건을 따로 요구한다.
+
+### 2026-09-01 운영 readback
+
+Backoffice production은 source `fbef2639745e679d460c29d0bb2cfeaeb605c0f1`, image
+`sha256:e2b77012bc485b9c8748ef4a776f4221c56c7f48f38edaba6b6c134eb4c29671`로 Ready다.
+`platform` namespace에는 authoritative inventory signer의 ServiceAccount, empty Role, Service,
+NetworkPolicy와 `replicas: 0` Deployment를 적용했고 issuer의 ServiceAccount, empty Role,
+NetworkPolicy도 적용했다. signer/issuer Pod와 P7 collection/issuance Job은 0개이므로 이 상태는
+실행이나 서명을 증명하지 않는다.
+
+live DB verifier는 현재 배포 기준 append-only trigger `total=12`, `exact=12`다. legacy config
+resolution 원장의 두 trigger와 Kubernetes NetworkPolicy 정규화 수정은 Backoffice PR
+`seorilabs/seorilabs-backoffice#271`에 있으며 merge·migration·새 verifier readback 전에는 목표
+`total=14`, `exact=14`를 충족했다고 기록하지 않는다.
+
+authoritative issuer activation에는 아래 canonical logical credential이 아직 등록되지 않았다.
+값을 조회하거나 대체 키를 자동 생성하지 않는다.
+
+- `shared/platform/fleet-migration-inventory-signer-server-mtls`
+- `shared/platform/fleet-migration-inventory-issuer-client-mtls`
+- `shared/github/backoffice-app`
+
+Auth Broker exact image package는 존재하지만 GHCR visibility가 `private`이고
+`shared/github/packages-reader`도 등록되지 않았다. 공개 패키지 전환 또는 조직 machine-user의
+`read:packages` identity 중 하나를 조직 owner가 선택하고 공개 readback하기 전에는 workload를
+적용하지 않는다.
 
 ## 승계 baseline revision
 
