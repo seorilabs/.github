@@ -440,9 +440,12 @@ authoritative issuer activation에는 아래 canonical logical credential이 아
 2026-09-02 KST, 조직 owner 승인으로 Auth Broker package를 public 전환했다. 조직의
 Public package creation 설정은 즉시 원복했고, 승인 image와 최신 image를 개인 자격증명 없이
 전체 다운로드해 digest를 검증했다. registry의 정본은 `PUBLIC`/`verified_public`이며 별도
-packages reader나 pull Secret은 만들지 않는다. RPI5의 첫 non-secret canary는 image pull 뒤
-`EROFS`로 실패했다. 실패한 Job을 재생성하지 않았고 production broker는 활성화하지 않았다.
-자세한 범위와 다음 수정은 [공개 전환 기록](migration/evidence/fleet-p2-public-image-2026-09-02.json)을 본다.
+packages reader나 pull Secret은 만들지 않는다. 첫 non-secret canary의 `EROFS`는 Kubernetes
+볼륨 안에 실행 사용자 전용 임시 폴더를 만들도록 수정했다. source `9f6f1ef`의 새 image는
+ARM64 CI와 RPI5에서 `CANARY_OUTPUT_VERIFIED`를 통과했고, 일반 사용자·읽기 전용 root·
+네트워크 차단을 유지했다. 실패한 이전 Job은 보존했다. production broker는 활성화하지 않았다.
+[공개 전환 기록](migration/evidence/fleet-p2-public-image-2026-09-02.json)과
+[새 image의 RPI5 실행 결과](migration/evidence/fleet-p2-rpi5-canary-2026-09-02.json)를 본다.
 
 ## 승계 baseline revision
 

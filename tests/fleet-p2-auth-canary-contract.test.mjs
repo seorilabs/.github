@@ -23,29 +23,37 @@ function validator() {
 test("Auth Broker registry mode는 PUBLIC 또는 canonical PACKAGES_READER만 허용한다", () => {
   const validate = validator();
   assert.equal(validate(contract), true, JSON.stringify(validate.errors));
-  assert.equal(contract.authBroker.registry.mode, "PACKAGES_READER");
-  assert.equal(
-    contract.authBroker.registry.credentialId,
-    "shared/github/packages-reader",
-  );
+  assert.equal(contract.authBroker.registry.mode, "PUBLIC");
+  assert.equal(contract.authBroker.registry.packageVisibilityStatus, "verified_public");
+  assert.equal(Object.hasOwn(contract.authBroker.registry, "credentialId"), false);
+  assert.equal(Object.hasOwn(contract.authBroker.registry, "imagePullSecretName"), false);
 
   const implicit = structuredClone(contract);
   delete implicit.authBroker.registry.mode;
   assert.equal(validate(implicit), false);
 
-  const publicContract = structuredClone(contract);
-  publicContract.authBroker.registry = {
-    mode: "PUBLIC",
+  const privateContract = structuredClone(contract);
+  privateContract.authBroker.registry = {
+    mode: "PACKAGES_READER",
     server: "ghcr.io",
     repository: "ghcr.io/seorilabs/seori-auth",
-    packageVersionTag: publicContract.authBroker.imageProvenance.sourceSha,
+    packageVersionTag: privateContract.authBroker.imageProvenance.sourceSha,
+    imagePullSecretName: "seori-auth-ghcr-pull",
+    credentialId: "shared/github/packages-reader",
+    credentialKind: "github-pat-classic",
+    identityRequirement: "organization-machine-user",
     personalOperatorReuseAllowed: false,
     publicPackageAlternativeAllowed: true,
-    packageVisibilityStatus: "verified_public",
-    humanGate: publicContract.authBroker.registry.humanGate,
+    requiredScopes: ["read:packages"],
+    catalogStatus: "active",
+    kubernetesStatus: "verified",
+    humanGate: privateContract.authBroker.registry.humanGate,
   };
-  assert.equal(validate(publicContract), true, JSON.stringify(validate.errors));
+  assert.equal(validate(privateContract), true, JSON.stringify(validate.errors));
+  privateContract.authBroker.registry.packageVisibilityStatus = "verified_public";
+  assert.equal(validate(privateContract), false);
 
+  const publicContract = structuredClone(contract);
   publicContract.authBroker.registry.credentialId = "shared/github/packages-reader";
   assert.equal(validate(publicContract), false);
 });
