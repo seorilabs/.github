@@ -39,9 +39,19 @@ test("pushed sha256 digest를 검증하고 같은 digest의 canary를 실행한�
   assert.equal(publishStep.with.sbom, true);
   assert.equal(verify.env.IMAGE_DIGEST, "${{ steps.publish.outputs.digest }}");
   assert.match(verify.run, /\^sha256:\[0-9a-f\]\{64\}\$/u);
-  assert.match(verify.run, /--tmpfs \/run\/seori-auth:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532/u);
-  assert.match(verify.run, /--tmpfs \/var\/lib\/seori-auth:rw,noexec,nosuid,nodev,mode=0700,uid=65532,gid=65532/u);
+  assert.match(verify.run, /--tmpfs \/run\/seori-auth:rw,noexec,nosuid,nodev,mode=2777,uid=0,gid=65532/u);
+  assert.match(verify.run, /--tmpfs \/var\/lib\/seori-auth:rw,noexec,nosuid,nodev,mode=2777,uid=0,gid=65532/u);
   assert.match(verify.run, /"\$\{IMAGE\}@\$\{IMAGE_DIGEST\}"/u);
+});
+
+test("발행 전에 Kubernetes emptyDir 소유권으로 non-root canary를 실행한다", () => {
+  const canary = step("Run Kubernetes volume ownership canary");
+  assert.ok(publish.steps.indexOf(canary) < publish.steps.indexOf(step("Publish immutable ARM64 image with provenance")));
+  assert.match(canary.run, /docker run --rm --network none --read-only --cap-drop ALL/u);
+  assert.match(canary.run, /--security-opt no-new-privileges/u);
+  assert.match(canary.run, /--tmpfs \/run\/seori-auth:rw,noexec,nosuid,nodev,mode=2777,uid=0,gid=65532/u);
+  assert.match(canary.run, /--tmpfs \/var\/lib\/seori-auth:rw,noexec,nosuid,nodev,mode=2777,uid=0,gid=65532/u);
+  assert.doesNotMatch(canary.run, /--privileged|--user/u);
 });
 
 test("registry 정적 자격증명 없이 repository identity만 사용한다", () => {
