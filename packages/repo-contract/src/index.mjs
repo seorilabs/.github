@@ -1604,7 +1604,7 @@ async function checkReferencedContracts({
 
 // Cloud Build 무료 한도(2,500 build-min/월)는 e2-standard-2 기본 풀에만 적용된다.
 // E2_HIGHCPU_8 이나 N1_HIGHCPU_32 로 올리면 1분부터 과금되므로 상향을 계약으로 막는다.
-// 값을 생략해도 기본값이 e2-standard-2 라 허용한다.
+// 기본값 변경으로 과금되지 않도록 모든 설정이 E2_STANDARD_2 를 명시해야 한다.
 const ALLOWED_CLOUD_BUILD_MACHINE_TYPE = "E2_STANDARD_2";
 const CLOUD_BUILD_FILE_PATTERN = /(^|\/)(cloudbuild[^/]*\.ya?ml|[^/]+\.cloudbuild\.ya?ml)$/;
 const CLOUD_BUILD_SCAN_SKIP_DIRS = new Set([
@@ -1660,16 +1660,19 @@ export async function collectCloudBuildMachineTypeDiagnostics(repoRoot) {
         ? parsed.value.options.machineType
         : undefined
       : undefined;
-    if (machineType === undefined || machineType === null) continue;
     if (machineType === ALLOWED_CLOUD_BUILD_MACHINE_TYPE) continue;
+    const actualMachineType =
+      machineType === undefined || machineType === null
+        ? "생략됨"
+        : String(machineType);
     diagnostics.push(
       makeDiagnostic({
         code: "CLOUD_BUILD_MACHINE_TYPE",
         document: relativePath,
         path: "$.options.machineType",
         message:
-          `Cloud Build machineType 은 ${ALLOWED_CLOUD_BUILD_MACHINE_TYPE} 이거나 생략해야 합니다. ` +
-          `현재 값 ${String(machineType)} 은 무료 한도(2,500 build-min/월) 대상이 아니라 과금됩니다.`,
+          `Cloud Build machineType 은 ${ALLOWED_CLOUD_BUILD_MACHINE_TYPE} 을 명시해야 합니다. ` +
+          `현재 값 ${actualMachineType} 은 기본값 변경 시 무료 한도(2,500 build-min/월)를 벗어나 과금될 수 있습니다.`,
       }),
     );
   }
