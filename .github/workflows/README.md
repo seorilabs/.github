@@ -262,6 +262,11 @@ jobs:
       memo: ${{ inputs.memo }}
 ```
 
+배너 광고를 사용하는 WebView 앱은 기존 앱별 `VITE_AD_GROUP_ID`를 named secret으로
+전달하고 `require_ad_group_id: true`를 설정한다. 중앙 workflow는 누락·공백 값을
+거부하고 식별자를 검증·빌드 step에만 전달한다. 광고가 없는 기존 caller는 이 선택적
+입력을 생략한다. 광고 식별자와 공용 배포 API 키를 새로 만들거나 서로 대체하지 않는다.
+
 ### GitHub 마켓 오케스트레이터 (`.github/workflows/deploy-all.yml`, repo 로컬)
 
 ```yaml

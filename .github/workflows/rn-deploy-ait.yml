@@ -62,6 +62,11 @@ on:
         required: false
         default: "apps/ait/*.ait"
         type: string
+      require_ad_group_id:
+        description: "광고 사용 앱은 기존 VITE_AD_GROUP_ID가 없으면 빌드를 중단한다."
+        required: false
+        default: false
+        type: boolean
       timeout_minutes:
         required: false
         default: 25
@@ -70,6 +75,8 @@ on:
       APPS_IN_TOSS_API_KEY:
         required: false
       VITE_FIREBASE_API_KEY:
+        required: false
+      VITE_AD_GROUP_ID:
         required: false
 
 permissions:
@@ -241,10 +248,25 @@ jobs:
           set -euo pipefail
           if [ "$PM" = "npm" ]; then npm ci; else pnpm install --frozen-lockfile; fi
 
+      # 앱별 광고 식별자는 기존 named secret을 재사용한다. 의존성 설치나 업로드에는
+      # 전달하지 않고, 검증과 번들 생성에만 한정한다. 값 자체를 로그에 출력하지 않는다.
+      - name: Validate required ad configuration
+        shell: bash
+        env:
+          REQUIRE_AD_GROUP_ID: ${{ inputs.require_ad_group_id }}
+          VITE_AD_GROUP_ID: ${{ secrets.VITE_AD_GROUP_ID }}
+        run: |
+          set -euo pipefail
+          if [ "$REQUIRE_AD_GROUP_ID" = "true" ] && [[ ! "$VITE_AD_GROUP_ID" =~ [^[:space:]] ]]; then
+            echo "VITE_AD_GROUP_ID is required for this release build." >&2
+            exit 1
+          fi
+
       - name: Build .ait bundle (custom)
         if: inputs.build_command != ''
         shell: bash
         env:
+          VITE_AD_GROUP_ID: ${{ secrets.VITE_AD_GROUP_ID }}
           SEORI_RELEASE_TAG: ${{ steps.tag.outputs.tag }}
           SEORI_RELEASE_VERSION: ${{ steps.release.outputs.version_name }}
           SEORI_RELEASE_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
@@ -257,6 +279,7 @@ jobs:
         if: inputs.build_command == ''
         shell: bash
         env:
+          VITE_AD_GROUP_ID: ${{ secrets.VITE_AD_GROUP_ID }}
           SEORI_RELEASE_TAG: ${{ steps.tag.outputs.tag }}
           SEORI_RELEASE_VERSION: ${{ steps.release.outputs.version_name }}
           SEORI_RELEASE_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
