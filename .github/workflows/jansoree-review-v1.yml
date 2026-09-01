@@ -63,7 +63,7 @@ jobs:
         id: jansoree-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.JANSOREE_APP_ID }}
+          client-id: ${{ vars.JANSOREE_CLIENT_ID }}
           private-key: ${{ secrets.JANSOREE_APP_PRIVATE_KEY }}
 
       - name: Review with MiniMax-brained Claude Code
@@ -89,7 +89,7 @@ jobs:
             1. ${{ runner.temp }}/jansoree-review/pr.json 과 ${{ runner.temp }}/jansoree-review/pr.diff 를 Read로 읽는다. 이 diff가 리뷰 대상의 전부다.
             2. 변경된 코드에서 실제 결함만 찾는다: 정확성 오류, 경계·널·예외 처리 누락, 리소스 누수, 보안·프라이버시 노출, 데이터 손실·손상, 명백한 로직 오류. 맥락이 필요하면 체크아웃된 저장소 파일을 Read, Grep, Glob으로 확인한다. 스타일, 네이밍, 취향, 추측성 리스크, 이 PR 범위 밖 개선은 지적하지 않는다.
             3. 확실한 결함마다 mcp__github_inline_comment__create_inline_comment 도구로 해당 파일과 라인에 한국어 인라인 코멘트를 남긴다. 각 코멘트에는 결함 설명과 구체적 실패 시나리오를 담는다. 확신이 없으면 남기지 않는다.
-            4. 마지막으로 ${{ runner.temp }}/jansoree-review/summary.md 파일을 Write로 작성한다. 첫 줄은 "## Jansoree Review", 이어서 발견한 결함 수와 결함별 한 줄 요약 목록을 쓴다. 결함이 없으면 "지적할 결함을 찾지 못했습니다." 한 줄만 쓴다.
+            4. 마지막으로 ${{ runner.temp }}/jansoree-review/summary.md 파일을 Write로 작성한다. 첫 줄은 "## 잔소리", 이어서 발견한 결함 수와 결함별 한 줄 요약 목록을 쓴다. 결함이 없으면 "지적할 결함을 찾지 못했습니다." 한 줄만 쓴다.
 
             도구 호출은 위 목적에 필요한 것만 수행한다.
           claude_args: '--max-turns 30 --allowedTools "Read,Grep,Glob,Write,mcp__github_inline_comment__create_inline_comment"'
@@ -106,7 +106,7 @@ jobs:
           node --input-type=module -e '
             import { readFileSync, existsSync } from "node:fs";
             const path = process.env.SUMMARY_PATH;
-            const fallback = "## Jansoree Review\n\n리뷰 세션이 요약을 생성하지 못했습니다. workflow run 로그를 확인해 주세요.\n";
+            const fallback = "## 잔소리\n\n리뷰 세션이 요약을 생성하지 못했습니다. workflow run 로그를 확인해 주세요.\n";
             const summary = existsSync(path) ? readFileSync(path, "utf8").trim() : "";
             const body = summary.length > 0 ? summary : fallback;
             const url = "https://api.github.com/repos/" + process.env.GITHUB_REPOSITORY
