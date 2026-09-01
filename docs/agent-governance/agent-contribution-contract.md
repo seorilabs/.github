@@ -86,7 +86,7 @@
 - spec/version impact가 말이 된다.
 - 검증 결과가 PR description 또는 CI에 있다.
 - CI failure가 무시되지 않았다.
-- `contracts/review-policy.yaml`에 따라 Seori·Copilot thread가 모두 resolved이고 required check가 통과했다.
+- `contracts/review-policy.yaml`에 따라 Seori·잔소리(jansoree) thread가 모두 resolved이고 required check가 통과했다.
 - release 영향이 있으면 deployment approval 전 배포하지 않는다.
 - source-of-truth 문서가 실제 상태와 맞다.
 

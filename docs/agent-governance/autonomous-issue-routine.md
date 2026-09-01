@@ -45,7 +45,7 @@ flowchart LR
 ## 진행 중인 PR 우선
 
 - ENABLED 저장소의 열린 PR과 `closingIssuesReferences`를 완전 pagination으로 확인한다.
-- `autopilot` 이슈를 닫는 PR은 새 구현 후보보다 먼저 정렬하고 현재 HEAD, CI, Seori·Copilot thread와 mergeability를 확인한다.
+- `autopilot` 이슈를 닫는 PR은 새 구현 후보보다 먼저 정렬하고 현재 HEAD, CI, Seori·잔소리 thread와 mergeability를 확인한다.
 - 한 PR을 갱신·대기·판정하는 동안 다른 이슈를 구현하지 않는다. repo당 열린 자율 PR은 하나를 넘기지 않는다.
 - PR이 사람 승인, 외부 상태 또는 저장소별 실패로 막히면 정확한 blocker와 현재 HEAD를 기록하고 그 `repository#issue`를 이번 실행의 시도 완료로 표시한다. 공유 mutation 경계가 정상이라면 다음 미시도 저장소·이슈로 진행한다.
 
@@ -114,15 +114,15 @@ PR 본문에는 다음을 분리해 기록한다.
 
 단순 변경에는 Mermaid를 넣지 않는다. PR 생성 뒤 current HEAD와 check를 readback한다.
 
-## Seori·Copilot·머지 gate
+## Seori·잔소리·머지 gate
 
 `contracts/review-policy.yaml`을 그대로 따른다.
 
 1. Seori는 최초 인수조건 가이드이며 코드 승인자가 아니다. PR 직후 중복 `/review`를 보내지 않는다.
 2. `Seori Review=action_required`이면 각 미해결 Seori thread에 수정 결과 또는 현재 구현이 타당한 근거를 같은 thread에 한국어로 답하고 Resolve한다.
 3. 새 push 뒤 Seori AI 재리뷰나 Seori approval을 기다리지 않는다. 최초 가이드가 10분 넘게 전혀 없을 때만 복구 `/review`를 한 번 요청한다.
-4. 미해결 Seori thread가 없고 repo CI가 green인 최종 HEAD에서 `gh pr edit <PR> --add-reviewer "@copilot"`으로 Copilot review를 한 번 요청한다.
-5. Copilot 지적마다 수정·소명·후속 이슈 중 하나로 답하고 thread를 Resolve한다. `unable to review` 또는 수정이 새 함수·파일·분기를 만든 경우에만 한 번 더 요청한다. 총 요청은 두 번을 넘지 않는다.
+4. 잔소리(jansoree[bot]) advisory 리뷰는 PR 최초 턴에 자동 게시된다. 별도 요청을 보내지 않으며, 병합 전 "## 잔소리" 요약 코멘트가 존재하는지 확인한다.
+5. 잔소리 지적마다 수정·소명·후속 이슈 중 하나로 답하고 thread를 Resolve한다. 보안 민감·대형 변경은 `@codex review` 멘션으로 2차 의견을 받고 같은 기준으로 처리한다.
 6. Ready, current HEAD, required check·CI green, conflict 없음, 미해결 thread 0개를 직접 확인한다.
 7. 모든 gate가 통과하면 `gh pr merge <PR> --squash --delete-branch`로 병합한다. ruleset이나 권한이 막으면 우회하지 않는다.
 

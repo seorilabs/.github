@@ -139,31 +139,26 @@ test("모든 stack profile은 SDK git submodule 배포를 금지한다", () => {
   }
 });
 
-test("Copilot review는 최종 HEAD 최초 1회와 조건부 추가 1회로 제한된다", () => {
+test("잔소리 advisory 리뷰는 자동 1턴 게시와 thread 처리로 계약된다", () => {
   const codeReview = reviewPolicy.stages.find(
     ({ id }) => id === "code-review",
   );
-  const allowedAdditionalRequestConditions = [
-    "unable-to-review",
-    "accepted-review-fix-introduces-new-function",
-    "accepted-review-fix-introduces-new-file",
-    "accepted-review-fix-introduces-new-branch",
-  ];
+  assert.equal(codeReview.provider, "jansoree");
+  assert.equal(codeReview.mode, "advisory");
+  assert.equal(codeReview.trigger, "automatic-first-turn");
+  assert.equal(codeReview.blocking, false);
+  assert.equal(codeReview.countsAsApproval, false);
+  assert.equal(codeReview.summaryCommentRequired, true);
+  assert.equal(codeReview.threadResolutionRequired, true);
 
-  assert.equal(codeReview.provider, "copilot");
-  assert.equal(codeReview.target, "final-head");
-  assert.equal(codeReview.initialRequest.maximumRequests, 1);
-  assert.equal(codeReview.additionalRequest.maximumRequests, 1);
+  const secondOpinion = reviewPolicy.stages.find(
+    ({ id }) => id === "second-opinion",
+  );
+  assert.equal(secondOpinion.provider, "codex");
+  assert.equal(secondOpinion.trigger, "mention");
+  assert.equal(secondOpinion.optional, true);
   assert.deepEqual(
-    [...codeReview.additionalRequest.allowedWhen].sort(),
-    allowedAdditionalRequestConditions.sort(),
+    [...secondOpinion.allowedWhen].sort(),
+    ["author-request", "large-change", "security-sensitive-change"],
   );
-  assert.equal(codeReview.maximumTotalRequests, 2);
-  assert.equal(
-    codeReview.initialRequest.maximumRequests +
-      codeReview.additionalRequest.maximumRequests,
-    codeReview.maximumTotalRequests,
-  );
-  assert.equal(codeReview.requiredSuccessfulReviews, 1);
-  assert.equal(codeReview.maximumSuccessfulReviews, 2);
 });
