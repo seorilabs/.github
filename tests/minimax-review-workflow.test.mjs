@@ -34,6 +34,42 @@ test("MiniMax review workflow는 fork PR과 draft를 배제한다", async () => 
   assert.match(condition, /github\.event\.pull_request\.draft == false/u);
 });
 
+test("리뷰는 플러그인 의존 없이 준비된 diff와 직접 프롬프트로 실행된다", async () => {
+  const { workflow } = await loadWorkflow();
+  const steps = workflow.jobs.review.steps;
+
+  const exportStep = steps.find((step) => step.name === "Export PR metadata and diff");
+  assert.ok(exportStep, "diff를 준비하는 스텝이 있어야 한다");
+  assert.match(exportStep.run, /gh pr diff/u);
+  assert.match(exportStep.run, /gh pr view/u);
+
+  const reviewStep = steps.find(
+    (step) => step.name === "Review with MiniMax-brained Claude Code",
+  );
+  assert.ok(reviewStep, "리뷰 실행 스텝이 있어야 한다");
+  assert.equal(reviewStep.with.plugins, undefined);
+  assert.equal(reviewStep.with.plugin_marketplaces, undefined);
+  assert.match(reviewStep.with.prompt, /pr\.diff/u);
+  assert.match(reviewStep.with.prompt, /summary\.md/u);
+  assert.match(reviewStep.with.claude_args, /--max-turns 30/u);
+  assert.match(
+    reviewStep.with.claude_args,
+    /--allowedTools "Read,Grep,Glob,Write,mcp__github_inline_comment__create_inline_comment"/u,
+  );
+});
+
+test("요약 코멘트는 summary 생성 여부와 무관하게 항상 게시된다", async () => {
+  const { workflow } = await loadWorkflow();
+  const postStep = workflow.jobs.review.steps.find(
+    (step) => step.name === "Post review summary",
+  );
+  assert.ok(postStep, "요약 게시 스텝이 있어야 한다");
+  assert.equal(postStep.if, "${{ !cancelled() }}");
+  assert.match(postStep.run, /if \[ -s "\$summary" \]/u);
+  assert.match(postStep.run, /--body-file "\$summary"/u);
+  assert.match(postStep.run, /리뷰 세션이 요약을 생성하지 못했습니다/u);
+});
+
 test("MINIMAX_API_KEY는 workflow_call.secrets 명시 선언으로만 전달된다", async () => {
   const { source, workflow } = await loadWorkflow();
   assert.deepEqual(workflow.on.workflow_call.secrets, {
