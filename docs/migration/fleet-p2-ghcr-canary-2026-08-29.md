@@ -2,9 +2,12 @@
 
 > 2026-09-02 KST 갱신: 조직 owner 승인으로 `seori-auth`만 public 전환했다.
 > 조직의 Public package creation 설정은 변경 직후 원복했다. 승인 image와 최신 image의
-> anonymous 전체 다운로드·digest 대조는 성공했고, RPI5의 첫 canary는 `EROFS`로 실패했다.
+> anonymous 전체 다운로드·digest 대조는 성공했다. 첫 canary의 `EROFS`를 수정한 새 image는
+> RPI5에서 `CANARY_OUTPUT_VERIFIED`를 통과했다. 실패한 이전 Job은 그대로 보존했다.
 > 아래 private/미실행 기록은 2026-08-29 기준선이며 현재 blocker가 아니다.
-> [공개 전환과 실행 결과](evidence/fleet-p2-public-image-2026-09-02.json)를 따른다.
+> [공개 전환 기록](evidence/fleet-p2-public-image-2026-09-02.json)과
+> [새 image의 RPI5 실행 결과](evidence/fleet-p2-rpi5-canary-2026-09-02.json)를 따른다.
+> 실제 비밀값을 사용하는 production broker와 provider 로그인은 아직 활성화하지 않았다.
 
 기준 source는 `seorilabs/.github@3412423c7bd649e0714e5af1cc09ff4d2511f758`다. 이 문서는
 2026-08-29 KST의 secret-free readback과 다음 배포 계약을 기록한다. credential 값, Kubernetes
