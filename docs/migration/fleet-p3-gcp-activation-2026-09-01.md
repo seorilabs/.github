@@ -1,7 +1,8 @@
 # P3 GCP 설치 완료 — 2026-09-01 UTC
 
 GCP 기반 설정은 실제 적용과 별도 재조회를 완료했다. P3 전체 완료는 아니다.
-GitHub App 권한·신뢰된 실행기, RN/Godot 시험 빌드, 승인 registry 증거는 별도로 남아 있다.
+GitHub App 권한은 후속 owner 승인과 재조회로 충족했다. 신뢰된 실행기, RN/Godot 시험
+빌드, 승인 registry 증거는 별도로 남아 있다.
 
 ## 실제 적용 결과
 
@@ -39,32 +40,27 @@ GitHub App 권한·신뢰된 실행기, RN/Godot 시험 빌드, 승인 registry 
 명시적으로 별도 실행하는 cold-cache 통합 테스트 2개 제외다. 워크플로 문법 검사와
 패키지 검증도 통과했다. 이 결과를 실제 앱 artifact 빌드 성공으로 간주하지 않는다.
 
-## 다음 사람 작업 — 기존 GitHub App 권한 추가
+## GitHub App 권한 완료와 다음 사람 작업
 
-기존 App `seorilabs-backoffice`의 공개 identity와 조직 전체 설치는 정상이다.
-설치 `142120077`의 현재 권한을 재조회했으며 아래 추가 권한은 아직 반영되지 않았다.
-새 GitHub App·API key·개인 토큰을 만들 필요는 없다.
+2026-09-01 16:46:44 UTC 재조회에서 기존 App `seorilabs-backoffice`와 조직 전체 설치
+`142120077`의 identity, 권한, 이벤트가 계약과 일치했다. `permissionChanges`와
+`eventAdditions`는 모두 비었고 installation 재승인도 필요하지 않다. 새 GitHub App·API key·
+개인 토큰을 만들 필요는 없다. [공개 재조회 기록](evidence/fleet-p3-github-readback-2026-09-02.json)에
+현재 권한과 남은 경계를 고정했다.
 
-1. [기존 App 권한 설정](https://github.com/organizations/seorilabs/settings/apps/seorilabs-backoffice/permissions)에서
-   기존 권한을 유지하고 다음 항목을 추가한다.
+다음 사람 전용 작업은 권한 설정이 아니라 기존 암호화 원본의 offline 복구 승인이다.
 
-   | 구분 | 항목 | 필요한 권한 |
-   | --- | --- | --- |
-   | Repository | Administration | Read and write |
-   | Repository | Environments | Read and write |
-   | Repository | Pull requests | Read and write — 현재 Read에서 변경 |
-   | Repository | Workflows | Read and write |
-   | Repository | Custom properties | Read and write |
-   | Organization | Administration | Read and write |
-   | Organization | Custom properties | Admin |
+1. credential custodian이 `GITHUB_APP_CREDENTIAL_OFFLINE_RECOVERY` 범위를 승인한다.
+2. 새 키를 만들지 않고 기존 SealedSecret ciphertext와 등록된 recovery credential을 사용한다.
+3. signed Security.framework helper, 무인 ACL, 복구 전후 backup·restore와 공개 App identity를
+   재검증한 뒤에만 `shared/github/backoffice-app-private-key`와
+   `shared/github/backoffice-app-webhook`을 active로 등록한다.
+4. 신뢰된 실행기가 단기 installation token과 exact capability를 검증한 뒤 custom property와
+   Evaluate ruleset shadow 설정을 적용·재조회한다.
 
-2. 이벤트 구독에 `Repository`를 추가하고 저장한다. 기존 이벤트는 유지한다.
-3. [조직의 기존 설치](https://github.com/organizations/seorilabs/settings/installations/142120077)에서
-   추가 권한을 승인한다. 저장만 하고 설치 승인을 생략하면 기존 설치 권한은 바뀌지 않는다.
-
-그 후 `node scripts/fleet/bootstrap-p3-github.mjs readback`으로 확인한다.
-App key·webhook의 안전한 복구와 신뢰된 실행기 검증도 별도 gate로 남아 있으므로
-App 권한 추가만으로 전체 bootstrap이나 시험 빌드가 완료된 것으로 기록하지 않는다.
+현재 catalog preflight는 116개·경고 0개·오류 0개지만 위 두 logical credential은 아직 없다.
+개인 `gh` token으로 mutation하거나 secret 값을 읽는 우회는 하지 않는다. App 권한 완료만으로
+전체 bootstrap이나 시험 빌드가 완료된 것으로 기록하지 않는다.
 
 실제 RN/Godot 시험 빌드는 기존 [Happy Farm #497](https://github.com/seorilabs/happy-farm/issues/497),
 [Lizard Tycoon #521](https://github.com/seorilabs/lizard-tycoon/issues/521)에서 추적한다.
