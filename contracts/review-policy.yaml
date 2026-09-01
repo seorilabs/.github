@@ -20,27 +20,31 @@ stages:
     threadResolutionRequired: true
   - id: code-review
     order: 2
-    provider: copilot
-    target: final-head
-    initialRequest:
-      maximumRequests: 1
-    additionalRequest:
-      maximumRequests: 1
-      allowedWhen:
-        - unable-to-review
-        - accepted-review-fix-introduces-new-function
-        - accepted-review-fix-introduces-new-file
-        - accepted-review-fix-introduces-new-branch
-    requiredSuccessfulReviews: 1
-    maximumSuccessfulReviews: 2
-    maximumTotalRequests: 2
+    provider: jansoree
+    mode: advisory
+    trigger: automatic-first-turn
+    summaryCommentRequired: true
+    countsAsApproval: false
+    blocking: false
+    threadResolutionRequired: true
+  - id: second-opinion
+    order: 3
+    provider: codex
+    mode: advisory
+    trigger: mention
+    optional: true
+    allowedWhen:
+      - security-sensitive-change
+      - large-change
+      - author-request
     threadResolutionRequired: true
   - id: required-checks
-    order: 3
+    order: 4
     allRequired: true
 
 mergeGate:
   seoriGuideThreadsResolved: true
+  jansoreeSummaryPresent: true
   codeReviewThreadsResolved: true
   requiredChecksPassed: true
   humanApproval: conditional
