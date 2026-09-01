@@ -1,0 +1,54 @@
+# MiniMax 브레인 Claude Code로 PR diff를 리뷰하고 코멘트를 게시한다.
+# contracts/review-policy.yaml의 code-review stage(provider: copilot)를 아직 대체하지 않는
+# 병행 파일럿 경로이며, 계약 전환은 파일럿 검증 후 별도 PR로 진행한다.
+name: MiniMax Review v1
+
+on:
+  workflow_call:
+    secrets:
+      MINIMAX_API_KEY:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  review:
+    name: MiniMax Review
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft == false }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    timeout-minutes: 20
+
+    steps:
+      # ref 미지정 checkout은 pull_request 이벤트에서 merge commit을 받는다.
+      # 리뷰는 base에 병합된 결과를 보는 것이 의도이므로 그대로 둔다.
+      - name: Checkout PR merge commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Review with MiniMax-brained Claude Code
+        uses: anthropics/claude-code-action@833fb0f8c9f6686b33d963a8bae0a94f4936ab2a # v1.0.211
+        env:
+          # Claude Code는 ANTHROPIC_AUTH_TOKEN(Bearer)을 우선하므로 실제 모델 인증은 이 값이 담당한다.
+          ANTHROPIC_BASE_URL: https://api.minimax.io/anthropic
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.MINIMAX_API_KEY }}
+          ANTHROPIC_MODEL: "MiniMax-M3[1m]"
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "MiniMax-M3[1m]"
+          ANTHROPIC_DEFAULT_OPUS_MODEL: "MiniMax-M3[1m]"
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "MiniMax-M3[1m]"
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW: "1000000"
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+        with:
+          # anthropic_api_key는 액션의 인증 입력 검증을 통과시키기 위한 값이고 env가 우선한다.
+          anthropic_api_key: ${{ secrets.MINIMAX_API_KEY }}
+          # github.token을 명시해 Anthropic 측 앱 토큰 교환 의존을 제거한다.
+          # 리뷰 코멘트는 github-actions 계정으로 게시된다.
+          github_token: ${{ github.token }}
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
