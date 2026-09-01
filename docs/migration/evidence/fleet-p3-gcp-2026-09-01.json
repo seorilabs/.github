@@ -1,0 +1,761 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-01T14:25:01.344Z",
+  "sourceSha": "3ef4ad7eccfeed341472d680ddd731fa0712f575",
+  "workflowExecutionSha": "e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1",
+  "contractDigest": "f4ba134db84d8bfa3e0b69724e44d843186beae729f94a9619528dd170d746b7",
+  "scope": "P3_GCP_FOUNDATION_ONLY",
+  "temporaryInstallerGrantExpiresAt": "2026-09-01T15:46:47Z",
+  "applyReadback": {
+    "project": {
+      "id": "seorilabs-ci",
+      "number": "321365398093"
+    },
+    "requiredServices": [
+      {
+        "name": "artifactregistry.googleapis.com",
+        "enabled": true
+      },
+      {
+        "name": "cloudbuild.googleapis.com",
+        "enabled": true
+      },
+      {
+        "name": "cloudresourcemanager.googleapis.com",
+        "enabled": true
+      },
+      {
+        "name": "iam.googleapis.com",
+        "enabled": true
+      },
+      {
+        "name": "iamcredentials.googleapis.com",
+        "enabled": true
+      },
+      {
+        "name": "logging.googleapis.com",
+        "enabled": true
+      },
+      {
+        "name": "secretmanager.googleapis.com",
+        "enabled": true
+      },
+      {
+        "name": "serviceusage.googleapis.com",
+        "enabled": true
+      },
+      {
+        "name": "storage.googleapis.com",
+        "enabled": true
+      },
+      {
+        "name": "sts.googleapis.com",
+        "enabled": true
+      }
+    ],
+    "serviceAccounts": [
+      {
+        "email": "seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "exists": true
+      },
+      {
+        "email": "seori-happy-farm-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "exists": true
+      },
+      {
+        "email": "seori-happy-farm-release@seorilabs-ci.iam.gserviceaccount.com",
+        "exists": true
+      },
+      {
+        "email": "seori-lizard-tycoon-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "exists": true
+      },
+      {
+        "email": "seori-lizard-tycoon-release@seorilabs-ci.iam.gserviceaccount.com",
+        "exists": true
+      },
+      {
+        "email": "seori-babycare-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "exists": true
+      },
+      {
+        "email": "seori-babycare-release@seorilabs-ci.iam.gserviceaccount.com",
+        "exists": true
+      },
+      {
+        "email": "seori-cycle-pair-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "exists": true
+      },
+      {
+        "email": "seori-cycle-pair-release@seorilabs-ci.iam.gserviceaccount.com",
+        "exists": true
+      },
+      {
+        "email": "seori-auth-broker@seorilabs-ci.iam.gserviceaccount.com",
+        "exists": true
+      },
+      {
+        "email": "seori-auth-password-loader@seorilabs-ci.iam.gserviceaccount.com",
+        "exists": true
+      },
+      {
+        "email": "seori-auth-totp-signer@seorilabs-ci.iam.gserviceaccount.com",
+        "exists": true
+      }
+    ],
+    "workloadIdentityPool": {
+      "exists": true,
+      "configurationExact": true,
+      "disabled": false,
+      "state": "ACTIVE",
+      "active": true
+    },
+    "providers": {
+      "github": {
+        "exists": true,
+        "configurationExact": true,
+        "disabled": false,
+        "active": true
+      },
+      "kubernetes": {
+        "exists": true,
+        "configurationExact": true,
+        "disabled": false,
+        "active": true
+      }
+    },
+    "iamBindings": [
+      {
+        "resourceType": "project",
+        "resource": "projects/seorilabs-ci",
+        "role": "roles/cloudbuild.builds.editor",
+        "member": "serviceAccount:seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "project",
+        "resource": "projects/seorilabs-ci",
+        "role": "roles/serviceusage.serviceUsageConsumer",
+        "member": "serviceAccount:seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "project",
+        "resource": "projects/seorilabs-ci",
+        "role": "roles/storage.bucketViewer",
+        "member": "serviceAccount:seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci_cloudbuild",
+        "role": "roles/storage.objectAdmin",
+        "member": "serviceAccount:seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci-build-artifacts",
+        "role": "roles/storage.objectViewer",
+        "member": "serviceAccount:seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "project",
+        "resource": "projects/seorilabs-ci",
+        "role": "roles/logging.logWriter",
+        "member": "serviceAccount:seori-happy-farm-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci_cloudbuild",
+        "role": "roles/storage.objectViewer",
+        "member": "serviceAccount:seori-happy-farm-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci-build-artifacts",
+        "role": "roles/storage.objectAdmin",
+        "member": "serviceAccount:seori-happy-farm-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "artifactRepository",
+        "resource": "projects/seorilabs-ci/locations/asia-northeast3/repositories/builders",
+        "role": "roles/artifactregistry.reader",
+        "member": "serviceAccount:seori-happy-farm-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-happy-farm-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-happy-farm-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountTokenCreator",
+        "member": "serviceAccount:service-321365398093@gcp-sa-cloudbuild.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "project",
+        "resource": "projects/seorilabs-ci",
+        "role": "roles/logging.logWriter",
+        "member": "serviceAccount:seori-happy-farm-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci_cloudbuild",
+        "role": "roles/storage.objectViewer",
+        "member": "serviceAccount:seori-happy-farm-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci-build-artifacts",
+        "role": "roles/storage.objectAdmin",
+        "member": "serviceAccount:seori-happy-farm-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "artifactRepository",
+        "resource": "projects/seorilabs-ci/locations/asia-northeast3/repositories/builders",
+        "role": "roles/artifactregistry.reader",
+        "member": "serviceAccount:seori-happy-farm-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-happy-farm-release@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-happy-farm-release@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountTokenCreator",
+        "member": "serviceAccount:service-321365398093@gcp-sa-cloudbuild.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/happy-farm-play-keystore",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-happy-farm-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/happy-farm-play-keystore-password",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-happy-farm-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/happy-farm-play-key-password",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-happy-farm-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/happy-farm-firebase-google-services",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-happy-farm-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "project",
+        "resource": "projects/seorilabs-ci",
+        "role": "roles/logging.logWriter",
+        "member": "serviceAccount:seori-lizard-tycoon-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci_cloudbuild",
+        "role": "roles/storage.objectViewer",
+        "member": "serviceAccount:seori-lizard-tycoon-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci-build-artifacts",
+        "role": "roles/storage.objectAdmin",
+        "member": "serviceAccount:seori-lizard-tycoon-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "artifactRepository",
+        "resource": "projects/seorilabs-ci/locations/asia-northeast3/repositories/builders",
+        "role": "roles/artifactregistry.reader",
+        "member": "serviceAccount:seori-lizard-tycoon-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-lizard-tycoon-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-lizard-tycoon-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountTokenCreator",
+        "member": "serviceAccount:service-321365398093@gcp-sa-cloudbuild.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "project",
+        "resource": "projects/seorilabs-ci",
+        "role": "roles/logging.logWriter",
+        "member": "serviceAccount:seori-lizard-tycoon-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci_cloudbuild",
+        "role": "roles/storage.objectViewer",
+        "member": "serviceAccount:seori-lizard-tycoon-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci-build-artifacts",
+        "role": "roles/storage.objectAdmin",
+        "member": "serviceAccount:seori-lizard-tycoon-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "artifactRepository",
+        "resource": "projects/seorilabs-ci/locations/asia-northeast3/repositories/builders",
+        "role": "roles/artifactregistry.reader",
+        "member": "serviceAccount:seori-lizard-tycoon-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-lizard-tycoon-release@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-lizard-tycoon-release@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountTokenCreator",
+        "member": "serviceAccount:service-321365398093@gcp-sa-cloudbuild.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/lizard-play-keystore",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-lizard-tycoon-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/lizard-play-keystore-password",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-lizard-tycoon-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "project",
+        "resource": "projects/seorilabs-ci",
+        "role": "roles/logging.logWriter",
+        "member": "serviceAccount:seori-babycare-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci_cloudbuild",
+        "role": "roles/storage.objectViewer",
+        "member": "serviceAccount:seori-babycare-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci-build-artifacts",
+        "role": "roles/storage.objectAdmin",
+        "member": "serviceAccount:seori-babycare-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "artifactRepository",
+        "resource": "projects/seorilabs-ci/locations/asia-northeast3/repositories/builders",
+        "role": "roles/artifactregistry.reader",
+        "member": "serviceAccount:seori-babycare-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-babycare-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-babycare-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountTokenCreator",
+        "member": "serviceAccount:service-321365398093@gcp-sa-cloudbuild.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "project",
+        "resource": "projects/seorilabs-ci",
+        "role": "roles/logging.logWriter",
+        "member": "serviceAccount:seori-babycare-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci_cloudbuild",
+        "role": "roles/storage.objectViewer",
+        "member": "serviceAccount:seori-babycare-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci-build-artifacts",
+        "role": "roles/storage.objectAdmin",
+        "member": "serviceAccount:seori-babycare-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "artifactRepository",
+        "resource": "projects/seorilabs-ci/locations/asia-northeast3/repositories/builders",
+        "role": "roles/artifactregistry.reader",
+        "member": "serviceAccount:seori-babycare-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-babycare-release@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-babycare-release@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountTokenCreator",
+        "member": "serviceAccount:service-321365398093@gcp-sa-cloudbuild.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/babycare-play-keystore",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-babycare-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/babycare-play-keystore-password",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-babycare-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/babycare-play-key-password",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-babycare-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/babycare-firebase-google-services",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-babycare-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "project",
+        "resource": "projects/seorilabs-ci",
+        "role": "roles/logging.logWriter",
+        "member": "serviceAccount:seori-cycle-pair-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci_cloudbuild",
+        "role": "roles/storage.objectViewer",
+        "member": "serviceAccount:seori-cycle-pair-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci-build-artifacts",
+        "role": "roles/storage.objectAdmin",
+        "member": "serviceAccount:seori-cycle-pair-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "artifactRepository",
+        "resource": "projects/seorilabs-ci/locations/asia-northeast3/repositories/builders",
+        "role": "roles/artifactregistry.reader",
+        "member": "serviceAccount:seori-cycle-pair-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-cycle-pair-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-cycle-pair-canary@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountTokenCreator",
+        "member": "serviceAccount:service-321365398093@gcp-sa-cloudbuild.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "project",
+        "resource": "projects/seorilabs-ci",
+        "role": "roles/logging.logWriter",
+        "member": "serviceAccount:seori-cycle-pair-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci_cloudbuild",
+        "role": "roles/storage.objectViewer",
+        "member": "serviceAccount:seori-cycle-pair-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "bucket",
+        "resource": "gs://seorilabs-ci-build-artifacts",
+        "role": "roles/storage.objectAdmin",
+        "member": "serviceAccount:seori-cycle-pair-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "artifactRepository",
+        "resource": "projects/seorilabs-ci/locations/asia-northeast3/repositories/builders",
+        "role": "roles/artifactregistry.reader",
+        "member": "serviceAccount:seori-cycle-pair-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-cycle-pair-release@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-cycle-pair-release@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountTokenCreator",
+        "member": "serviceAccount:service-321365398093@gcp-sa-cloudbuild.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/cycle-pair-play-keystore",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-cycle-pair-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/cycle-pair-play-keystore-password",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-cycle-pair-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/cycle-pair-play-key-password",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-cycle-pair-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "secret",
+        "resource": "projects/seorilabs-ci/secrets/cycle-pair-firebase-google-services",
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:seori-cycle-pair-release@seorilabs-ci.iam.gserviceaccount.com",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.workloadIdentityUser",
+        "member": "principalSet://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/attribute.repository_id/1250442131",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.workloadIdentityUser",
+        "member": "principalSet://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/attribute.repository_id/1265192029",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.workloadIdentityUser",
+        "member": "principalSet://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/attribute.repository_id/1298244321",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.workloadIdentityUser",
+        "member": "principalSet://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/attribute.repository_id/1298264957",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-auth-broker@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.workloadIdentityUser",
+        "member": "principalSet://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/attribute.service_account/auth-broker",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-auth-password-loader@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.workloadIdentityUser",
+        "member": "principalSet://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/attribute.service_account/password-loader",
+        "present": true
+      },
+      {
+        "resourceType": "serviceAccount",
+        "resource": "seori-auth-totp-signer@seorilabs-ci.iam.gserviceaccount.com",
+        "role": "roles/iam.workloadIdentityUser",
+        "member": "principalSet://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/attribute.service_account/totp-signer",
+        "present": true
+      }
+    ],
+    "ready": true,
+    "staticKeysCreated": false
+  },
+  "independentVerification": {
+    "capturedAt": "2026-09-01T14:25:01.344Z",
+    "sourceSha": "3ef4ad7eccfeed341472d680ddd731fa0712f575",
+    "contractDigest": "f4ba134db84d8bfa3e0b69724e44d843186beae729f94a9619528dd170d746b7",
+    "serviceAccounts": {
+      "expected": 12,
+      "present": 12,
+      "missing": []
+    },
+    "iamBindings": {
+      "expected": 74,
+      "present": 74,
+      "missing": []
+    },
+    "requiredServices": {
+      "expected": 10,
+      "enabled": 10,
+      "missing": []
+    },
+    "providers": [
+      {
+        "role": "github",
+        "active": true,
+        "configurationExact": true
+      },
+      {
+        "role": "kubernetes",
+        "active": true,
+        "configurationExact": true
+      }
+    ],
+    "poolActive": true,
+    "existingIam": {
+      "resourcePolicies": 18,
+      "memberEdges": 46,
+      "removedEdges": []
+    },
+    "userManagedKeys": {
+      "accountsRead": 12,
+      "total": 0
+    },
+    "ready": true
+  },
+  "sourceTests": {
+    "commit": "3ef4ad7eccfeed341472d680ddd731fa0712f575",
+    "tests": 734,
+    "pass": 732,
+    "fail": 0,
+    "skipped": 2,
+    "durationMs": 190044.381875
+  },
+  "evidenceDigests": {
+    "beforeIamSha256": "6da046724806978a3ba6ebcac4e097a2019213e50d6e3db28d2adfbeff6a6115",
+    "applyReadbackSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e",
+    "independentReadbackSha256": "759fee660274ade914e7c126390aa42cd5efc15e84e554bf30f32150c3bd5604",
+    "verificationSha256": "abbb3319b107a634db622154c8e7c40bed68a9130856bac8e441f741450e202e"
+  },
+  "excluded": [
+    "GITHUB_APP_PERMISSION_EXPANSION",
+    "GITHUB_INSTALLATION_ACCEPTANCE",
+    "AUTH_BROKER_SECRET_PROVISIONING",
+    "MARKET_UPLOAD",
+    "REVIEW_SUBMISSION",
+    "PUBLIC_RELEASE",
+    "RULESET_ACTIVE"
+  ],
+  "nextGate": {
+    "code": "P3_GITHUB_APP_PERMISSION_EXPANSION_REQUIRED",
+    "appId": 4124446,
+    "installationId": 142120077,
+    "permissionChanges": [
+      {
+        "permission": "administration",
+        "current": null,
+        "required": "write"
+      },
+      {
+        "permission": "environments",
+        "current": null,
+        "required": "write"
+      },
+      {
+        "permission": "organization_administration",
+        "current": null,
+        "required": "write"
+      },
+      {
+        "permission": "organization_custom_properties",
+        "current": null,
+        "required": "admin"
+      },
+      {
+        "permission": "pull_requests",
+        "current": "read",
+        "required": "write"
+      },
+      {
+        "permission": "repository_custom_properties",
+        "current": null,
+        "required": "write"
+      },
+      {
+        "permission": "workflows",
+        "current": null,
+        "required": "write"
+      }
+    ],
+    "eventAdditions": [
+      "repository"
+    ]
+  }
+}

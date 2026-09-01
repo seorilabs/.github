@@ -1,5 +1,10 @@
 # Fleet P3 runtime 전환 기록
 
+2026-09-01 UTC GCP 기반 설정의 실제 적용·재조회 결과는
+[P3 GCP 설치 완료 기록](fleet-p3-gcp-activation-2026-09-01.md)을 따른다. 아래 초기 5개 계정·15개
+권한 및 권한 부족 설명은 당시 기록이다. 현재 실행 범위는 `bootstrap-p3-gcp.mjs plan`과
+기계 판독 계약으로 확인한다.
+
 P3 runtime 초기 전환의 WorkflowBundle provenance 기준 source는
 `9583e0d21a4a2b23d0b93c4deedb74b6b467aadf`이다. 이 문서는
 2026-08-28~29 KST live readback과 P3 공개 계약을 분리해 기록한다. secret, capability, 승인
