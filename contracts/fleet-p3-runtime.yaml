@@ -458,19 +458,13 @@ authBroker:
     platform: linux/arm64
     imageDigest: sha256:0691542ca7de05339e258b9a767f44360e45a7207a1b6fab41c06f2cc9db04de
   registry:
-    mode: PACKAGES_READER
+    mode: PUBLIC
     server: ghcr.io
     repository: ghcr.io/seorilabs/seori-auth
     packageVersionTag: 6361f6f8f8e7a280557d53643b1d2ea24c51e27a
-    imagePullSecretName: seori-auth-ghcr-pull
-    credentialId: shared/github/packages-reader
-    credentialKind: github-pat-classic
-    identityRequirement: organization-machine-user
     personalOperatorReuseAllowed: false
     publicPackageAlternativeAllowed: true
-    requiredScopes: [read:packages]
-    catalogStatus: blocked_missing
-    kubernetesStatus: blocked_unverified
+    packageVisibilityStatus: verified_public
     humanGate:
       type: approval
       state: HUMAN_APPROVAL_REQUIRED

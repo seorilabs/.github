@@ -179,9 +179,12 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
       },
     },
   );
-  assert.equal(contract.authBroker.registry.credentialId, "shared/github/packages-reader");
+  assert.equal(contract.authBroker.registry.mode, "PUBLIC");
+  assert.equal(contract.authBroker.registry.packageVisibilityStatus, "verified_public");
   assert.equal(contract.authBroker.registry.personalOperatorReuseAllowed, false);
-  assert.equal(contract.authBroker.registry.catalogStatus, "blocked_missing");
+  for (const field of ["credentialId", "imagePullSecretName", "catalogStatus", "kubernetesStatus"]) {
+    assert.equal(field in contract.authBroker.registry, false);
+  }
   assert.equal(contract.github.credentialRecovery.approvalGate.state, "HUMAN_REAUTH_REQUIRED");
   const expectedGithubProvider =
     "projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build";
@@ -1513,15 +1516,15 @@ test("Auth Broker foundation은 RBAC 0권한, exact NetworkPolicy와 cert-manage
   );
   assert.match(
     publicBindings.data["bindings.json"],
-    /"imagePullSecretName": "seori-auth-ghcr-pull"/u,
+    /"mode": "PUBLIC"/u,
   );
   assert.match(
     publicBindings.data["bindings.json"],
-    /"credentialId": "shared\/github\/packages-reader"/u,
+    /"packageVisibilityStatus": "verified_public"/u,
   );
-  assert.match(
+  assert.doesNotMatch(
     publicBindings.data["bindings.json"],
-    /"catalogStatus": "blocked_missing"/u,
+    /"imagePullSecretName"|"credentialId": "shared\/github\/packages-reader"/u,
   );
   assert.match(
     publicBindings.data["bindings.json"],
