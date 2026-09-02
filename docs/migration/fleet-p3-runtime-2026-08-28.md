@@ -125,7 +125,7 @@ node scripts/fleet/bootstrap-p3-gcp.mjs rollback '<plan이 반환한 rollback co
 union에 추가한다. 증설 및 installation acceptance 뒤 exact readback 전에는 GitHub bootstrap
 apply가 custom property/ruleset을 변경하지 않는다.
 
-private key와 webhook의 local canonical source는 현재 없다. exact source
+2026-08-29 기준 private key와 webhook의 local canonical source는 없었다. exact source
 `seorilabs/seorilabs-backoffice@8d7162f352454b892ff749ac0d4061c492d7781f`의
 `k8s/backoffice-sealedsecret.yaml` ciphertext와 active
 `shared/k8s/sealed-secrets-recovery`만 복구 근거다. `GITHUB_PRIVATE_KEY`와
@@ -146,11 +146,12 @@ compensation을 구현한다. 외부 `CredentialBinding`에 고정된 helper SHA
 검증한 designated requirement가 모두 일치해야 adapter가 열린다. macOS의 modern access-control
 flag는 실행 binary의 designated requirement를 ACL로 표현하지 못하므로, helper는 Security.framework의
 `SecAccess` application ACL을 사용하고 모든 민감 authorization이 exact self 하나·prompt flag 0인지
-다시 읽어 fail-closed한다. signed production binary와 실제 unattended Keychain readback이 아직
-없으므로 계약 state는 계속 `blocked_unverified`이고 `HUMAN_REAUTH_REQUIRED`이며 `security -w` CLI로
-우회하지 않는다. 등록 후 logical ID active, App identity
-exact, 복구 후 backup/restore 검증을 readback해야 완료다. 이번 변경에서는 복호화·등록·cluster
-Secret 생성 등 외부 mutation을 수행하지 않았다.
+다시 읽어 fail-closed한다. 기본 계약의 `blocked_unverified`와 `HUMAN_REAUTH_REQUIRED`는
+검증되지 않은 새 실행 환경을 위한 거부 기본값이며, `security -w` CLI로 우회하지 않는다.
+실제 승인 run은 signed helper binding과 local preflight를 확인한 뒤에만 복구 adapter를 연다.
+등록 후 logical ID active, App identity exact, 복구 후 backup/restore 검증을 readback해야 완료다.
+2026-09-02 승인 복구 결과는 아래 별도 실행 기록을 따른다. 이 복구는 cluster Secret 생성이나
+GitHub mutation executor 활성화를 포함하지 않는다.
 
 코드 게이트는 macOS에서 fixture helper와 production 분기의 ad-hoc 서명 거부를 함께 검증한다.
 
@@ -185,6 +186,19 @@ encryption ACL은 그대로 사용하지 않고 모든 simple entry를 exact sel
 생성 후에는 item reference의 `SecKeychainItemCopyAccess`로 저장된 ACL을 읽는다. 근거는
 [Apple SecAccessCreate](https://developer.apple.com/documentation/security/secaccesscreate(_:_:_:))와
 [SecKeychainItemCopyAccess](https://developer.apple.com/documentation/security/seckeychainitemcopyaccess(_:_:))다.
+
+### 2026-09-02 기존 GitHub 인증 복구 완료
+
+사용자가 승인한 기존 두 자격증명의 local canonical 복구를 완료했다. 새 key 생성·회전 없이
+원본 SealedSecret에서 복구하여 signed helper의 exact self ACL로 저장했고, 실제 값 일치 및
+UI 없는 Keychain readback을 통과했다. 두 logical ID는 active이고 catalog는 118건·경고 0·오류 0이다.
+복구 전후 및 원본 암호문 보완 후에 각각 local·BeeStation archive의 임시 복원을 검증했다.
+원본 암호문 두 값은 Backoffice `fa8d478f097fde64f315e7eeafeac5c40c46b871`의 현재 소스와 같다.
+
+[공개 실행 근거](evidence/fleet-p3-github-credential-recovery-2026-09-02.json)는 source/helper/backup
+digest와 검증 상태만 기록한다. 이 결과로 같은 credential recovery 승인을 다시 요청하거나
+복구를 재실행하지 않는다. App JWT를 이용한 새 authenticated readback, 정확히 제한된 mutation
+executor, 두 pilot의 신규 등록·build-only 실증은 별도 미완료 항목이다. P3 전체 완료를 뜻하지 않는다.
 
 같은 readback에서 개인 `shared/github/operator`의 private package metadata 접근은 확인됐지만
 조직 canonical identity로 승격하지 않는다. GitHub의 non-Actions private GHCR pull 경계에 따라
