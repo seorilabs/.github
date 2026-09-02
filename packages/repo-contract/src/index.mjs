@@ -1011,6 +1011,11 @@ function pnpmPackageProvenance(
       return { code: "SDK_LOCKFILE_INTEGRITY_INVALID" };
     }
     const tarball = entry?.resolution?.tarball;
+    if (tarball === undefined) {
+      // pnpm은 기본 레지스트리(registry.npmjs.org) 패키지의 lockfile에 tarball을 기록하지
+      // 않는다. 이 경우 위에서 검증한 SHA-512 integrity가 콘텐츠 경계다.
+      continue;
+    }
     if (typeof tarball !== "string") {
       return { code: "SDK_LOCKFILE_TARBALL_INVALID" };
     }

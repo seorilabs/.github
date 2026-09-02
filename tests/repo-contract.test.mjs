@@ -696,6 +696,38 @@ test("RN SDK package는 npm 공개 레지스트리 tarball을 exact 경계로 �
   assert.equal(hasCode(result, "SDK_LOCKFILE_TARBALL_INVALID"), false);
 });
 
+test("기본 레지스트리 lockfile처럼 tarball이 없으면 SHA-512 integrity만으로 통과한다", async () => {
+  const fixture = await createFixture();
+  const lockfilePath = join(fixture.root, "pnpm-lock.yaml");
+  const lockfile = parse(await readFile(lockfilePath, "utf8"));
+  lockfile.packages["@seorilabs/platform-sdk@1.2.3"].resolution = {
+    integrity: `sha512-${Buffer.alloc(64).toString("base64")}`,
+  };
+  await writeFile(lockfilePath, stringify(lockfile), "utf8");
+  const result = await validateRepository({
+    repoRoot: fixture.root,
+    schemaPath: WORKSPACE_SCHEMA_PATH,
+    profilesRoot: WORKSPACE_PROFILES_ROOT,
+  });
+
+  assert.equal(hasCode(result, "SDK_LOCKFILE_TARBALL_INVALID"), false);
+
+  const invalid = await createFixture();
+  const invalidLockfilePath = join(invalid.root, "pnpm-lock.yaml");
+  const invalidLockfile = parse(await readFile(invalidLockfilePath, "utf8"));
+  invalidLockfile.packages["@seorilabs/platform-sdk@1.2.3"].resolution = {
+    integrity: "sha256-invalid",
+  };
+  await writeFile(invalidLockfilePath, stringify(invalidLockfile), "utf8");
+  const invalidResult = await validateRepository({
+    repoRoot: invalid.root,
+    schemaPath: WORKSPACE_SCHEMA_PATH,
+    profilesRoot: WORKSPACE_PROFILES_ROOT,
+  });
+
+  assert.equal(hasCode(invalidResult, "SDK_LOCKFILE_INTEGRITY_INVALID"), true);
+});
+
 test("RN SDK package는 허용 레지스트리 tarball과 SHA-512 integrity를 요구한다", async () => {
   for (const resolution of [
     {
