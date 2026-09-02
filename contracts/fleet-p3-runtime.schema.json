@@ -294,14 +294,14 @@
             "kubernetesIssuer": { "const": "https://kubernetes.default.svc" },
             "githubAudience": { "const": "https://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build" },
             "organizationId": { "const": "283115031" },
-            "workflowBundleSourceSha": { "const": "7790257716bca71ae865aa11274803520adf13e3" },
-            "workflowExecutionSha": { "const": "7790257716bca71ae865aa11274803520adf13e3" },
+            "workflowBundleSourceSha": { "const": "5159ca37fde9306e6b5da265f6889ae5782b03bd" },
+            "workflowExecutionSha": { "const": "5159ca37fde9306e6b5da265f6889ae5782b03bd" },
             "supersededWorkflowExecutionShas": {
               "type": "array",
               "minItems": 1,
               "maxItems": 1,
               "uniqueItems": true,
-              "prefixItems": [{ "const": "5d73a03dad6102ebef6272ff448eb82f8a58ba03" }],
+              "prefixItems": [{ "const": "7790257716bca71ae865aa11274803520adf13e3" }],
               "items": false
             },
             "repositories": {
