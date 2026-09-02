@@ -52,7 +52,7 @@
           "properties": {
             "localTimes": {
               "type": "array",
-              "const": ["02:00"]
+              "const": ["02:00", "14:00"]
             },
             "mode": { "const": "evidence-batch" },
             "candidateSet": { "const": "per-repository-after-evidence" },

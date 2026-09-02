@@ -15,7 +15,7 @@
 ## 근거 기반 일괄 등록
 
 - `schemaVersion: 3`의 `evidence-batch`는 실행당 등록 건수 제한을 두지 않는다. 근거가 충분한 서로 다른 후보를 순서대로 등록하며, 첫 이슈를 만든 뒤에도 다음 후보와 저장소로 진행한다. 유효한 후보가 없으면 `신규 이슈 없음`으로 끝낸다.
-- 실행 시작에 최신 기본 브랜치의 exact contract commit과 ENABLED 저장소 순서를 고정한다. 스키마를 검증할 수 없거나 지원하지 않는 major이면 등록하지 않는다. v2의 `maxIssuesPerRun` 의미를 바꾸는 변경이므로 v3로 구분하며, 예약 시각·대상·처리 계약·승인 경계는 바꾸지 않는다.
+- 실행 시작에 최신 기본 브랜치의 exact contract commit과 ENABLED 저장소 순서를 고정한다. 스키마를 검증할 수 없거나 지원하지 않는 major이면 등록하지 않는다. v2의 `maxIssuesPerRun` 의미를 바꾸는 등록 모드는 v3로 구분하며, 대상·처리 계약·승인 경계는 유지한다. 실행 시각은 중앙 정책의 `schedules.registration.localTimes`와 `schedules.timezone`을 따른다.
 - `registration=EXCLUDED`는 가장 앞선 차단 gate다. 저장소 clone, 지표 조회, 리서치와 GitHub mutation을 모두 하지 않는다.
 - `registration=DISABLED`이거나 정책에 없는 저장소도 동일하게 건너뛴다. 신규 저장소를 제품이라고 추측해 자동 편입하지 않는다.
 - `registration=ENABLED` 저장소만 정책에 적힌 순서로 순회한다. KST 기준 연중 일수의 0 기반 값을 ENABLED 저장소 수로 나눈 나머지를 시작 위치로 사용하고, 목록 끝에서는 처음으로 돌아온다. 저장소별 근거 수집은 한 번만 수행하고 두 번째 순회를 시작하지 않는다.
