@@ -232,6 +232,37 @@ async function atomicPrivateCreate(path, bytes, recordCreated) {
   }
 }
 
+export async function preserveGithubRecoveryCiphertext({ root, source, sourceBytes }) {
+  if (
+    !Buffer.isBuffer(sourceBytes) || sourceBytes.length > 2 * 1024 * 1024 ||
+    !/^[0-9a-f]{40}$/u.test(source?.sourceSha ?? "") ||
+    !sha256Pattern.test(source?.manifestSha256 ?? "") ||
+    sha256(sourceBytes) !== source.manifestSha256
+  ) fail("P3_GITHUB_RECOVERY_SOURCE_DIGEST_MISMATCH");
+  await privateDirectory(root);
+  const relativePath = `github/recovery/backoffice-${source.sourceSha}.sealedsecret.yaml`;
+  const path = resolve(root, relativePath);
+  try {
+    await atomicPrivateCreate(path, sourceBytes, () => {});
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  }
+  const persisted = await privateRegularFile(path, 2 * 1024 * 1024);
+  try {
+    if (sha256(persisted) !== source.manifestSha256) {
+      fail("P3_GITHUB_RECOVERY_SOURCE_SNAPSHOT_MISMATCH");
+    }
+  } finally {
+    persisted.fill(0);
+  }
+  return {
+    relativePath,
+    sourceSha: source.sourceSha,
+    manifestSha256: source.manifestSha256,
+    plaintext: false,
+  };
+}
+
 function catalogDocument(entries, app) {
   return {
     version: 1,
@@ -492,6 +523,14 @@ export async function runGithubCredentialRecovery(options) {
   let recoveryBytes;
   try {
     sourceBytes = await gitSourceBytes(options["source-repo"], recovery.source);
+    // Keychain references alone cannot restore secrets. Keep the exact original
+    // ciphertext beside the registered recovery key so both encrypted backups
+    // remain usable even when GitHub or the source checkout is unavailable.
+    await preserveGithubRecoveryCiphertext({
+      root: credentialRoot,
+      source: recovery.source,
+      sourceBytes,
+    });
     recoveryBytes = await privateRegularFile(recoveryPath, 2 * 1024 * 1024);
     return await recoverGithubAppCredentials({
       contract: runtimeContract,

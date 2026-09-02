@@ -173,6 +173,10 @@ debugger attach 차단을 확인한 뒤에만 recovery key를 읽는다. 비밀�
 등록은 기존 catalog를 수정하지 않고 `catalog/github-backoffice-app.yaml`과 두 공개 reference를
 원자적으로 추가한다. 실패하면 이번 실행이 생성했고 변경되지 않은 파일·Keychain item만 보상한다.
 복구 전후 각각 local·BeeStation 백업의 임시 복원 검증을 모두 요구한다.
+Keychain reference만 백업하고 원본 암호문은 GitHub에만 남기는 상태를 허용하지 않는다.
+`github/recovery/backoffice-<source SHA>.sealedsecret.yaml`에 exact ciphertext를 함께 보존하므로,
+GitHub와 원래 checkout이 없어도 archive의 recovery key와 ciphertext로 기존 값을 복구할 수 있다.
+기존 snapshot의 digest가 다르면 덮어쓰지 않는다. 이 파일은 암호문이며 plaintext 파일이 아니다.
 
 macOS 실제 실행 검증에서 확인한 두 native 제약도 fail-closed로 처리한다. 32-bit frame 길이는
 64-bit `Int.max`를 `UInt32`로 좁히지 않고 비교한다. `SecAccessCreate`의 기본 owner ACL과

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmod,
   mkdir,
@@ -18,6 +19,7 @@ import { parse } from "yaml";
 
 import {
   createGithubRecoveryCatalogAdapter,
+  preserveGithubRecoveryCiphertext,
   runGithubCredentialRecovery,
 } from "../scripts/fleet/run-github-credential-recovery.mjs";
 
@@ -161,6 +163,50 @@ test("명시적 복구 승인 없이는 파일과 helper에 접근하지 않는�
   await assert.rejects(runGithubCredentialRecovery({ confirmation: "" }), {
     code: "P3_GITHUB_RECOVERY_OPTIONS_INVALID",
   });
+});
+
+test("백업은 Keychain reference와 함께 exact ciphertext도 보존하고 같은 복사는 재사용한다", async () => {
+  const root = await fixture();
+  const bytes = Buffer.from("test-only sealed ciphertext\n");
+  const source = {
+    sourceSha: "c".repeat(40),
+    manifestSha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+  try {
+    const input = { root, source, sourceBytes: bytes };
+    const first = await preserveGithubRecoveryCiphertext(input);
+    assert.equal(first.plaintext, false);
+    assert.equal(first.manifestSha256, source.manifestSha256);
+    assert.deepEqual(await preserveGithubRecoveryCiphertext(input), first);
+    assert.deepEqual(await readFile(join(root, first.relativePath)), bytes);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("복구 ciphertext는 digest가 다르거나 기존 snapshot이 변경됐으면 덮어쓰지 않는다", async () => {
+  const root = await fixture();
+  const bytes = Buffer.from("test-only sealed ciphertext\n");
+  const source = {
+    sourceSha: "d".repeat(40),
+    manifestSha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+  try {
+    const input = { root, source, sourceBytes: bytes };
+    await assert.rejects(preserveGithubRecoveryCiphertext({
+      ...input,
+      sourceBytes: Buffer.from("wrong ciphertext"),
+    }), { code: "P3_GITHUB_RECOVERY_SOURCE_DIGEST_MISMATCH" });
+    const receipt = await preserveGithubRecoveryCiphertext(input);
+    const path = join(root, receipt.relativePath);
+    await writeFile(path, "operator-changed ciphertext\n", { mode: 0o600 });
+    await assert.rejects(preserveGithubRecoveryCiphertext(input), {
+      code: "P3_GITHUB_RECOVERY_SOURCE_SNAPSHOT_MISMATCH",
+    });
+    assert.equal(await readFile(path, "utf8"), "operator-changed ciphertext\n");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("실제 CLI는 SHA256 옵션을 파싱한 뒤 경로 경계를 검사한다", async () => {
