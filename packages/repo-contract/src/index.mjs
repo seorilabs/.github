@@ -1016,20 +1016,28 @@ function pnpmPackageProvenance(
     }
     try {
       const url = new URL(tarball);
-      const expectedPathPrefix =
-        `/download/${packageName}/${expectedVersion}/`;
-      const packageVersionId = url.pathname.slice(expectedPathPrefix.length);
       if (
         url.protocol !== "https:" ||
-        url.hostname !== "npm.pkg.github.com" ||
         url.port !== "" ||
         url.username !== "" ||
         url.password !== "" ||
         url.search !== "" ||
-        url.hash !== "" ||
-        !url.pathname.startsWith(expectedPathPrefix) ||
-        !/^[A-Za-z0-9._~-]+$/u.test(packageVersionId)
+        url.hash !== ""
       ) {
+        return { code: "SDK_LOCKFILE_TARBALL_INVALID" };
+      }
+      const bareName = packageName.split("/").at(-1);
+      const isNpmRegistry =
+        url.hostname === "registry.npmjs.org" &&
+        url.pathname === `/${packageName}/-/${bareName}-${expectedVersion}.tgz`;
+      // npm.pkg.github.com은 npmjs 전환 이전에 게시된 버전을 pin한 lockfile이 가리키는 과거 레지스트리다.
+      const legacyPathPrefix = `/download/${packageName}/${expectedVersion}/`;
+      const legacyVersionId = url.pathname.slice(legacyPathPrefix.length);
+      const isLegacyGithubPackages =
+        url.hostname === "npm.pkg.github.com" &&
+        url.pathname.startsWith(legacyPathPrefix) &&
+        /^[A-Za-z0-9._~-]+$/u.test(legacyVersionId);
+      if (!isNpmRegistry && !isLegacyGithubPackages) {
         return { code: "SDK_LOCKFILE_TARBALL_INVALID" };
       }
     } catch {
