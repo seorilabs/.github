@@ -179,18 +179,44 @@ function localSourcePreflight() {
   }
 }
 
-const githubWifPolicy = createTrustedWifProviderPolicy({
-  organizationId: cloud.wif.organizationId,
-  capabilities: cloud.wif.repositories.map(({ repositoryId, workflow }) => ({
-    environment: cloud.githubActions.environment,
-    repositoryId,
-    jobWorkflowRef:
-      `seorilabs/.github/${workflow}@${cloud.wif.workflowExecutionSha}`,
-  })),
-});
+function pairwiseGithubPolicy(executionSha) {
+  return createTrustedWifProviderPolicy({
+    organizationId: cloud.wif.organizationId,
+    capabilities: cloud.wif.repositories.map(({ repositoryId, workflow }) => ({
+      environment: cloud.githubActions.environment,
+      repositoryId,
+      jobWorkflowRef: `seorilabs/.github/${workflow}@${executionSha}`,
+    })),
+  });
+}
+
+const githubWifPolicy = pairwiseGithubPolicy(cloud.wif.workflowExecutionSha);
+
+// 직전 계약이 provider에 남긴 exact 쌍 조건이다. 같은 형식이라도 여기 열거한 SHA만
+// 전환 대상으로 인식하고, 그 밖의 조건은 여전히 drift로 fail-closed한다.
+const supersededExecutionShas = Object.freeze([
+  ...(cloud.wif.supersededWorkflowExecutionShas ?? []),
+]);
+if (
+  supersededExecutionShas.some(
+    (sha) =>
+      !/^[0-9a-f]{40}$/u.test(sha ?? "") ||
+      sha === cloud.wif.workflowExecutionSha,
+  ) ||
+  new Set(supersededExecutionShas).size !== supersededExecutionShas.length
+) {
+  fail("P3_WIF_SUPERSEDED_EXECUTION_SHA_INVALID");
+}
 
 function githubCondition() {
   return githubWifPolicy.attributeCondition;
+}
+
+function supersededGithubConditions() {
+  return supersededExecutionShas.map((executionSha) => ({
+    executionSha,
+    condition: pairwiseGithubPolicy(executionSha).attributeCondition,
+  }));
 }
 
 function legacyGithubCondition() {
@@ -338,6 +364,7 @@ function publicPlan() {
     contractDigest,
     workflowBundleSourceSha: cloud.wif.workflowBundleSourceSha,
     workflowExecutionSha: cloud.wif.workflowExecutionSha,
+    supersededWorkflowExecutionShas: supersededExecutionShas,
     githubActions: cloud.githubActions,
     androidExecutors: cloud.executors,
     confirmation: expectedConfirmation,
@@ -352,6 +379,7 @@ function publicPlan() {
         audience: cloud.wif.githubAudience,
         attributeMapping: githubMapping,
         attributeCondition: githubCondition(),
+        supersededAttributeConditions: supersededGithubConditions(),
       },
       kubernetes: {
         provider: cloud.wif.kubernetesProvider,
@@ -631,12 +659,23 @@ function providerSpecifications() {
         issuer: cloud.wif.githubIssuer,
         audience: cloud.wif.githubAudience,
       },
-      legacy: {
-        condition: legacyGithubCondition(),
-        mapping: githubMapping,
-        issuer: cloud.wif.githubIssuer,
-        audience: cloud.wif.githubAudience,
-      },
+      migrations: [
+        {
+          kind: "LEGACY_CROSS_PRODUCT",
+          condition: legacyGithubCondition(),
+          mapping: githubMapping,
+          issuer: cloud.wif.githubIssuer,
+          audience: cloud.wif.githubAudience,
+        },
+        ...supersededGithubConditions().map(({ executionSha, condition }) => ({
+          kind: "SUPERSEDED_EXECUTION_SHA",
+          executionSha,
+          condition,
+          mapping: githubMapping,
+          issuer: cloud.wif.githubIssuer,
+          audience: cloud.wif.githubAudience,
+        })),
+      ],
       driftCode: "P3_GITHUB_WIF_PROVIDER_DRIFT",
       createCode: "P3_GITHUB_WIF_PROVIDER_CREATE_FAILED",
       enableCode: "P3_GITHUB_WIF_PROVIDER_ENABLE_FAILED",
@@ -660,16 +699,21 @@ function providerSpecifications() {
 
 function providerState(specification) {
   const existing = providerRead(specification.id);
+  const migrationSource =
+    existing === null
+      ? null
+      : ((specification.migrations ?? []).find((candidate) =>
+          providerConfigurationMatches(existing, candidate),
+        ) ?? null);
   const configurationState =
     existing === null
       ? "MISSING"
       : providerConfigurationMatches(existing, specification.expected)
         ? "EXACT"
-        : specification.legacy &&
-            providerConfigurationMatches(existing, specification.legacy)
+        : migrationSource
           ? "LEGACY_MIGRATION_REQUIRED"
           : "DRIFT";
-  return { ...specification, existing, configurationState };
+  return { ...specification, existing, configurationState, migrationSource };
 }
 
 function preflightProviders() {
@@ -734,7 +778,7 @@ function migrateGithubProvider({
   id,
   existing,
   expected,
-  legacy,
+  migrationSource,
   migrationCode,
 }) {
   if (existing.disabled !== true) {
@@ -742,7 +786,7 @@ function migrateGithubProvider({
   }
   const disabledLegacy = providerRead(id);
   if (
-    !providerConfigurationMatches(disabledLegacy, legacy) ||
+    !providerConfigurationMatches(disabledLegacy, migrationSource) ||
     disabledLegacy?.disabled !== true
   ) {
     fail(migrationCode);
@@ -1017,7 +1061,7 @@ function rollback() {
   for (const {
     id,
     expected,
-    legacy,
+    migrationSource,
     existing,
     configurationState,
   } of states) {
@@ -1030,7 +1074,9 @@ function rollback() {
     }
     const disabled = providerRead(id);
     const rollbackConfiguration =
-      configurationState === "LEGACY_MIGRATION_REQUIRED" ? legacy : expected;
+      configurationState === "LEGACY_MIGRATION_REQUIRED"
+        ? migrationSource
+        : expected;
     if (
       !providerConfigurationMatches(disabled, rollbackConfiguration) ||
       disabled?.disabled !== true

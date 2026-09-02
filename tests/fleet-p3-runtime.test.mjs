@@ -88,6 +88,9 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
     ["happy-farm", "lizard-tycoon"],
   );
   assert.equal(contract.schemaVersion, 4);
+  assert.deepEqual(contract.cloudBuild.wif.supersededWorkflowExecutionShas, [
+    "e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1",
+  ]);
   assert.deepEqual(contract.authBroker.kubernetesApi, {
     server: "https://kubernetes.default.svc",
     egressCidr: "10.152.183.1/32",
@@ -825,11 +828,27 @@ test("GCP bootstrap 기본 실행은 exact source와 12개 keyless identity의 d
   assert.doesNotMatch(output.confirmation, /e86018971183/u);
   assert.equal(
     output.workflowBundleSourceSha,
-    "e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1",
+    "2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c",
   );
   assert.equal(
     output.workflowExecutionSha,
+    "2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c",
+  );
+  assert.deepEqual(output.supersededWorkflowExecutionShas, [
     "e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1",
+  ]);
+  assert.deepEqual(
+    output.workloadIdentity.github.supersededAttributeConditions.map(
+      ({ executionSha }) => executionSha,
+    ),
+    ["e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1"],
+  );
+  assert.equal(
+    output.workloadIdentity.github.supersededAttributeConditions[0].condition,
+    output.workloadIdentity.github.attributeCondition.replaceAll(
+      "2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c",
+      "e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1",
+    ),
   );
   assert.equal(
     output.workloadIdentity.github.audience,
@@ -848,10 +867,10 @@ test("GCP bootstrap 기본 실행은 exact source와 12개 keyless identity의 d
   assert.equal(
     output.workloadIdentity.github.attributeCondition,
     "assertion.repository_owner_id == '283115031' && " +
-      "((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1') || " +
-      "(assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1') || " +
-      "(assertion.repository_id == '1298244321' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1') || " +
-      "(assertion.repository_id == '1298264957' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1'))",
+      "((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c') || " +
+      "(assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c') || " +
+      "(assertion.repository_id == '1298244321' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c') || " +
+      "(assertion.repository_id == '1298264957' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c'))",
   );
   const capabilities = contract.cloudBuild.wif.repositories.map(
     ({ repositoryId, workflow }) => ({
@@ -1055,6 +1074,43 @@ test("GCP apply는 exact legacy GitHub provider만 단조 축소하고 rollback�
     writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 
   try {
+    const githubProviderId = plan.workloadIdentity.github.provider;
+    const supersededCondition =
+      plan.workloadIdentity.github.supersededAttributeConditions[0].condition;
+    assert.match(supersededCondition, /@e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1'\)/u);
+    const supersededState = structuredClone(initialState);
+    supersededState.providers[githubProviderId].attributeCondition =
+      supersededCondition;
+    await writeState(supersededState);
+    const migrated = await bootstrap("apply", plan.confirmation);
+    assert.equal(migrated.ready, true);
+    const migratedState = await readState();
+    assert.deepEqual(
+      migratedState.history.filter((entry) => entry.includes(githubProviderId)),
+      [
+        `provider:disable:${githubProviderId}`,
+        `provider:update:${githubProviderId}`,
+        `provider:enable:${githubProviderId}`,
+      ],
+    );
+    assert.equal(
+      migratedState.providers[githubProviderId].attributeCondition,
+      plan.workloadIdentity.github.attributeCondition,
+    );
+
+    const unknownShaState = structuredClone(initialState);
+    unknownShaState.providers[githubProviderId].attributeCondition =
+      supersededCondition.replaceAll("e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1", "f".repeat(40));
+    await writeState(unknownShaState);
+    await assert.rejects(
+      bootstrap("apply", plan.confirmation),
+      (error) => {
+        assert.match(error.stderr, /P3_GITHUB_WIF_PROVIDER_DRIFT/u);
+        return true;
+      },
+    );
+    assert.deepEqual((await readState()).history, []);
+
     for (const drift of ["condition", "mapping"]) {
       const unknownGithubDrift = structuredClone(initialState);
       const githubState =
@@ -1238,11 +1294,11 @@ test("Secret Manager bootstrap은 role partition을 two-phase 적용하고 rollb
   assert.equal(plan.provisioning.plaintextTransport, "fd3");
   assert.equal(
     plan.workflowBundleSourceSha,
-    "e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1",
+    "2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c",
   );
   assert.equal(
     plan.workflowExecutionSha,
-    "e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1",
+    "2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c",
   );
   assert.match(plan.confirmation, /^fleet-p3-secrets-[a-f0-9]{12}$/u);
   assert.doesNotMatch(plan.confirmation, /e86018971183/u);
