@@ -207,6 +207,33 @@ App·조직·installation·all-repository·unsuspended identity가 일치했다.
 Keychain-backed 실행기 활성화나 실제 webhook delivery 수락의 증거가 아니다. 정확히 제한된
 mutation executor, 두 pilot의 신규 등록·build-only 실증은 별도 미완료 항목이다. P3 전체 완료를 뜻하지 않는다.
 
+### 2026-09-02 GitHub 설정 적용 전 요금제 및 실제 응답 검증
+
+`GET /orgs/seorilabs`의 숫자 조직 ID `283115031`과 `plan.name=team`을 확인했다. 현재 P3
+payload는 `enforcement=evaluate`인데 이 모드는 GitHub Enterprise에서만 지원한다.
+권한이 수락된 사실과 요금제의 기능 제공 여부는 별개다. `bootstrap-p3-github.mjs readback`은
+이 상태를 `P3_GITHUB_EVALUATE_UNSUPPORTED_BY_PLAN`으로 분리하며 권한 변경 재승인이나
+키 복구를 다시 요청하는 근거로 사용하지 않는다. 요금제 정보가 안 보이면 `UNVERIFIED`이고
+무료 요금제 또는 리소스 부재로 추정하지 않는다. 현재 custom property 4개와 시범 저장소 값,
+조직 ruleset은 아직 목표 상태에 도달하지 않았다.
+
+공식 custom property 응답의 `url`, `source_type`, `default_value: null` 같은 응답 metadata를
+설정값과 통째로 비교하던 오류도 수정했다. 조직 출처·정확한 API URL을 검증하고 실제 설정만
+비교하며, 알 수 없는 설정 필드·enterprise 상속·의도하지 않은 기본값은 여전히 불일치다.
+`trustedExecution`, `webhook`, `credentialRecovery`의 CLI 기본 표시는
+`observed: false`, `observationSource: CONTRACT_ONLY`로 명시한다. 이는 운영 조회가 아니라
+안전한 기본값이므로 앞선 실제 복구·인증 증거를 부정하지 않는다.
+
+기존 zero-touch 실행 코어에는 Team의 `REPO_BRANCH_PROTECTION` 읽기 전용 SHADOW 경로가
+있다. 현재 P3 Evaluate 계약을 이 경로로 바꾸는 선택과 실제 schema·pilot 설정 적용은
+구분하여 승인해야 한다. 이 검증에서 요금제 변경, ruleset 생성·Active 전환, GitHub 설정 변경은
+수행하지 않았다. 설정 적용 실행기 활성화와 두 pilot 실증은 계속 별도 완료 조건이다.
+
+공식 근거:
+
+- [GitHub 조직 ruleset API — Evaluate의 Enterprise 제한](https://docs.github.com/en/rest/orgs/rules#create-an-organization-repository-ruleset)
+- [GitHub 조직 custom property API — 응답 metadata와 기본값](https://docs.github.com/en/rest/orgs/custom-properties#get-a-custom-property-for-an-organization)
+
 같은 readback에서 개인 `shared/github/operator`의 private package metadata 접근은 확인됐지만
 조직 canonical identity로 승격하지 않는다. GitHub의 non-Actions private GHCR pull 경계에 따라
 조직 전용 machine-user PAT classic 또는 digest/signature 검증 후 public package 전환 중 하나를

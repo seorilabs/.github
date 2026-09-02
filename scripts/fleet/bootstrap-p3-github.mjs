@@ -5,10 +5,15 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import { githubAppReadback } from "./github-app-readback.mjs";
+import {
+  githubCustomPropertyReadback,
+  githubRulesetPlanReadback,
+} from "./github-settings-readback.mjs";
 
 const renderer = fileURLToPath(new URL("./render-p3-runtime.mjs", import.meta.url));
 const apiVersion = "2026-03-10";
 const organization = "seorilabs";
+const organizationId = "283115031";
 const mode = process.argv[2] ?? "plan";
 const confirmation = process.argv[3] ?? "";
 
@@ -20,7 +25,7 @@ function fail(code) {
 if (!["plan", "apply", "readback"].includes(mode) || process.argv.length > 4) {
   fail("P3_GITHUB_COMMAND_INVALID");
 }
-function run(args, { input, allowMissing = false, code }) {
+function run(args, { input, allowMissing = false, allowForbidden = false, code }) {
   try {
     return execFileSync("gh", args, {
       encoding: "utf8",
@@ -31,6 +36,7 @@ function run(args, { input, allowMissing = false, code }) {
   } catch (error) {
     const diagnostic = `${error?.stdout ?? ""}\n${error?.stderr ?? ""}`;
     if (allowMissing && /HTTP 404|not found/iu.test(diagnostic)) return null;
+    if (allowForbidden && /HTTP 403|Resource not accessible/iu.test(diagnostic)) return null;
     if (/HTTP 403|HTTP 404|Resource not accessible|admin:org/iu.test(diagnostic)) {
       fail("P3_GITHUB_ORG_ADMIN_REQUIRED");
     }
@@ -51,7 +57,7 @@ function render(command) {
   }
 }
 
-function api(operation, { allowMissing = false } = {}) {
+function api(operation, { allowMissing = false, allowForbidden = false } = {}) {
   if (operation.method !== "GET") {
     fail("P3_GITHUB_AMBIENT_MUTATION_FORBIDDEN");
   }
@@ -73,6 +79,7 @@ function api(operation, { allowMissing = false } = {}) {
   const raw = run(args, {
     input,
     allowMissing,
+    allowForbidden,
     code: "P3_GITHUB_API_FAILED",
   });
   if (raw === null || raw === "") return raw;
@@ -181,17 +188,23 @@ function appReadbackResult(appState) {
 function protectedReadback() {
   return {
     trustedExecution: {
+      observed: false,
+      observationSource: "CONTRACT_ONLY",
       state: app.trustedExecution.state,
       ambientPersonalTokenAllowed:
         app.trustedExecution.ambientPersonalTokenAllowed,
       ready: app.trustedExecution.state === "ready",
     },
     webhook: {
+      observed: false,
+      observationSource: "CONTRACT_ONLY",
       url: app.webhook.url,
       state: "BLOCKED_APP_AUTH_READBACK",
       exact: false,
     },
     credentialRecovery: {
+      observed: false,
+      observationSource: "CONTRACT_ONLY",
       state: app.credentialRecovery.trustedAdapter.state,
       logicalIds: app.credentialRecovery.mappings.map(
         ({ targetCredentialId }) => targetCredentialId,
@@ -218,17 +231,20 @@ function readback() {
       ready: false,
     };
   }
+  const rulesetCapability = githubRulesetPlanReadback(
+    api({ method: "GET", path: `/orgs/${organization}` }, {
+      allowMissing: true,
+      allowForbidden: true,
+    }),
+    { organization, organizationId },
+  );
   const properties = propertyOperations.map((operation) => {
     const desired = propertyDesired(operation);
     const actual = api(
       { method: "GET", path: operation.path },
       { allowMissing: true },
     );
-    return {
-      propertyName: desired.property_name,
-      exists: actual !== null,
-      exact: actual !== null && equal(actual, desired),
-    };
+    return githubCustomPropertyReadback(desired, actual, organization);
   });
   const pilots = valueOperations.map((operation) => {
     const repository = operation.body.repository_names[0];
@@ -272,10 +288,12 @@ function readback() {
     properties,
     pilots,
     ruleset,
+    rulesetCapability,
     app: appReadbackResult(appState),
-    blockedBy: "P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED",
+    blockedBy: rulesetCapability.code ?? "P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED",
     ready:
       appState.ready &&
+      rulesetCapability.evaluate === "SUPPORTED" &&
       protectedState.trustedExecution.ready &&
       protectedState.webhook.exact &&
       protectedState.credentialRecovery.ready &&
