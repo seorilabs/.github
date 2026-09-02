@@ -723,6 +723,9 @@ export async function stageExactPlatformDependencyV5({
   repositoryId,
   fullName,
   sourceSha,
+  // 감사 예외가 결합되는 기본 브랜치 exact source. 후보 PR 실행은 checkout(sourceSha)이
+  // merge 커밋이므로 base를 따로 받고, 없으면 sourceSha와 같다.
+  bindingSourceSha = sourceSha,
   now = () => new Date(),
 } = {}) {
   if (
@@ -759,7 +762,8 @@ export async function stageExactPlatformDependencyV5({
       !REPOSITORY_ID.test(repositoryId ?? "") ||
       !FULL_NAME.test(fullName ?? "") ||
       !SHA.test(sourceSha ?? "") ||
-      sourceSha !== actualSourceSha
+      sourceSha !== actualSourceSha ||
+      !SHA.test(bindingSourceSha ?? "")
     )
   ) {
     fail("DEPENDENCY_AUDIT_EXCEPTION_CONTEXT_INVALID");
@@ -771,7 +775,7 @@ export async function stageExactPlatformDependencyV5({
     actionClass: auditActionClass,
     repositoryId,
     fullName,
-    sourceSha,
+    sourceSha: bindingSourceSha,
     lockfileSha256,
     now: current,
   });
@@ -929,6 +933,9 @@ async function main() {
     repositoryId: encodedAuditException ? process.env.SEORI_REPOSITORY_ID : undefined,
     fullName: encodedAuditException ? process.env.SEORI_REPOSITORY : undefined,
     sourceSha: encodedAuditException ? process.env.SEORI_SOURCE_SHA : undefined,
+    ...(encodedAuditException && process.env.SEORI_BINDING_SOURCE_SHA
+      ? { bindingSourceSha: process.env.SEORI_BINDING_SOURCE_SHA }
+      : {}),
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

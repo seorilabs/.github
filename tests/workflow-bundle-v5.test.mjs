@@ -1499,6 +1499,38 @@ test("signed dependency audit exception is exact-source, scoped, ordered, and ti
     canonicalize(staticException),
   );
 
+  const prStaticContext = staticRuntimeContext({
+    eventName: "pull_request",
+    eventRef: "refs/pull/41/merge",
+    applicationSourceSha: "a".repeat(40),
+    pullRequestBaseSha: "8".repeat(40),
+    pullRequestHeadRepository: "seorilabs/runtime-canary",
+  });
+  const prStaticBinding = await resolveStaticRuntimeBindingV5(prStaticContext, {
+    now: () => new Date("2026-08-30T00:00:00Z"),
+    trustedManifestReadback: async (request) => staticRuntimeResponse(request, {
+      dependencyAuditException: staticException,
+    }),
+  });
+  assert.deepEqual(
+    JSON.parse(Buffer.from(prStaticBinding.dependencyAuditException, "base64url").toString("utf8")),
+    canonicalize(staticException),
+  );
+  await assert.rejects(
+    resolveStaticRuntimeBindingV5(prStaticContext, {
+      now: () => new Date("2026-08-30T00:00:00Z"),
+      trustedManifestReadback: async (request) => staticRuntimeResponse(request, {
+        dependencyAuditException: dependencyAuditExceptionFixture({
+          repositoryId: prStaticContext.repositoryId,
+          fullName: prStaticContext.fullName,
+          staticSourceSha: prStaticContext.applicationSourceSha,
+          androidSourceSha: "9".repeat(40),
+        }),
+      }),
+    }),
+    /DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH/u,
+  );
+
   const buildContext = buildRuntimeContext({ eventSourceSha: "9".repeat(40) });
   const buildException = dependencyAuditExceptionFixture({
     repositoryId: buildContext.repositoryId,
@@ -2328,6 +2360,60 @@ test("audit exception permits only the exact high advisory set for one source an
   });
   assert.equal(calls, 2);
   assert.equal(staged.dependencyAuditExceptionDigest, sha256(JSON.stringify(canonicalize(exception))));
+
+  await rm(cacheRoot, { recursive: true, force: true });
+  const baseSha = "b".repeat(40);
+  const baseBoundException = dependencyAuditExceptionFixture({
+    repositoryId: "1250442131",
+    fullName: "seorilabs/happy-farm",
+    staticSourceSha: baseSha,
+    androidSourceSha: "9".repeat(40),
+    staticLockDigest: lockDigest,
+  });
+  const stagedFromPullRequest = await stageExactPlatformDependencyV5({
+    repoRoot: root,
+    dependencyRoot: ".",
+    packageManager: "pnpm",
+    cacheRoot,
+    token: "token-that-must-never-be-persisted",
+    childEnvironment: { HOME: "/tmp/fixture-home", PATH: "/usr/bin:/bin" },
+    dependencyAuditException: baseBoundException,
+    auditActionClass: "STATIC_CHECK",
+    repositoryId: baseBoundException.repositoryId,
+    fullName: baseBoundException.fullName,
+    sourceSha,
+    bindingSourceSha: baseSha,
+    now: () => new Date("2026-08-30T00:00:00Z"),
+    spawn: (_command, _args, options) => {
+      if (!options.env.NODE_AUTH_TOKEN) return { status: 1, signal: null, stdout: auditReport };
+      mkdirSync(join(cacheRoot, "content"), { recursive: true });
+      writeFileSync(join(cacheRoot, "content", "package.tgz"), "public-package-bytes");
+      return { status: 0, signal: null };
+    },
+  });
+  assert.equal(
+    stagedFromPullRequest.dependencyAuditExceptionDigest,
+    sha256(JSON.stringify(canonicalize(baseBoundException))),
+  );
+  await rm(cacheRoot, { recursive: true, force: true });
+  await assert.rejects(
+    stageExactPlatformDependencyV5({
+      repoRoot: root,
+      dependencyRoot: ".",
+      packageManager: "pnpm",
+      cacheRoot,
+      token: "token-that-must-never-be-persisted",
+      childEnvironment: { HOME: "/tmp/fixture-home", PATH: "/usr/bin:/bin" },
+      dependencyAuditException: baseBoundException,
+      auditActionClass: "STATIC_CHECK",
+      repositoryId: baseBoundException.repositoryId,
+      fullName: baseBoundException.fullName,
+      sourceSha,
+      now: () => new Date("2026-08-30T00:00:00Z"),
+      spawn: () => ({ status: 1, signal: null, stdout: auditReport }),
+    }),
+    /DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH/u,
+  );
 
   await rm(cacheRoot, { recursive: true, force: true });
   const substituted = structuredClone(exception);
