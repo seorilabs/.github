@@ -226,15 +226,15 @@ cloudBuild:
     kubernetesIssuer: https://kubernetes.default.svc
     githubAudience: https://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
     organizationId: "283115031"
-    workflowBundleSourceSha: 5159ca37fde9306e6b5da265f6889ae5782b03bd
-    workflowExecutionSha: 5159ca37fde9306e6b5da265f6889ae5782b03bd
+    workflowBundleSourceSha: 2fee6630a8a2e79128cbf6055087bf9f9402810d
+    workflowExecutionSha: 2fee6630a8a2e79128cbf6055087bf9f9402810d
     supersededWorkflowExecutionShas:
-      - 7790257716bca71ae865aa11274803520adf13e3
+      - 5159ca37fde9306e6b5da265f6889ae5782b03bd
     repositories:
       - fullName: seorilabs/happy-farm
         repositoryId: "1250442131"
         workflow: .github/workflows/rn-build-android-cloud-v2.yml
-        sha256: 20b971230510eb39f500c1c81ee655a744e3bf1c436c7cbff3b02e3d52b787c3
+        sha256: ce74839acc0cbbb5d2d9dc7fec55e564eac5c7340040ac7f253cb13bb7dec456
       - fullName: seorilabs/lizard-tycoon
         repositoryId: "1265192029"
         workflow: .github/workflows/godot-build-android-cloud-v2.yml
@@ -242,11 +242,11 @@ cloudBuild:
       - fullName: seorilabs/babycare
         repositoryId: "1298244321"
         workflow: .github/workflows/rn-build-android-cloud-v2.yml
-        sha256: 20b971230510eb39f500c1c81ee655a744e3bf1c436c7cbff3b02e3d52b787c3
+        sha256: ce74839acc0cbbb5d2d9dc7fec55e564eac5c7340040ac7f253cb13bb7dec456
       - fullName: seorilabs/cycle-pair
         repositoryId: "1298264957"
         workflow: .github/workflows/rn-build-android-cloud-v2.yml
-        sha256: 20b971230510eb39f500c1c81ee655a744e3bf1c436c7cbff3b02e3d52b787c3
+        sha256: ce74839acc0cbbb5d2d9dc7fec55e564eac5c7340040ac7f253cb13bb7dec456
   submitter:
     logicalCredentialId: shared/gcp/cloud-build/submitter
     serviceAccountEmail: seori-cloud-build-submitter@seorilabs-ci.iam.gserviceaccount.com
