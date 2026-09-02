@@ -159,7 +159,8 @@ ruleset은 각각 admin 권한으로 적용하고 API readback이 exact 계약�
 [조직 rulesets](https://docs.github.com/en/rest/orgs/rules)를 따른다.
 
 offline recovery는 `scripts/fleet/github-credential-recovery.mjs`의 trusted adapter만 허용한다.
-adapter는 Sealed Secrets nonce-prefixed payload를 process-local memory에서만 해제한다. signed
+adapter는 Sealed Secrets의 strict `namespace/name` OAEP label과 암묵적 zero nonce를 사용하는
+hybrid ciphertext를 process-local memory에서만 해제한다. signed
 Security.framework native helper의 exact code identity, unattended ACL, item-not-found/readback,
 batch compensation이 검증되기 전에는 `HUMAN_REAUTH_REQUIRED`로 중단하고 raw value나
 `security -w` CLI를 사용하지 않는다. 검증 뒤에도 App public identity, 공개 fingerprint, 복구

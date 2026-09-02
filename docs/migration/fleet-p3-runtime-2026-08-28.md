@@ -209,6 +209,7 @@ mutation executor, 두 pilot의 신규 등록·build-only 실증은 별도 미�
 
 ### 2026-09-02 GitHub 설정 적용 전 요금제 및 실제 응답 검증
 
+[실제 조회 기록](evidence/fleet-p3-github-settings-readback-2026-09-02.json)에서
 `GET /orgs/seorilabs`의 숫자 조직 ID `283115031`과 `plan.name=team`을 확인했다. 현재 P3
 payload는 `enforcement=evaluate`인데 이 모드는 GitHub Enterprise에서만 지원한다.
 권한이 수락된 사실과 요금제의 기능 제공 여부는 별개다. `bootstrap-p3-github.mjs readback`은
@@ -234,7 +235,12 @@ payload는 `enforcement=evaluate`인데 이 모드는 GitHub Enterprise에서만
 - [GitHub 조직 ruleset API — Evaluate의 Enterprise 제한](https://docs.github.com/en/rest/orgs/rules#create-an-organization-repository-ruleset)
 - [GitHub 조직 custom property API — 응답 metadata와 기본값](https://docs.github.com/en/rest/orgs/custom-properties#get-a-custom-property-for-an-organization)
 
-같은 readback에서 개인 `shared/github/operator`의 private package metadata 접근은 확인됐지만
+### 이전 설치 기록 — 2026-08-28~30
+
+아래 내용은 당시 설치 상태다. 이후 완료된 공개 이미지 전환·GCP 적용·credential 복구의
+현재 상태를 판정하거나 같은 승인을 다시 요청하는 데 사용하지 않는다.
+
+당시 readback에서 개인 `shared/github/operator`의 private package metadata 접근은 확인됐지만
 조직 canonical identity로 승격하지 않는다. GitHub의 non-Actions private GHCR pull 경계에 따라
 조직 전용 machine-user PAT classic 또는 digest/signature 검증 후 public package 전환 중 하나를
 별도 승인해야 한다. `auth-broker` namespace에서 `seori-auth-ghcr-pull` Secret은 존재하지 않았고

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-02T00:46:04.051Z",
+  "sourceSha": "62690baa07011c40204e49f8937bb91ae1871e40",
+  "organization": "seorilabs",
+  "app": {
+    "identity": {
+      "appId": 4124446,
+      "slug": "seorilabs-backoffice",
+      "installationId": 142120077,
+      "targetType": "Organization",
+      "repositorySelection": "all",
+      "suspendedAt": null
+    },
+    "permissionsReady": true,
+    "permissionChanges": [],
+    "eventAdditions": [],
+    "installationAcceptanceRequired": false
+  },
+  "rulesetCapability": {
+    "organizationId": "283115031",
+    "identityExact": true,
+    "plan": "team",
+    "evaluate": "UNSUPPORTED",
+    "requiredPlan": "enterprise",
+    "code": "P3_GITHUB_EVALUATE_UNSUPPORTED_BY_PLAN"
+  },
+  "properties": [
+    { "propertyName": "fleet-managed", "exists": false, "exact": false },
+    { "propertyName": "fleet-profile", "exists": false, "exact": false },
+    { "propertyName": "fleet-ruleset", "exists": false, "exact": false },
+    { "propertyName": "fleet-state", "exists": false, "exact": false }
+  ],
+  "pilots": [
+    { "repository": "happy-farm", "exists": true, "exact": false },
+    { "repository": "lizard-tycoon", "exists": true, "exact": false }
+  ],
+  "ruleset": { "exists": false, "exact": false },
+  "protectedReadbackSource": "CONTRACT_ONLY_NOT_RUNTIME_EVIDENCE",
+  "blockedBy": "P3_GITHUB_EVALUATE_UNSUPPORTED_BY_PLAN",
+  "ready": false,
+  "externalMutations": 0
+}
