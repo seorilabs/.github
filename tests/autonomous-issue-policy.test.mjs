@@ -187,10 +187,58 @@ test("자율 이슈 정책은 JSON Schema를 통과한다", () => {
   assert.equal(validate(policy), true, JSON.stringify(validate.errors));
 });
 
-test("v2 처리 계약은 등록 1건 상한과 실행당 직렬 drain을 분리한다", () => {
-  assert.equal(policy.schemaVersion, 2);
-  assert.equal(policy.id, "seorilabs-autonomous-issue-policy-v2");
-  assert.equal(policy.schedules.registration.maxIssuesPerRun, 1);
+test("v3 등록 계약은 건수 상한 없이 근거 후보를 한 차례 등록한다", () => {
+  assert.equal(policy.schemaVersion, 3);
+  assert.equal(policy.id, "seorilabs-autonomous-issue-policy-v3");
+  assert.equal(Object.hasOwn(policy.schedules.registration, "maxIssuesPerRun"), false);
+  assert.deepEqual(policy.schedules.registration, {
+    localTimes: ["02:00"],
+    mode: "evidence-batch",
+    candidateSet: "per-repository-after-evidence",
+    revalidateBeforeEachCreate: true,
+    maxConcurrentCreates: 1,
+    maxAttemptsPerCandidatePerRun: 1,
+    executionBudgetSource: "automation-occurrence",
+    stopConditions: [
+      "repository-pass-completed",
+      "execution-budget-exhausted",
+      "global-safety-blocked",
+    ],
+    openAutopilotIssueLimit: 10,
+    repositoryTraversal: "daily-rotating-config-order",
+  });
+});
+
+test("등록 스키마는 옛 건수 제한과 근거·재고·재시도 경계 약화를 거부한다", () => {
+  const validate = new Ajv2020({ strict: true, validateFormats: false }).compile(schema);
+  for (const [key, value] of [
+    ["maxIssuesPerRun", 1],
+    ["maxIssuesPerRun", 10],
+    ["candidateSet", "continuous-discovery"],
+    ["revalidateBeforeEachCreate", false],
+    ["maxConcurrentCreates", 2],
+    ["maxAttemptsPerCandidatePerRun", 2],
+    ["openAutopilotIssueLimit", 11],
+    ["repositoryTraversal", "repeat-until-full"],
+    ["executionBudgetSource", "unbounded"],
+    ["stopConditions", ["repository-pass-completed"]],
+  ]) {
+    const invalid = structuredClone(policy);
+    invalid.schedules.registration[key] = value;
+    assert.equal(validate(invalid), false, `${key}: ${JSON.stringify(value)}`);
+  }
+  for (const key of Object.keys(policy.schedules.registration)) {
+    const invalid = structuredClone(policy);
+    delete invalid.schedules.registration[key];
+    assert.equal(validate(invalid), false, `missing ${key}`);
+  }
+  const legacy = structuredClone(policy);
+  legacy.schemaVersion = 2;
+  legacy.id = "seorilabs-autonomous-issue-policy-v2";
+  assert.equal(validate(legacy), false);
+});
+
+test("등록 변경은 기존 처리 일정과 직렬 drain을 보존한다", () => {
   assert.equal(Object.hasOwn(policy.schedules.processing, "maxIssuesPerRun"), false);
   assert.deepEqual(policy.schedules.processing, {
     localTimes: ["06:25", "09:25", "12:25", "15:25", "18:25", "21:25"],
