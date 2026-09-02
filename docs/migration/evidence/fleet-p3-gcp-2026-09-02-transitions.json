@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-02T14:41:11.953Z",
+  "sourceSha": "d8729b8ae08ebc92cb5102c38182061592c0053b",
+  "scope": "P3_GCP_WIF_PROVIDER_EXECUTION_SHA_TRANSITIONS_X2_X3",
+  "temporaryInstallerGrant": {
+    "principal": "seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com",
+    "project": "seorilabs-ci",
+    "expiresAt": "2026-09-02T16:00:00Z",
+    "title": "p3-installer-20260902"
+  },
+  "transitions": [
+    {
+      "label": "X2",
+      "workflowExecutionSha": "5d73a03dad6102ebef6272ff448eb82f8a58ba03",
+      "supersededWorkflowExecutionShas": [
+        "2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c"
+      ],
+      "contractDigest": "00abdc8ff5abd8b4285c094f28dd03f91a17f6ffe1b10f09508d9c31b230d7a6",
+      "confirmation": "fleet-p3-00abdc8ff5ab",
+      "applyExit": 1,
+      "applyNote": "apply가 P3_GITHUB_WIF_PROVIDER_MIGRATION_FAILED로 종료했으나 update-oidc와 enable은 반영됐고 직후 readback이 exact·active·ready:true였다. 마지막 재조회의 일시적 불일치로 판단하며 재적용은 필요 없었다.",
+      "readbackBefore": {
+        "ready": false,
+        "requiredServicesEnabled": "10/10",
+        "serviceAccountsExisting": "12/12",
+        "workloadIdentityPool": {
+          "exists": true,
+          "configurationExact": true,
+          "disabled": false,
+          "state": "ACTIVE",
+          "active": true
+        },
+        "providers": {
+          "github": {
+            "exists": true,
+            "configurationExact": false,
+            "disabled": false,
+            "active": true
+          },
+          "kubernetes": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          }
+        },
+        "iamBindingsPresent": "74/74",
+        "staticKeysCreated": false
+      },
+      "readbackAfter": {
+        "ready": true,
+        "requiredServicesEnabled": "10/10",
+        "serviceAccountsExisting": "12/12",
+        "workloadIdentityPool": {
+          "exists": true,
+          "configurationExact": true,
+          "disabled": false,
+          "state": "ACTIVE",
+          "active": true
+        },
+        "providers": {
+          "github": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          },
+          "kubernetes": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          }
+        },
+        "iamBindingsPresent": "74/74",
+        "staticKeysCreated": false
+      },
+      "providerAttributeCondition": "assertion.repository_owner_id == '283115031' && ((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@5d73a03dad6102ebef6272ff448eb82f8a58ba03') || (assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@5d73a03dad6102ebef6272ff448eb82f8a58ba03') || (assertion.repository_id == '1298244321' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@5d73a03dad6102ebef6272ff448eb82f8a58ba03') || (assertion.repository_id == '1298264957' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@5d73a03dad6102ebef6272ff448eb82f8a58ba03'))",
+      "evidenceDigests": {
+        "planSha256": "02a152492bde2038ab8bce465e9c3a38d38086903bf4aae91a971f86be257237",
+        "readbackBeforeSha256": "8311b803ea1e13e2f8a8f98839b8ca3d888f4d63616c1bd79a17b45b6155d0d3",
+        "readbackAfterSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e"
+      }
+    },
+    {
+      "label": "X3",
+      "workflowExecutionSha": "7790257716bca71ae865aa11274803520adf13e3",
+      "supersededWorkflowExecutionShas": [
+        "5d73a03dad6102ebef6272ff448eb82f8a58ba03"
+      ],
+      "contractDigest": "baef5aa7e307a948740ba5210b85d6a270ce396d75b2e40a680432aa73d6d5c4",
+      "confirmation": "fleet-p3-baef5aa7e307",
+      "applyExit": 0,
+      "readbackBefore": {
+        "ready": false,
+        "requiredServicesEnabled": "10/10",
+        "serviceAccountsExisting": "12/12",
+        "workloadIdentityPool": {
+          "exists": true,
+          "configurationExact": true,
+          "disabled": false,
+          "state": "ACTIVE",
+          "active": true
+        },
+        "providers": {
+          "github": {
+            "exists": true,
+            "configurationExact": false,
+            "disabled": false,
+            "active": true
+          },
+          "kubernetes": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          }
+        },
+        "iamBindingsPresent": "74/74",
+        "staticKeysCreated": false
+      },
+      "readbackAfter": {
+        "ready": true,
+        "requiredServicesEnabled": "10/10",
+        "serviceAccountsExisting": "12/12",
+        "workloadIdentityPool": {
+          "exists": true,
+          "configurationExact": true,
+          "disabled": false,
+          "state": "ACTIVE",
+          "active": true
+        },
+        "providers": {
+          "github": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          },
+          "kubernetes": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          }
+        },
+        "iamBindingsPresent": "74/74",
+        "staticKeysCreated": false
+      },
+      "applyReadback": {
+        "ready": true,
+        "requiredServicesEnabled": "10/10",
+        "serviceAccountsExisting": "12/12",
+        "workloadIdentityPool": {
+          "exists": true,
+          "configurationExact": true,
+          "disabled": false,
+          "state": "ACTIVE",
+          "active": true
+        },
+        "providers": {
+          "github": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          },
+          "kubernetes": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          }
+        },
+        "iamBindingsPresent": "74/74",
+        "staticKeysCreated": false
+      },
+      "providerAttributeCondition": "assertion.repository_owner_id == '283115031' && ((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@7790257716bca71ae865aa11274803520adf13e3') || (assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@7790257716bca71ae865aa11274803520adf13e3') || (assertion.repository_id == '1298244321' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@7790257716bca71ae865aa11274803520adf13e3') || (assertion.repository_id == '1298264957' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@7790257716bca71ae865aa11274803520adf13e3'))",
+      "evidenceDigests": {
+        "planSha256": "4df43d0f724776c3791a8259cf9597975d30f82d2bec9c1c862c2724c42cef7c",
+        "readbackBeforeSha256": "8311b803ea1e13e2f8a8f98839b8ca3d888f4d63616c1bd79a17b45b6155d0d3",
+        "applyReadbackSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e",
+        "readbackAfterSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e"
+      }
+    }
+  ],
+  "excluded": [
+    "MARKET_UPLOAD",
+    "REVIEW_SUBMISSION",
+    "PUBLIC_RELEASE",
+    "APP_SIGNING_ROTATION",
+    "STATIC_KEY_CREATION"
+  ],
+  "nextGate": {
+    "code": "P3_CANDIDATE_BUILD_ONLY_RUNS_PENDING",
+    "issues": [
+      "seorilabs/.github#42"
+    ]
+  }
+}
