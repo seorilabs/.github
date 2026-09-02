@@ -1278,7 +1278,7 @@ test('native SSH relay keeps the recovery key separate from SSH and sudo authent
   const applyCommand = 'sudo -n /usr/local/libexec/seori-auth-native launch -- ' +
     `/usr/local/bin/node /opt/seorilabs/fleet-p2/${sourceSha}/scripts/fleet/` +
     'p2-host-encryption-apply-loader.mjs';
-  const runRelay = (nodeName, privilegeFlag) => new Promise((resolve, reject) => {
+  const runRelay = async (nodeName, privilegeFlag, input = recoveryKeyCanary) => {
     const child = spawn(testRelay, [
       'relay', nodeName, passwordPath, privilegeFlag, applyCommand,
     ], { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -1286,14 +1286,25 @@ test('native SSH relay keeps the recovery key separate from SSH and sudo authent
     const stderr = [];
     child.stdout.on('data', (chunk) => stdout.push(Buffer.from(chunk)));
     child.stderr.on('data', (chunk) => stderr.push(Buffer.from(chunk)));
-    child.once('error', reject);
-    child.once('close', (status) => resolve({
+    const exited = new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', resolve);
+    });
+    const inputCompleted = new Promise((resolve) => {
+      child.stdin.once('error', resolve);
+      child.stdin.end(input, (error) => resolve(error ?? null));
+    });
+    const [status, inputError] = await Promise.all([exited, inputCompleted]);
+    // Only the relay's explicit policy rejection can explain a closed input
+    // pipe. A transport error on a successful or unknown exit still fails.
+    if (inputError && !(inputError.code === 'EPIPE' && status === 126)) throw inputError;
+    return {
       status,
+      inputErrorCode: inputError?.code ?? null,
       stdout: Buffer.concat(stdout).toString('utf8'),
       stderr: Buffer.concat(stderr).toString('utf8'),
-    }));
-    child.stdin.end(recoveryKeyCanary);
-  });
+    };
+  };
   try {
     await writeFile(passwordPath, `${password}\n`, { mode: 0o600 });
     await chmod(passwordPath, 0o600);
@@ -1311,6 +1322,7 @@ printf '{"stdinBytes":%s}\n' "$count"
     ]);
     const accepted = await runRelay('rpi5', '0');
     assert.equal(accepted.status, 0);
+    assert.equal(accepted.inputErrorCode, null);
     assert.deepEqual(JSON.parse(accepted.stdout), {
       stdinBytes: Buffer.byteLength(recoveryKeyCanary),
     });
@@ -1319,10 +1331,15 @@ printf '{"stdinBytes":%s}\n' "$count"
       `${accepted.stdout}${accepted.stderr}`,
       new RegExp(recoveryKeyCanary, 'u'),
     );
-    const wrongHost = await runRelay('rpi4001', '0');
+    // Exceed a pipe buffer so an early policy denial deterministically closes
+    // stdin while the parent is writing, rather than depending on scheduling.
+    const deniedInput = recoveryKeyCanary.repeat(65536);
+    const wrongHost = await runRelay('rpi4001', '0', deniedInput);
     assert.equal(wrongHost.status, 126);
-    const wrongPrivilegeChannel = await runRelay('rpi5', '1');
+    assert.equal(wrongHost.inputErrorCode, 'EPIPE');
+    const wrongPrivilegeChannel = await runRelay('rpi5', '1', deniedInput);
     assert.equal(wrongPrivilegeChannel.status, 126);
+    assert.equal(wrongPrivilegeChannel.inputErrorCode, 'EPIPE');
   } finally {
     await fixture.cleanup();
   }

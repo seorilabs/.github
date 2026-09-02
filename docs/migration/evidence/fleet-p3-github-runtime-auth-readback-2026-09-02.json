@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "fleet-p3-github-runtime-auth-readback/v1",
+  "observedAt": "2026-09-02T00:17:31.609Z",
+  "canonicalRecoveryEvidence": "fleet-p3-github-credential-recovery-2026-09-02.json",
+  "execution": {
+    "context": "vzyx-cluster",
+    "namespace": "platform",
+    "pod": "backoffice-5589cdcffc-qr84q",
+    "container": "backoffice",
+    "mode": "read-only-existing-runtime"
+  },
+  "appReadback": {
+    "state": "GITHUB_APP_AUTHENTICATED_READBACK_VERIFIED",
+    "observedAt": "2026-09-02T00:15:59.775Z",
+    "publicKeyFingerprintSha256": "1da391b0b24813a30aadff06d3ccf4228a378e6f2781cacaef5816e4de0b07b2",
+    "appId": 4124446,
+    "slug": "seorilabs-backoffice",
+    "organizationId": 283115031,
+    "installationId": 142120077,
+    "repositorySelection": "all",
+    "suspendedAt": null,
+    "permissions": {
+      "checks": "read",
+      "issues": "write",
+      "actions": "write",
+      "members": "read",
+      "contents": "write",
+      "metadata": "read",
+      "workflows": "write",
+      "environments": "write",
+      "pull_requests": "write",
+      "administration": "write",
+      "organization_administration": "write",
+      "repository_custom_properties": "write",
+      "organization_custom_properties": "admin"
+    },
+    "appHttpStatus": 200,
+    "installationHttpStatus": 200,
+    "existingRuntimeCredentialUsed": true,
+    "installationTokenCreated": false,
+    "githubMutations": 0
+  },
+  "webhookReadback": {
+    "state": "GITHUB_WEBHOOK_RUNTIME_FINGERPRINT_VERIFIED",
+    "observedAt": "2026-09-02T00:17:31.609Z",
+    "logicalCredentialId": "shared/github/backoffice-app-webhook",
+    "fingerprintSha256": "866275576f0ecbee4cc44bf27d8aa8fa3d4479000f54df16d6fd46e5e11a4460",
+    "existingRuntimeCredentialUsed": true,
+    "externalMutations": 0
+  },
+  "boundaries": {
+    "samePublicKeyAsRecoveredCredential": true,
+    "sameWebhookFingerprintAsRecoveredCredential": true,
+    "secretValuesReturned": false,
+    "localKeychainUsedToSignRequest": false,
+    "scopedMutationExecutorActivated": false,
+    "webhookDeliveryAcceptanceVerified": false,
+    "credentialOrPermissionChanges": false
+  }
+}

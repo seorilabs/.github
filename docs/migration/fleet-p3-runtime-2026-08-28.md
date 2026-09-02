@@ -197,8 +197,15 @@ UI 없는 Keychain readback을 통과했다. 두 logical ID는 active이고 cata
 
 [공개 실행 근거](evidence/fleet-p3-github-credential-recovery-2026-09-02.json)는 source/helper/backup
 digest와 검증 상태만 기록한다. 이 결과로 같은 credential recovery 승인을 다시 요청하거나
-복구를 재실행하지 않는다. App JWT를 이용한 새 authenticated readback, 정확히 제한된 mutation
-executor, 두 pilot의 신규 등록·build-only 실증은 별도 미완료 항목이다. P3 전체 완료를 뜻하지 않는다.
+복구를 재실행하지 않는다.
+
+이어 [운영 인증 추가 관측](evidence/fleet-p3-github-runtime-auth-readback-2026-09-02.json)에서 기존
+Backoffice runtime의 private key·webhook 지문이 복구한 canonical 지문과 같음을 확인했다.
+운영 키로 App JWT를 만들어 `GET /app`과 exact installation 조회가 모두 HTTP 200이고,
+App·조직·installation·all-repository·unsuspended identity가 일치했다. 비밀값이나 JWT는 반환하지
+않았고 installation token도 발급하지 않았다. 이 조회는 기존 운영 키의 identity 검증이며,
+Keychain-backed 실행기 활성화나 실제 webhook delivery 수락의 증거가 아니다. 정확히 제한된
+mutation executor, 두 pilot의 신규 등록·build-only 실증은 별도 미완료 항목이다. P3 전체 완료를 뜻하지 않는다.
 
 같은 readback에서 개인 `shared/github/operator`의 private package metadata 접근은 확인됐지만
 조직 canonical identity로 승격하지 않는다. GitHub의 non-Actions private GHCR pull 경계에 따라
