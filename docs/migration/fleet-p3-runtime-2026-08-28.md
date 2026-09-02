@@ -236,6 +236,11 @@ protection·유효 branch rules를 조회하여 기존 check와 목표 check 차
 v1–v4 WorkflowBundle의 과거 서명 계약에 남은 `EVALUATE`는 과거 snapshot 검증용이다.
 현재 번들 v5와 P3 runtime v4의 운영 경로에 Enterprise Evaluate를 추가하지 않는다.
 
+[변경 후 실제 조회](evidence/fleet-p3-team-shadow-readback-2026-09-02.json)는 Team capability와
+두 pilot의 SHADOW 관측을 확인했다. happy-farm의 기존 `Seori Review`를 그대로 읽었으며 두
+pilot 모두 목표 `Org Contract / Org Contract`가 아직 필수 check에는 없다. 외부 변경은 0건이다.
+전체 `npm test -- --test-reporter=dot`, 관련 테스트 46개, `pack:check`, actionlint를 통과했다.
+
 공식 근거:
 
 - [GitHub 조직 ruleset API — Evaluate의 Enterprise 제한](https://docs.github.com/en/rest/orgs/rules#create-an-organization-repository-ruleset)

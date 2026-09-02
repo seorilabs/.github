@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 1,
+  "sourceSha": "35074f0196b1161d27239341566ae96591f68c18",
+  "observedAt": "2026-09-02T01:29:17.306Z",
+  "command": "node scripts/fleet/bootstrap-p3-github.mjs readback",
+  "purpose": "APPROVED_GITHUB_TEAM_READ_ONLY_SHADOW",
+  "externalMutations": 0,
+  "planUpgradePerformed": false,
+  "existingProtectionChanged": false,
+  "activationApproved": false,
+  "readback": {
+    "organization": "seorilabs",
+    "trustedExecution": {
+      "observed": false,
+      "observationSource": "CONTRACT_ONLY",
+      "state": "blocked_unverified",
+      "ambientPersonalTokenAllowed": false,
+      "ready": false
+    },
+    "webhook": {
+      "observed": false,
+      "observationSource": "CONTRACT_ONLY",
+      "url": "https://backoffice.vzyx.xyz/api/webhooks",
+      "state": "BLOCKED_APP_AUTH_READBACK",
+      "exact": false
+    },
+    "credentialRecovery": {
+      "observed": false,
+      "observationSource": "CONTRACT_ONLY",
+      "state": "blocked_unverified",
+      "logicalIds": [
+        "shared/github/backoffice-app-private-key",
+        "shared/github/backoffice-app-webhook"
+      ],
+      "ready": false
+    },
+    "properties": [
+      {
+        "propertyName": "fleet-managed",
+        "exists": false,
+        "exact": false
+      },
+      {
+        "propertyName": "fleet-profile",
+        "exists": false,
+        "exact": false
+      },
+      {
+        "propertyName": "fleet-ruleset",
+        "exists": false,
+        "exact": false
+      },
+      {
+        "propertyName": "fleet-state",
+        "exists": false,
+        "exact": false
+      }
+    ],
+    "pilots": [
+      {
+        "repository": "happy-farm",
+        "exists": true,
+        "exact": false
+      },
+      {
+        "repository": "lizard-tycoon",
+        "exists": true,
+        "exact": false
+      }
+    ],
+    "protection": {
+      "providerMode": "REPO_BRANCH_PROTECTION",
+      "rolloutMode": "SHADOW",
+      "observationMode": "READ_ONLY",
+      "existingProtectionChanged": false,
+      "activationAllowed": false,
+      "repositories": [
+        {
+          "fullName": "seorilabs/happy-farm",
+          "repositoryId": "1250442131",
+          "branch": "main",
+          "observedAt": "2026-09-02T01:29:17.306Z",
+          "state": "OBSERVED",
+          "identityExact": true,
+          "branchProtectionPresent": false,
+          "existingStatusChecks": [
+            "Seori Review"
+          ],
+          "missingStatusChecks": [
+            "Org Contract / Org Contract"
+          ],
+          "requiredStatusCheck": "Org Contract / Org Contract",
+          "requiredStatusCheckPresent": false,
+          "snapshotDigest": "sha256:65ee3a3f95fd1eca6a2d3751b1f782f076fefb356f84b5ae55b17c1168d14787"
+        },
+        {
+          "fullName": "seorilabs/lizard-tycoon",
+          "repositoryId": "1265192029",
+          "branch": "main",
+          "observedAt": "2026-09-02T01:29:17.306Z",
+          "state": "OBSERVED",
+          "identityExact": true,
+          "branchProtectionPresent": false,
+          "existingStatusChecks": [],
+          "missingStatusChecks": [
+            "Org Contract / Org Contract"
+          ],
+          "requiredStatusCheck": "Org Contract / Org Contract",
+          "requiredStatusCheckPresent": false,
+          "snapshotDigest": "sha256:0774ae17a552e9da6d9d4f7ec3bb253af9e28d26fa5c233f6fa44c4f64c8c7ba"
+        }
+      ],
+      "ready": true
+    },
+    "protectionCapability": {
+      "organizationId": "283115031",
+      "identityExact": true,
+      "plan": "team",
+      "protection": "SUPPORTED",
+      "requiredPlan": "team",
+      "providerMode": "REPO_BRANCH_PROTECTION",
+      "rolloutMode": "SHADOW",
+      "code": null
+    },
+    "app": {
+      "identity": {
+        "appId": 4124446,
+        "slug": "seorilabs-backoffice",
+        "installationId": 142120077,
+        "targetType": "Organization",
+        "repositorySelection": "all",
+        "suspendedAt": null
+      },
+      "identityExact": true,
+      "currentPermissions": {
+        "checks": "read",
+        "issues": "write",
+        "actions": "write",
+        "members": "read",
+        "contents": "write",
+        "metadata": "read",
+        "workflows": "write",
+        "environments": "write",
+        "pull_requests": "write",
+        "administration": "write",
+        "organization_administration": "write",
+        "repository_custom_properties": "write",
+        "organization_custom_properties": "admin"
+      },
+      "permissionChanges": [],
+      "permissionUnion": {
+        "checks": "read",
+        "issues": "write",
+        "actions": "write",
+        "members": "read",
+        "contents": "write",
+        "metadata": "read",
+        "workflows": "write",
+        "environments": "write",
+        "pull_requests": "write",
+        "administration": "write",
+        "organization_administration": "write",
+        "repository_custom_properties": "write",
+        "organization_custom_properties": "admin"
+      },
+      "currentEvents": [
+        "issue_comment",
+        "issues",
+        "pull_request",
+        "push",
+        "repository",
+        "workflow_run"
+      ],
+      "eventAdditions": [],
+      "eventUnion": [
+        "issue_comment",
+        "issues",
+        "pull_request",
+        "push",
+        "repository",
+        "workflow_run"
+      ],
+      "installationAcceptanceRequired": false,
+      "ready": true,
+      "humanGate": {
+        "state": "SATISFIED"
+      }
+    },
+    "blockedBy": "P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED",
+    "ready": false
+  }
+}
