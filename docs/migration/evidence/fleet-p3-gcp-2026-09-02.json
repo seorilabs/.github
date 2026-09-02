@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-02T12:46:50.560Z",
+  "sourceSha": "bf386f854d8dff305419300c0c5253fd099d33de",
+  "workflowBundleSourceSha": "2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c",
+  "workflowExecutionSha": "2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c",
+  "supersededWorkflowExecutionShas": [
+    "e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1"
+  ],
+  "contractDigest": "11a494e936e02e5a625254ee0bf01a91b5d7d0651c86ea6dad0fcc5135371d3b",
+  "confirmation": "fleet-p3-11a494e936e0",
+  "scope": "P3_GCP_WIF_PROVIDER_EXECUTION_SHA_TRANSITION",
+  "temporaryInstallerGrant": {
+    "principal": "seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com",
+    "project": "seorilabs-ci",
+    "expiresAt": "2026-09-02T16:00:00Z",
+    "title": "p3-installer-20260902"
+  },
+  "readbackBefore": {
+    "ready": false,
+    "requiredServicesEnabled": "10/10",
+    "serviceAccountsExisting": "12/12",
+    "workloadIdentityPool": {
+      "exists": true,
+      "configurationExact": true,
+      "disabled": false,
+      "state": "ACTIVE",
+      "active": true
+    },
+    "providers": {
+      "github": {
+        "exists": true,
+        "configurationExact": false,
+        "disabled": false,
+        "active": true
+      },
+      "kubernetes": {
+        "exists": true,
+        "configurationExact": true,
+        "disabled": false,
+        "active": true
+      }
+    },
+    "iamBindingsPresent": "74/74",
+    "staticKeysCreated": false
+  },
+  "applyReadback": {
+    "ready": true,
+    "requiredServicesEnabled": "10/10",
+    "serviceAccountsExisting": "12/12",
+    "workloadIdentityPool": {
+      "exists": true,
+      "configurationExact": true,
+      "disabled": false,
+      "state": "ACTIVE",
+      "active": true
+    },
+    "providers": {
+      "github": {
+        "exists": true,
+        "configurationExact": true,
+        "disabled": false,
+        "active": true
+      },
+      "kubernetes": {
+        "exists": true,
+        "configurationExact": true,
+        "disabled": false,
+        "active": true
+      }
+    },
+    "iamBindingsPresent": "74/74",
+    "staticKeysCreated": false
+  },
+  "readbackAfter": {
+    "ready": true,
+    "requiredServicesEnabled": "10/10",
+    "serviceAccountsExisting": "12/12",
+    "workloadIdentityPool": {
+      "exists": true,
+      "configurationExact": true,
+      "disabled": false,
+      "state": "ACTIVE",
+      "active": true
+    },
+    "providers": {
+      "github": {
+        "exists": true,
+        "configurationExact": true,
+        "disabled": false,
+        "active": true
+      },
+      "kubernetes": {
+        "exists": true,
+        "configurationExact": true,
+        "disabled": false,
+        "active": true
+      }
+    },
+    "iamBindingsPresent": "74/74",
+    "staticKeysCreated": false
+  },
+  "providerAttributeCondition": "assertion.repository_owner_id == '283115031' && ((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c') || (assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c') || (assertion.repository_id == '1298244321' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c') || (assertion.repository_id == '1298264957' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@2e9b6afd0c0b02f691ecaf1fa0055cadb57e972c'))",
+  "supersededAttributeConditions": [
+    {
+      "executionSha": "e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1",
+      "condition": "assertion.repository_owner_id == '283115031' && ((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1') || (assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1') || (assertion.repository_id == '1298244321' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1') || (assertion.repository_id == '1298264957' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@e21b8da8e45a3379bdae2978522a6ac4b6d7f8f1'))"
+    }
+  ],
+  "evidenceDigests": {
+    "planSha256": "dc97a15ffa58442ba4d646acd95f03ab0ebc462e038c4a21429d386f260e9205",
+    "readbackBeforeSha256": "8311b803ea1e13e2f8a8f98839b8ca3d888f4d63616c1bd79a17b45b6155d0d3",
+    "applyReadbackSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e",
+    "readbackAfterSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e"
+  },
+  "excluded": [
+    "MARKET_UPLOAD",
+    "REVIEW_SUBMISSION",
+    "PUBLIC_RELEASE",
+    "APP_SIGNING_ROTATION",
+    "STATIC_KEY_CREATION"
+  ],
+  "nextGate": {
+    "code": "P3_CANDIDATE_BUILD_ONLY_RUNS_PENDING",
+    "issues": [
+      "seorilabs/.github#42"
+    ]
+  }
+}
