@@ -677,12 +677,46 @@ test("RN SDK lockfile이 다른 version을 resolve하면 거부한다", async ()
   assert.equal(hasCode(result, "SDK_LOCKFILE_RESOLUTION_MISMATCH"), true);
 });
 
-test("RN SDK package는 GitHub Packages tarball과 SHA-512 integrity를 요구한다", async () => {
+test("RN SDK package는 npm 공개 레지스트리 tarball을 exact 경계로 수용한다", async () => {
+  const fixture = await createFixture();
+  const lockfilePath = join(fixture.root, "pnpm-lock.yaml");
+  const lockfile = parse(await readFile(lockfilePath, "utf8"));
+  lockfile.packages["@seorilabs/platform-sdk@1.2.3"].resolution = {
+    integrity: `sha512-${Buffer.alloc(64).toString("base64")}`,
+    tarball:
+      "https://registry.npmjs.org/@seorilabs/platform-sdk/-/platform-sdk-1.2.3.tgz",
+  };
+  await writeFile(lockfilePath, stringify(lockfile), "utf8");
+  const result = await validateRepository({
+    repoRoot: fixture.root,
+    schemaPath: WORKSPACE_SCHEMA_PATH,
+    profilesRoot: WORKSPACE_PROFILES_ROOT,
+  });
+
+  assert.equal(hasCode(result, "SDK_LOCKFILE_TARBALL_INVALID"), false);
+});
+
+test("RN SDK package는 허용 레지스트리 tarball과 SHA-512 integrity를 요구한다", async () => {
   for (const resolution of [
     {
       integrity: `sha512-${Buffer.alloc(64).toString("base64")}`,
       tarball:
         `https://evil.example/download/@seorilabs/platform-sdk/1.2.3/${"a".repeat(40)}`,
+    },
+    {
+      integrity: `sha512-${Buffer.alloc(64).toString("base64")}`,
+      tarball:
+        "https://registry.npmjs.example/@seorilabs/platform-sdk/-/platform-sdk-1.2.3.tgz",
+    },
+    {
+      integrity: `sha512-${Buffer.alloc(64).toString("base64")}`,
+      tarball:
+        "https://registry.npmjs.org/@seorilabs/platform-sdk/-/platform-sdk-1.2.4.tgz",
+    },
+    {
+      integrity: `sha512-${Buffer.alloc(64).toString("base64")}`,
+      tarball:
+        "https://registry.npmjs.org/@seorilabs/platform-sdk/-/platform-sdk-1.2.3.tgz?x=1",
     },
     {
       integrity: "sha256-invalid",
