@@ -59,7 +59,11 @@ WIF·Cloud Build IAM readback, Xcode Cloud workflow readback이 끝난 뒤 별�
 
 ## trusted executor 경계
 
-`createGitHubAppTrustedAdapter`는 operation마다 숫자 installation ID와 repository ID 하나, 필요한 permission만 지정해 단기 installation token을 발급한다. token Buffer는 provider callback에서만 사용하고 작업 직후 zeroize한다. 모델·worker가 호출하는 executor 결과에는 token, provider response body, 오류 상세가 없다.
+`createGitHubAppTrustedAdapter`는 operation마다 숫자 installation ID와 repository ID 하나, 필요한 permission만 지정해 단기 installation token을 발급한다. 필수 `revokeInstallationToken` callback이 provider 폐기 완료를 확인한 뒤 token Buffer를 zeroize하며, 폐기 실패는 작업 성공으로 반환하지 않는다. 잘못된 scope와 provider 오류에서도 같은 폐기 경로를 실행한다. canonical credential은 기존 `shared/github/backoffice-app-private-key`이며 새 App/key를 만들지 않는다. 모델·worker가 호출하는 executor 결과에는 token, provider response body, 오류 상세가 없다.
+
+Backoffice에서 사용할 공개 경로는 고정 root package의 `seorilabs-org-contracts/repo-contract/bootstrap`과
+`seorilabs-org-contracts/repo-contract/trusted-executor`다. 이 공개 경로는 기존
+계획기·실행기의 동일 소스를 가리키며 Backoffice에 정책 구현을 복사하지 않는다.
 
 각 operation은 다음 순서를 지킨다.
 

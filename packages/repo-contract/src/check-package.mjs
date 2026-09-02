@@ -313,7 +313,7 @@ try {
         'const installed = await import("@seorilabs/repo-contract/trusted-executor");',
         'if (typeof installed.createGitHubAppTrustedAdapter !== "function") process.exit(1);',
         'if (typeof installed.createTrustedFleetExecutor !== "function") process.exit(1);',
-        'if (installed.trustedFleetExecutorContract?.githubAppCredentialId !== "shared/github/fleet-app") process.exit(1);',
+        'if (installed.trustedFleetExecutorContract?.githubAppCredentialId !== "shared/github/backoffice-app-private-key") process.exit(1);',
         'process.stdout.write("Fleet trusted executor public export 검증 통과\\n");',
       ].join("\n"),
     ],

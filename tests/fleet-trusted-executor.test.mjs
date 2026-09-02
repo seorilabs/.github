@@ -271,6 +271,7 @@ function harness({
     organizationId: ORGANIZATION_ID,
     installationId: INSTALLATION_ID,
     issueInstallationToken,
+    revokeInstallationToken: async () => {},
     now: () => NOW,
     provider: {
       async addSecretRepositoryAccess() {
@@ -792,6 +793,7 @@ test("Enterprise provisioning gate readback은 조직 ruleset과 exact caller by
     organizationId: ORGANIZATION_ID,
     installationId: INSTALLATION_ID,
     now: () => NOW,
+    revokeInstallationToken: async () => {},
     issueInstallationToken: async (request) => {
       requests.push(structuredClone(request));
       return {
@@ -904,6 +906,7 @@ test("공개 environment variable과 secret/WIF adapter는 exact catalog 필드�
         organizationId: ORGANIZATION_ID,
         installationId: INSTALLATION_ID,
         issueInstallationToken() {},
+        revokeInstallationToken: async () => {},
         provider: noOpGitHubProvider,
         secretBindings: [
           {
@@ -922,6 +925,7 @@ test("공개 environment variable과 secret/WIF adapter는 exact catalog 필드�
         organizationId: ORGANIZATION_ID,
         installationId: INSTALLATION_ID,
         issueInstallationToken() {},
+        revokeInstallationToken: async () => {},
         provider: noOpGitHubProvider,
         environmentVariableBindings: [
           {
@@ -939,6 +943,7 @@ test("공개 environment variable과 secret/WIF adapter는 exact catalog 필드�
     organizationId: ORGANIZATION_ID,
     installationId: INSTALLATION_ID,
     now: () => NOW,
+    revokeInstallationToken: async () => {},
     issueInstallationToken: async (request) => ({
       accountId: ORGANIZATION_ID,
       accountLogin: "seorilabs",
@@ -1147,7 +1152,8 @@ test("public receipt와 contract에는 token 또는 secret export 표면이 없�
   const state = harness();
   const result = await state.execute(bootstrapPlan(protectionOperation()));
   assert.doesNotMatch(JSON.stringify(result), /installation-token|lease-token/u);
-  assert.doesNotMatch(JSON.stringify(trustedFleetExecutorContract), /private|password|token/u);
+  assert.equal(trustedFleetExecutorContract.githubAppCredentialId, "shared/github/backoffice-app-private-key");
+  assert.doesNotMatch(JSON.stringify(Object.keys(trustedFleetExecutorContract)), /private|password|token/u);
   assert.equal(Object.hasOwn(trustedFleetExecutorContract, "getSecret"), false);
   assert.ok(state.issuedTokens.every((token) => token.every((byte) => byte === 0)));
 });

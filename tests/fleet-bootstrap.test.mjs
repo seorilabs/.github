@@ -285,6 +285,7 @@ function provisioningExecutionHarness(plan) {
       },
     ],
     now: () => nowMs,
+    revokeInstallationToken: async () => {},
     issueInstallationToken: async (request) => ({
       accountId: ORGANIZATION_ID,
       accountLogin: "seorilabs",

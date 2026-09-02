@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./repo-contract/bootstrap": "./packages/repo-contract/src/bootstrap.mjs",
+    "./repo-contract/trusted-executor": "./packages/repo-contract/src/trusted-executor.mjs",
     "./repo-contract/github-settings-readback": "./scripts/fleet/github-settings-readback.mjs",
     "./repo-contract/fleet-migration": "./packages/repo-contract/src/fleet-migration.mjs",
     "./repo-contract/fleet-migration-collector": "./packages/repo-contract/src/fleet-migration-collector.mjs",

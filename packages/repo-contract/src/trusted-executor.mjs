@@ -784,6 +784,7 @@ export function createGitHubAppTrustedAdapter({
   organizationId,
   installationId,
   issueInstallationToken,
+  revokeInstallationToken,
   environmentVariableBindings = [],
   secretBindings = [],
   provider,
@@ -803,6 +804,7 @@ export function createGitHubAppTrustedAdapter({
     !ID_PATTERN.test(organizationId ?? "") ||
     !ID_PATTERN.test(installationId ?? "") ||
     typeof issueInstallationToken !== "function" ||
+    typeof revokeInstallationToken !== "function" ||
     provider === null ||
     typeof provider !== "object" ||
     ![
@@ -852,7 +854,16 @@ export function createGitHubAppTrustedAdapter({
     } catch {
       throw new Error(diagnostic);
     } finally {
-      if (Buffer.isBuffer(lease?.token)) lease.token.fill(0);
+      if (Buffer.isBuffer(lease?.token)) {
+        try {
+          // Local zeroization alone does not revoke the provider credential.
+          await revokeInstallationToken(lease.token);
+        } catch {
+          throw new Error("GITHUB_INSTALLATION_TOKEN_REVOKE_FAILED");
+        } finally {
+          lease.token.fill(0);
+        }
+      }
     }
   }
 
@@ -2563,7 +2574,7 @@ export const trustedFleetExecutorContract = Object.freeze({
   gcpIamApiVersion: GCP_IAM_API_VERSION,
   githubApiOrigin: GITHUB_API_ORIGIN,
   githubApiVersion: GITHUB_API_VERSION,
-  githubAppCredentialId: "shared/github/fleet-app",
+  githubAppCredentialId: "shared/github/backoffice-app-private-key",
   organizationLogin: ORGANIZATION_LOGIN,
   teamProtectionFallback: "REPO_BRANCH_PROTECTION",
 });
