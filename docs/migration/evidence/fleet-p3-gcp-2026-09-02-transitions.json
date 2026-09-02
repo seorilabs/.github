@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "observedAt": "2026-09-02T15:20:22.243Z",
+  "observedAt": "2026-09-02T23:47:00Z",
   "sourceSha": "25944aea0a31b8558f470d56293bbefa61672954",
   "scope": "P3_GCP_WIF_PROVIDER_EXECUTION_SHA_TRANSITIONS_X2_X3",
   "temporaryInstallerGrant": {
     "principal": "seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com",
     "project": "seorilabs-ci",
-    "expiresAt": "2026-09-02T16:00:00Z",
-    "title": "p3-installer-20260902"
+    "expiresAt": "2026-09-03T04:00:00Z",
+    "title": "p3-installer-20260903"
   },
   "transitions": [
     {
@@ -257,6 +257,63 @@
         "applyReadbackSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e",
         "readbackAfterSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e"
       }
+    },
+    {
+      "label": "X5",
+      "workflowExecutionSha": "2fee6630a8a2e79128cbf6055087bf9f9402810d",
+      "supersededWorkflowExecutionShas": [
+        "5159ca37fde9306e6b5da265f6889ae5782b03bd"
+      ],
+      "reason": "seorilabs/.github#112 RN build-only Cloud Build timeout 2400s -> 7200s; contract seorilabs/.github#114",
+      "contractDigest": "9a7eecf513a73a5bc4af21ca2b8a352adf8a3c92d37a0112a185ad4f9560d671",
+      "confirmation": "fleet-p3-9a7eecf513a7",
+      "applyExit": 0,
+      "appliedAt": "2026-09-02T23:45Z",
+      "readbackBefore": {
+        "ready": false,
+        "providers": {
+          "github": {
+            "exists": true,
+            "configurationExact": false,
+            "disabled": false,
+            "active": true
+          },
+          "kubernetes": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          }
+        },
+        "iamBindingsPresent": "74/74",
+        "staticKeysCreated": false
+      },
+      "readbackAfter": {
+        "ready": true,
+        "providers": {
+          "github": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          },
+          "kubernetes": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          }
+        },
+        "iamBindingsPresent": "74/74",
+        "staticKeysCreated": false
+      },
+      "providerAttributeCondition": "assertion.repository_owner_id == '283115031' && ((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@2fee6630a8a2e79128cbf6055087bf9f9402810d') || (assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@2fee6630a8a2e79128cbf6055087bf9f9402810d') || (assertion.repository_id == '1298244321' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@2fee6630a8a2e79128cbf6055087bf9f9402810d') || (assertion.repository_id == '1298264957' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@2fee6630a8a2e79128cbf6055087bf9f9402810d'))",
+      "evidenceDigests": {
+        "planSha256": "2d4dde04fc13e06a6016292f308fd9edca2623c96c7f661a33dc37dd1b332fda",
+        "readbackBeforeSha256": "8311b803ea1e13e2f8a8f98839b8ca3d888f4d63616c1bd79a17b45b6155d0d3",
+        "applySha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e",
+        "readbackAfterSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e"
+      }
     }
   ],
   "excluded": [
@@ -324,5 +381,20 @@
   "staticEvidence": {
     "static:godot": "fleet-p3-static-godot-lizard-tycoon-2026-09-02.json",
     "static:react-native": "fleet-p3-static-react-native-happy-farm-2026-09-02.json"
-  }
+  },
+  "previousInstallerGrants": [
+    {
+      "principal": "seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com",
+      "project": "seorilabs-ci",
+      "expiresAt": "2026-09-02T16:00:00Z",
+      "title": "p3-installer-20260902"
+    },
+    {
+      "principal": "seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com",
+      "project": "seorilabs-ci",
+      "expiresAt": "2026-09-02T21:00:00Z",
+      "title": "p3-installer-20260902b",
+      "note": "granted after its own expiry; never effective"
+    }
+  ]
 }

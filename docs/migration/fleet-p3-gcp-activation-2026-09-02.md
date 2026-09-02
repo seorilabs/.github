@@ -102,3 +102,20 @@ static 증거도 X4로 갱신했다: `static:godot`([33650716200](https://github
 `static:react-native`([33651252134](https://github.com/seorilabs/happy-farm/actions/runs/33651252134), ConfigRevision 17). 승인(APPROVED)에는 `static:capacitor`, `static:ait-web` 증거가 더 필요하다.
 provenance 원본은 `evidence/fleet-p3-*-2026-09-02.json`에 보관하며 X3 기록은 `…-transitions.json`의 `previous`에 남긴다.
 마켓 업로드는 하지 않았다.
+
+## 네 번째 전환 — 2fee6630 (RN Cloud Build timeout 7200s)
+
+happy-farm build-only가 2400s에 걸려 [#112](https://github.com/seorilabs/.github/pull/112)로 timeout을 7200s로 올리자
+후보가 `2fee6630a8a2e79128cbf6055087bf9f9402810d`(X5, registry record `cmtkcl6bf3n6ruv01uw6t0fz4`)로 바뀌었다.
+계약 전환은 [#114](https://github.com/seorilabs/.github/pull/114)이다. 16:00Z에 만료된 installer 권한은 사용자가
+`p3-installer-20260903`(2026-09-03T04:00Z 만료)으로 다시 부여했다. 그 사이 한 번 부여한 `p3-installer-20260902b`는
+조건 만료 시각(21:00Z)이 부여 시점보다 앞서 효력이 없었고, 만료된 binding은 그대로 둔다.
+
+2026-09-02 23:45Z에 `readback`(github provider `configurationExact: false`, `ready: false`) → `apply fleet-p3-9a7eecf513a7`
+(exit 0) → `readback`(exact·active·`ready: true`, binding 74/74, 새 정적 키 0) 순서로 전환했다. 라이브 조건에는 `@2fee6630…`
+조합 4개만 남았다.
+
+두 앱의 ACTIVE 설정을 X5로 올렸다(happy-farm ConfigRevision 18, lizard-tycoon 26). lizard-tycoon은 그 사이
+`scheduler:desired-state-backfill`이 매시 27분에 `config-source-auto-rebase` revision(24, 25)을 자동 생성·활성화해
+`expectedLatestRevision` 충돌이 났고, DB의 최신 revision을 다시 읽어 26으로 만들었다. main도 `c7f8ae97…`(#540, #541)로
+이동해 실행기 PLAN의 `sourceSha`를 그 값으로 맞췄다. 재실행 결과는 아래에 이어서 기록한다.
