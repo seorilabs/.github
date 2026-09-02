@@ -1,5 +1,5 @@
-schemaVersion: 2
-id: seorilabs-autonomous-issue-policy-v2
+schemaVersion: 3
+id: seorilabs-autonomous-issue-policy-v3
 
 defaults:
   registration: DISABLED
@@ -10,7 +10,16 @@ schedules:
   registration:
     localTimes:
       - "02:00"
-    maxIssuesPerRun: 1
+    mode: evidence-batch
+    candidateSet: per-repository-after-evidence
+    revalidateBeforeEachCreate: true
+    maxConcurrentCreates: 1
+    maxAttemptsPerCandidatePerRun: 1
+    executionBudgetSource: automation-occurrence
+    stopConditions:
+      - repository-pass-completed
+      - execution-budget-exhausted
+      - global-safety-blocked
     openAutopilotIssueLimit: 10
     repositoryTraversal: daily-rotating-config-order
   processing:

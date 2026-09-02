@@ -17,8 +17,8 @@
     "repositories"
   ],
   "properties": {
-    "schemaVersion": { "const": 2 },
-    "id": { "const": "seorilabs-autonomous-issue-policy-v2" },
+    "schemaVersion": { "const": 3 },
+    "id": { "const": "seorilabs-autonomous-issue-policy-v3" },
     "defaults": {
       "type": "object",
       "additionalProperties": false,
@@ -37,13 +37,37 @@
         "registration": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["localTimes", "maxIssuesPerRun", "openAutopilotIssueLimit", "repositoryTraversal"],
+          "required": [
+            "localTimes",
+            "mode",
+            "candidateSet",
+            "revalidateBeforeEachCreate",
+            "maxConcurrentCreates",
+            "maxAttemptsPerCandidatePerRun",
+            "executionBudgetSource",
+            "stopConditions",
+            "openAutopilotIssueLimit",
+            "repositoryTraversal"
+          ],
           "properties": {
             "localTimes": {
               "type": "array",
               "const": ["02:00"]
             },
-            "maxIssuesPerRun": { "const": 1 },
+            "mode": { "const": "evidence-batch" },
+            "candidateSet": { "const": "per-repository-after-evidence" },
+            "revalidateBeforeEachCreate": { "const": true },
+            "maxConcurrentCreates": { "const": 1 },
+            "maxAttemptsPerCandidatePerRun": { "const": 1 },
+            "executionBudgetSource": { "const": "automation-occurrence" },
+            "stopConditions": {
+              "type": "array",
+              "const": [
+                "repository-pass-completed",
+                "execution-budget-exhausted",
+                "global-safety-blocked"
+              ]
+            },
             "openAutopilotIssueLimit": { "const": 10 },
             "repositoryTraversal": { "const": "daily-rotating-config-order" }
           }

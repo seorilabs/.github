@@ -49,7 +49,7 @@ const YAML_CONTRACTS = [
   "profiles/react-native.yaml",
 ];
 const YAML_SCHEMA_VERSIONS = new Map([
-  ["contracts/autonomous-issue-policy.yaml", 2],
+  ["contracts/autonomous-issue-policy.yaml", 3],
 ]);
 
 function localMarkdownTargets(markdown) {
