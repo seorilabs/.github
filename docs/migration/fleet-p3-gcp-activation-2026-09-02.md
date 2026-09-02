@@ -54,3 +54,24 @@ X2 apply는 update-oidc와 enable이 반영된 뒤 마지막 재조회에서 일
 readback이 exact·active·`ready: true`였고 라이브 조건에 `@5d73a03d…` 4개 조합만 남아 재적용하지 않았다. X3 전환 뒤
 라이브 조건은 `@7790257…` 4개 조합뿐이다. 계약 변경은 [#107](https://github.com/seorilabs/.github/pull/107)로 병합했다.
 공개 결과와 digest는 [전환 기록](evidence/fleet-p3-gcp-2026-09-02-transitions.json)에 보관한다. 새 정적 키는 만들지 않았다.
+
+## 세 번째 전환 — 5159ca37, 그리고 첫 build-only 성공
+
+pnpm store dangling 심볼릭 링크 제거([#109](https://github.com/seorilabs/.github/pull/109))를 병합한 뒤 후보를
+`5159ca37fde9306e6b5da265f6889ae5782b03bd`(X4)로 옮겼다(`fleet-p3-1064de32d563`, apply exit 0, 적용 후 readback
+exact·active·`ready: true`, binding 74/74). 계약 변경은 [#110](https://github.com/seorilabs/.github/pull/110)이다.
+
+X3(`7790257…`) 시점에 lizard-tycoon의 중앙 build-only가 처음으로 끝까지 성공했다.
+
+| 항목 | 값 |
+| --- | --- |
+| run | [33645367627](https://github.com/seorilabs/lizard-tycoon/actions/runs/33645367627) (PR #536, `refs/pull/536/merge`) |
+| Cloud Build | `385fa128-ba8c-4047-bf5a-6ffe114a6343`, builder `godot-android-builder@sha256:b2a9d7a8…` |
+| bundle / 설정 | `7790257…`, payloadDigest `sha256:15b4f384…`, ConfigRevision 21 |
+| AAB | `app-release.aab` 49,289,785 bytes, sha256 `bc92475649a66699616c…` = provenance `artifactSha256` |
+| marketUpload | false |
+
+static 증거도 두 건 확보했다: `static:godot`(lizard-tycoon, [33645367682](https://github.com/seorilabs/lizard-tycoon/actions/runs/33645367682)),
+`static:react-native`(happy-farm, [33644209575](https://github.com/seorilabs/happy-farm/actions/runs/33644209575)). happy-farm의
+build-only는 X4에서 재실행 중이다. 승인(APPROVED)에는 `static:capacitor`, `static:ait-web` 증거가 더 필요하다.
+provenance 원본은 `evidence/fleet-p3-*-2026-09-02.json`에 보관한다. 마켓 업로드는 하지 않았다.

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "target": "static",
+  "profile": "godot",
+  "repositoryId": 1265192029,
+  "fullName": "seorilabs/lizard-tycoon",
+  "sourceSha": "d84c4680ffd8b5f5819aa04d67bc4159fbb0b7a6",
+  "bindingSourceSha": "e673e0dd793fce5f3a2397aabd1b0caff0adbe0d",
+  "callerWorkflowRef": "seorilabs/lizard-tycoon/.github/workflows/org-contract.yml@refs/pull/536/merge",
+  "manifestDigest": "sha256:1891c988b9d91f5fd75a367820e379e7938bcc7c1df50559d7f23ac2cf3474ab",
+  "workflowExecutionSha": "7790257716bca71ae865aa11274803520adf13e3",
+  "workflowRef": "seorilabs/.github/.github/workflows/godot-checks-v3.yml@7790257716bca71ae865aa11274803520adf13e3",
+  "runId": 33645367682,
+  "runAttempt": 1,
+  "configRevisionId": "cmtk7bvrq20ruri01yerox9ya",
+  "configRevision": 21,
+  "configRevisionDigest": "sha256:3fd5eb9f083eae1bd0be896704186972f76202ef8b2b5752d6387f620dd91798",
+  "signedSnapshotDigest": "sha256:a455fa623c1519dce0c06f93795def55fe15b413f0e07d5d622fa4a1020ca623",
+  "snapshotSignatureKeyId": "control-plane-snapshot-v1",
+  "snapshotSignaturePolicyRevision": "snapshot-policy-v1",
+  "snapshotSignatureDigest": "sha256:2b362124f7e55d743a3a5ba9187f7c3016f8b6125333395d1462ee69abf4406c",
+  "artifactSha256": "sha256:cf40b07a4d33566da97730e4f54b155d47a7b04ec2bb1c7c1d852637aad54eec"
+}
