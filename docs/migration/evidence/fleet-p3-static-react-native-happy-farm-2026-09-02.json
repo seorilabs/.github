@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "target": "static",
+  "profile": "react-native",
+  "repositoryId": 1250442131,
+  "fullName": "seorilabs/happy-farm",
+  "sourceSha": "21a7cb45ccd750e80fb84566f535b7a3c66c1dc5",
+  "bindingSourceSha": "464c989c8cfffb1de94d65f38a38201de1fd19f2",
+  "callerWorkflowRef": "seorilabs/happy-farm/.github/workflows/org-contract.yml@refs/pull/500/merge",
+  "manifestDigest": "sha256:809073e05db51f1742e28a1064ea9cc0937ebca06ae30ce930dd91dd5ec8745d",
+  "workflowExecutionSha": "7790257716bca71ae865aa11274803520adf13e3",
+  "workflowRef": "seorilabs/.github/.github/workflows/js-static-checks-v1.yml@7790257716bca71ae865aa11274803520adf13e3",
+  "runId": 33644209575,
+  "runAttempt": 1,
+  "configRevisionId": "cmtk7bvyh20s1ri01wrts794u",
+  "configRevision": 15,
+  "configRevisionDigest": "sha256:025df9b4d660beff8d4277da7176d2cedce8a2aaeacae3be5d7acedece9dd4ee",
+  "signedSnapshotDigest": "sha256:c5ef1d297b08a776fa3e917f345470a2a85f314687c5c3c0de2f2e27031d837a",
+  "snapshotSignatureKeyId": "control-plane-snapshot-v1",
+  "snapshotSignaturePolicyRevision": "snapshot-policy-v1",
+  "snapshotSignatureDigest": "sha256:122fc4f12955584004e2711e0f1ccd711238d2c7f2cefc68467cdd3070c932af",
+  "artifactSha256": "sha256:0aca30faf97f3d6e72f6d35223ca1342dcdd1e96f1f91022fea8d570df5b660f"
+}
