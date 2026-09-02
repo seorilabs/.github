@@ -281,7 +281,11 @@ function validateDependencyAuditException(value, request, actionClass, nowMs) {
     fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
   }
   const binding = value.bindings.find((candidate) => candidate.actionClass === actionClass);
-  if (!binding || binding.sourceSha !== request.applicationSourceSha) {
+  // 예외는 ACTIVE 설정과 discovery가 결합된 기본 브랜치 exact source(bindingSourceSha)에
+  // 묶인다. main/dispatch 실행은 application source와 같고, 후보 PR 실행은 merge 커밋이
+  // 아니라 PR base다. lockfile digest 결합은 staging 단계가 별도로 강제한다.
+  const boundSourceSha = request.bindingSourceSha ?? request.applicationSourceSha;
+  if (!binding || binding.sourceSha !== boundSourceSha) {
     fail("DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH");
   }
   return Object.freeze(structuredClone(value));

@@ -205,6 +205,7 @@ jobs:
           SEORI_REPOSITORY_ID: ${{ github.repository_id }}
           SEORI_REPOSITORY: ${{ github.repository }}
           SEORI_SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
+          SEORI_BINDING_SOURCE_SHA: ${{ needs.resolve-binding.outputs.binding_source_sha }}
         run: |
           set -euo pipefail
           ulimit -c 0
