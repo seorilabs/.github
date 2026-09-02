@@ -46,4 +46,7 @@ options:
   # 8GB standard worker로 build를 격리하고 과금형 highcpu 우회는 사용하지 않는다.
   machineType: E2_STANDARD_2
   logging: CLOUD_LOGGING_ONLY
-timeout: 2400s
+# RN 0.85 new architecture는 native module마다 4개 ABI를 CMake로 컴파일한다. E2_STANDARD_2(2 vCPU)에서는
+# 40분 안에 끝나지 않아 happy-farm 첫 build-only(Cloud Build fb0cf593)가 TIMEOUT됐다. 앱의 market-upload
+# 설정(cloudbuild-android.yaml)과 같은 7200s로 맞춘다. 과금형 machineType으로 우회하지 않는다.
+timeout: 7200s
