@@ -154,7 +154,8 @@ jobs:
       contents: read
       id-token: write
       packages: read
-    timeout-minutes: 55
+    # Cloud Build timeout 7200s + 소스 업로드(약 4분) + artifact 처리 여유.
+    timeout-minutes: 135
 
     steps:
       - name: Validate the resolved build binding
