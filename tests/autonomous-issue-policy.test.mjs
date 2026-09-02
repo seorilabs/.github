@@ -192,7 +192,7 @@ test("v3 등록 계약은 건수 상한 없이 근거 후보를 한 차례 등�
   assert.equal(policy.id, "seorilabs-autonomous-issue-policy-v3");
   assert.equal(Object.hasOwn(policy.schedules.registration, "maxIssuesPerRun"), false);
   assert.deepEqual(policy.schedules.registration, {
-    localTimes: ["02:00"],
+    localTimes: ["02:00", "14:00"],
     mode: "evidence-batch",
     candidateSet: "per-repository-after-evidence",
     revalidateBeforeEachCreate: true,
@@ -212,6 +212,9 @@ test("v3 등록 계약은 건수 상한 없이 근거 후보를 한 차례 등�
 test("등록 스키마는 옛 건수 제한과 근거·재고·재시도 경계 약화를 거부한다", () => {
   const validate = new Ajv2020({ strict: true, validateFormats: false }).compile(schema);
   for (const [key, value] of [
+    ["localTimes", ["02:00"]],
+    ["localTimes", ["14:00"]],
+    ["localTimes", ["02:00", "14:00", "20:00"]],
     ["maxIssuesPerRun", 1],
     ["maxIssuesPerRun", 10],
     ["candidateSet", "continuous-discovery"],
