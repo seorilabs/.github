@@ -101,8 +101,8 @@ function assertPublicOnly(value) {
   assert.doesNotMatch(serialized, /FAKE_STATE_KEY|key.?material|password|totp.?seed|cookie/iu);
 }
 
-test('P2 runtime v3는 startup attestation과 application envelope를 actual implementation에 고정한다', () => {
-  assert.equal(contract.schemaVersion, 3);
+test('P2 runtime v4는 startup attestation과 application envelope를 actual implementation에 고정한다', () => {
+  assert.equal(contract.schemaVersion, 4);
   const result = verifyApplicationEnvelopeContract(contract.authBroker.state);
   assert.deepEqual(result, {
     schemaVersion: 3,

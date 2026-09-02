@@ -119,7 +119,7 @@ readback이 없으면 workload apply를 중단합니다. renderer가 `imagePullS
 
 ## RPI5 application envelope state 검증 경계
 
-fleet runtime v3 계약은 secret-bearing durable state를 Browser Vault의 AES-256-GCM envelope로
+fleet runtime v4 계약은 secret-bearing durable state를 Browser Vault의 AES-256-GCM envelope로
 제한합니다. journal에는 strict public control/audit record만 허용하고 schema 검증을 append보다
 먼저 수행한 뒤 HMAC chain으로 인증합니다. 이 application envelope와 별개로 backing mount도
 고정 LUKS2 dm-crypt여야 합니다. 저장소 루트에서 다음 두 검증을 순서대로 실행합니다.
@@ -130,7 +130,7 @@ node scripts/fleet/verify-p2-state-envelope.mjs live-readback \
   --kubeconfig=/canonical/path/to/kubeconfig
 ```
 
-`contract`는 actual journal serializer와 Browser Vault cipher 상수가 runtime v3 계약과 일치하는지
+`contract`는 actual journal serializer와 Browser Vault cipher 상수가 runtime v4 계약과 일치하는지
 검증하고 공개 상태만 반환합니다. `live-readback`은 ambient `HOME`/`KUBECONFIG`를 사용하지 않고
 명시한 canonical regular kubeconfig와 실행별 0700 임시 HOME/cache만 사용합니다. 고정
 `vzyx-cluster`에서 existing PV/PVC를

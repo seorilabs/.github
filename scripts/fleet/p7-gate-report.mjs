@@ -164,48 +164,41 @@ function customPropertyGate(contract, schema) {
   };
 }
 
-// ruleset Active 전환은 물리 check 이름이 실제로 생성되는 저장소가 있어야 의미가 있다.
-// Evaluate ruleset이 없거나 required check를 만드는 default branch caller가 0이면
-// Active 전환을 계획하지 않는다.
-function rulesetGate(contract, rulesets, callerRepositories) {
-  const desired = contract.github.ruleset;
+// Team의 중앙 SHADOW는 실제 설정을 읽기만 한다. 관측 완료와 ACTIVE 승인/적용은
+// 별도 gate이며, Enterprise Evaluate ruleset을 만들거나 기존 보호를 완화하지 않는다.
+function protectionGate(contract, protection, callerRepositories, now) {
+  const desired = contract.github.protection;
   const requiredCheck = desired.requiredStatusCheck;
   const targets = sortedUnique(
     (desired.repositories ?? []).map((name) => `seorilabs/${name}`),
   );
-  if (!Array.isArray(rulesets) || !Array.isArray(callerRepositories)) {
+  if (!Array.isArray(protection?.repositories) || !Array.isArray(callerRepositories)) {
     return {
-      id: "ORG_RULESET_ACTIVATION",
+      id: "PROTECTION_SHADOW_READBACK",
       state: "MACHINE_BLOCKED",
-      code: "ORG_RULESET_READBACK_MISSING",
+      code: "PROTECTION_READBACK_MISSING",
       detail: { requiredCheck, targets },
     };
   }
   const blockers = [];
-  // 임의의 evaluate ruleset이 아니라 계약이 지정한 exact ruleset이어야 한다.
-  const matching = rulesets.find((ruleset) => ruleset.name === desired.name);
-  if (matching === undefined) {
-    blockers.push("CONTRACT_RULESET_ABSENT");
-  } else {
-    if (
-      matching.target !== desired.target ||
-      matching.enforcement !== desired.enforcement
-    ) {
-      blockers.push("CONTRACT_RULESET_MODE_MISMATCH");
+  if (protection.providerMode !== desired.providerMode
+    || protection.rolloutMode !== "SHADOW" || protection.observationMode !== "READ_ONLY"
+    || protection.existingProtectionChanged !== false || protection.activationAllowed !== false) {
+    blockers.push("PROTECTION_MODE_MISMATCH");
+  }
+  if (protection.repositories.length !== targets.length) blockers.push("PROTECTION_TARGET_COVERAGE_INCOMPLETE");
+  for (const fullName of targets) {
+    const matches = protection.repositories.filter((row) => row.fullName === fullName);
+    const row = matches[0];
+    const expected = contract.cloudBuild.githubActions.repositoryBindings.find((binding) => binding.fullName === fullName);
+    const time = Date.parse(row?.observedAt);
+    if (matches.length !== 1 || row?.repositoryId !== expected?.repositoryId
+      || row?.branch !== desired.branch || row?.state !== "OBSERVED" || row?.identityExact !== true
+      || row?.requiredStatusCheck !== requiredCheck || !DIGEST_PATTERN.test(row?.snapshotDigest ?? "")) {
+      blockers.push("PROTECTION_TARGET_READBACK_INVALID");
     }
-    const checks = new Set(
-      Array.isArray(matching.requiredStatusChecks)
-        ? matching.requiredStatusChecks
-        : [],
-    );
-    if (!checks.has(requiredCheck)) {
-      blockers.push("REQUIRED_STATUS_CHECK_ABSENT");
-    }
-    const scoped = new Set(
-      Array.isArray(matching.repositories) ? matching.repositories : [],
-    );
-    if (targets.some((fullName) => !scoped.has(fullName))) {
-      blockers.push("RULESET_TARGET_COVERAGE_INCOMPLETE");
+    if (!Number.isFinite(time) || time > now() + 60_000 || now() - time > 15 * 60_000) {
+      blockers.push("PROTECTION_READBACK_STALE");
     }
   }
   // required check를 실제로 만드는 default branch caller가 대상 repo마다 있어야 한다.
@@ -217,9 +210,9 @@ function rulesetGate(contract, rulesets, callerRepositories) {
     blockers.push("DEFAULT_BRANCH_ORG_CONTRACT_CALLER_ABSENT");
   }
   return {
-    id: "ORG_RULESET_ACTIVATION",
+    id: "PROTECTION_SHADOW_READBACK",
     state: blockers.length === 0 ? "OPEN" : "MACHINE_BLOCKED",
-    code: blockers.length === 0 ? null : "ORG_RULESET_ACTIVATION_UNSAFE",
+    code: blockers.length === 0 ? null : "PROTECTION_SHADOW_READBACK_INVALID",
     detail: {
       requiredCheck,
       targets,
@@ -459,18 +452,27 @@ export function createFleetP7GateReport(
   const gates = [
     githubAppGate(contract, readback.installation),
     customPropertyGate(contract, readback.organizationCustomProperties),
-    rulesetGate(
+    protectionGate(
       contract,
-      readback.rulesets,
+      readback.protection,
       readback.defaultBranchOrgContractCallers,
+      now,
     ),
+    {
+      id: "REPOSITORY_PROTECTION_ACTIVATION",
+      state: "HUMAN_APPROVAL_REQUIRED",
+      code: "PROTECTION_ACTIVE_APPROVAL_REQUIRED",
+      operation: "GITHUB_PROTECTION_ACTIVE",
+      automaticRetry: false,
+      detail: { rolloutMode: contract.github.protection.rolloutMode, existingProtectionChanged: false },
+    },
     cloudBuildGate(contract, readback.cloudBuildBindings),
     callerMigrationGate(readback.callerMigration, now),
     publicReleaseProfileGate(readback.publicRepositories),
   ];
   const blocked = gates.filter((gate) => gate.state !== "OPEN");
   return {
-    contract: "seorilabs-fleet-p7-gate-report-v1",
+    contract: "seorilabs-fleet-p7-gate-report-v2",
     mode: "PLAN_ONLY",
     executionAllowed: blocked.length === 0,
     gates,

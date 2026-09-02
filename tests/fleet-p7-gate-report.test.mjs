@@ -11,7 +11,7 @@ const contract = loadFleetP3RuntimeContract();
 function openReadback() {
   const app = contract.github.app;
   const now = Date.now();
-  const callerMigrationRepositories = contract.github.ruleset.repositories.map(
+  const callerMigrationRepositories = contract.github.protection.repositories.map(
     (name) => {
       const fullName = `seorilabs/${name}`;
       const executor = contract.cloudBuild.executors.find(
@@ -38,19 +38,20 @@ function openReadback() {
     organizationCustomProperties: structuredClone(
       contract.github.customProperties,
     ),
-    rulesets: [
-      {
-        id: 1,
-        name: contract.github.ruleset.name,
-        target: contract.github.ruleset.target,
-        enforcement: contract.github.ruleset.enforcement,
-        requiredStatusChecks: [contract.github.ruleset.requiredStatusCheck],
-        repositories: contract.github.ruleset.repositories.map(
-          (name) => `seorilabs/${name}`,
-        ),
-      },
-    ],
-    defaultBranchOrgContractCallers: contract.github.ruleset.repositories.map(
+    protection: {
+      providerMode: "REPO_BRANCH_PROTECTION",
+      rolloutMode: "SHADOW",
+      observationMode: "READ_ONLY",
+      existingProtectionChanged: false,
+      activationAllowed: false,
+      repositories: callerMigrationRepositories.map(({ repositoryId, fullName }) => ({
+        repositoryId, fullName, branch: "main", observedAt: new Date(now).toISOString(),
+        state: "OBSERVED", identityExact: true,
+        snapshotDigest: `sha256:${"d".repeat(64)}`,
+        requiredStatusCheck: contract.github.protection.requiredStatusCheck,
+      })),
+    },
+    defaultBranchOrgContractCallers: contract.github.protection.repositories.map(
       (name) => ({ fullName: `seorilabs/${name}` }),
     ),
     cloudBuildBindings: {
@@ -94,12 +95,13 @@ function gateById(report, id) {
   return report.gates.find((gate) => gate.id === id);
 }
 
-test("모든 provider readback이 계약과 일치하면 P7 gate가 열린다", () => {
+test("SHADOW 관측 완료는 보호 정책 ACTIVE 실행 권한을 만들지 않는다", () => {
   const report = createFleetP7GateReport(openReadback(), contract);
   assert.equal(report.mode, "PLAN_ONLY");
-  assert.equal(report.executionAllowed, true);
+  assert.equal(report.executionAllowed, false);
   assert.deepEqual(report.machineBlocked, []);
-  assert.deepEqual(report.humanApprovalRequired, []);
+  assert.deepEqual(report.humanApprovalRequired, ["REPOSITORY_PROTECTION_ACTIVATION"]);
+  assert.equal(gateById(report, "PROTECTION_SHADOW_READBACK").state, "OPEN");
 });
 
 test("GitHub App 권한과 repository event 부족은 사람 승인 gate로 남는다", () => {
@@ -121,7 +123,7 @@ test("GitHub App 권한과 repository event 부족은 사람 승인 gate로 남�
     "workflows:absent->write",
   ]);
   assert.equal(report.executionAllowed, false);
-  assert.deepEqual(report.humanApprovalRequired, ["GITHUB_APP_CAPABILITY"]);
+  assert.deepEqual(report.humanApprovalRequired, ["GITHUB_APP_CAPABILITY", "REPOSITORY_PROTECTION_ACTIVATION"]);
 });
 
 test("조직 custom property schema가 비어 있으면 machine gate로 닫는다", () => {
@@ -171,41 +173,23 @@ test("custom property는 이름만 같고 정의가 다르면 열리지 않는�
   }
 });
 
-test("계약이 지정한 exact ruleset과 caller coverage가 없으면 Active 전환을 계획하지 않는다", () => {
+test("보호 조회의 대상과 시간 및 caller coverage를 검증한다", () => {
   for (const [mutate, blocker] of [
     [
-      // 임의의 evaluate ruleset 하나로는 열리지 않는다.
-      (readback) => {
-        readback.rulesets = [
-          {
-            id: 2,
-            name: "Some other shadow rule",
-            target: "branch",
-            enforcement: "evaluate",
-            requiredStatusChecks: ["Org Contract / Org Contract"],
-            repositories: ["seorilabs/happy-farm", "seorilabs/lizard-tycoon"],
-          },
-        ];
-      },
-      "CONTRACT_RULESET_ABSENT",
+      (readback) => { readback.protection.repositories = []; },
+      "PROTECTION_TARGET_COVERAGE_INCOMPLETE",
     ],
     [
-      (readback) => {
-        readback.rulesets[0].enforcement = "active";
-      },
-      "CONTRACT_RULESET_MODE_MISMATCH",
+      (readback) => { readback.protection.rolloutMode = "ACTIVE"; },
+      "PROTECTION_MODE_MISMATCH",
     ],
     [
-      (readback) => {
-        readback.rulesets[0].requiredStatusChecks = ["Seori Review"];
-      },
-      "REQUIRED_STATUS_CHECK_ABSENT",
+      (readback) => { readback.protection.repositories[0].repositoryId = "42"; },
+      "PROTECTION_TARGET_READBACK_INVALID",
     ],
     [
-      (readback) => {
-        readback.rulesets[0].repositories = ["seorilabs/happy-farm"];
-      },
-      "RULESET_TARGET_COVERAGE_INCOMPLETE",
+      (readback) => { readback.protection.repositories[0].observedAt = "2000-01-01T00:00:00Z"; },
+      "PROTECTION_READBACK_STALE",
     ],
     [
       (readback) => {
@@ -218,10 +202,10 @@ test("계약이 지정한 exact ruleset과 caller coverage가 없으면 Active �
     mutate(readback);
     const gate = gateById(
       createFleetP7GateReport(readback, contract),
-      "ORG_RULESET_ACTIVATION",
+      "PROTECTION_SHADOW_READBACK",
     );
     assert.equal(gate.state, "MACHINE_BLOCKED", blocker);
-    assert.equal(gate.code, "ORG_RULESET_ACTIVATION_UNSAFE");
+    assert.equal(gate.code, "PROTECTION_SHADOW_READBACK_INVALID");
     assert.equal(gate.detail.requiredCheck, "Org Contract / Org Contract");
     assert.ok(gate.detail.blockers.includes(blocker), gate.detail.blockers.join(","));
   }
@@ -261,7 +245,7 @@ test("readback이 없으면 열린 gate로 취급하지 않는다", () => {
     "CLOUD_BUILD_WIF_BINDING",
     "GITHUB_APP_CAPABILITY",
     "ORG_CUSTOM_PROPERTY_SCHEMA",
-    "ORG_RULESET_ACTIVATION",
+    "PROTECTION_SHADOW_READBACK",
   ]);
 });
 

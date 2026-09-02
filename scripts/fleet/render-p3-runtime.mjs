@@ -23,7 +23,7 @@ const commands = new Set([
   "github-app",
   "custom-properties",
   "pilot-values",
-  "ruleset",
+  "protection",
   "cloud-build",
   "auth-broker-foundation",
   "auth-broker-foundation-rollback",
@@ -338,47 +338,19 @@ function pilotValues(contract) {
   }));
 }
 
-function ruleset(contract) {
-  const source = contract.github.ruleset;
+function protection(contract) {
+  const source = contract.github.protection;
   return {
     apiVersion: contract.github.apiVersion,
-    method: "POST",
-    path: `/orgs/${contract.github.organization}/rulesets`,
-    body: {
-      name: source.name,
-      target: source.target,
-      enforcement: source.enforcement,
-      conditions: {
-        ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] },
-        repository_name: {
-          include: source.repositories,
-          exclude: [],
-          protected: false,
-        },
-      },
-      rules: [
-        { type: "deletion" },
-        {
-          type: "required_status_checks",
-          parameters: {
-            required_status_checks: [{ context: source.requiredStatusCheck }],
-            strict_required_status_checks_policy: false,
-            do_not_enforce_on_create: false,
-          },
-        },
-        {
-          type: "pull_request",
-          parameters: {
-            allowed_merge_methods: ["squash"],
-            dismiss_stale_reviews_on_push: false,
-            require_code_owner_review: false,
-            require_last_push_approval: false,
-            required_approving_review_count: 0,
-            required_review_thread_resolution: true,
-          },
-        },
-      ],
-    },
+    ...source,
+    repositories: source.repositories.map((name) => {
+      const fullName = `${contract.github.organization}/${name}`;
+      const binding = contract.cloudBuild.githubActions.repositoryBindings.find(
+        (candidate) => candidate.fullName === fullName,
+      );
+      if (!binding) fail("P3_PROTECTION_REPOSITORY_BINDING_MISSING");
+      return { fullName, repositoryId: binding.repositoryId };
+    }),
   };
 }
 
@@ -708,8 +680,8 @@ const output =
       ? customProperties(contract)
       : command === "pilot-values"
         ? pilotValues(contract)
-        : command === "ruleset"
-          ? ruleset(contract)
+        : command === "protection"
+          ? protection(contract)
           : command === "cloud-build"
             ? contract.cloudBuild
             : command === "auth-broker-foundation"

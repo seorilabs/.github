@@ -210,9 +210,9 @@ mutation executor, 두 pilot의 신규 등록·build-only 실증은 별도 미�
 ### 2026-09-02 GitHub 설정 적용 전 요금제 및 실제 응답 검증
 
 [실제 조회 기록](evidence/fleet-p3-github-settings-readback-2026-09-02.json)에서
-`GET /orgs/seorilabs`의 숫자 조직 ID `283115031`과 `plan.name=team`을 확인했다. 현재 P3
+`GET /orgs/seorilabs`의 숫자 조직 ID `283115031`과 `plan.name=team`을 확인했다. 당시 P3 v3
 payload는 `enforcement=evaluate`인데 이 모드는 GitHub Enterprise에서만 지원한다.
-권한이 수락된 사실과 요금제의 기능 제공 여부는 별개다. `bootstrap-p3-github.mjs readback`은
+권한이 수락된 사실과 요금제의 기능 제공 여부는 별개다. 당시 `bootstrap-p3-github.mjs readback`은
 이 상태를 `P3_GITHUB_EVALUATE_UNSUPPORTED_BY_PLAN`으로 분리하며 권한 변경 재승인이나
 키 복구를 다시 요청하는 근거로 사용하지 않는다. 요금제 정보가 안 보이면 `UNVERIFIED`이고
 무료 요금제 또는 리소스 부재로 추정하지 않는다. 현재 custom property 4개와 시범 저장소 값,
@@ -225,10 +225,16 @@ payload는 `enforcement=evaluate`인데 이 모드는 GitHub Enterprise에서만
 `observed: false`, `observationSource: CONTRACT_ONLY`로 명시한다. 이는 운영 조회가 아니라
 안전한 기본값이므로 앞선 실제 복구·인증 증거를 부정하지 않는다.
 
-기존 zero-touch 실행 코어에는 Team의 `REPO_BRANCH_PROTECTION` 읽기 전용 SHADOW 경로가
-있다. 현재 P3 Evaluate 계약을 이 경로로 바꾸는 선택과 실제 schema·pilot 설정 적용은
-구분하여 승인해야 한다. 이 검증에서 요금제 변경, ruleset 생성·Active 전환, GitHub 설정 변경은
-수행하지 않았다. 설정 적용 실행기 활성화와 두 pilot 실증은 계속 별도 완료 조건이다.
+이후 사용자가 **2026-09-02 중앙 읽기 전용 검증 방식으로 변경을 승인했다.** P3 runtime v4는
+기존 코어와 같은 Team `REPO_BRANCH_PROTECTION` / `SHADOW` 경로를 사용한다. GitHub의
+Evaluate 생성 payload와 plan blocker를 제거했고, 두 pilot의 숫자 ID·main·현재 branch
+protection·유효 branch rules를 조회하여 기존 check와 목표 check 차이 및 snapshot digest를
+남긴다. 관측 전후 외부 설정은 쓰지 않으며 현재 protection을 완화·삭제하거나 요금제를
+변경하지 않는다. P7 조회 gate와 ACTIVE 승인 gate도 분리했다. 이 승인은 ACTIVE 적용이나
+새 credential 권한 승인이 아니다. 설정 적용 실행기와 두 pilot 실증은 여전히 별도 완료 조건이다.
+
+v1–v4 WorkflowBundle의 과거 서명 계약에 남은 `EVALUATE`는 과거 snapshot 검증용이다.
+현재 번들 v5와 P3 runtime v4의 운영 경로에 Enterprise Evaluate를 추가하지 않는다.
 
 공식 근거:
 

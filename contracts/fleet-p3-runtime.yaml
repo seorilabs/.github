@@ -1,4 +1,4 @@
-schemaVersion: 3
+schemaVersion: 4
 
 github:
   apiVersion: "2026-03-10"
@@ -48,7 +48,7 @@ github:
     requiredCapabilities:
       - organization_custom_properties_schema_write
       - repository_custom_properties_values_write
-      - organization_rulesets_write
+      - repository_protection_read
     humanGate:
       type: approval
       state: HUMAN_APPROVAL_REQUIRED
@@ -170,12 +170,16 @@ github:
         fleet-profile: godot
         fleet-ruleset: shadow
         fleet-state: active
-  ruleset:
-    name: Fleet Org Contract shadow
-    target: branch
-    enforcement: evaluate
+  protection:
+    accountPlan: TEAM
+    providerMode: REPO_BRANCH_PROTECTION
+    rolloutMode: SHADOW
+    observationMode: READ_ONLY
+    branch: main
     repositories: [happy-farm, lizard-tycoon]
     requiredStatusCheck: Org Contract / Org Contract
+    preserveExisting: true
+    activationRequiresApproval: true
 
 cloudBuild:
   approval:

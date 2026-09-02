@@ -104,7 +104,7 @@ async function loadFleetRuntimeContract() {
   try {
     if (bytes.length === 0 || bytes.length > 512 * 1024) fail('fleet runtime contract size is invalid');
     const contract = parse(bytes.toString('utf8'));
-    if (contract?.schemaVersion !== 3 || !contract.authBroker?.state || !contract.authBroker?.kubernetesApi) {
+    if (contract?.schemaVersion !== 4 || !contract.authBroker?.state || !contract.authBroker?.kubernetesApi) {
       fail('fleet runtime state attestation contract is invalid');
     }
     return contract.authBroker;

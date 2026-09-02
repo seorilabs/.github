@@ -74,7 +74,7 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
   assert.equal(validate(contract), true, JSON.stringify(validate.errors));
   assert.equal(
     schema.$id,
-    "https://seorilabs.github.io/contracts/v3/fleet-p3-runtime.schema.json",
+    "https://seorilabs.github.io/contracts/v4/fleet-p3-runtime.schema.json",
   );
   const legacyMajor = structuredClone(contract);
   legacyMajor.schemaVersion = 2;
@@ -87,7 +87,7 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
     contract.github.pilotValues.map(({ repository }) => repository),
     ["happy-farm", "lizard-tycoon"],
   );
-  assert.equal(contract.schemaVersion, 3);
+  assert.equal(contract.schemaVersion, 4);
   assert.deepEqual(contract.authBroker.kubernetesApi, {
     server: "https://kubernetes.default.svc",
     egressCidr: "10.152.183.1/32",
@@ -649,10 +649,10 @@ test("GitHub credential recovery는 ciphertext를 memory에서 분리 복구하�
   label.fill(0);
 });
 
-test("custom property와 Evaluate ruleset payload는 pilot 두 repo만 겨냥한다", async () => {
+test("custom property와 읽기 전용 SHADOW는 pilot 두 repo만 겨냥한다", async () => {
   const properties = await render("custom-properties");
   const values = await render("pilot-values");
-  const rule = await render("ruleset");
+  const protection = await render("protection");
   assert.equal(properties.length, 4);
   assert.ok(properties.every(({ method }) => method === "PUT"));
   assert.deepEqual(
@@ -665,18 +665,17 @@ test("custom property와 Evaluate ruleset payload는 pilot 두 repo만 겨냥한
     values.map(({ body }) => body.repository_names[0]),
     ["happy-farm", "lizard-tycoon"],
   );
-  assert.equal(rule.body.enforcement, "evaluate");
-  assert.deepEqual(rule.body.conditions.repository_name.include, [
-    "happy-farm",
-    "lizard-tycoon",
+  assert.equal(protection.providerMode, "REPO_BRANCH_PROTECTION");
+  assert.equal(protection.rolloutMode, "SHADOW");
+  assert.equal(protection.observationMode, "READ_ONLY");
+  assert.equal(protection.preserveExisting, true);
+  assert.equal(protection.activationRequiresApproval, true);
+  assert.deepEqual(protection.repositories.map(({ fullName }) => fullName), [
+    "seorilabs/happy-farm",
+    "seorilabs/lizard-tycoon",
   ]);
-  const required = rule.body.rules.find(
-    ({ type }) => type === "required_status_checks",
-  );
-  assert.equal(
-    required.parameters.required_status_checks[0].context,
-    "Org Contract / Org Contract",
-  );
+  assert.equal(protection.requiredStatusCheck, "Org Contract / Org Contract");
+  assert.equal(Object.hasOwn(protection, "method"), false);
 });
 
 test("GitHub bootstrap 기본 실행은 App 재사용 gate와 additive org dry-run만 출력한다", async () => {
@@ -702,7 +701,9 @@ test("GitHub bootstrap 기본 실행은 App 재사용 gate와 additive org dry-r
   assert.doesNotMatch(output.apply, /c328d9bf55f3/u);
   assert.equal(output.operations.filter(({ method }) => method === "PUT").length, 4);
   assert.equal(output.operations.filter(({ method }) => method === "PATCH").length, 2);
-  assert.equal(output.operations.filter(({ method }) => method === "POST").length, 1);
+  assert.equal(output.operations.filter(({ method }) => method === "POST").length, 0);
+  assert.equal(output.protection.rolloutMode, "SHADOW");
+  assert.doesNotMatch(JSON.stringify(output), /"enforcement":"(?:evaluate|active)"/u);
   assert.doesNotMatch(
     JSON.stringify(output),
     /-----BEGIN|gh[opusr]_|github_pat_|access.?token.?value|refresh.?token.?value/iu,

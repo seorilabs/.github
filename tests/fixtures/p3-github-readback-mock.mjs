@@ -17,6 +17,7 @@ if (response === undefined) {
   process.exit(1);
 }
 if (response.fixtureStatus) {
+  process.stdout.write(JSON.stringify({ message: response.fixtureMessage ?? "Not Found", status: String(response.fixtureStatus) }));
   process.stderr.write(`HTTP ${response.fixtureStatus}\n`);
   process.exit(1);
 }

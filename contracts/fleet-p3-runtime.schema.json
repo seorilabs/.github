@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://seorilabs.github.io/contracts/v3/fleet-p3-runtime.schema.json",
-  "title": "Seorilabs Fleet P3 runtime bootstrap contract v3",
+  "$id": "https://seorilabs.github.io/contracts/v4/fleet-p3-runtime.schema.json",
+  "title": "Seorilabs Fleet P3 runtime bootstrap contract v4",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "github", "cloudBuild", "authBroker"],
   "properties": {
-    "schemaVersion": { "const": 3 },
+    "schemaVersion": { "const": 4 },
     "github": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["apiVersion", "organization", "app", "trustedExecution", "webhook", "credentialRecovery", "customProperties", "pilotValues", "ruleset"],
+      "required": ["apiVersion", "organization", "app", "trustedExecution", "webhook", "credentialRecovery", "customProperties", "pilotValues", "protection"],
       "properties": {
         "apiVersion": { "const": "2026-03-10" },
         "organization": { "const": "seorilabs" },
@@ -94,7 +94,7 @@
               "prefixItems": [
                 { "const": "organization_custom_properties_schema_write" },
                 { "const": "repository_custom_properties_values_write" },
-                { "const": "organization_rulesets_write" }
+                { "const": "repository_protection_read" }
               ],
               "items": false
             },
@@ -250,7 +250,7 @@
             }
           }
         },
-        "ruleset": { "$ref": "#/$defs/ruleset" }
+        "protection": { "$ref": "#/$defs/protection" }
       }
     },
     "cloudBuild": {
@@ -1003,14 +1003,16 @@
         "podLabel": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" }
       }
     },
-    "ruleset": {
+    "protection": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "target", "enforcement", "repositories", "requiredStatusCheck"],
+      "required": ["accountPlan", "providerMode", "rolloutMode", "observationMode", "branch", "repositories", "requiredStatusCheck", "preserveExisting", "activationRequiresApproval"],
       "properties": {
-        "name": { "const": "Fleet Org Contract shadow" },
-        "target": { "const": "branch" },
-        "enforcement": { "const": "evaluate" },
+        "accountPlan": { "const": "TEAM" },
+        "providerMode": { "const": "REPO_BRANCH_PROTECTION" },
+        "rolloutMode": { "const": "SHADOW" },
+        "observationMode": { "const": "READ_ONLY" },
+        "branch": { "const": "main" },
         "repositories": {
           "type": "array",
           "minItems": 2,
@@ -1018,7 +1020,9 @@
           "prefixItems": [{ "const": "happy-farm" }, { "const": "lizard-tycoon" }],
           "items": false
         },
-        "requiredStatusCheck": { "const": "Org Contract / Org Contract" }
+        "requiredStatusCheck": { "const": "Org Contract / Org Contract" },
+        "preserveExisting": { "const": true },
+        "activationRequiresApproval": { "const": true }
       }
     },
     "journalMacProvisioning": {

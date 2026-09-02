@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 import { githubAppReadback } from "./github-app-readback.mjs";
 import {
   githubCustomPropertyReadback,
-  githubRulesetPlanReadback,
+  githubProtectionPlanReadback,
+  githubProtectionReadback,
 } from "./github-settings-readback.mjs";
 
 const renderer = fileURLToPath(new URL("./render-p3-runtime.mjs", import.meta.url));
@@ -25,7 +26,7 @@ function fail(code) {
 if (!["plan", "apply", "readback"].includes(mode) || process.argv.length > 4) {
   fail("P3_GITHUB_COMMAND_INVALID");
 }
-function run(args, { input, allowMissing = false, allowForbidden = false, code }) {
+function run(args, { input, allowMissing = false, allowForbidden = false, allowUnprotected = false, code }) {
   try {
     return execFileSync("gh", args, {
       encoding: "utf8",
@@ -35,6 +36,14 @@ function run(args, { input, allowMissing = false, allowForbidden = false, code }
     }).trim();
   } catch (error) {
     const diagnostic = `${error?.stdout ?? ""}\n${error?.stderr ?? ""}`;
+    if (allowUnprotected && /HTTP 404/u.test(diagnostic)) {
+      try {
+        const response = JSON.parse(error.stdout);
+        if (response.message === "Branch not protected" && String(response.status) === "404") {
+          return { branchNotProtected: true };
+        }
+      } catch { /* Missing visibility is not an unprotected branch. */ }
+    }
     if (allowMissing && /HTTP 404|not found/iu.test(diagnostic)) return null;
     if (allowForbidden && /HTTP 403|Resource not accessible/iu.test(diagnostic)) return null;
     if (/HTTP 403|HTTP 404|Resource not accessible|admin:org/iu.test(diagnostic)) {
@@ -57,7 +66,7 @@ function render(command) {
   }
 }
 
-function api(operation, { allowMissing = false, allowForbidden = false } = {}) {
+function api(operation, { allowMissing = false, allowForbidden = false, allowUnprotected = false } = {}) {
   if (operation.method !== "GET") {
     fail("P3_GITHUB_AMBIENT_MUTATION_FORBIDDEN");
   }
@@ -80,8 +89,10 @@ function api(operation, { allowMissing = false, allowForbidden = false } = {}) {
     input,
     allowMissing,
     allowForbidden,
+    allowUnprotected,
     code: "P3_GITHUB_API_FAILED",
   });
+  if (raw?.branchNotProtected === true) return null;
   if (raw === null || raw === "") return raw;
   try {
     return JSON.parse(raw);
@@ -96,7 +107,7 @@ if (app.apiVersion !== apiVersion || app.organization !== organization) {
 }
 const propertyOperations = render("custom-properties");
 const valueOperations = render("pilot-values");
-const desiredRuleset = render("ruleset");
+const desiredProtection = render("protection");
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -117,7 +128,8 @@ const contractPlanDigest = createHash("sha256")
     JSON.stringify(
       canonical({
         app,
-        operations: [...propertyOperations, ...valueOperations, desiredRuleset],
+        operations: [...propertyOperations, ...valueOperations],
+        protection: desiredProtection,
       }),
     ),
   )
@@ -134,23 +146,26 @@ function propertyDesired(operation) {
   };
 }
 
-function findRuleset() {
-  const list = api({
-    method: "GET",
-    path: `/orgs/${organization}/rulesets?includes_parents=false&targets=branch`,
+function readProtection() {
+  const observedAt = new Date().toISOString();
+  const repositories = desiredProtection.repositories.map((binding) => {
+    const path = `/repos/${binding.fullName}`;
+    const repository = api({ method: "GET", path });
+    const branchProtection = api({
+      method: "GET", path: `${path}/branches/${desiredProtection.branch}/protection`,
+    }, { allowUnprotected: true });
+    const activeRules = api({ method: "GET", path: `${path}/rules/branches/${desiredProtection.branch}` });
+    return githubProtectionReadback(desiredProtection, binding,
+      { repository, branchProtection, activeRules }, observedAt);
   });
-  const matches = list.filter(({ name }) => name === desiredRuleset.body.name);
-  if (matches.length > 1) fail("P3_GITHUB_RULESET_DUPLICATED");
-  return matches[0] ?? null;
-}
-
-function rulesetSubset(value) {
   return {
-    name: value.name,
-    target: value.target,
-    enforcement: value.enforcement,
-    conditions: value.conditions,
-    rules: value.rules,
+    providerMode: desiredProtection.providerMode,
+    rolloutMode: desiredProtection.rolloutMode,
+    observationMode: desiredProtection.observationMode,
+    existingProtectionChanged: false,
+    activationAllowed: false,
+    repositories,
+    ready: repositories.every(({ state }) => state === "OBSERVED"),
   };
 }
 
@@ -224,14 +239,14 @@ function readback() {
       ...protectedState,
       properties: [],
       pilots: [],
-      ruleset: { read: false, exists: false, exact: false },
+      protection: { ready: false, activationAllowed: false, repositories: [] },
       blockedBy: appState.identityExact
         ? "P3_GITHUB_APP_PERMISSION_EXPANSION_REQUIRED"
         : appState.code ?? "P3_GITHUB_APP_IDENTITY_MISMATCH",
       ready: false,
     };
   }
-  const rulesetCapability = githubRulesetPlanReadback(
+  const protectionCapability = githubProtectionPlanReadback(
     api({ method: "GET", path: `/orgs/${organization}` }, {
       allowMissing: true,
       allowForbidden: true,
@@ -267,39 +282,27 @@ function readback() {
       exact: actual !== null && equal(selected, expected),
     };
   });
-  const listed = findRuleset();
-  let ruleset = { exists: false, exact: false };
-  if (listed !== null) {
-    const detail = api({
-      method: "GET",
-      path: `/orgs/${organization}/rulesets/${listed.id}`,
-    });
-    ruleset = {
-      id: listed.id,
-      name: listed.name,
-      enforcement: listed.enforcement,
-      exists: true,
-      exact: equal(rulesetSubset(detail), rulesetSubset(desiredRuleset.body)),
-    };
-  }
+  const protection = protectionCapability.protection === "SUPPORTED"
+    ? readProtection() : { ready: false, activationAllowed: false, repositories: [] };
   return {
     organization,
     ...protectedState,
     properties,
     pilots,
-    ruleset,
-    rulesetCapability,
+    protection,
+    protectionCapability,
     app: appReadbackResult(appState),
-    blockedBy: rulesetCapability.code ?? "P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED",
+    blockedBy: protectionCapability.code ?? (protection.ready
+      ? "P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED" : "P3_GITHUB_PROTECTION_READBACK_UNVERIFIED"),
     ready:
       appState.ready &&
-      rulesetCapability.evaluate === "SUPPORTED" &&
+      protectionCapability.protection === "SUPPORTED" &&
       protectedState.trustedExecution.ready &&
       protectedState.webhook.exact &&
       protectedState.credentialRecovery.ready &&
       properties.every(({ exact }) => exact) &&
       pilots.every(({ exact }) => exact) &&
-      ruleset.exact,
+      protection.ready,
   };
 }
 
@@ -307,12 +310,13 @@ if (mode === "plan") {
   process.stdout.write(
     `${JSON.stringify(
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
         mode: "DRY_RUN",
         organization,
         contractPlanDigest,
         app,
-        operations: [...propertyOperations, ...valueOperations, desiredRuleset],
+        operations: [...propertyOperations, ...valueOperations],
+        protection: desiredProtection,
         apply: `node scripts/fleet/bootstrap-p3-github.mjs apply ${expectedConfirmation}`,
         readback: "node scripts/fleet/bootstrap-p3-github.mjs readback",
       },

@@ -9,7 +9,8 @@ import { promisify } from "node:util";
 
 import {
   githubCustomPropertyReadback,
-  githubRulesetPlanReadback,
+  githubProtectionPlanReadback,
+  githubProtectionReadback,
 } from "../scripts/fleet/github-settings-readback.mjs";
 
 const desired = {
@@ -61,41 +62,42 @@ test("GitHub property readback still rejects every changed setting and inherited
   }
 });
 
-test("GitHub Team cannot satisfy Evaluate even after App permissions are granted", () => {
-  const result = githubRulesetPlanReadback({
+test("GitHub Team uses the approved read-only SHADOW path without Enterprise Evaluate", () => {
+  const result = githubProtectionPlanReadback({
     id: 283115031, login: "seorilabs", plan: { name: "team" },
   }, organization);
   assert.equal(result.identityExact, true);
   assert.equal(result.plan, "team");
-  assert.equal(result.evaluate, "UNSUPPORTED");
-  assert.equal(result.code, "P3_GITHUB_EVALUATE_UNSUPPORTED_BY_PLAN");
+  assert.equal(result.protection, "SUPPORTED");
+  assert.equal(result.rolloutMode, "SHADOW");
+  assert.equal(result.code, null);
 });
 
 test("GitHub plan visibility loss does not mean a free plan or a missing resource", () => {
   for (const input of [null, { id: 283115031, login: "seorilabs" },
     { id: 283115031, login: "seorilabs", plan: { name: "future-plan" } }]) {
-    const result = githubRulesetPlanReadback(input, organization);
+    const result = githubProtectionPlanReadback(input, organization);
     assert.equal(result.plan, null);
-    assert.equal(result.evaluate, "UNVERIFIED");
+    assert.equal(result.protection, "UNVERIFIED");
     assert.equal(result.code, "P3_GITHUB_PLAN_VISIBILITY_REQUIRED");
   }
 });
 
-test("GitHub Enterprise Evaluate support requires the exact numeric organization identity", () => {
-  assert.equal(githubRulesetPlanReadback({
+test("plan changes never silently select another protection provider", () => {
+  assert.equal(githubProtectionPlanReadback({
     id: 283115031, login: "seorilabs", plan: { name: "enterprise" },
-  }, organization).evaluate, "SUPPORTED");
+  }, organization).code, "P3_GITHUB_PROTECTION_PLAN_DRIFT");
   for (const input of [
     { id: 1, login: "seorilabs", plan: { name: "enterprise" } },
     { id: 283115031, login: "other-org", plan: { name: "enterprise" } },
   ]) {
-    const result = githubRulesetPlanReadback(input, organization);
-    assert.equal(result.evaluate, "UNVERIFIED");
+    const result = githubProtectionPlanReadback(input, organization);
+    assert.equal(result.protection, "UNVERIFIED");
     assert.equal(result.code, "P3_GITHUB_ORGANIZATION_IDENTITY_MISMATCH");
   }
 });
 
-test("P3 CLI reports Team limitation separately from exact properties without mutating GitHub", async () => {
+test("P3 CLI observes Team protection and differences without mutating GitHub", async () => {
   const directory = await mkdtemp(join(tmpdir(), "p3-github-readback-"));
   try {
     const fixture = fileURLToPath(new URL("./fixtures/p3-github-readback-mock.mjs", import.meta.url));
@@ -115,8 +117,15 @@ test("P3 CLI reports Team limitation separately from exact properties without mu
         permissions: plan.app.requiredPermissions,
         events: plan.app.requiredEvents,
       }] },
-      "/orgs/seorilabs/rulesets?includes_parents=false&targets=branch": [],
     };
+    for (const binding of plan.protection.repositories) {
+      const path = `/repos/${binding.fullName}`;
+      state[path] = { id: Number(binding.repositoryId), full_name: binding.fullName, default_branch: "main" };
+      state[`${path}/branches/main/protection`] = { fixtureStatus: 404, fixtureMessage: "Branch not protected" };
+      state[`${path}/rules/branches/main`] = [{ type: "required_status_checks", parameters: {
+        required_status_checks: [{ context: "Existing required check", integration_id: 15368 }],
+      } }];
+    }
     for (const operation of plan.operations) {
       if (operation.method === "PUT") {
         state[operation.path] = {
@@ -151,9 +160,21 @@ test("P3 CLI reports Team limitation separately from exact properties without mu
       assert.ok(output.properties.every(({ exact }) => exact));
       assert.ok(output.pilots.every(({ exact }) => exact));
       assert.equal(output.blockedBy, observation.fixtureStatus === 403
-        ? "P3_GITHUB_PLAN_VISIBILITY_REQUIRED" : "P3_GITHUB_EVALUATE_UNSUPPORTED_BY_PLAN");
-      assert.equal(output.rulesetCapability.evaluate, observation.fixtureStatus === 403
-        ? "UNVERIFIED" : "UNSUPPORTED");
+        ? "P3_GITHUB_PLAN_VISIBILITY_REQUIRED" : "P3_GITHUB_TRUSTED_APP_EXECUTOR_REQUIRED");
+      assert.equal(output.protectionCapability.protection, observation.fixtureStatus === 403
+        ? "UNVERIFIED" : "SUPPORTED");
+      if (observation.fixtureStatus !== 403) {
+        assert.equal(output.protection.ready, true);
+        assert.equal(output.protection.activationAllowed, false);
+        assert.equal(output.protection.existingProtectionChanged, false);
+        for (const row of output.protection.repositories) {
+          assert.equal(row.branchProtectionPresent, false);
+          assert.equal(row.requiredStatusCheckPresent, false);
+          assert.deepEqual(row.existingStatusChecks, ["Existing required check"]);
+          assert.deepEqual(row.missingStatusChecks, ["Org Contract / Org Contract"]);
+          assert.match(row.snapshotDigest, /^sha256:[0-9a-f]{64}$/u);
+        }
+      }
       for (const key of ["credentialRecovery", "webhook", "trustedExecution"]) {
         assert.equal(output[key].observed, false);
         assert.equal(output[key].observationSource, "CONTRACT_ONLY");
@@ -163,7 +184,45 @@ test("P3 CLI reports Team limitation separately from exact properties without mu
     const requests = (await readFile(requestsPath, "utf8")).trim().split("\n").map(JSON.parse);
     assert.ok(requests.length >= 18);
     assert.ok(requests.every(({ method }) => method === "GET"));
+    assert.ok(requests.every(({ path }) => !path.startsWith("/orgs/seorilabs/rulesets")));
+    state["/orgs/seorilabs"] = { id: 283115031, login: "seorilabs", plan: { name: "team" } };
+    state["/repos/seorilabs/happy-farm/branches/main/protection"] = { fixtureStatus: 404 };
+    await writeFile(statePath, JSON.stringify(state));
+    await assert.rejects(execFileAsync(process.execPath,
+      ["scripts/fleet/bootstrap-p3-github.mjs", "readback"], { env: environment }),
+    (error) => /P3_GITHUB_ORG_ADMIN_REQUIRED/u.test(error.stderr));
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("SHADOW compares both branch protection and effective rules without dropping existing checks", () => {
+  const desiredProtection = { branch: "main", requiredStatusCheck: "Org Contract / Org Contract" };
+  const binding = { fullName: "seorilabs/happy-farm", repositoryId: "123" };
+  const source = {
+    repository: { id: 123, full_name: binding.fullName, default_branch: "main" },
+    branchProtection: {
+      url: `https://api.github.com/repos/${binding.fullName}/branches/main/protection`,
+      required_status_checks: { contexts: ["legacy"], checks: [{ context: "security", app_id: 15368 }] },
+      required_pull_request_reviews: { required_approving_review_count: 2 },
+    },
+    activeRules: [{ type: "required_status_checks", parameters: {
+      required_status_checks: [{ context: desiredProtection.requiredStatusCheck, integration_id: 15368 }],
+    } }],
+  };
+  const original = structuredClone(source);
+  const readback = githubProtectionReadback(desiredProtection, binding, source, new Date().toISOString());
+  assert.equal(readback.state, "OBSERVED");
+  assert.equal(readback.requiredStatusCheckPresent, true);
+  assert.deepEqual(readback.existingStatusChecks, ["Org Contract / Org Contract", "legacy", "security"]);
+  assert.deepEqual(source, original);
+  for (const patch of [
+    { repository: { ...source.repository, id: 456 } },
+    { repository: { ...source.repository, default_branch: "other" } },
+    { branchProtection: { url: "https://wrong.invalid" } }, { activeRules: null },
+  ]) {
+    const invalid = githubProtectionReadback(desiredProtection, binding, { ...source, ...patch }, new Date().toISOString());
+    assert.equal(invalid.state, "UNVERIFIED");
+    assert.equal(invalid.snapshotDigest, null);
   }
 });

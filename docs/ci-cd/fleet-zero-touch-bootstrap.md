@@ -152,8 +152,15 @@ Fleet App은 만들지 않고 active `seorilabs-backoffice` App `4124446`, insta
 ciphertext와 `shared/k8s/sealed-secrets-recovery`에서 신규 key 생성 없이 offline 복구하고
 `shared/github/backoffice-app-private-key`, `shared/github/backoffice-app-webhook`으로 분리 등록하는
 별도 backup/restore 승인 gate다. credential 값은 URL·manifest·로그·파일에 넣지 않는다. App
-identity와 permission/event union이 exact해진 뒤에도 조직 custom property schema와 Evaluate
-ruleset은 각각 admin 권한으로 적용하고 API readback이 exact 계약과 일치해야 완료다. 공식 API
+identity와 permission/event union이 exact해진 뒤에도 조직 custom property schema와 pilot 값은
+trusted App 실행기로 적용하고 API readback이 exact 계약과 일치해야 완료다. **2026-09-02 승인에
+따라 P3 runtime v4는 GitHub Team의 `REPO_BRANCH_PROTECTION` / `SHADOW` / `READ_ONLY`를
+사용한다.** `render-p3-runtime.mjs protection`과 `bootstrap-p3-github.mjs readback`은 pilot 두
+저장소의 숫자 ID·main·기존 branch protection·유효 ruleset을 조회하고 목표 check와의 차이 및
+snapshot digest를 기록한다. `Evaluate` 생성 요청과 Enterprise 필수 조건은 제거했다.
+`Branch not protected`라는 정확한 provider 404만 보호 설정 부재이며, 권한 부족·일반 404는
+조회 실패다. 기존 보호 설정과 요금제는 변경하지 않는다. P7 보고서는 조회 완료와 ACTIVE
+승인을 별도 gate로 표시하며, SHADOW 완료만으로 실행·보호 적용을 허용하지 않는다. 공식 API
 경계는 [GitHub App permissions](https://docs.github.com/en/apps/creating-github-apps/setting-up-a-github-app/choosing-permissions-for-a-github-app),
 [조직 custom properties](https://docs.github.com/en/rest/orgs/custom-properties),
 [조직 rulesets](https://docs.github.com/en/rest/orgs/rules)를 따른다.
