@@ -71,7 +71,34 @@ X3(`7790257…`) 시점에 lizard-tycoon의 중앙 build-only가 처음으로 �
 | AAB | `app-release.aab` 49,289,785 bytes, sha256 `bc92475649a66699616c…` = provenance `artifactSha256` |
 | marketUpload | false |
 
-static 증거도 두 건 확보했다: `static:godot`(lizard-tycoon, [33645367682](https://github.com/seorilabs/lizard-tycoon/actions/runs/33645367682)),
-`static:react-native`(happy-farm, [33644209575](https://github.com/seorilabs/happy-farm/actions/runs/33644209575)). happy-farm의
-build-only는 X4에서 재실행 중이다. 승인(APPROVED)에는 `static:capacitor`, `static:ait-web` 증거가 더 필요하다.
-provenance 원본은 `evidence/fleet-p3-*-2026-09-02.json`에 보관한다. 마켓 업로드는 하지 않았다.
+X3 시점의 static 증거는 `static:godot`(lizard-tycoon, [33645367682](https://github.com/seorilabs/lizard-tycoon/actions/runs/33645367682)),
+`static:react-native`(happy-farm, [33644209575](https://github.com/seorilabs/happy-farm/actions/runs/33644209575))였다.
+아래 X4 재실행으로 모든 증거를 X4 기준으로 갱신했다.
+
+## X4 기준 두 앱 build-only 재실행
+
+provider가 X4만 신뢰하므로 두 앱의 ACTIVE 설정을 X4로 올리고 후보 실행기로 canary PR을 다시 만들었다.
+
+happy-farm의 첫 X4 실행([33647994835](https://github.com/seorilabs/happy-farm/actions/runs/33647994835), PR #501, Cloud Build
+`705ed219-51da-400a-91b1-26d109e0ef0b`)은 앱 `scripts/build-android.sh`가 build-only에서 빈 `SEORI_RELEASE_TAG`의 존재 자체를
+거부해 step 0에서 멈췄다. 중앙 `rn-android-build-only-v2.yaml`은 tag 실행이 아니어도 `SEORI_RELEASE_*` 세 값을 빈 값으로 항상
+export하며 lizard-tycoon 스크립트는 이미 그 계약을 따른다. 앱 쪽 수정은 [happy-farm#502](https://github.com/seorilabs/happy-farm/pull/502)이고,
+병합 후 감사 예외 binding을 새 main `69d29018…`으로 다시 묶은 ConfigRevision 17을 활성화해 재실행했다.
+
+| 항목 | lizard-tycoon | happy-farm |
+| --- | --- | --- |
+| run | [33650716595](https://github.com/seorilabs/lizard-tycoon/actions/runs/33650716595) (PR #537) | [33651252122](https://github.com/seorilabs/happy-farm/actions/runs/33651252122) (PR #503) **TIMEOUT** |
+| Cloud Build | `d2fc1717-effa-4b28-8c05-edd0a518be4f`, `godot-android-builder@sha256:b2a9d7a8…` | `fb0cf593-13d7-4b26-8df9-8982ea21d808`, `rn-android-builder@sha256:ed73c852…`, E2_STANDARD_2, 2400s 소진 |
+| bundle / 설정 | `5159ca37…`, payloadDigest `sha256:cfcf2cb6…`, ConfigRevision 23 | `5159ca37…`, ConfigRevision 17 |
+| app source | `e673e0dd…` | `69d29018…` |
+| AAB | 49,289,793 bytes, sha256 `c1ca51c43b88249ad338…` = provenance `artifactSha256` | 없음 (Gradle 네이티브 4 ABI CMake 단계에서 40.3분 경과) |
+| marketUpload | false | false |
+
+happy-farm 두 번째 실행은 계약 검증·`pnpm install`·모바일 품질 검사를 통과한 뒤 Gradle 네이티브 단계에서 중앙 `rn-android-build-only-v2.yaml`의
+`timeout: 2400s`에 걸렸다. 앱 production 설정 `cloudbuild-android.yaml`은 같은 machineType에 7200s를 쓴다. 중앙 timeout을 7200s로 올리는
+[#112](https://github.com/seorilabs/.github/pull/112)는 새 후보(X5)를 만들므로 provider 전환이 한 번 더 필요하다.
+
+static 증거도 X4로 갱신했다: `static:godot`([33650716200](https://github.com/seorilabs/lizard-tycoon/actions/runs/33650716200), ConfigRevision 23),
+`static:react-native`([33651252134](https://github.com/seorilabs/happy-farm/actions/runs/33651252134), ConfigRevision 17). 승인(APPROVED)에는 `static:capacitor`, `static:ait-web` 증거가 더 필요하다.
+provenance 원본은 `evidence/fleet-p3-*-2026-09-02.json`에 보관하며 X3 기록은 `…-transitions.json`의 `previous`에 남긴다.
+마켓 업로드는 하지 않았다.

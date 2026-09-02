@@ -275,19 +275,50 @@
   "buildOnlyRuns": {
     "lizard-tycoon": {
       "status": "SUCCEEDED",
-      "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33645367627",
-      "pullRequest": "seorilabs/lizard-tycoon#536",
-      "workflowExecutionSha": "7790257716bca71ae865aa11274803520adf13e3",
-      "cloudBuildId": "385fa128-ba8c-4047-bf5a-6ffe114a6343",
-      "artifactSha256": "sha256:bc92475649a66699616ccf852e8a1648d38655805c1704f03cffb57d60c936ae",
-      "artifactBytes": 49289785,
+      "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33650716595",
+      "pullRequest": "seorilabs/lizard-tycoon#537",
+      "workflowExecutionSha": "5159ca37fde9306e6b5da265f6889ae5782b03bd",
+      "configRevision": 23,
+      "cloudBuildId": "d2fc1717-effa-4b28-8c05-edd0a518be4f",
+      "artifactSha256": "sha256:c1ca51c43b88249ad3387c1621a89b05505b087c45660acc59654191bccebf0e",
+      "artifactBytes": 49289793,
       "provenance": "fleet-p3-build-godot-android-lizard-tycoon-2026-09-02.json",
-      "marketUpload": false
+      "marketUpload": false,
+      "previous": {
+        "status": "SUCCEEDED",
+        "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33645367627",
+        "pullRequest": "seorilabs/lizard-tycoon#536",
+        "workflowExecutionSha": "7790257716bca71ae865aa11274803520adf13e3",
+        "configRevision": 21,
+        "cloudBuildId": "385fa128-ba8c-4047-bf5a-6ffe114a6343",
+        "artifactSha256": "sha256:bc92475649a66699616ccf852e8a1648d38655805c1704f03cffb57d60c936ae",
+        "artifactBytes": 49289785
+      }
     },
     "happy-farm": {
-      "status": "PENDING_X4_RERUN",
-      "previousRunUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33644209892",
-      "previousFailure": "gcloud FileNotFoundError on pnpm store dangling symlink, fixed by seorilabs/.github#109"
+      "status": "TIMEOUT_PENDING_X5",
+      "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33651252122",
+      "pullRequest": "seorilabs/happy-farm#503",
+      "workflowExecutionSha": "5159ca37fde9306e6b5da265f6889ae5782b03bd",
+      "configRevision": 17,
+      "cloudBuildId": "fb0cf593-13d7-4b26-8df9-8982ea21d808",
+      "cloudBuildStatus": "TIMEOUT",
+      "cloudBuildTimeoutSeconds": 2400,
+      "elapsedMinutes": 40.3,
+      "lastGradleTask": ":react-native-iap:buildCMakeRelWithDebInfo[x86_64]",
+      "fix": "seorilabs/.github#112 (timeout 7200s)",
+      "previousAttempts": [
+        {
+          "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33647994835",
+          "pullRequest": "seorilabs/happy-farm#501",
+          "cloudBuildId": "705ed219-51da-400a-91b1-26d109e0ef0b",
+          "failure": "app scripts/build-android.sh rejected empty SEORI_RELEASE_TAG in build-only; fixed by seorilabs/happy-farm#502"
+        },
+        {
+          "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33644209892",
+          "failure": "gcloud FileNotFoundError on pnpm store dangling symlink, fixed by seorilabs/.github#109"
+        }
+      ]
     }
   },
   "staticEvidence": {
