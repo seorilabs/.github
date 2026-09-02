@@ -165,6 +165,14 @@ snapshot digest를 기록한다. `Evaluate` 생성 요청과 Enterprise 필수 �
 [조직 custom properties](https://docs.github.com/en/rest/orgs/custom-properties),
 [조직 rulesets](https://docs.github.com/en/rest/orgs/rules)를 따른다.
 
+Backoffice는 고정 commit의 root package subpath
+`seorilabs-org-contracts/repo-contract/github-settings-readback`으로 CLI와 같은 공개 응답
+판정기를 사용한다. 현재 중앙 main은 운영 관측 대상이고, 설치된 코드의 dependency pin과는
+별개다. 조회 시작 시 실제 main SHA를 고정해 해당 SHA의 v4 계약을 읽고, 종료 시 main이
+그대로인지 확인한다. 중앙의 무관한 다음 commit마다 Backoffice를 재배포해야만 조회할 수
+있도록 오래된 main SHA를 코드에 중복 고정하지 않는다. 이 조회는 계약 코드를 내려받아
+실행하지 않으며 inventory source 최신성, 보호 ACTIVE, cleanup 승인 gate를 열지 않는다.
+
 offline recovery는 `scripts/fleet/github-credential-recovery.mjs`의 trusted adapter만 허용한다.
 adapter는 Sealed Secrets의 strict `namespace/name` OAEP label과 암묵적 zero nonce를 사용하는
 hybrid ciphertext를 process-local memory에서만 해제한다. signed

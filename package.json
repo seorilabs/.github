@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./repo-contract/github-settings-readback": "./scripts/fleet/github-settings-readback.mjs",
     "./repo-contract/fleet-migration": "./packages/repo-contract/src/fleet-migration.mjs",
     "./repo-contract/fleet-migration-collector": "./packages/repo-contract/src/fleet-migration-collector.mjs",
     "./repo-contract/fleet-migration-legacy-validator": "./packages/repo-contract/src/fleet-migration-legacy-validator.mjs",
@@ -12,7 +13,8 @@
   },
   "files": [
     "contracts",
-    "packages/repo-contract/src"
+    "packages/repo-contract/src",
+    "scripts/fleet/github-settings-readback.mjs"
   ],
   "engines": {
     "node": "24.x"
