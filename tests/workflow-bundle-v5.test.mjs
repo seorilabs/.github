@@ -2751,6 +2751,26 @@ test("RN Cloud Build v2는 ARC cgroup보다 큰 8GB standard worker를 고정한
   assert.doesNotMatch(cloudBuild, /E2_HIGHCPU_|N1_HIGHCPU_/u);
 });
 
+test("Android Cloud Build v2 config는 대문자 셸 변수를 Cloud Build에서 이스케이프한다", async () => {
+  for (const path of [
+    ".github/cloud-build/godot-android-build-only-v2.yaml",
+    ".github/cloud-build/rn-android-build-only-v2.yaml",
+  ]) {
+    const cloudBuild = await readFile(path, "utf8");
+    assert.doesNotMatch(cloudBuild, /substitution_option:\s*ALLOW_LOOSE/u);
+    const unescapedShellVariables = [
+      ...cloudBuild.matchAll(
+        /(?<!\$)\$(?!\$)(?:\{([A-Z_][A-Z0-9_]*)\}|([A-Z_][A-Z0-9_]*))/gu,
+      ),
+    ].filter(([, bracedName]) => !bracedName?.startsWith("_SEORI_"));
+    assert.deepEqual(
+      unescapedShellVariables.map(([reference]) => reference),
+      [],
+      `${path} must escape uppercase shell variables as $$NAME`,
+    );
+  }
+});
+
 test("RN and Godot v2 workflows resolve signed config before app checkout and never upload markets", async () => {
   for (const [profile, path] of [
     ["react-native-android", ".github/workflows/rn-build-android-cloud-v2.yml"],

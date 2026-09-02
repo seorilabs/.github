@@ -29,9 +29,9 @@ steps:
         export SEORI_RELEASE_TAG=${_SEORI_RELEASE_TAG}
         export SEORI_RELEASE_VERSION_NAME=${_SEORI_RELEASE_VERSION_NAME}
         export SEORI_RELEASE_VERSION_CODE=${_SEORI_RELEASE_VERSION_CODE}
-        rm -f "$SEORI_ANDROID_AAB_OUTPUT"
+        rm -f "$$SEORI_ANDROID_AAB_OUTPUT"
         bash scripts/build-android.sh
-        test -s "$SEORI_ANDROID_AAB_OUTPUT"
+        test -s "$$SEORI_ANDROID_AAB_OUTPUT"
 artifacts:
   objects:
     location: ${_SEORI_ARTIFACT_URI}
