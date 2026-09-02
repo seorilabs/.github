@@ -232,6 +232,7 @@ test("GitHub App bootstrap은 active Backoffice App을 재사용하고 새 App�
   });
   assert.equal(output.requiredPermissions.organization_custom_properties, "admin");
   assert.equal(output.requiredPermissions.organization_administration, "write");
+  assert.equal(output.requiredPermissions.members, "read");
   assert.deepEqual(output.requiredEvents, ["repository", "push"]);
   assert.deepEqual(output.permissionExpansionGate, {
     type: "approval",

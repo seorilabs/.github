@@ -28,9 +28,10 @@
             "permissions": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["metadata", "contents", "pull_requests", "workflows", "repository_custom_properties", "environments", "administration", "organization_administration", "organization_custom_properties"],
+              "required": ["metadata", "members", "contents", "pull_requests", "workflows", "repository_custom_properties", "environments", "administration", "organization_administration", "organization_custom_properties"],
               "properties": {
                 "metadata": { "const": "read" },
+                "members": { "const": "read" },
                 "contents": { "const": "write" },
                 "pull_requests": { "const": "write" },
                 "workflows": { "const": "write" },

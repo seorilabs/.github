@@ -12,6 +12,7 @@ github:
     repositorySelection: all
     permissions:
       metadata: read
+      members: read
       contents: write
       pull_requests: write
       workflows: write
