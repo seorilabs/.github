@@ -226,10 +226,10 @@ cloudBuild:
     kubernetesIssuer: https://kubernetes.default.svc
     githubAudience: https://iam.googleapis.com/projects/321365398093/locations/global/workloadIdentityPools/fleet-p3/providers/github-cloud-build
     organizationId: "283115031"
-    workflowBundleSourceSha: 7790257716bca71ae865aa11274803520adf13e3
-    workflowExecutionSha: 7790257716bca71ae865aa11274803520adf13e3
+    workflowBundleSourceSha: 5159ca37fde9306e6b5da265f6889ae5782b03bd
+    workflowExecutionSha: 5159ca37fde9306e6b5da265f6889ae5782b03bd
     supersededWorkflowExecutionShas:
-      - 5d73a03dad6102ebef6272ff448eb82f8a58ba03
+      - 7790257716bca71ae865aa11274803520adf13e3
     repositories:
       - fullName: seorilabs/happy-farm
         repositoryId: "1250442131"
