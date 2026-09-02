@@ -11,6 +11,7 @@ import {
   readdir,
   realpath,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -686,6 +687,32 @@ async function writeTrustedStagingMetadata({
   }
 }
 
+// pnpm은 store에 v11/projects/<hash> 같은 host 전용 project 색인을 심볼릭 링크로 남긴다.
+// 격리된 stagingRoot는 staging 뒤 삭제되므로 그 링크는 dangling이 되고, 이후 gcloud builds
+// submit이 소스 tar를 만들며 FileNotFoundError로 크래시한다. offline install에 필요 없는
+// dangling 링크만 제거하고 정상 링크와 파일은 그대로 둔다.
+async function pruneDanglingSymlinks(path) {
+  const entries = await readdir(path, { withFileTypes: true });
+  let removed = 0;
+  for (const entry of entries) {
+    const child = resolve(path, entry.name);
+    if (entry.isSymbolicLink()) {
+      const target = await stat(child).catch(() => undefined);
+      if (!target) {
+        await rm(child, { force: true });
+        removed += 1;
+      }
+      continue;
+    }
+    if (entry.isDirectory()) {
+      removed += await pruneDanglingSymlinks(child);
+      const remaining = await readdir(child);
+      if (remaining.length === 0) await rm(child, { force: true, recursive: true });
+    }
+  }
+  return removed;
+}
+
 async function scanCache(path, root, token, records) {
   const entries = (await readdir(path, { withFileTypes: true })).sort((left, right) =>
     left.name.localeCompare(right.name),
@@ -904,6 +931,7 @@ export async function stageExactPlatformDependencyV5({
 
   const records = [];
   try {
+    await pruneDanglingSymlinks(expectedCache);
     await scanCache(expectedCache, expectedCache, Buffer.from(token), records);
   } catch (error) {
     await rm(expectedCache, { force: true, recursive: true });

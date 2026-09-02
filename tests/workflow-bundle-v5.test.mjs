@@ -11,7 +11,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -2445,6 +2445,33 @@ test("audit exception permits only the exact high advisory set for one source an
     /DEPENDENCY_AUDIT_EXCEPTION_MISMATCH/u,
   );
   assert.equal(await lstat(cacheRoot).catch(() => null), null);
+});
+
+test("staging prunes dangling pnpm project symlinks so Cloud Build source packaging cannot crash", async () => {
+  const { root } = await fixtureRepository("saju-reader");
+  const cacheRoot = join(root, ".seorilabs-pnpm-store");
+  const staged = await stageExactPlatformDependencyV5({
+    repoRoot: root,
+    dependencyRoot: ".",
+    packageManager: "pnpm",
+    cacheRoot,
+    token: "token-that-must-never-be-persisted",
+    childEnvironment: { HOME: "/tmp/fixture-home", PATH: "/usr/bin:/bin" },
+    spawn: (_command, args, options) => {
+      if (args.includes("audit")) return { status: 0, signal: null, stdout: "{}" };
+      mkdirSync(join(cacheRoot, "content"), { recursive: true });
+      writeFileSync(join(cacheRoot, "content", "package.tgz"), "public-package-bytes");
+      mkdirSync(join(cacheRoot, "v11", "projects"), { recursive: true });
+      // pnpm이 격리 staging 디렉터리를 가리키는 project 색인을 남긴 상황. staging은 이후 삭제된다.
+      symlinkSync(join(options.cwd, "node_modules", ".pnpm"), join(cacheRoot, "v11", "projects", "deadbeef"));
+      symlinkSync(join(cacheRoot, "content", "package.tgz"), join(cacheRoot, "content", "alias.tgz"));
+      return { status: 0, signal: null };
+    },
+  });
+  assert.equal(staged.schemaVersion, 1);
+  assert.equal(await lstat(join(cacheRoot, "v11")).catch(() => null), null);
+  assert.equal((await lstat(join(cacheRoot, "content", "alias.tgz"))).isSymbolicLink(), true);
+  assert.equal((await lstat(join(cacheRoot, "content", "package.tgz"))).isFile(), true);
 });
 
 test("pnpm staging preserves only exact stable public-registry overrides from the locked graph", async () => {
