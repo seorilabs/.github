@@ -43,6 +43,9 @@ const MAX_PACKAGE_BYTES = 2 * 1024 * 1024;
 const MAX_LOCK_BYTES = 24 * 1024 * 1024;
 const MAX_PNPM_OVERRIDES = 64;
 const MAX_AUDIT_EXCEPTION_BYTES = 32 * 1024;
+// pnpm 11's lock-graph audit is CPU-bound and takes over 100 seconds on the
+// ARM64 ARC runner, so use the same bounded window as the locked install.
+const DEPENDENCY_AUDIT_TIMEOUT_MS = 300_000;
 const SHA = /^[0-9a-f]{40}$/u;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const REPOSITORY_ID = /^[1-9][0-9]{0,31}$/u;
@@ -886,7 +889,7 @@ export async function stageExactPlatformDependencyV5({
       encoding: "utf8",
       maxBuffer: 4 * 1024 * 1024,
       stdio: ["ignore", "pipe", "pipe"],
-      timeout: 120_000,
+      timeout: DEPENDENCY_AUDIT_TIMEOUT_MS,
     });
     dependencyAuditExceptionDigest = acceptAuditResult(
       auditResult,
