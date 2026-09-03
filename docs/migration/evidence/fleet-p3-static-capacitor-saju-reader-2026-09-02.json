@@ -1,0 +1,23 @@
+{
+  "artifactSha256": "sha256:7a8dc53e75bc7fa9f94a62ba31920871e8e9a150da5f0a0097f2c1befd033eb3",
+  "bindingSourceSha": "52dfa78a1e0b0a5412f8617043f1a764841018b5",
+  "callerWorkflowRef": "seorilabs/saju-reader/.github/workflows/org-contract.yml@refs/pull/90/merge",
+  "configRevision": 25,
+  "configRevisionDigest": "sha256:fd02e6c2910a67b410054904fa773e2f68fe2ccaaab64d5312c83602e3049679",
+  "configRevisionId": "cmtlddnss6kblr201xtv7cd9s",
+  "fullName": "seorilabs/saju-reader",
+  "manifestDigest": "sha256:53c7598e8e6209130c34b6f7fa6982eb57fcfdfda4a6cce7b71ed615fcdd554d",
+  "profile": "capacitor",
+  "repositoryId": 1335099739,
+  "runAttempt": 1,
+  "runId": 33744451213,
+  "schemaVersion": 2,
+  "signedSnapshotDigest": "sha256:64cfa720dc73bc728d3cc63c72cd908195decba3594ba28ee7e5bc5acdfe67d6",
+  "snapshotSignatureDigest": "sha256:e1e20d1162ccea779e5b60e2c75007fcb03ee835ed03743c457376d82bac2ecb",
+  "snapshotSignatureKeyId": "control-plane-snapshot-v1",
+  "snapshotSignaturePolicyRevision": "snapshot-policy-v1",
+  "sourceSha": "08be5026c23c68ee44e52263cb60ff4f4d662a76",
+  "target": "static",
+  "workflowExecutionSha": "42cd881944674b370453fe4e9924a1e8c92a2206",
+  "workflowRef": "seorilabs/.github/.github/workflows/js-static-checks-v1.yml@42cd881944674b370453fe4e9924a1e8c92a2206"
+}

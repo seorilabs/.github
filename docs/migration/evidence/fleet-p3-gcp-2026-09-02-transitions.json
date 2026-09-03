@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "observedAt": "2026-09-03T00:45:00Z",
+  "observedAt": "2026-09-03T11:50:00Z",
   "sourceSha": "25944aea0a31b8558f470d56293bbefa61672954",
   "scope": "P3_GCP_WIF_PROVIDER_EXECUTION_SHA_TRANSITIONS_X2_X3",
   "temporaryInstallerGrant": {
@@ -314,6 +314,65 @@
         "applySha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e",
         "readbackAfterSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e"
       }
+    },
+    {
+      "label": "X6",
+      "workflowExecutionSha": "42cd881944674b370453fe4e9924a1e8c92a2206",
+      "supersededWorkflowExecutionShas": [
+        "2fee6630a8a2e79128cbf6055087bf9f9402810d"
+      ],
+      "reason": "seorilabs/.github#120 저장소 안 file: package 허용; contract seorilabs/.github#121",
+      "contractDigest": "7753dfb5cf5bf5d3f49841aa4d560d9c5a614e46de11011c85c03aa195f29c98",
+      "confirmation": "fleet-p3-7753dfb5cf5b",
+      "applyExit": 0,
+      "appliedAt": "2026-09-03T10:05Z",
+      "installerGrant": {
+        "title": "p3-installer-20260903b",
+        "expiresAt": "2026-09-03T14:00:00Z"
+      },
+      "readbackBefore": {
+        "ready": false,
+        "providers": {
+          "github": {
+            "exists": true,
+            "configurationExact": false,
+            "disabled": false,
+            "active": true
+          },
+          "kubernetes": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          }
+        },
+        "iamBindingsPresent": "74/74",
+        "staticKeysCreated": false
+      },
+      "readbackAfter": {
+        "ready": true,
+        "providers": {
+          "github": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          },
+          "kubernetes": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          }
+        },
+        "iamBindingsPresent": "74/74",
+        "staticKeysCreated": false
+      },
+      "evidenceDigests": {
+        "planSha256": "a22408df093609c37b5c8bb12e6fedb9bd04dec0ff2aaa586fc766c67a96002f",
+        "readbackBeforeSha256": "8311b803ea1e13e2f8a8f98839b8ca3d888f4d63616c1bd79a17b45b6155d0d3",
+        "readbackAfterSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e"
+      }
     }
   ],
   "excluded": [
@@ -326,9 +385,7 @@
   "nextGate": {
     "code": "P3_APPROVAL_EVIDENCE_PENDING",
     "missing": [
-      "static:capacitor",
-      "static:ait-web",
-      "approval-signer"
+      "static:ait-web"
     ],
     "issues": [
       "seorilabs/.github#42"
@@ -337,17 +394,26 @@
   "buildOnlyRuns": {
     "lizard-tycoon": {
       "status": "SUCCEEDED",
-      "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33697733244",
-      "pullRequest": "seorilabs/lizard-tycoon#542",
-      "workflowExecutionSha": "2fee6630a8a2e79128cbf6055087bf9f9402810d",
-      "applicationSourceSha": "c7f8ae97e3ec3d82388fdba2034af695c8d91ff6",
-      "configRevision": 26,
-      "cloudBuildId": "544c0f9c-21b7-4a30-a1e3-d5a0f1e659e8",
-      "artifactSha256": "sha256:5458967249414eb13fd06ea74b0ef23c2590451962e7a72652943c9986e0c6a8",
-      "artifactBytes": 49290505,
+      "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33744365228",
+      "pullRequest": "seorilabs/lizard-tycoon#546",
+      "workflowExecutionSha": "42cd881944674b370453fe4e9924a1e8c92a2206",
+      "applicationSourceSha": "3e1d59b2e3342ee27f2be0c520a86278d675f8b8",
+      "configRevision": 29,
+      "cloudBuildId": "bf642ba7-0378-464f-80a0-2da6842494b7",
+      "artifactSha256": "sha256:515b436961e3dff9a26104ce3f4175575d9587d692ea784317fa47e72bb019f6",
+      "artifactBytes": 49291593,
       "provenance": "fleet-p3-build-godot-android-lizard-tycoon-2026-09-02.json",
       "marketUpload": false,
       "previousAttempts": [
+        {
+          "status": "SUCCEEDED",
+          "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33697733244",
+          "pullRequest": "seorilabs/lizard-tycoon#542",
+          "workflowExecutionSha": "2fee6630a8a2e79128cbf6055087bf9f9402810d",
+          "configRevision": 26,
+          "cloudBuildId": "544c0f9c-21b7-4a30-a1e3-d5a0f1e659e8",
+          "artifactSha256": "sha256:5458967249414eb13fd06ea74b0ef23c2590451962e7a72652943c9986e0c6a8"
+        },
         {
           "status": "SUCCEEDED",
           "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33650716595",
@@ -372,19 +438,26 @@
     },
     "happy-farm": {
       "status": "SUCCEEDED",
-      "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33697307788",
-      "pullRequest": "seorilabs/happy-farm#504",
-      "workflowExecutionSha": "2fee6630a8a2e79128cbf6055087bf9f9402810d",
+      "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33743874892",
+      "pullRequest": "seorilabs/happy-farm#505",
+      "workflowExecutionSha": "42cd881944674b370453fe4e9924a1e8c92a2206",
       "applicationSourceSha": "69d29018edf8e6b15943e9d517bd22a2caaaad15",
-      "configRevision": 18,
-      "cloudBuildId": "17fc3660-a439-4ead-81ce-16c24550fb50",
-      "cloudBuildTimeoutSeconds": 7200,
-      "elapsedMinutes": 33.9,
-      "artifactSha256": "sha256:947a4c4185f64f9190d37d52a78dd8b054651270fbbdbd007ceed6ee62313164",
-      "artifactBytes": 62271123,
+      "configRevision": 19,
+      "cloudBuildId": "99e375f8-d6ee-4375-9eab-e0da68f120f5",
+      "artifactSha256": "sha256:f794f5bae8ea8cd953e28e0b82b1fd42c600230c6c95182382b4e5b17a01c564",
+      "artifactBytes": 62271125,
       "provenance": "fleet-p3-build-react-native-android-happy-farm-2026-09-02.json",
       "marketUpload": false,
       "previousAttempts": [
+        {
+          "status": "SUCCEEDED",
+          "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33697307788",
+          "pullRequest": "seorilabs/happy-farm#504",
+          "workflowExecutionSha": "2fee6630a8a2e79128cbf6055087bf9f9402810d",
+          "configRevision": 18,
+          "cloudBuildId": "17fc3660-a439-4ead-81ce-16c24550fb50",
+          "artifactSha256": "sha256:947a4c4185f64f9190d37d52a78dd8b054651270fbbdbd007ceed6ee62313164"
+        },
         {
           "status": "TIMEOUT_PENDING_X5",
           "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33651252122",
@@ -412,15 +485,23 @@
     }
   },
   "staticEvidence": {
-    "static:godot": {
-      "file": "fleet-p3-static-godot-lizard-tycoon-2026-09-02.json",
-      "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33697733212",
-      "configRevision": 26
-    },
     "static:react-native": {
       "file": "fleet-p3-static-react-native-happy-farm-2026-09-02.json",
-      "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33697308054",
-      "configRevision": 18
+      "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33743874914",
+      "pullRequest": "seorilabs/happy-farm#505",
+      "configRevision": 19
+    },
+    "static:godot": {
+      "file": "fleet-p3-static-godot-lizard-tycoon-2026-09-02.json",
+      "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33744365182",
+      "pullRequest": "seorilabs/lizard-tycoon#546",
+      "configRevision": 29
+    },
+    "static:capacitor": {
+      "file": "fleet-p3-static-capacitor-saju-reader-2026-09-02.json",
+      "runUrl": "https://github.com/seorilabs/saju-reader/actions/runs/33744451213",
+      "pullRequest": "seorilabs/saju-reader#90",
+      "configRevision": 25
     }
   },
   "previousInstallerGrants": [
@@ -437,5 +518,22 @@
       "title": "p3-installer-20260902b",
       "note": "granted after its own expiry; never effective"
     }
-  ]
+  ],
+  "approvalPlan": {
+    "tool": "scripts/fleet/workflow-bundle-approval.mjs",
+    "mode": "plan",
+    "state": "READY",
+    "candidateSourceSha": "42cd881944674b370453fe4e9924a1e8c92a2206",
+    "identities": [
+      "build:godot-android",
+      "build:react-native-android",
+      "static:capacitor",
+      "static:godot",
+      "static:react-native"
+    ],
+    "missing": [
+      "static:ait-web"
+    ],
+    "note": "ait-web 프로필 저장소 두 곳이 모두 폐기 상태라 사용자 지시로 보류. APPROVED 승격은 하지 않는다."
+  }
 }
