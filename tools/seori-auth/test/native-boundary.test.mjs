@@ -199,6 +199,12 @@ test('native Secret Manager writer exposes only a strict public result and verif
     childPath,
     childSha256,
   });
+  const concurrentWriter = await boundary.secretManagerWriter({
+    executablePath,
+    executableSha256,
+    childPath,
+    childSha256,
+  });
 
   const material = Buffer.from(`FAKE_WRITER_CANARY_${randomBytes(24).toString('hex')}`);
   const representations = [
@@ -241,7 +247,7 @@ test('native Secret Manager writer exposes only a strict public result and verif
     material: firstMaterial,
   });
   await assert.rejects(
-    writer.writeVersion({
+    concurrentWriter.writeVersion({
       resourceName: 'projects/seori-auth-canary/secrets/fake-concurrent-writer',
       expectedVersion: 1,
       material: duplicateMaterial,

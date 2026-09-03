@@ -20,6 +20,7 @@ const SECRET_MANAGER_SECRET = /^projects\/[A-Za-z0-9._:-]+\/secrets\/[A-Za-z0-9_
 const SECRET_MANAGER_NODE = '/usr/local/bin/node';
 const SECRET_MANAGER_CHILD = '/opt/seori-auth/runtime/secret-manager-child.mjs';
 const SECRET_MANAGER_CONFIG = '/etc/seori-auth/secret-access.json';
+const ACTIVE_SECRET_MANAGER_RESOURCES = new Set();
 
 async function validateTrustedAncestors(path, trustedOwners, label) {
   let current = dirname(path);
@@ -286,7 +287,6 @@ export class NativeSecurityBoundary {
     ]);
     const helperPath = this.#helperPath;
     const helperOwnerUid = this.#helperOwnerUid;
-    const activeResources = new Set();
     const identity = Object.freeze({
       mode: 'native-secret-manager-writer-v1',
       executablePath,
@@ -316,10 +316,10 @@ export class NativeSecurityBoundary {
             fail('secret_write_failed', 'Secret Manager expected version is invalid');
           }
           const expectedDataCrc32c = crc32c(ownedMaterial);
-          if (activeResources.has(resourceName)) {
+          if (ACTIVE_SECRET_MANAGER_RESOURCES.has(resourceName)) {
             fail('secret_write_failed', 'duplicate concurrent Secret Manager write is forbidden');
           }
-          activeResources.add(resourceName);
+          ACTIVE_SECRET_MANAGER_RESOURCES.add(resourceName);
           resourceLocked = true;
           executableImage = await openTrustedImageFile(
             executablePath,
@@ -423,7 +423,7 @@ export class NativeSecurityBoundary {
             executableImage?.close().catch(() => {}),
             childImage?.close().catch(() => {}),
           ]);
-          if (resourceLocked) activeResources.delete(resourceName);
+          if (resourceLocked) ACTIVE_SECRET_MANAGER_RESOURCES.delete(resourceName);
           for (const chunk of resultChunks) chunk.fill(0);
           if (Buffer.isBuffer(ownedMaterial)) ownedMaterial.fill(0);
         }
