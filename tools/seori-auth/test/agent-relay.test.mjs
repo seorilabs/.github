@@ -268,7 +268,19 @@ test('agent relay rejects credential key variants and permits fixed pagination m
       (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_secret_field_rejected',
     );
   }
-  for (const key of ['jwt', 'j_w_t', 'clientCert', 'client-cert', 'privatePem', 'private_pem']) {
+  for (const key of [
+    'jwt',
+    'j_w_t',
+    'clientCert',
+    'client-cert',
+    'privatePem',
+    'private_pem',
+    'passphrase',
+    'pass_phrase',
+    'passcode',
+    'pin',
+    'seedPhrase',
+  ]) {
     assert.throws(
       () => assertAgentRelayPublicJson({ [key]: 'fake-secret-canary' }),
       (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_secret_field_rejected',
@@ -344,6 +356,21 @@ test('mTLS forwarder rejects writable trust and client certificate files', async
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('mTLS forwarder rejects port zero before reading TLS material', async () => {
+  await assert.rejects(
+    createAgentMtlsForwarder({
+      origin: 'https://127.0.0.1:0',
+      serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+      tls: {
+        caPath: '/not-read/ca.pem',
+        certificatePath: '/not-read/tls.crt',
+        privateKeyPath: '/not-read/tls.key',
+      },
+    }),
+    (error) => error instanceof SeoriAuthError && error.code === 'invalid_agent_relay_upstream',
+  );
 });
 
 test('mTLS forwarder fixes the upstream origin and rejects credential-shaped responses', async () => {

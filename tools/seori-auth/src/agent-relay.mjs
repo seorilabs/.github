@@ -29,15 +29,27 @@ const FORBIDDEN_KEY_PARTS = Object.freeze([
   'totp',
 ]);
 const FORBIDDEN_KEY_ALIASES = new Set([
+  'accesskey',
   'clientcert',
   'jwt',
   'keypem',
+  'mnemonic',
   'mtlscert',
   'mtlskey',
+  'onetimepassword',
+  'otp',
+  'passcode',
+  'passphrase',
   'pem',
   'pfx',
+  'pin',
+  'pincode',
   'pkcs8',
   'privatepem',
+  'recoveryphrase',
+  'secretkey',
+  'seedphrase',
+  'sessionkey',
   'signingpem',
   'tlscert',
   'tlskey',
@@ -107,7 +119,10 @@ function normalizeHttpsOrigin(value) {
     origin.protocol !== 'https:' || origin.username !== '' || origin.password !== '' ||
     origin.pathname !== '/' || origin.search !== '' || origin.hash !== ''
   ) fail('invalid_agent_relay_upstream', 'agent relay upstream must be an exact HTTPS origin');
-  if (origin.port !== '' && (!/^\d{1,5}$/.test(origin.port) || Number(origin.port) > 65_535)) {
+  if (
+    origin.port !== '' &&
+    (!/^\d{1,5}$/.test(origin.port) || Number(origin.port) < 1 || Number(origin.port) > 65_535)
+  ) {
     fail('invalid_agent_relay_upstream', 'agent relay upstream port is invalid');
   }
   const hostname = origin.hostname.startsWith('[') && origin.hostname.endsWith(']')

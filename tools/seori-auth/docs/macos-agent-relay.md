@@ -19,6 +19,10 @@ kubeconfig를 worker 사용자에게 주지 않습니다.
   신뢰하지 않습니다.
 - relay가 허용하는 목적지는 root config의 exact HTTPS origin과 `/v1/execute` 하나이며,
   TLS 1.3과 exact server name을 강제합니다. redirect와 임의 host/path는 없습니다.
+- 이 upstream은 `seorilabs-backoffice` 이미지의
+  `scripts-dist/seori-auth-agent-runtime.cjs`를 실행하는 동명 Kubernetes Deployment입니다.
+  이 패키지의 `runtime/entrypoint.mjs`가 만드는 `LocalAuthDaemon`과는 다른 프로세스이며,
+  Backoffice runtime이 `/v1/execute`를 agent queue와 GitHub adapter 경로로 분기합니다.
 - local 요청·upstream 응답에서 password, TOTP, cookie, API key, bearer, certificate,
   private key, lease/grant/action token 형태의 필드를 거부합니다. `sessionId`만 공개 실행
   핸들로 사용할 수 있습니다.
