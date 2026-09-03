@@ -8,6 +8,7 @@ import {
   copyFile,
   mkdtemp,
   readFile,
+  realpath,
   rename,
   rm,
   writeFile,
@@ -42,7 +43,8 @@ if (process.getuid?.() !== 0) {
   throw new Error('root-owned writer verification must run as root');
 }
 
-const root = await mkdtemp(join(userInfo().homedir, 'seori-auth-root-writer-'));
+const rootParent = await realpath(userInfo().homedir);
+const root = await mkdtemp(join(rootParent, 'seori-auth-root-writer-'));
 const helperPath = join(root, 'seori-auth-native');
 const executablePath = join(root, 'node');
 const childPath = join(root, 'writer.mjs');
@@ -52,6 +54,12 @@ try {
     copyFile(sourceHelper, helperPath),
     copyFile(process.execPath, executablePath),
     copyFile(sourceWriter, childPath),
+  ]);
+  await Promise.all([
+    chown(root, 0, 0),
+    chown(helperPath, 0, 0),
+    chown(executablePath, 0, 0),
+    chown(childPath, 0, 0),
   ]);
   await Promise.all([
     chmod(root, 0o700),
