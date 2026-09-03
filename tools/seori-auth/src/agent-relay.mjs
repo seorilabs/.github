@@ -28,13 +28,28 @@ const FORBIDDEN_KEY_PARTS = Object.freeze([
   'token',
   'totp',
 ]);
+const FORBIDDEN_KEY_ALIASES = new Set([
+  'clientcert',
+  'jwt',
+  'keypem',
+  'mtlscert',
+  'mtlskey',
+  'pem',
+  'pfx',
+  'pkcs8',
+  'privatepem',
+  'signingpem',
+  'tlscert',
+  'tlskey',
+]);
 function normalizeJsonKey(value) {
   return value.replace(/[^a-z0-9]/giu, '').toLowerCase();
 }
 
 function isCredentialJsonKey(value) {
   const normalized = normalizeJsonKey(value);
-  return FORBIDDEN_KEY_PARTS.some((part) => normalized.includes(part));
+  return FORBIDDEN_KEY_ALIASES.has(normalized) ||
+    FORBIDDEN_KEY_PARTS.some((part) => normalized.includes(part));
 }
 
 function isValidPublicTokenMetadata(key, value) {

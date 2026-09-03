@@ -268,6 +268,13 @@ test('agent relay rejects credential key variants and permits fixed pagination m
       (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_secret_field_rejected',
     );
   }
+  for (const key of ['jwt', 'j_w_t', 'clientCert', 'client-cert', 'privatePem', 'private_pem']) {
+    assert.throws(
+      () => assertAgentRelayPublicJson({ [key]: 'fake-secret-canary' }),
+      (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_secret_field_rejected',
+      key,
+    );
+  }
 });
 
 test('agent relay refuses a private socket directory below a writable ancestor', async () => {
@@ -453,6 +460,27 @@ test('agent relay lifecycle serializes a startup signal before STOPPED and never
   await lifecycle;
   assert.deepEqual(events, ['STARTING', 'STARTED', 'STOPPED_DAEMON', 'STOPPED']);
   assert.deepEqual(exitCodes, [0]);
+});
+
+test('agent relay lifecycle closes the daemon when READY publication fails', async () => {
+  let stopCount = 0;
+  await assert.rejects(
+    runAgentRelayLifecycle({
+      daemon: {
+        async start() {},
+        async stop() { stopCount += 1; },
+      },
+      workerKind: 'CLAUDE',
+      async writeRecord(record) {
+        assert.equal(record.state, 'READY');
+        throw new Error('fake stdout failure');
+      },
+      subscribeSignal() {},
+      setExitCode: () => assert.fail('startup publication failure is handled by the entrypoint catch'),
+    }),
+    /fake stdout failure/,
+  );
+  assert.equal(stopCount, 1);
 });
 
 test('mTLS forwarder converts upstream response stream errors into a stable rejection', async () => {

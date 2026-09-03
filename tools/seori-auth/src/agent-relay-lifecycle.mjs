@@ -8,13 +8,19 @@ export async function runAgentRelayLifecycle({
   const startPromise = daemon.start();
   let stopping = false;
   let stopPromise = null;
+  let daemonStopPromise = null;
+
+  const closeDaemon = () => {
+    daemonStopPromise ??= daemon.stop();
+    return daemonStopPromise;
+  };
 
   const stop = (signal) => {
     if (stopPromise) return stopPromise;
     stopping = true;
     stopPromise = (async () => {
       await startPromise;
-      await daemon.stop();
+      await closeDaemon();
       await writeRecord({ state: 'STOPPED', signal, workerKind });
     })();
     void stopPromise.then(() => setExitCode(0), () => setExitCode(1));
@@ -29,5 +35,11 @@ export async function runAgentRelayLifecycle({
     await stopPromise;
     return;
   }
-  await writeRecord({ state: 'READY', transport: 'unix', workerKind });
+  try {
+    await writeRecord({ state: 'READY', transport: 'unix', workerKind });
+  } catch (error) {
+    stopping = true;
+    await closeDaemon();
+    throw error;
+  }
 }
