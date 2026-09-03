@@ -42,6 +42,48 @@ const canonicalJson = (value) => JSON.stringify(canonicalize(value));
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const evidenceIdentity = (record) => `${record.target}:${record.profile ?? record.buildProfile ?? ""}`;
 
+// 증거는 계약 스키마가 정의한 필드만 담는다. build provenance는 release 경로 필드를 더
+// 싣고 오는데, 승인 증거 스키마는 additionalProperties를 막으므로 그대로 넣으면 거부된다.
+// 필드 목록을 스키마에서 읽어 도구와 계약이 갈라지지 않게 한다.
+export function evidenceFieldSets(repoRoot) {
+  let schema;
+  try {
+    schema = JSON.parse(
+      readFileSync(resolve(repoRoot, "contracts/workflow-bundle-v5.schema.json"), "utf8"),
+    );
+  } catch {
+    stop("WORKFLOW_BUNDLE_APPROVAL_EVIDENCE_SCHEMA_UNREADABLE");
+  }
+  const definitions = schema?.$defs ?? {};
+  const required = (node) => {
+    if (node === null || typeof node !== "object") return [];
+    const collected = Array.isArray(node.required) ? [...node.required] : [];
+    for (const key of ["allOf", "oneOf", "anyOf"]) {
+      for (const child of node[key] ?? []) collected.push(...required(child));
+    }
+    if (typeof node.$ref === "string") {
+      collected.push(...required(definitions[node.$ref.split("/").at(-1)] ?? {}));
+    }
+    return collected;
+  };
+  const fields = {
+    static: new Set(required(definitions.staticEvidence)),
+    build: new Set(required(definitions.buildEvidence)),
+  };
+  if (fields.static.size === 0 || fields.build.size === 0) {
+    stop("WORKFLOW_BUNDLE_APPROVAL_EVIDENCE_SCHEMA_UNREADABLE");
+  }
+  return fields;
+}
+
+export function projectEvidence(record, fields) {
+  const allowed = fields[record?.target];
+  if (allowed === undefined) stop("WORKFLOW_BUNDLE_APPROVAL_EVIDENCE_TARGET_INVALID");
+  const missing = [...allowed].filter((field) => record[field] === undefined);
+  if (missing.length > 0) stop("WORKFLOW_BUNDLE_APPROVAL_EVIDENCE_FIELD_MISSING");
+  return Object.fromEntries([...allowed].sort().map((field) => [field, record[field]]));
+}
+
 function readJsonFile(path) {
   const resolved = resolve(path);
   const state = statSync(resolved, { throwIfNoEntry: false });
@@ -156,17 +198,19 @@ async function controlPlane(method, path, body) {
   return { status: response.status, body: text.length > 0 ? JSON.parse(text) : null };
 }
 
-function loadInputs({ candidate, evidence }) {
+function loadInputs({ candidate, evidence, repoRoot = TOOL_ROOT }) {
   if (!candidate || !evidence) stop("WORKFLOW_BUNDLE_APPROVAL_ARGUMENT_INVALID");
   const bundle = readJsonFile(candidate);
-  const records = evidence.split(",").filter(Boolean).map((path) => readJsonFile(path));
-  const identities = records.map(evidenceIdentity).sort();
+  const raw = evidence.split(",").filter(Boolean).map((path) => readJsonFile(path));
+  const identities = raw.map(evidenceIdentity).sort();
   if (new Set(identities).size !== identities.length) stop("WORKFLOW_BUNDLE_APPROVAL_EVIDENCE_DUPLICATE");
+  const fields = evidenceFieldSets(repoRoot);
+  const records = raw.map((record) => projectEvidence(record, fields));
   return { bundle, records, identities };
 }
 
-export async function planWorkflowBundleApproval({ candidate, evidence }) {
-  const { bundle, records, identities } = loadInputs({ candidate, evidence });
+export async function planWorkflowBundleApproval({ candidate, evidence, repoRoot }) {
+  const { bundle, records, identities } = loadInputs({ candidate, evidence, repoRoot });
   const checked = records.map((record) => {
     const readback = trustedEvidenceVerifier(record);
     const mismatched = Object.keys(record).filter((field) => readback[field] !== record[field]);
@@ -190,8 +234,8 @@ export async function planWorkflowBundleApproval({ candidate, evidence }) {
 
 export async function signWorkflowBundleApproval({ candidate, evidence, repoRoot, out }) {
   if (process.env.SEORI_AUTH_NATIVE_LAUNCHED !== "1") stop("WORKFLOW_BUNDLE_APPROVAL_NATIVE_LAUNCH_REQUIRED");
-  const { bundle, records } = loadInputs({ candidate, evidence });
   const root = resolve(repoRoot ?? TOOL_ROOT);
+  const { bundle, records } = loadInputs({ candidate, evidence, repoRoot: root });
   // 번들이 선언한 runtime asset은 그 SHA의 작업본에서만 그대로 읽힌다.
   const head = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   if (head !== bundle.source?.sha) stop("WORKFLOW_BUNDLE_APPROVAL_REPO_ROOT_MISMATCH");
