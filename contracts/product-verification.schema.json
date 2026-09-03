@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.com/contracts/product-verification.schema.json",
+  "title": "Seorilabs product verification contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "rollout",
+    "requiredCheck",
+    "profiles",
+    "releaseQa"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "const": "product-verification-v1" },
+    "rollout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "repositories"],
+      "properties": {
+        "mode": { "enum": ["EVALUATE", "ACTIVE"] },
+        "repositories": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["repositoryId", "fullName", "profile"],
+            "properties": {
+              "repositoryId": { "type": "integer", "minimum": 1 },
+              "fullName": { "type": "string", "pattern": "^seorilabs/[a-z0-9._-]+$" },
+              "profile": { "const": "godot" }
+            }
+          }
+        }
+      }
+    },
+    "requiredCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context", "events", "skipAllowed"],
+      "properties": {
+        "context": { "const": "Product Verification / Product Verification" },
+        "events": {
+          "const": ["pull_request", "push-main", "merge-group"]
+        },
+        "skipAllowed": { "const": false }
+      }
+    },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["godot"],
+      "properties": {
+        "godot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "workflow",
+            "baseWorkflow",
+            "baseWorkflowSha",
+            "runner",
+            "godotVersion",
+            "requiredScripts",
+            "diagnostics"
+          ],
+          "properties": {
+            "workflow": { "const": ".github/workflows/godot-product-verification-v1.yml" },
+            "baseWorkflow": { "const": ".github/workflows/godot-checks.yml" },
+            "baseWorkflowSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "runner": { "const": "seorilabs-rpi-arm64" },
+            "godotVersion": { "const": "4.7.2" },
+            "requiredScripts": {
+              "const": ["test:feature", "test:regression", "test:ui-contract"]
+            },
+            "diagnostics": {
+              "const": {
+                "importBeforeTests": true,
+                "failOnLogMarkers": ["SCRIPT ERROR", "ERROR:"],
+                "commandTimeoutRequired": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "releaseQa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pullRequestRequired", "requiredFor"],
+      "properties": {
+        "pullRequestRequired": { "const": false },
+        "requiredFor": { "const": "release-candidate" }
+      }
+    }
+  }
+}
