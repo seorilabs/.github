@@ -269,6 +269,27 @@ static void require_empty_privileged_payload(void) {
   if (count != 0) fail_closed();
 }
 
+static void ignore_parent_broken_pipe(void) {
+  struct sigaction action;
+  memset(&action, 0, sizeof(action));
+  action.sa_handler = SIG_IGN;
+  if (sigemptyset(&action.sa_mask) != 0 || sigaction(SIGPIPE, &action, NULL) != 0) {
+    fail_closed();
+  }
+}
+
+static int write_privileged_input(int output, const unsigned char *buffer, size_t count) {
+  size_t offset = 0;
+  while (offset < count) {
+    ssize_t written = write(output, buffer + offset, count - offset);
+    if (written < 0 && errno == EINTR) continue;
+    if (written < 0 && errno == EPIPE) return 0;
+    if (written <= 0) fail_closed();
+    offset += (size_t)written;
+  }
+  return 1;
+}
+
 static int relay(int argc, char **argv) {
   if (argc != 6 || (strcmp(argv[4], "0") != 0 && strcmp(argv[4], "1") != 0) ||
       !command_allowed(argv[2], argv[5])) fail_closed();
@@ -314,9 +335,14 @@ static int relay(int argc, char **argv) {
     _exit(126);
   }
   (void)close(input_pipe[0]);
-  if (privileged &&
-      (write(input_pipe[1], password, (size_t)password_count) != password_count ||
-       write(input_pipe[1], "\n", 1) != 1)) fail_closed();
+  ignore_parent_broken_pipe();
+  if (privileged) {
+    int input_open = write_privileged_input(
+      input_pipe[1], password, (size_t)password_count);
+    if (input_open) {
+      (void)write_privileged_input(input_pipe[1], (const unsigned char *)"\n", 1);
+    }
+  }
   memset(password, 0, sizeof(password));
   if (privileged) require_empty_privileged_payload();
   else copy_payload(input_pipe[1]);
