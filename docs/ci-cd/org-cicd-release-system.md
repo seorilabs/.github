@@ -214,6 +214,12 @@ flowchart LR
 
 기본: `lint`, `typecheck`, `test`(core/adapters), `style`(format check).
 
+Godot 제품 저장소의 기능·회귀·실제 입력 연결은 별도
+[`product-verification-v1`](product-verification.md) 계약으로 검증한다. caller가 명령을 주입하지 않고
+중앙 workflow가 `test:feature`, `test:regression`, `test:ui-contract`를 고정 실행한다. 현재는
+`lizard-tycoon` 한 곳만 EVALUATE 대상이며, main 반영과 대표 PR 검증 전에는 required check를
+ACTIVE로 전환하지 않는다.
+
 추가로 도입 권장(정적·경량, ARC에서 무료):
 - **format gate**: prettier/eslint `--max-warnings=0` 또는 `format:check`.
 - **i18n coverage**: happy-farm `check:i18n` 류(번역 키 누락 검출).

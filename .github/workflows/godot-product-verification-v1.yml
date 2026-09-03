@@ -1,0 +1,43 @@
+# Godot 제품 기능·회귀·UI 연결 계약. caller는 명령이나 경로를 주입할 수 없다.
+# 첫 EVALUATE 대상은 contracts/product-verification.yaml의 명시적 저장소만이다.
+name: Godot Product Verification v1
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    name: Product contract suite
+    uses: seorilabs/.github/.github/workflows/godot-checks.yml@8a11a145fed35479a4a89ebc7ca97edd0a0f05fd
+    with:
+      runs_on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+      godot_version: "4.7.2"
+      godot_status: stable
+      project_dir: .
+      timeout_minutes: 30
+      check_command: |
+        npm run test:feature
+        npm run test:regression
+        npm run test:ui-contract
+
+  result:
+    name: Product Verification
+    needs: suite
+    if: ${{ always() }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    timeout-minutes: 3
+    steps:
+      - name: Require the complete product contract suite
+        shell: bash
+        env:
+          SUITE_RESULT: ${{ needs.suite.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$SUITE_RESULT" != "success" ]]; then
+            echo "Product contract suite result: $SUITE_RESULT" >&2
+            exit 1
+          fi
+          echo "Feature, regression, and UI contract suites passed." >> "$GITHUB_STEP_SUMMARY"

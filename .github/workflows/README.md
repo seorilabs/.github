@@ -2,7 +2,7 @@
 
 이 디렉터리는 org 전 repo가 공유하는 **재사용 워크플로우(`workflow_call`)** 다. 로직은 여기 한 곳에만 두고, 각 repo는 얇은 caller(`.github/workflows/*.yml`)로 호출한다.
 
-신규 caller의 규범 정본은 [`contracts/release-policy.yaml`](../../contracts/release-policy.yaml)이며 테스트·리뷰 계약은 각각 [`contracts/test-policy.yaml`](../../contracts/test-policy.yaml), [`contracts/review-policy.yaml`](../../contracts/review-policy.yaml)을 따른다. 기존 [`org-cicd-release-system.md`](../../docs/ci-cd/org-cicd-release-system.md)는 현행 워크플로우를 이관하기 위한 legacy 참고 문서다.
+신규 caller의 규범 정본은 [`contracts/release-policy.yaml`](../../contracts/release-policy.yaml)이며 테스트·리뷰 계약은 각각 [`contracts/test-policy.yaml`](../../contracts/test-policy.yaml), [`contracts/product-verification.yaml`](../../contracts/product-verification.yaml), [`contracts/review-policy.yaml`](../../contracts/review-policy.yaml)을 따른다. 기존 [`org-cicd-release-system.md`](../../docs/ci-cd/org-cicd-release-system.md)는 현행 워크플로우를 이관하기 위한 legacy 참고 문서다.
 
 `.github` repo가 **public**이라 private repo에서도 참조 가능하다.
 
@@ -26,6 +26,7 @@
 | `rn-static-checks-v2.yml` | Fleet RN 고정 품질 게이트와 provenance | private ARC, public ubuntu |
 | `godot-checks-v2.yml` | Fleet Godot 고정 품질·import 게이트와 provenance | private ARC, public ubuntu |
 | `godot-checks-v3.yml` | v5 OIDC runtime binding에 결합된 Godot import·진단 게이트와 target evidence | private ARC, public ubuntu |
+| `godot-product-verification-v1.yml` | 고정된 기능·회귀·UI 계약을 실행하는 Godot EVALUATE gate | private ARC, public ubuntu |
 | `workflow-bundle-candidate.yml` | 불변 WorkflowBundle candidate 생성·검증 | private ARC, public ubuntu |
 | `workflow-bundle-v5-candidate.yml` | v5 split binding 계약과 Saju/Trait/Godot fixture candidate 생성·검증 | private ARC, public ubuntu |
 | `js-static-checks-v1.yml` | OIDC runtime manifest에 결합된 RN·Capacitor·AIT web canonical static gate와 target evidence | private ARC, public ubuntu |

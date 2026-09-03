@@ -1,0 +1,41 @@
+schemaVersion: 1
+id: product-verification-v1
+
+rollout:
+  mode: EVALUATE
+  repositories:
+    - repositoryId: 1265192029
+      fullName: seorilabs/lizard-tycoon
+      profile: godot
+
+requiredCheck:
+  context: Product Verification / Product Verification
+  events:
+    - pull_request
+    - push-main
+    - merge-group
+  skipAllowed: false
+
+profiles:
+  godot:
+    workflow: .github/workflows/godot-product-verification-v1.yml
+    baseWorkflow: .github/workflows/godot-checks.yml
+    baseWorkflowSha: 8a11a145fed35479a4a89ebc7ca97edd0a0f05fd
+    runner: seorilabs-rpi-arm64
+    godotVersion: 4.7.2
+    requiredScripts:
+      - test:feature
+      - test:regression
+      - test:ui-contract
+    diagnostics:
+      importBeforeTests: true
+      failOnLogMarkers:
+        - SCRIPT ERROR
+        - "ERROR:"
+      commandTimeoutRequired: true
+
+# PR에서는 빠른 결정적 계약을 강제하고, 서명·실기기·마켓 빌드는 release 후보의
+# 별도 승인 gate로 유지한다. 정적 검증 성공을 device QA나 공개 배포로 해석하지 않는다.
+releaseQa:
+  pullRequestRequired: false
+  requiredFor: release-candidate
