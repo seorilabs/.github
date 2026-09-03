@@ -50,6 +50,14 @@ daemon, MAC-chain durable state, native OS 경계, encrypted Browser Vault를 �
   `bindingHash` 전체에 고정됩니다.
 - trusted adapter는 secret을 argv, 환경변수, stdin으로 받지 않고 전용 file
   descriptor 3으로만 받습니다.
+- `NativeSecurityBoundary.secretManagerWriter`는 런타임 UID가 바꿀 수 없는 root-owned
+  경로와 상위 디렉터리에 설치되고 SHA-256으로 고정된 native helper, executable, child만
+  실행합니다. Linux는 검증한 helper/executable descriptor를 직접 실행하고, child는 두 OS
+  모두 검증 descriptor를 Node module stdin으로 실행합니다. secret material은 fd3으로
+  한 번 전달하고 실행 종료 전에 zeroize하며, fd5에서 resource, numeric version, CRC32C,
+  backup/restore 여부만 포함한 strict public result를 받습니다. 같은 resource의 동시
+  write와 임의 argv·환경변수·stdout/stderr 결과 사용을 거부하고, 반환된 CRC32C를
+  전달 전 material에서 계산한 값과 대조합니다.
 - child stdout/stderr는 exact-match redaction에 의존하지 않고 broker 경계에서 전부
   폐기합니다. 출력 byte 상한과 exit status만 사용합니다.
 - `authenticatePrincipal(socket, metadata)`가 증명한 subject/run/repository/worker와 HTTP claim이
@@ -355,6 +363,13 @@ factor 서비스는 resource name을 선택하지 못하고 logical credential I
 요청합니다. 시작 시 factor binding과 workload의 credential binding이 정확히 같은 partition인지
 검증하고, 렌더된 public GSA/WIF audience/config digest와 실제 `secret-access.json`이 다르면
 readiness를 만들기 전에 중단합니다.
+
+`fixtures/secret-manager-writer-fake-sink.mjs`는 실제 Secret Manager나 credential을 사용하지
+않습니다. 임의 fake material을 fd3으로 받아 process memory에서 backup, wipe, restore한 뒤
+CRC32C와 성공 여부만 fd5로 반환합니다. fixture가 의도적으로 stdout/stderr에 material을
+써도 native writer 경계가 두 채널을 폐기하고, argv·환경·공개 결과에 raw/base64/hex 표현이
+없음을 테스트합니다. 이 fixture는 비노출 회귀 테스트이며 실제 credential backup/restore
+승인이나 Secret Manager provisioning gate를 완료한 것으로 간주하지 않습니다.
 
 ## 감사 이벤트
 

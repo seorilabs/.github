@@ -19,6 +19,10 @@ const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const helper = join(packageRoot, '.build', 'seori-auth-native');
 const fixture = fileURLToPath(new URL('../fixtures/echo-secret-child.mjs', import.meta.url));
 
+async function sha256(path) {
+  return createHash('sha256').update(await readFile(path)).digest('hex');
+}
+
 function principal() {
   return {
     subject: 'k8s:release-workers:worker-a',
@@ -152,4 +156,28 @@ test('trusted adapter runs behind native non-dumpable launcher without secret ar
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('native Secret Manager writer rejects a service-owned helper before accepting material', async () => {
+  const [helperSha256, executableSha256, childSha256] = await Promise.all([
+    sha256(helper),
+    sha256(process.execPath),
+    sha256(fixture),
+  ]);
+  const boundary = await NativeSecurityBoundary.open({
+    helperPath: helper,
+    expectedSha256: helperSha256,
+    resolvePrincipal: async () => principal(),
+  });
+  await assert.rejects(
+    boundary.secretManagerWriter({
+      executablePath: process.execPath,
+      executableSha256,
+      childPath: fixture,
+      childSha256,
+    }),
+    (error) => error instanceof SeoriAuthError &&
+      error.code === 'invalid_native_helper' &&
+      error.message === 'Secret Manager writer requires an SHA-256 pinned root-owned native helper',
+  );
 });

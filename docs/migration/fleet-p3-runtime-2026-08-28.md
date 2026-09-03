@@ -311,6 +311,11 @@ provider와 네 secret/version을 먼저 읽고 drift나 cross-role accessor가 
 0건으로 중단한다. rollback은 두 provider만 preflight하고, secret이 사라진 비상 상황에도
 pre-existing 여부를 알 수 없는 IAM을 제거하지 않은 채 Kubernetes provider를 disable한다.
 
+`tools/seori-auth`에는 SHA-256 고정 child를 native non-dumpable launcher 뒤에서 실행하고 fd3
+material을 소비·zeroize하며 fd5 strict public result와 전달 전 CRC32C를 대조하는 writer 경계를 추가했다. fake sink의
+메모리 내 backup/wipe/restore와 stdout/stderr·argv·환경 비노출은 자동 테스트로 검증하지만,
+실제 Secret Manager adapter 실행과 local/BeeStation backup/restore 승인은 계속 사람 gate다.
+
 ```bash
 node scripts/fleet/bootstrap-p3-secret-manager.mjs
 node scripts/fleet/bootstrap-p3-secret-manager.mjs apply '<plan이 반환한 confirmation>'
