@@ -1,5 +1,5 @@
 import { createServer, request as httpRequest } from 'node:http';
-import { request as httpsRequest } from 'node:https';
+import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
 import { constants as fsConstants } from 'node:fs';
 import { chmod, chown, lstat, open, realpath, unlink } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
@@ -28,16 +28,24 @@ const FORBIDDEN_KEY_PARTS = Object.freeze([
   'token',
   'totp',
 ]);
-const PUBLIC_TOKEN_METADATA_KEYS = new Set(['nextpagetokenpresent', 'tokenpagination']);
-
 function normalizeJsonKey(value) {
   return value.replace(/[^a-z0-9]/giu, '').toLowerCase();
 }
 
 function isCredentialJsonKey(value) {
   const normalized = normalizeJsonKey(value);
-  return !PUBLIC_TOKEN_METADATA_KEYS.has(normalized) &&
-    FORBIDDEN_KEY_PARTS.some((part) => normalized.includes(part));
+  return FORBIDDEN_KEY_PARTS.some((part) => normalized.includes(part));
+}
+
+function isValidPublicTokenMetadata(key, value) {
+  const normalized = normalizeJsonKey(key);
+  if (normalized === 'nextpagetokenpresent') return typeof value === 'boolean';
+  if (normalized !== 'tokenpagination' || !value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const entries = Object.entries(value);
+  return entries.length === 1 && normalizeJsonKey(entries[0][0]) === 'nextpagetokenpresent' &&
+    typeof entries[0][1] === 'boolean';
 }
 
 export function assertAgentRelayPublicJson(value) {
@@ -54,7 +62,9 @@ export function assertAgentRelayPublicJson(value) {
     }
     for (const [key, entry] of Object.entries(current)) {
       if (isCredentialJsonKey(key)) {
-        fail('agent_relay_secret_field_rejected', 'agent relay payload contains a forbidden credential field');
+        if (!isValidPublicTokenMetadata(key, entry)) {
+          fail('agent_relay_secret_field_rejected', 'agent relay payload contains a forbidden credential field');
+        }
       }
       stack.push(entry);
     }
@@ -85,7 +95,10 @@ function normalizeHttpsOrigin(value) {
   if (origin.port !== '' && (!/^\d{1,5}$/.test(origin.port) || Number(origin.port) > 65_535)) {
     fail('invalid_agent_relay_upstream', 'agent relay upstream port is invalid');
   }
-  return Object.freeze({ hostname: origin.hostname, port: origin.port ? Number(origin.port) : 443 });
+  const hostname = origin.hostname.startsWith('[') && origin.hostname.endsWith(']')
+    ? origin.hostname.slice(1, -1)
+    : origin.hostname;
+  return Object.freeze({ hostname, port: origin.port ? Number(origin.port) : 443 });
 }
 
 async function readTlsFile(path, { privateMaterial = false } = {}) {
@@ -321,6 +334,7 @@ export async function createAgentMtlsForwarder({
     loaded.forEach((entry) => entry.fill(0));
     throw error;
   }
+  const agent = new HttpsAgent({ keepAlive: false, maxSockets: MAX_IN_FLIGHT });
   let closed = false;
 
   return Object.freeze({
@@ -343,6 +357,7 @@ export async function createAgentMtlsForwarder({
             ca,
             cert: certificate,
             key: privateKey,
+            agent,
             minVersion: 'TLSv1.3',
             maxVersion: 'TLSv1.3',
             headers: {
@@ -420,6 +435,7 @@ export async function createAgentMtlsForwarder({
     close() {
       if (closed) return;
       closed = true;
+      agent.destroy();
       ca.fill(0);
       certificate.fill(0);
       privateKey.fill(0);

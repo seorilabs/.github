@@ -254,6 +254,19 @@ test('agent relay rejects credential key variants and permits fixed pagination m
   assert.deepEqual(assertAgentRelayPublicJson({ tokenPagination: { nextPageTokenPresent: true } }), {
     tokenPagination: { nextPageTokenPresent: true },
   });
+  assert.deepEqual(assertAgentRelayPublicJson({ nextPageTokenPresent: false }), {
+    nextPageTokenPresent: false,
+  });
+  for (const payload of [
+    { nextPageTokenPresent: 'actual-token' },
+    { tokenPagination: 'actual-token' },
+    { tokenPagination: { nextPageTokenPresent: true, token: 'actual-token' } },
+  ]) {
+    assert.throws(
+      () => assertAgentRelayPublicJson(payload),
+      (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_secret_field_rejected',
+    );
+  }
 });
 
 test('agent relay refuses a private socket directory below a writable ancestor', async () => {
@@ -348,13 +361,17 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
     assert.equal(capture.options.path, '/v1/execute');
     assert.equal(capture.options.minVersion, 'TLSv1.3');
     assert.equal(capture.options.maxVersion, 'TLSv1.3');
+    assert.equal(capture.options.agent.options.keepAlive, false);
     assert.deepEqual(JSON.parse(capture.requestBody.toString('utf8')), {
       body: { leaseSeconds: 300 },
       operation: 'CLAIM',
     });
     capture.requestBody.fill(0);
     result.body.fill(0);
+    let agentDestroyed = false;
+    capture.options.agent.destroy = () => { agentDestroyed = true; };
     forwarder.close();
+    assert.equal(agentDestroyed, true);
     await assert.rejects(
       forwarder.forward({ operation: 'CLAIM' }),
       (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_closed',
@@ -376,9 +393,28 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
       },
     );
     secretResponseForwarder.close();
+
+    const ipv6Capture = {};
+    const ipv6Forwarder = await createAgentMtlsForwarder({
+      origin: 'https://[::1]:19443',
+      serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+      tls,
+      requestImpl: fakeHttpsRequest(JSON.stringify({ ok: true }), ipv6Capture),
+    });
+    const ipv6Result = await ipv6Forwarder.forward({ operation: 'CLAIM' });
+    assert.equal(ipv6Capture.options.hostname, '::1');
+    ipv6Result.body.fill(0);
+    ipv6Forwarder.close();
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('agent relay entrypoint flushes lifecycle records without forced process exit', async () => {
+  const entrypoint = await readFile(new URL('../runtime/agent-relay-entrypoint.mjs', import.meta.url), 'utf8');
+  assert.match(entrypoint, /await writeStdoutRecord\(\{ state: 'STOPPED'/);
+  assert.match(entrypoint, /process\.exitCode = 0/);
+  assert.doesNotMatch(entrypoint, /process\.exit\(/);
 });
 
 test('mTLS forwarder converts upstream response stream errors into a stable rejection', async () => {

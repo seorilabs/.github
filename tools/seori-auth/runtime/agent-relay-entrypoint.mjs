@@ -82,6 +82,15 @@ function configArgument(argv) {
   return argv[0].slice('--config='.length);
 }
 
+function writeStdoutRecord(value) {
+  return new Promise((resolve, reject) => {
+    process.stdout.write(`${JSON.stringify(value)}\n`, (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
 async function main() {
   const config = await readRootConfig(configArgument(process.argv.slice(2)));
   const nativeBoundary = await NativeSecurityBoundary.open({
@@ -105,13 +114,17 @@ async function main() {
     if (stopping) return;
     stopping = true;
     await daemon.stop();
-    process.stdout.write(`${JSON.stringify({ state: 'STOPPED', signal, workerKind: config.workerKind })}\n`);
+    await writeStdoutRecord({ state: 'STOPPED', signal, workerKind: config.workerKind });
   }
-  process.once('SIGTERM', () => stop('SIGTERM').then(() => process.exit(0), () => process.exit(1)));
-  process.once('SIGINT', () => stop('SIGINT').then(() => process.exit(0), () => process.exit(1)));
+  process.once('SIGTERM', () => {
+    void stop('SIGTERM').then(() => { process.exitCode = 0; }, () => { process.exitCode = 1; });
+  });
+  process.once('SIGINT', () => {
+    void stop('SIGINT').then(() => { process.exitCode = 0; }, () => { process.exitCode = 1; });
+  });
 
   await daemon.start();
-  process.stdout.write(`${JSON.stringify({ state: 'READY', transport: 'unix', workerKind: config.workerKind })}\n`);
+  await writeStdoutRecord({ state: 'READY', transport: 'unix', workerKind: config.workerKind });
 }
 
 main().catch(() => {
