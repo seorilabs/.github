@@ -180,8 +180,17 @@ async function tlsFiles(root) {
   return tls;
 }
 
-test('agent relay normalizes conventional credential field names', () => {
-  for (const key of ['accessToken', 'bearerToken', 'lease_token', 'clientCertificate']) {
+test('agent relay rejects credential key variants and permits fixed pagination metadata', () => {
+  for (const key of [
+    'accessToken',
+    'apiToken',
+    'auth_token',
+    'bearerToken',
+    'clientCertificate',
+    'lease_token',
+    'privateKeyPem',
+    'x-api-key',
+  ]) {
     assert.throws(
       () => assertAgentRelayPublicJson({ [key]: 'fake-secret-canary' }),
       (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_secret_field_rejected',
@@ -191,6 +200,30 @@ test('agent relay normalizes conventional credential field names', () => {
   assert.deepEqual(assertAgentRelayPublicJson({ tokenPagination: { nextPageTokenPresent: true } }), {
     tokenPagination: { nextPageTokenPresent: true },
   });
+});
+
+test('agent relay refuses a private socket directory below a writable ancestor', async () => {
+  const root = await realpath(await mkdtemp(join(process.cwd(), '.agent-relay-ancestor-test-')));
+  try {
+    const unsafe = join(root, 'worker-writable');
+    const directory = join(unsafe, 'relay');
+    await mkdir(unsafe, { mode: 0o700 });
+    await chmod(unsafe, 0o777);
+    await mkdir(directory, { mode: 0o700 });
+    const daemon = new AgentRelayDaemon({
+      socketPath: join(directory, 'worker.sock'),
+      expectedPeerUid: process.getuid(),
+      expectedPeerGid: process.getgid(),
+      nativeBoundary: { async attest() { return {}; } },
+      forwarder: { async forward() { return {}; }, close() {} },
+    });
+    await assert.rejects(
+      daemon.start(),
+      (error) => error instanceof SeoriAuthError && error.code === 'insecure_agent_relay_directory',
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('agent relay config is read from one verified descriptor under trusted ancestors', async () => {

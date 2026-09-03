@@ -9,32 +9,33 @@ import { fail, SeoriAuthError } from './errors.mjs';
 const REQUEST_LIMIT = 6 * 1024 * 1024;
 const RESPONSE_LIMIT = 512 * 1024;
 const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-const FORBIDDEN_KEYS = new Set([
-  'actiontoken',
-  'accesstoken',
+const FORBIDDEN_KEY_PARTS = Object.freeze([
   'apikey',
   'authorization',
   'bearer',
-  'bearertoken',
   'certificate',
-  'clientcertificate',
-  'clientsecret',
+  'clientkey',
   'cookie',
-  'granttoken',
-  'leasetoken',
+  'credential',
   'password',
+  'passwd',
   'privatekey',
   'recoverycode',
-  'refreshtoken',
   'secret',
-  'sessioncookie',
+  'signingkey',
   'token',
   'totp',
-  'totpseed',
 ]);
+const PUBLIC_TOKEN_METADATA_KEYS = new Set(['nextpagetokenpresent', 'tokenpagination']);
 
 function normalizeJsonKey(value) {
   return value.replace(/[^a-z0-9]/giu, '').toLowerCase();
+}
+
+function isCredentialJsonKey(value) {
+  const normalized = normalizeJsonKey(value);
+  return !PUBLIC_TOKEN_METADATA_KEYS.has(normalized) &&
+    FORBIDDEN_KEY_PARTS.some((part) => normalized.includes(part));
 }
 
 export function assertAgentRelayPublicJson(value) {
@@ -50,7 +51,7 @@ export function assertAgentRelayPublicJson(value) {
       continue;
     }
     for (const [key, entry] of Object.entries(current)) {
-      if (FORBIDDEN_KEYS.has(normalizeJsonKey(key))) {
+      if (isCredentialJsonKey(key)) {
         fail('agent_relay_secret_field_rejected', 'agent relay payload contains a forbidden credential field');
       }
       stack.push(entry);
@@ -117,14 +118,17 @@ async function readTlsFile(path, { privateMaterial = false } = {}) {
   }
 }
 
-async function assertTrustedAncestors(path, expectedOwnerUid) {
+async function assertTrustedAncestors(path, expectedOwnerUid, {
+  code = 'insecure_agent_relay_config_ancestor',
+  message = 'agent relay config ancestors must be trusted',
+} = {}) {
   let current = dirname(path);
   while (true) {
     const [entry, canonical] = await Promise.all([lstat(current), realpath(current)]);
     if (
       !entry.isDirectory() || entry.isSymbolicLink() || canonical !== current ||
       (entry.uid !== 0 && entry.uid !== expectedOwnerUid) || (entry.mode & 0o022) !== 0
-    ) fail('insecure_agent_relay_config_ancestor', 'agent relay config ancestors must be trusted');
+    ) fail(code, message);
     const parent = dirname(current);
     if (parent === current) return;
     current = parent;
@@ -523,6 +527,10 @@ export class AgentRelayDaemon {
   async start() {
     if (this.#server) fail('daemon_already_started', 'agent relay is already started');
     const directory = dirname(this.#socketPath);
+    await assertTrustedAncestors(directory, process.getuid?.(), {
+      code: 'insecure_agent_relay_directory',
+      message: 'agent relay socket directory ancestors must be trusted',
+    });
     await assertPrivateSocketDirectory(directory);
     await assertSocketPathAvailable(this.#socketPath);
     const server = createServer((request, response) => this.dispatch(request, response));
