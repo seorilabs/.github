@@ -32,11 +32,13 @@ jobs:
           check-latest: false
           package-manager-cache: false
 
-      - name: Execute native launch and child hardening readback
+      - name: Execute native launch, root-owned writer, and child hardening readback
         run: |
           set -euo pipefail
           test "$(node --version)" = "v24.16.0"
           node tools/seori-auth/scripts/build-native.mjs
+          node_path="$(command -v node)"
+          sudo -- "$node_path" tools/seori-auth/scripts/verify-root-owned-writer.mjs
           node scripts/fleet/build-p2-process-hardening-boundary.mjs
           node --test tests/fleet-p2-process-hardening-darwin.test.mjs
 
@@ -57,11 +59,13 @@ jobs:
           check-latest: false
           package-manager-cache: false
 
-      - name: Execute production boundary and isolated syscall harness
+      - name: Execute production boundary, root-owned writer, and isolated syscall harness
         run: |
           set -euo pipefail
           test "$(node --version)" = "v24.16.0"
+          node tools/seori-auth/scripts/build-native.mjs
           node_path="$(command -v node)"
+          sudo -- "$node_path" tools/seori-auth/scripts/verify-root-owned-writer.mjs
           sudo -- "$node_path" scripts/fleet/verify-p2-host-fs-boundary-linux-arm64.mjs
 
   verify:

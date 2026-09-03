@@ -302,8 +302,9 @@ static void require_descriptor_matches_path(
       descriptor_state.st_dev != path_state.st_dev ||
       descriptor_state.st_ino != path_state.st_ino ||
       descriptor_state.st_uid != path_state.st_uid ||
+      descriptor_state.st_uid != 0 ||
       (descriptor_state.st_mode & 0022) != 0 ||
-      (descriptor_state.st_uid != 0 && descriptor_state.st_uid != geteuid())) {
+      (path_state.st_mode & 0022) != 0) {
     fail_closed(message);
   }
 }

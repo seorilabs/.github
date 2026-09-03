@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { chmod, copyFile, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createConnection, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,25 +18,9 @@ import { makePolicy, makeRequest } from '../fixtures/helpers.mjs';
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const helper = join(packageRoot, '.build', 'seori-auth-native');
 const fixture = fileURLToPath(new URL('../fixtures/echo-secret-child.mjs', import.meta.url));
-const writerFixture = fileURLToPath(
-  new URL('../fixtures/secret-manager-writer-fake-sink.mjs', import.meta.url),
-);
 
 async function sha256(path) {
   return createHash('sha256').update(await readFile(path)).digest('hex');
-}
-
-async function trustedWriterImages(testContext) {
-  const root = await mkdtemp(join(packageRoot, 'writer-images-'));
-  const executablePath = join(root, 'node');
-  const childPath = join(root, 'writer.mjs');
-  await Promise.all([
-    copyFile(process.execPath, executablePath),
-    copyFile(writerFixture, childPath),
-  ]);
-  await Promise.all([chmod(executablePath, 0o500), chmod(childPath, 0o400)]);
-  testContext.after(() => rm(root, { recursive: true, force: true }));
-  return { executablePath, childPath };
 }
 
 function principal() {
@@ -174,238 +158,26 @@ test('trusted adapter runs behind native non-dumpable launcher without secret ar
   }
 });
 
-test('native Secret Manager writer exposes only a strict public result and verifies fake backup restore', async (testContext) => {
-  const { executablePath, childPath } = await trustedWriterImages(testContext);
+test('native Secret Manager writer rejects a service-owned helper before accepting material', async () => {
   const [helperSha256, executableSha256, childSha256] = await Promise.all([
     sha256(helper),
-    sha256(executablePath),
-    sha256(childPath),
+    sha256(process.execPath),
+    sha256(fixture),
   ]);
   const boundary = await NativeSecurityBoundary.open({
     helperPath: helper,
     expectedSha256: helperSha256,
     resolvePrincipal: async () => principal(),
   });
-  const writer = await boundary.secretManagerWriter({
-    executablePath,
-    executableSha256,
-    childPath,
-    childSha256,
-  });
-  assert.deepEqual(writer.identity, {
-    mode: 'native-secret-manager-writer-v1',
-    executablePath,
-    executableSha256,
-    childPath,
-    childSha256,
-  });
-  const concurrentWriter = await boundary.secretManagerWriter({
-    executablePath,
-    executableSha256,
-    childPath,
-    childSha256,
-  });
-
-  const material = Buffer.from(`FAKE_WRITER_CANARY_${randomBytes(24).toString('hex')}`);
-  const representations = [
-    material.toString('utf8'),
-    material.toString('base64'),
-    material.toString('hex'),
-  ];
-  const result = await writer.writeVersion({
-    resourceName: 'projects/seori-auth-canary/secrets/fake-writer',
-    expectedVersion: 1,
-    material,
-  });
-  assert.deepEqual(Object.keys(result).sort(), [
-    'backupRestoreVerified',
-    'dataCrc32c',
-    'operation',
-    'resourceName',
-    'schemaVersion',
-    'secretExposed',
-    'versionResourceName',
-  ]);
-  assert.equal(result.backupRestoreVerified, true);
-  assert.equal(result.secretExposed, false);
-  assert.match(result.dataCrc32c, /^[0-9]+$/);
-  assert.equal(
-    result.versionResourceName,
-    'projects/seori-auth-canary/secrets/fake-writer/versions/1',
-  );
-  const publicResult = JSON.stringify(result);
-  for (const representation of representations) {
-    assert.equal(publicResult.includes(representation), false);
-  }
-  assert.ok(material.every((byte) => byte === 0));
-
-  const firstMaterial = randomBytes(32);
-  const duplicateMaterial = randomBytes(32);
-  const firstWrite = writer.writeVersion({
-    resourceName: 'projects/seori-auth-canary/secrets/fake-concurrent-writer',
-    expectedVersion: 1,
-    material: firstMaterial,
-  });
-  await assert.rejects(
-    concurrentWriter.writeVersion({
-      resourceName: 'projects/seori-auth-canary/secrets/fake-concurrent-writer',
-      expectedVersion: 1,
-      material: duplicateMaterial,
-    }),
-    (error) => error instanceof SeoriAuthError &&
-      error.code === 'secret_write_failed' &&
-      error.message === 'duplicate concurrent Secret Manager write is forbidden',
-  );
-  const thirdMaterial = randomBytes(32);
-  await assert.rejects(
-    writer.writeVersion({
-      resourceName: 'projects/seori-auth-canary/secrets/fake-concurrent-writer',
-      expectedVersion: 1,
-      material: thirdMaterial,
-    }),
-    (error) => error instanceof SeoriAuthError &&
-      error.code === 'secret_write_failed' &&
-      error.message === 'duplicate concurrent Secret Manager write is forbidden',
-  );
-  await firstWrite;
-  assert.ok(firstMaterial.every((byte) => byte === 0));
-  assert.ok(duplicateMaterial.every((byte) => byte === 0));
-  assert.ok(thirdMaterial.every((byte) => byte === 0));
-
-  const unexpectedResultMaterial = randomBytes(32);
-  await assert.rejects(
-    writer.writeVersion({
-      resourceName: 'projects/seori-auth-canary/secrets/fake-unexpected-result',
-      expectedVersion: 1,
-      material: unexpectedResultMaterial,
-    }),
-    (error) => error instanceof SeoriAuthError &&
-      error.code === 'secret_write_failed' &&
-      error.message === 'trusted Secret Manager writer returned an invalid public result',
-  );
-  assert.ok(unexpectedResultMaterial.every((byte) => byte === 0));
-
-  const checksumMismatchMaterial = randomBytes(32);
-  await assert.rejects(
-    writer.writeVersion({
-      resourceName: 'projects/seori-auth-canary/secrets/fake-checksum-mismatch',
-      expectedVersion: 1,
-      material: checksumMismatchMaterial,
-    }),
-    (error) => error instanceof SeoriAuthError &&
-      error.code === 'secret_write_failed' &&
-      error.message === 'trusted Secret Manager writer returned an invalid public result',
-  );
-  assert.ok(checksumMismatchMaterial.every((byte) => byte === 0));
-
-  const versionMismatchMaterial = randomBytes(32);
-  await assert.rejects(
-    writer.writeVersion({
-      resourceName: 'projects/seori-auth-canary/secrets/fake-version-mismatch',
-      expectedVersion: 1,
-      material: versionMismatchMaterial,
-    }),
-    (error) => error instanceof SeoriAuthError &&
-      error.code === 'secret_write_failed' &&
-      error.message === 'trusted Secret Manager writer returned an invalid public result',
-  );
-  assert.ok(versionMismatchMaterial.every((byte) => byte === 0));
-
-  const oversizedResultMaterial = randomBytes(32);
-  await assert.rejects(
-    writer.writeVersion({
-      resourceName: 'projects/seori-auth-canary/secrets/fake-oversized-result',
-      expectedVersion: 1,
-      material: oversizedResultMaterial,
-    }),
-    (error) => error instanceof SeoriAuthError &&
-      error.code === 'secret_write_failed' &&
-      error.message === 'Secret Manager writer public result exceeded its bound',
-  );
-  assert.ok(oversizedResultMaterial.every((byte) => byte === 0));
-
   await assert.rejects(
     boundary.secretManagerWriter({
-      executablePath,
+      executablePath: process.execPath,
       executableSha256,
-      childPath,
+      childPath: fixture,
       childSha256,
-      timeoutMs: 60_001,
     }),
     (error) => error instanceof SeoriAuthError &&
       error.code === 'invalid_native_helper' &&
-      error.message === 'Secret Manager writer contract is invalid',
+      error.message === 'Secret Manager writer requires an SHA-256 pinned root-owned native helper',
   );
-
-  await assert.rejects(
-    boundary.secretManagerWriter({
-      executablePath,
-      executableSha256,
-      childPath,
-      childSha256: '0'.repeat(64),
-    }),
-    (error) => error instanceof SeoriAuthError && error.code === 'native_helper_mismatch',
-  );
-});
-
-test('native Secret Manager writer rejects writable ancestors and image replacement', async (testContext) => {
-  const { executablePath } = await trustedWriterImages(testContext);
-  const [helperSha256, executableSha256, childSha256] = await Promise.all([
-    sha256(helper),
-    sha256(executablePath),
-    sha256(writerFixture),
-  ]);
-  const boundary = await NativeSecurityBoundary.open({
-    helperPath: helper,
-    expectedSha256: helperSha256,
-    resolvePrincipal: async () => principal(),
-  });
-
-  const writableRoot = await mkdtemp(join(packageRoot, 'writer-writable-'));
-  const writableChild = join(writableRoot, 'writer.mjs');
-  try {
-    await copyFile(writerFixture, writableChild);
-    await chmod(writableRoot, 0o777);
-    await assert.rejects(
-      boundary.secretManagerWriter({
-        executablePath,
-        executableSha256,
-        childPath: writableChild,
-        childSha256,
-      }),
-      (error) => error instanceof SeoriAuthError &&
-        error.code === 'invalid_native_helper' &&
-        error.message === 'Secret Manager writer child has an untrusted writable ancestor',
-    );
-  } finally {
-    await chmod(writableRoot, 0o700);
-    await rm(writableRoot, { recursive: true, force: true });
-  }
-
-  const replacementRoot = await mkdtemp(join(packageRoot, 'writer-replacement-'));
-  const replacementChild = join(replacementRoot, 'writer.mjs');
-  const originalChild = join(replacementRoot, 'writer.original.mjs');
-  try {
-    await copyFile(writerFixture, replacementChild);
-    const writer = await boundary.secretManagerWriter({
-      executablePath,
-      executableSha256,
-      childPath: replacementChild,
-      childSha256,
-    });
-    await rename(replacementChild, originalChild);
-    await writeFile(replacementChild, 'process.exit(0);\n', { mode: 0o600 });
-    const material = randomBytes(32);
-    await assert.rejects(
-      writer.writeVersion({
-        resourceName: 'projects/seori-auth-canary/secrets/fake-replaced-writer',
-        expectedVersion: 1,
-        material,
-      }),
-      (error) => error instanceof SeoriAuthError && error.code === 'secret_write_failed',
-    );
-    assert.ok(material.every((byte) => byte === 0));
-  } finally {
-    await rm(replacementRoot, { recursive: true, force: true });
-  }
 });

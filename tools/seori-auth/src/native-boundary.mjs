@@ -220,6 +220,7 @@ function normalizePeer(value) {
 export class NativeSecurityBoundary {
   #helperPath;
   #helperOwnerUid;
+  #helperSha256;
   #expectedUid;
   #expectedGid;
   #resolvePrincipal;
@@ -244,15 +245,17 @@ export class NativeSecurityBoundary {
     return new NativeSecurityBoundary({
       helperPath,
       helperOwnerUid,
+      helperSha256: expectedSha256,
       expectedUid,
       expectedGid,
       resolvePrincipal,
     });
   }
 
-  constructor({ helperPath, helperOwnerUid, expectedUid, expectedGid, resolvePrincipal }) {
+  constructor({ helperPath, helperOwnerUid, helperSha256, expectedUid, expectedGid, resolvePrincipal }) {
     this.#helperPath = helperPath;
     this.#helperOwnerUid = helperOwnerUid;
+    this.#helperSha256 = helperSha256;
     this.#expectedUid = expectedUid;
     this.#expectedGid = expectedGid;
     this.#resolvePrincipal = resolvePrincipal;
@@ -271,22 +274,31 @@ export class NativeSecurityBoundary {
     ) {
       fail('invalid_native_helper', 'Secret Manager writer contract is invalid');
     }
+    if (this.#helperOwnerUid !== 0 || !SHA256.test(this.#helperSha256 ?? '')) {
+      fail(
+        'invalid_native_helper',
+        'Secret Manager writer requires an SHA-256 pinned root-owned native helper',
+      );
+    }
     await Promise.all([
+      validateTrustedImageFile(
+        this.#helperPath,
+        this.#helperSha256,
+        'Secret Manager writer native helper',
+      ),
       validateTrustedImageFile(
         executablePath,
         executableSha256,
         'Secret Manager writer executable',
-        this.#helperOwnerUid,
       ),
       validateTrustedImageFile(
         childPath,
         childSha256,
         'Secret Manager writer child',
-        this.#helperOwnerUid,
       ),
     ]);
     const helperPath = this.#helperPath;
-    const helperOwnerUid = this.#helperOwnerUid;
+    const helperSha256 = this.#helperSha256;
     const identity = Object.freeze({
       mode: 'native-secret-manager-writer-v1',
       executablePath,
@@ -299,6 +311,7 @@ export class NativeSecurityBoundary {
       async writeVersion({ resourceName, expectedVersion, material }) {
         const ownedMaterial = material;
         let resourceLocked = false;
+        let helperImage;
         let executableImage;
         let childImage;
         let child;
@@ -321,35 +334,43 @@ export class NativeSecurityBoundary {
           }
           ACTIVE_SECRET_MANAGER_RESOURCES.add(resourceName);
           resourceLocked = true;
+          helperImage = await openTrustedImageFile(
+            helperPath,
+            helperSha256,
+            'Secret Manager writer native helper',
+          );
           executableImage = await openTrustedImageFile(
             executablePath,
             executableSha256,
             'Secret Manager writer executable',
-            helperOwnerUid,
           );
           childImage = await openTrustedImageFile(
             childPath,
             childSha256,
             'Secret Manager writer child',
-            helperOwnerUid,
           );
-          const [executablePathStat, childPathStat] = await Promise.all([
+          const [helperPathStat, executablePathStat, childPathStat] = await Promise.all([
+            lstat(helperPath),
             lstat(executablePath),
             lstat(childPath),
           ]);
-          const [executableImageStat, childImageStat] = await Promise.all([
+          const [helperImageStat, executableImageStat, childImageStat] = await Promise.all([
+            helperImage.stat(),
             executableImage.stat(),
             childImage.stat(),
           ]);
           if (
-            executablePathStat.isSymbolicLink() || childPathStat.isSymbolicLink() ||
+            helperPathStat.isSymbolicLink() || executablePathStat.isSymbolicLink() ||
+            childPathStat.isSymbolicLink() ||
+            helperPathStat.dev !== helperImageStat.dev ||
+            helperPathStat.ino !== helperImageStat.ino ||
             executablePathStat.dev !== executableImageStat.dev ||
             executablePathStat.ino !== executableImageStat.ino ||
             childPathStat.dev !== childImageStat.dev || childPathStat.ino !== childImageStat.ino
           ) {
             fail('native_helper_mismatch', 'trusted Secret Manager writer image changed before launch');
           }
-          child = spawn(helperPath, [
+          child = spawn(process.platform === 'linux' ? '/proc/self/fd/7' : helperPath, [
             'launch-verified-writer', '--', executablePath, childPath,
             `--resource=${resourceName}`, `--expected-version=${expectedVersion}`,
           ], {
@@ -359,10 +380,20 @@ export class NativeSecurityBoundary {
               SEORI_AUTH_RESULT_FD: '5',
             },
             shell: false,
-            stdio: [childImage.fd, 'ignore', 'ignore', 'pipe', 'ignore', 'pipe', executableImage.fd],
+            stdio: [
+              childImage.fd,
+              'ignore',
+              'ignore',
+              'pipe',
+              'ignore',
+              'pipe',
+              executableImage.fd,
+              helperImage.fd,
+            ],
             windowsHide: true,
           });
-          await Promise.all([executableImage.close(), childImage.close()]);
+          await Promise.all([helperImage.close(), executableImage.close(), childImage.close()]);
+          helperImage = undefined;
           executableImage = undefined;
           childImage = undefined;
           completion = new Promise((resolve, reject) => {
@@ -420,6 +451,7 @@ export class NativeSecurityBoundary {
         } finally {
           clearTimeout(timer);
           await Promise.all([
+            helperImage?.close().catch(() => {}),
             executableImage?.close().catch(() => {}),
             childImage?.close().catch(() => {}),
           ]);

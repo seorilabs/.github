@@ -50,8 +50,10 @@ daemon, MAC-chain durable state, native OS 경계, encrypted Browser Vault를 �
   `bindingHash` 전체에 고정됩니다.
 - trusted adapter는 secret을 argv, 환경변수, stdin으로 받지 않고 전용 file
   descriptor 3으로만 받습니다.
-- `NativeSecurityBoundary.secretManagerWriter`는 native non-dumpable launcher와 같은
-  trust owner의 SHA-256 고정 executable/child만 실행합니다. secret material은 fd3으로
+- `NativeSecurityBoundary.secretManagerWriter`는 런타임 UID가 바꿀 수 없는 root-owned
+  경로와 상위 디렉터리에 설치되고 SHA-256으로 고정된 native helper, executable, child만
+  실행합니다. Linux는 검증한 helper/executable descriptor를 직접 실행하고, child는 두 OS
+  모두 검증 descriptor를 Node module stdin으로 실행합니다. secret material은 fd3으로
   한 번 전달하고 실행 종료 전에 zeroize하며, fd5에서 resource, numeric version, CRC32C,
   backup/restore 여부만 포함한 strict public result를 받습니다. 같은 resource의 동시
   write와 임의 argv·환경변수·stdout/stderr 결과 사용을 거부하고, 반환된 CRC32C를
