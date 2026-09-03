@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const SECRET_RESOURCE = /^projects\/[A-Za-z0-9._:-]+\/secrets\/[A-Za-z0-9_-]+$/;
 
@@ -84,6 +85,7 @@ try {
       if (resourceName.endsWith('-oversized-result')) {
         result.padding = 'x'.repeat(4_096);
       }
+      if (resourceName.endsWith('-concurrent-writer')) await delay(150);
       writeFileSync(resultDescriptor, JSON.stringify(result));
       if (!backupRestoreVerified || secretExposed) fail();
     }

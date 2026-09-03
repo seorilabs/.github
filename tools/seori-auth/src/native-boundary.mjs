@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { constants as fsConstants, createReadStream } from 'node:fs';
+import { constants as fsConstants } from 'node:fs';
 import { lstat, open as fsOpen, readFile, realpath } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
+import { dirname, isAbsolute } from 'node:path';
 
 import { fail } from './errors.mjs';
 import { normalizeExecutionBinding } from './durable-state.mjs';
@@ -21,6 +21,22 @@ const SECRET_MANAGER_NODE = '/usr/local/bin/node';
 const SECRET_MANAGER_CHILD = '/opt/seori-auth/runtime/secret-manager-child.mjs';
 const SECRET_MANAGER_CONFIG = '/etc/seori-auth/secret-access.json';
 
+async function validateTrustedAncestors(path, trustedOwners, label) {
+  let current = dirname(path);
+  while (true) {
+    const stat = await lstat(current);
+    if (
+      !stat.isDirectory() || stat.isSymbolicLink() ||
+      !trustedOwners.includes(stat.uid) || (stat.mode & 0o022) !== 0
+    ) {
+      fail('invalid_native_helper', `${label} has an untrusted writable ancestor`);
+    }
+    const parent = dirname(current);
+    if (parent === current) return;
+    current = parent;
+  }
+}
+
 async function validateHelper(helperPath, expectedSha256) {
   if (typeof helperPath !== 'string' || !isAbsolute(helperPath)) {
     fail('invalid_native_helper', 'native helper path must be absolute');
@@ -32,6 +48,11 @@ async function validateHelper(helperPath, expectedSha256) {
   ) {
     fail('invalid_native_helper', 'native helper must be a trusted regular file without group or world write access');
   }
+  await validateTrustedAncestors(
+    helperPath,
+    [0, process.getuid?.()].filter((value) => Number.isSafeInteger(value)),
+    'native helper',
+  );
   if (expectedSha256 !== undefined) {
     if (!SHA256.test(expectedSha256)) {
       fail('invalid_native_helper', 'native helper SHA-256 is invalid');
@@ -45,28 +66,53 @@ async function validateHelper(helperPath, expectedSha256) {
 }
 
 async function validateTrustedImageFile(path, expectedSha256, label, helperOwnerUid = 0) {
+  let handle;
+  try {
+    handle = await openTrustedImageFile(path, expectedSha256, label, helperOwnerUid);
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
+async function openTrustedImageFile(path, expectedSha256, label, helperOwnerUid = 0) {
   if (typeof path !== 'string' || !isAbsolute(path) || !SHA256.test(expectedSha256 ?? '')) {
     fail('invalid_native_helper', `${label} path or checksum is invalid`);
   }
-  const [stat, canonical] = await Promise.all([lstat(path), realpath(path)]);
-  const trustedOwners = helperOwnerUid === 0 ? [0] : [0, helperOwnerUid];
-  if (
-    !stat.isFile() || stat.isSymbolicLink() || canonical !== path ||
-    !trustedOwners.includes(stat.uid) || (stat.mode & 0o022) !== 0
-  ) {
-    fail('invalid_native_helper', `${label} must be an immutable trusted-owner image file`);
-  }
-  const digest = createHash('sha256');
+  let handle;
   try {
-    for await (const chunk of createReadStream(path, { highWaterMark: 64 * 1024 })) {
-      digest.update(chunk);
-      if (Buffer.isBuffer(chunk)) chunk.fill(0);
+    handle = await fsOpen(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    const stat = await handle.stat();
+    const trustedOwners = helperOwnerUid === 0 ? [0] : [0, helperOwnerUid];
+    const canonical = await realpath(path);
+    if (
+      !stat.isFile() || canonical !== path ||
+      !trustedOwners.includes(stat.uid) || (stat.mode & 0o022) !== 0
+    ) {
+      fail('invalid_native_helper', `${label} must be an immutable trusted-owner image file`);
+    }
+    await validateTrustedAncestors(path, trustedOwners, label);
+    const digest = createHash('sha256');
+    const chunk = Buffer.allocUnsafe(64 * 1024);
+    let position = 0;
+    try {
+      while (true) {
+        const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
+        if (bytesRead === 0) break;
+        digest.update(chunk.subarray(0, bytesRead));
+        chunk.fill(0, 0, bytesRead);
+        position += bytesRead;
+      }
+    } finally {
+      chunk.fill(0);
     }
     if (digest.digest('hex') !== expectedSha256) {
       fail('native_helper_mismatch', `${label} checksum does not match`);
     }
+    return handle;
   } catch (error) {
+    await handle?.close().catch(() => {});
     if (error?.code === 'native_helper_mismatch') throw error;
+    if (error?.code === 'invalid_native_helper') throw error;
     fail('invalid_native_helper', `${label} checksum could not be read`);
   }
 }
@@ -239,6 +285,7 @@ export class NativeSecurityBoundary {
       ),
     ]);
     const helperPath = this.#helperPath;
+    const helperOwnerUid = this.#helperOwnerUid;
     const activeResources = new Set();
     const identity = Object.freeze({
       mode: 'native-secret-manager-writer-v1',
@@ -251,6 +298,9 @@ export class NativeSecurityBoundary {
       identity,
       async writeVersion({ resourceName, expectedVersion, material }) {
         const ownedMaterial = material;
+        let resourceLocked = false;
+        let executableImage;
+        let childImage;
         let child;
         let completion;
         let timer;
@@ -270,6 +320,35 @@ export class NativeSecurityBoundary {
             fail('secret_write_failed', 'duplicate concurrent Secret Manager write is forbidden');
           }
           activeResources.add(resourceName);
+          resourceLocked = true;
+          executableImage = await openTrustedImageFile(
+            executablePath,
+            executableSha256,
+            'Secret Manager writer executable',
+            helperOwnerUid,
+          );
+          childImage = await openTrustedImageFile(
+            childPath,
+            childSha256,
+            'Secret Manager writer child',
+            helperOwnerUid,
+          );
+          const [executablePathStat, childPathStat] = await Promise.all([
+            lstat(executablePath),
+            lstat(childPath),
+          ]);
+          const [executableImageStat, childImageStat] = await Promise.all([
+            executableImage.stat(),
+            childImage.stat(),
+          ]);
+          if (
+            executablePathStat.isSymbolicLink() || childPathStat.isSymbolicLink() ||
+            executablePathStat.dev !== executableImageStat.dev ||
+            executablePathStat.ino !== executableImageStat.ino ||
+            childPathStat.dev !== childImageStat.dev || childPathStat.ino !== childImageStat.ino
+          ) {
+            fail('native_helper_mismatch', 'trusted Secret Manager writer image changed before launch');
+          }
           child = spawn(helperPath, [
             'launch', '--', executablePath, childPath,
             `--resource=${resourceName}`, `--expected-version=${expectedVersion}`,
@@ -283,6 +362,9 @@ export class NativeSecurityBoundary {
             stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'ignore', 'pipe'],
             windowsHide: true,
           });
+          await Promise.all([executableImage.close(), childImage.close()]);
+          executableImage = undefined;
+          childImage = undefined;
           completion = new Promise((resolve, reject) => {
             child.once('error', reject);
             child.once('close', (code, signal) => resolve({ code, signal }));
@@ -337,7 +419,11 @@ export class NativeSecurityBoundary {
           fail('secret_write_failed', 'trusted Secret Manager writer failed');
         } finally {
           clearTimeout(timer);
-          activeResources.delete(resourceName);
+          await Promise.all([
+            executableImage?.close().catch(() => {}),
+            childImage?.close().catch(() => {}),
+          ]);
+          if (resourceLocked) activeResources.delete(resourceName);
           for (const chunk of resultChunks) chunk.fill(0);
           if (Buffer.isBuffer(ownedMaterial)) ownedMaterial.fill(0);
         }
