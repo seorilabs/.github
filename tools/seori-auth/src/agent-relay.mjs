@@ -117,6 +117,56 @@ async function readTlsFile(path, { privateMaterial = false } = {}) {
   }
 }
 
+async function assertTrustedAncestors(path, expectedOwnerUid) {
+  let current = dirname(path);
+  while (true) {
+    const [entry, canonical] = await Promise.all([lstat(current), realpath(current)]);
+    if (
+      !entry.isDirectory() || entry.isSymbolicLink() || canonical !== current ||
+      (entry.uid !== 0 && entry.uid !== expectedOwnerUid) || (entry.mode & 0o022) !== 0
+    ) fail('insecure_agent_relay_config_ancestor', 'agent relay config ancestors must be trusted');
+    const parent = dirname(current);
+    if (parent === current) return;
+    current = parent;
+  }
+}
+
+export async function readImmutableAgentRelayConfig(path, { expectedOwnerUid = 0 } = {}) {
+  if (
+    typeof path !== 'string' || !isAbsolute(path) || path.includes('\0') ||
+    !Number.isSafeInteger(expectedOwnerUid) || expectedOwnerUid < 0
+  ) fail('invalid_agent_relay_config', 'agent relay config path or owner is invalid');
+  await assertTrustedAncestors(path, expectedOwnerUid);
+  const [entry, canonical] = await Promise.all([lstat(path), realpath(path)]);
+  if (
+    !entry.isFile() || entry.isSymbolicLink() || canonical !== path ||
+    entry.uid !== expectedOwnerUid || (entry.mode & 0o022) !== 0 ||
+    entry.size < 2 || entry.size > 64 * 1024
+  ) fail('invalid_agent_relay_config', 'agent relay config must be an immutable owned file');
+  const handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const opened = await handle.stat();
+    if (
+      opened.dev !== entry.dev || opened.ino !== entry.ino || opened.uid !== entry.uid ||
+      opened.gid !== entry.gid || opened.mode !== entry.mode || opened.size !== entry.size
+    ) fail('invalid_agent_relay_config', 'agent relay config changed while opening');
+    const encoded = await handle.readFile();
+    try {
+      if (encoded.length !== opened.size) {
+        fail('invalid_agent_relay_config', 'agent relay config changed while reading');
+      }
+      return JSON.parse(encoded.toString('utf8'));
+    } catch (error) {
+      if (error instanceof SeoriAuthError) throw error;
+      fail('invalid_agent_relay_config', 'agent relay config is not valid JSON');
+    } finally {
+      encoded.fill(0);
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
 function validateServerName(value) {
   if (typeof value !== 'string' || value !== value.toLowerCase() || !DNS_NAME.test(value)) {
     fail('invalid_agent_relay_upstream', 'agent relay upstream server name is invalid');

@@ -49,7 +49,7 @@ root config에는 인증 값이 아니라 경로와 공개 binding만 기록합�
 {
   "schemaVersion": 1,
   "workerKind": "CODEX",
-  "socketPath": "/var/run/seori-auth-agent/codex/relay.sock",
+  "socketPath": "/private/var/run/seori-auth-agent/codex/relay.sock",
   "expectedPeer": { "uid": 5010, "gid": 5010 },
   "nativeHelper": {
     "path": "/opt/seori-auth/bin/seori-auth-native",
@@ -59,9 +59,9 @@ root config에는 인증 값이 아니라 경로와 공개 binding만 기록합�
     "origin": "https://127.0.0.1:19443",
     "serverName": "seori-auth-agent-runtime.auth-broker.svc.cluster.local",
     "tls": {
-      "caPath": "/etc/seori-auth-agent/codex/ca.pem",
-      "certificatePath": "/etc/seori-auth-agent/codex/tls.crt",
-      "privateKeyPath": "/etc/seori-auth-agent/codex/tls.key"
+      "caPath": "/private/etc/seori-auth-agent/codex/ca.pem",
+      "certificatePath": "/private/etc/seori-auth-agent/codex/tls.crt",
+      "privateKeyPath": "/private/etc/seori-auth-agent/codex/tls.key"
     }
   }
 }
@@ -75,7 +75,7 @@ worker는 요청을 stdin으로만 보냅니다.
 
 ```sh
 node /opt/seori-auth/runtime/agent-relay-client.mjs \
-  --socket=/var/run/seori-auth-agent/codex/relay.sock
+  --socket=/private/var/run/seori-auth-agent/codex/relay.sock
 ```
 
 argv·환경변수·로그에는 요청 body나 인증 값을 넣지 않습니다. worker launchd job은 Codex

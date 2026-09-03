@@ -6,6 +6,7 @@ export {
   AgentRelayDaemon,
   assertAgentRelayPublicJson,
   createAgentMtlsForwarder,
+  readImmutableAgentRelayConfig,
 } from './agent-relay.mjs';
 export { SeoriAuthError } from './errors.mjs';
 export {

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 
 import {
   AgentRelayDaemon,
   createAgentMtlsForwarder,
   NativeSecurityBoundary,
+  readImmutableAgentRelayConfig,
 } from '../src/index.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -72,12 +72,7 @@ function validateConfig(config) {
 async function readRootConfig(path) {
   if (process.getuid?.() !== 0) fail('agent relay entrypoint must run as root');
   absolutePath(path, 'config');
-  const [entry, canonical] = await Promise.all([lstat(path), realpath(path)]);
-  if (
-    !entry.isFile() || entry.isSymbolicLink() || canonical !== path || entry.uid !== 0 ||
-    (entry.mode & 0o022) !== 0 || entry.size < 2 || entry.size > 64 * 1024
-  ) fail('agent relay config must be an immutable root-owned file');
-  return validateConfig(JSON.parse(await readFile(path, 'utf8')));
+  return validateConfig(await readImmutableAgentRelayConfig(path));
 }
 
 function configArgument(argv) {

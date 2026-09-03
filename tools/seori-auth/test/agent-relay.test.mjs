@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { chmod, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +12,7 @@ import {
   assertAgentRelayPublicJson,
   createAgentMtlsForwarder,
   NativeSecurityBoundary,
+  readImmutableAgentRelayConfig,
   SeoriAuthError,
 } from '../src/index.mjs';
 
@@ -172,6 +173,29 @@ test('agent relay normalizes conventional credential field names', () => {
   assert.deepEqual(assertAgentRelayPublicJson({ tokenPagination: { nextPageTokenPresent: true } }), {
     tokenPagination: { nextPageTokenPresent: true },
   });
+});
+
+test('agent relay config is read from one verified descriptor under trusted ancestors', async () => {
+  const root = await realpath(await mkdtemp(join(process.cwd(), '.agent-relay-config-test-')));
+  try {
+    const configPath = join(root, 'relay.json');
+    await writeFile(configPath, '{"schemaVersion":1}', { mode: 0o600 });
+    assert.deepEqual(await readImmutableAgentRelayConfig(configPath, {
+      expectedOwnerUid: process.getuid(),
+    }), { schemaVersion: 1 });
+
+    const unsafe = join(root, 'worker-writable');
+    await mkdir(unsafe, { mode: 0o700 });
+    await chmod(unsafe, 0o777);
+    const replacedPath = join(unsafe, 'relay.json');
+    await writeFile(replacedPath, '{"schemaVersion":1}', { mode: 0o600 });
+    await assert.rejects(
+      readImmutableAgentRelayConfig(replacedPath, { expectedOwnerUid: process.getuid() }),
+      (error) => error instanceof SeoriAuthError && error.code === 'insecure_agent_relay_config_ancestor',
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('mTLS forwarder rejects writable trust and client certificate files', async () => {
