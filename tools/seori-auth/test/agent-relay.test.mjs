@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
@@ -53,7 +53,7 @@ function post(socketPath, body, { method = 'POST', path = '/v1/execute', headers
 }
 
 test('agent relay binds one Unix peer to a private socket and forwards public JSON only', async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'seori-agent-relay-')));
+  const root = await realpath(await mkdtemp(join(homedir(), '.seori-agent-relay-')));
   await chmod(root, 0o711);
   const socketPath = join(root, 'worker.sock');
   const helperDigest = createHash('sha256').update(await readFile(helper)).digest('hex');
@@ -147,7 +147,7 @@ test('agent relay binds one Unix peer to a private socket and forwards public JS
 });
 
 test('agent relay rejects excess in-flight work before peer attestation or body buffering', async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'seori-agent-relay-bound-')));
+  const root = await realpath(await mkdtemp(join(homedir(), '.seori-agent-relay-bound-')));
   await chmod(root, 0o700);
   const socketPath = join(root, 'worker.sock');
   let attestations = 0;
