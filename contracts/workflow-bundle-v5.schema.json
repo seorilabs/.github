@@ -50,7 +50,7 @@
     },
     "promotionScope": {
       "const": {
-        "staticProfiles": ["react-native", "godot", "capacitor", "ait-web"],
+        "staticProfiles": ["react-native", "godot", "capacitor"],
         "buildProfiles": ["react-native-android", "godot-android"]
       }
     },
@@ -326,8 +326,8 @@
             "state": { "const": "APPROVED" },
             "evidence": {
               "type": "array",
-              "minItems": 6,
-              "maxItems": 6,
+              "minItems": 5,
+              "maxItems": 5,
               "items": {
                 "oneOf": [
                   { "$ref": "#/$defs/staticEvidence" },
