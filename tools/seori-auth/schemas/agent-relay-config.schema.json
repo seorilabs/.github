@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": [
     "schemaVersion",
+    "controlPlane",
     "workerKind",
     "socketPath",
     "expectedPeer",
@@ -13,7 +14,54 @@
     "upstream"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
+    "controlPlane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "projectionId",
+        "projectionDigest",
+        "configRevision",
+        "discoveryObservation",
+        "providerObservation"
+      ],
+      "properties": {
+        "contractVersion": { "const": "agent-relay-projection/v1" },
+        "projectionId": { "$ref": "#/$defs/publicId" },
+        "projectionDigest": { "$ref": "#/$defs/sha256" },
+        "configRevision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["appId", "id", "revision", "snapshotDigest"],
+          "properties": {
+            "appId": { "$ref": "#/$defs/publicId" },
+            "id": { "$ref": "#/$defs/publicId" },
+            "revision": { "type": "integer", "minimum": 1 },
+            "snapshotDigest": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "discoveryObservation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "sourceSha", "payloadHash"],
+          "properties": {
+            "id": { "$ref": "#/$defs/publicId" },
+            "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "payloadHash": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "providerObservation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "payloadHash"],
+          "properties": {
+            "id": { "$ref": "#/$defs/publicId" },
+            "payloadHash": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    },
     "workerKind": { "enum": ["CODEX", "CLAUDE"] },
     "socketPath": { "type": "string", "pattern": "^/[^\\u0000]+$", "maxLength": 1024 },
     "expectedPeer": {
@@ -39,7 +87,11 @@
       "additionalProperties": false,
       "required": ["origin", "serverName", "tls"],
       "properties": {
-        "origin": { "type": "string", "pattern": "^https://[^/]+$", "maxLength": 2048 },
+        "origin": {
+          "type": "string",
+          "pattern": "^https://(?:\\[[0-9A-Fa-f:.]+\\]|[A-Za-z0-9.-]+)(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$",
+          "maxLength": 2048
+        },
         "serverName": {
           "type": "string",
           "pattern": "^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -55,6 +107,16 @@
           }
         }
       }
+    }
+  },
+  "$defs": {
+    "publicId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     }
   }
 }

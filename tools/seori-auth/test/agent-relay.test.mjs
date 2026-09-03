@@ -9,6 +9,8 @@ import { createHash } from 'node:crypto';
 
 import {
   AgentRelayDaemon,
+  agentRelayProjectionDigest,
+  assertAgentRelayProjection,
   assertAgentRelayClientSocket,
   assertAgentRelayPublicJson,
   createAgentMtlsForwarder,
@@ -20,6 +22,50 @@ import {
 } from '../src/index.mjs';
 
 const helper = new URL('../.build/seori-auth-native', import.meta.url).pathname;
+
+function relayProjectionConfig() {
+  const config = {
+    schemaVersion: 2,
+    controlPlane: {
+      contractVersion: 'agent-relay-projection/v1',
+      projectionId: 'agent-relay:codex:test',
+      projectionDigest: '0'.repeat(64),
+      configRevision: {
+        appId: 'app-control-plane-test',
+        id: 'config-revision-test',
+        revision: 7,
+        snapshotDigest: '1'.repeat(64),
+      },
+      discoveryObservation: {
+        id: 'discovery-observation-test',
+        sourceSha: '2'.repeat(40),
+        payloadHash: '3'.repeat(64),
+      },
+      providerObservation: {
+        id: 'provider-observation-test',
+        payloadHash: '4'.repeat(64),
+      },
+    },
+    workerKind: 'CODEX',
+    socketPath: '/private/var/run/seori-auth-agent/codex/relay.sock',
+    expectedPeer: { uid: 5010, gid: 5010 },
+    nativeHelper: {
+      path: '/opt/seori-auth/bin/seori-auth-native',
+      sha256: '5'.repeat(64),
+    },
+    upstream: {
+      origin: 'https://127.0.0.1:19443',
+      serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+      tls: {
+        caPath: '/private/etc/seori-auth-agent/codex/ca.pem',
+        certificatePath: '/private/etc/seori-auth-agent/codex/tls.crt',
+        privateKeyPath: '/private/etc/seori-auth-agent/codex/tls.key',
+      },
+    },
+  };
+  config.controlPlane.projectionDigest = agentRelayProjectionDigest(config);
+  return config;
+}
 
 function post(socketPath, body, { method = 'POST', path = '/v1/execute', headers = {} } = {}) {
   return new Promise((resolve, reject) => {
@@ -336,6 +382,25 @@ test('agent relay config is read from one verified descriptor under trusted ance
   }
 });
 
+test('agent relay config is bound to one central revision and observation projection', () => {
+  const config = relayProjectionConfig();
+  assert.deepEqual(assertAgentRelayProjection(config), config.controlPlane);
+
+  const tampered = structuredClone(config);
+  tampered.expectedPeer.uid += 1;
+  assert.throws(
+    () => assertAgentRelayProjection(tampered),
+    (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_projection_mismatch',
+  );
+
+  const missingObservation = structuredClone(config);
+  delete missingObservation.controlPlane.providerObservation;
+  assert.throws(
+    () => assertAgentRelayProjection(missingObservation),
+    (error) => error instanceof SeoriAuthError && error.code === 'invalid_agent_relay_projection',
+  );
+});
+
 test('mTLS forwarder rejects writable trust and client certificate files', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'seori-agent-forwarder-mode-')));
   try {
@@ -452,6 +517,7 @@ test('agent relay entrypoint delegates lifecycle without forced process exit', a
 });
 
 test('agent relay lifecycle serializes a startup signal before STOPPED and never emits READY', async () => {
+  const config = relayProjectionConfig();
   let resolveStart;
   const startGate = new Promise((resolve) => { resolveStart = resolve; });
   const events = [];
@@ -469,6 +535,7 @@ test('agent relay lifecycle serializes a startup signal before STOPPED and never
       },
     },
     workerKind: 'CODEX',
+    controlPlane: config.controlPlane,
     async writeRecord(record) {
       events.push(record.state);
     },
@@ -490,6 +557,7 @@ test('agent relay lifecycle serializes a startup signal before STOPPED and never
 });
 
 test('agent relay lifecycle closes the daemon when READY publication fails', async () => {
+  const config = relayProjectionConfig();
   let stopCount = 0;
   await assert.rejects(
     runAgentRelayLifecycle({
@@ -498,6 +566,7 @@ test('agent relay lifecycle closes the daemon when READY publication fails', asy
         async stop() { stopCount += 1; },
       },
       workerKind: 'CLAUDE',
+      controlPlane: config.controlPlane,
       async writeRecord(record) {
         assert.equal(record.state, 'READY');
         throw new Error('fake stdout failure');
@@ -508,6 +577,43 @@ test('agent relay lifecycle closes the daemon when READY publication fails', asy
     /fake stdout failure/,
   );
   assert.equal(stopCount, 1);
+});
+
+test('agent relay lifecycle refuses to start without a control-plane projection', async () => {
+  let started = false;
+  await assert.rejects(
+    runAgentRelayLifecycle({
+      daemon: {
+        async start() { started = true; },
+        async stop() {},
+      },
+      workerKind: 'CODEX',
+      async writeRecord() {},
+      subscribeSignal() {},
+      setExitCode() {},
+    }),
+    /validated control-plane projection/,
+  );
+  assert.equal(started, false);
+});
+
+test('agent relay READY record exposes the exact public control-plane projection binding', async () => {
+  const config = relayProjectionConfig();
+  const records = [];
+  await runAgentRelayLifecycle({
+    daemon: { async start() {}, async stop() {} },
+    workerKind: config.workerKind,
+    controlPlane: config.controlPlane,
+    async writeRecord(record) { records.push(record); },
+    subscribeSignal() {},
+    setExitCode: () => assert.fail('READY completion does not set an exit code'),
+  });
+  assert.deepEqual(records, [{
+    state: 'READY',
+    transport: 'unix',
+    workerKind: 'CODEX',
+    controlPlane: config.controlPlane,
+  }]);
 });
 
 test('mTLS forwarder converts upstream response stream errors into a stable rejection', async () => {

@@ -1,10 +1,16 @@
 export async function runAgentRelayLifecycle({
   daemon,
+  controlPlane,
   workerKind,
   writeRecord,
   subscribeSignal,
   setExitCode,
 }) {
+  if (
+    !controlPlane || typeof controlPlane !== 'object' || Array.isArray(controlPlane) ||
+    typeof controlPlane.projectionId !== 'string' ||
+    typeof controlPlane.projectionDigest !== 'string'
+  ) throw new TypeError('agent relay lifecycle requires a validated control-plane projection');
   const startPromise = daemon.start();
   let stopping = false;
   let stopPromise = null;
@@ -36,7 +42,7 @@ export async function runAgentRelayLifecycle({
     return;
   }
   try {
-    await writeRecord({ state: 'READY', transport: 'unix', workerKind });
+    await writeRecord({ state: 'READY', transport: 'unix', workerKind, controlPlane });
   } catch (error) {
     stopping = true;
     await closeDaemon();

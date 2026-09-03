@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
 import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
 import { constants as fsConstants } from 'node:fs';
@@ -11,6 +12,9 @@ const RESPONSE_LIMIT = 512 * 1024;
 const MAX_CONNECTIONS = 4;
 const MAX_IN_FLIGHT = 2;
 const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const PUBLIC_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/;
+const SHA1 = /^[0-9a-f]{40}$/;
+const SHA256 = /^[0-9a-f]{64}$/;
 const FORBIDDEN_KEY_PARTS = Object.freeze([
   'apikey',
   'authorization',
@@ -56,6 +60,78 @@ const FORBIDDEN_KEY_ALIASES = new Set([
 ]);
 function normalizeJsonKey(value) {
   return value.replace(/[^a-z0-9]/giu, '').toLowerCase();
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort((left, right) => left.localeCompare(right)).map((key) =>
+      `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function exactObject(value, expected) {
+  return value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.keys(value).sort().join('\0') === [...expected].sort().join('\0');
+}
+
+function validPublicId(value) {
+  return typeof value === 'string' && PUBLIC_ID.test(value);
+}
+
+function relayProjectionPayload(config) {
+  const { projectionDigest: _projectionDigest, ...controlPlane } = config.controlPlane;
+  return {
+    schemaVersion: config.schemaVersion,
+    controlPlane,
+    workerKind: config.workerKind,
+    socketPath: config.socketPath,
+    expectedPeer: config.expectedPeer,
+    nativeHelper: config.nativeHelper,
+    upstream: config.upstream,
+  };
+}
+
+export function agentRelayProjectionDigest(config) {
+  return createHash('sha256').update(canonicalJson(relayProjectionPayload(config)), 'utf8').digest('hex');
+}
+
+export function assertAgentRelayProjection(config) {
+  const controlPlane = config?.controlPlane;
+  if (
+    !exactObject(controlPlane, [
+      'contractVersion', 'projectionId', 'projectionDigest', 'configRevision',
+      'discoveryObservation', 'providerObservation',
+    ]) ||
+    controlPlane.contractVersion !== 'agent-relay-projection/v1' ||
+    !validPublicId(controlPlane.projectionId) || !SHA256.test(controlPlane.projectionDigest ?? '') ||
+    !exactObject(controlPlane.configRevision, ['appId', 'id', 'revision', 'snapshotDigest']) ||
+    !validPublicId(controlPlane.configRevision.appId) ||
+    !validPublicId(controlPlane.configRevision.id) ||
+    !Number.isSafeInteger(controlPlane.configRevision.revision) ||
+    controlPlane.configRevision.revision < 1 ||
+    !SHA256.test(controlPlane.configRevision.snapshotDigest ?? '') ||
+    !exactObject(controlPlane.discoveryObservation, ['id', 'payloadHash', 'sourceSha']) ||
+    !validPublicId(controlPlane.discoveryObservation.id) ||
+    !SHA1.test(controlPlane.discoveryObservation.sourceSha ?? '') ||
+    !SHA256.test(controlPlane.discoveryObservation.payloadHash ?? '') ||
+    !exactObject(controlPlane.providerObservation, ['id', 'payloadHash']) ||
+    !validPublicId(controlPlane.providerObservation.id) ||
+    !SHA256.test(controlPlane.providerObservation.payloadHash ?? '')
+  ) fail('invalid_agent_relay_projection', 'agent relay control-plane projection is invalid');
+  const actual = agentRelayProjectionDigest(config);
+  if (!timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(controlPlane.projectionDigest, 'hex'))) {
+    fail('agent_relay_projection_mismatch', 'agent relay config does not match its control-plane projection');
+  }
+  return Object.freeze({
+    contractVersion: controlPlane.contractVersion,
+    projectionId: controlPlane.projectionId,
+    projectionDigest: controlPlane.projectionDigest,
+    configRevision: Object.freeze({ ...controlPlane.configRevision }),
+    discoveryObservation: Object.freeze({ ...controlPlane.discoveryObservation }),
+    providerObservation: Object.freeze({ ...controlPlane.providerObservation }),
+  });
 }
 
 function isCredentialJsonKey(value) {

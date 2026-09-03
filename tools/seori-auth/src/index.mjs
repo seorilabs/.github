@@ -4,6 +4,8 @@ export { EncryptedBrowserVault } from './browser-vault.mjs';
 export { BrowserLoginBoundary } from './browser-login.mjs';
 export {
   AgentRelayDaemon,
+  agentRelayProjectionDigest,
+  assertAgentRelayProjection,
   assertAgentRelayClientSocket,
   assertAgentRelayPublicJson,
   createAgentMtlsForwarder,

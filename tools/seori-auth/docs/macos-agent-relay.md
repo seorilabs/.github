@@ -17,6 +17,11 @@ kubeconfig를 worker 사용자에게 주지 않습니다.
 - relay는 native helper의 SHA-256을 시작 시 검증하고 macOS `getpeereid`와
   `LOCAL_PEERPID`로 accepted socket의 UID/GID/PID를 읽습니다. 요청 body의 principal은
   신뢰하지 않습니다.
+- relay 설정은 Backoffice에서 승인된 `ConfigRevision`과 그 입력이 된
+  `DiscoveryObservation`·`ProviderObservation`으로 생성한 투영본입니다. root 파일은 이
+  투영본의 실행 캐시이며 별도 설정 원본이 아닙니다. relay는 전체 공개 binding의
+  `projectionDigest`를 다시 계산하고, 시작 `READY` 레코드에 중앙 객체 ID·해시를 내보냅니다.
+  Backoffice는 이 readback을 승인 투영본과 exact 비교해야 합니다.
 - relay가 허용하는 목적지는 root config의 exact HTTPS origin과 `/v1/execute` 하나이며,
   TLS 1.3과 exact server name을 강제합니다. redirect와 임의 host/path는 없습니다.
 - 이 upstream은 `seorilabs-backoffice` 이미지의
@@ -57,7 +62,27 @@ root config에는 인증 값이 아니라 경로와 공개 binding만 기록합�
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "controlPlane": {
+    "contractVersion": "agent-relay-projection/v1",
+    "projectionId": "agent-relay:codex:example",
+    "projectionDigest": "c7b8cf2e5228dc07890d661bdabfe5b94c3a1df798fb1e04f49cb55abf83cf2c",
+    "configRevision": {
+      "appId": "app-control-plane-example",
+      "id": "config-revision-example",
+      "revision": 1,
+      "snapshotDigest": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "discoveryObservation": {
+      "id": "discovery-observation-example",
+      "sourceSha": "2222222222222222222222222222222222222222",
+      "payloadHash": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "providerObservation": {
+      "id": "provider-observation-example",
+      "payloadHash": "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  },
   "workerKind": "CODEX",
   "socketPath": "/private/var/run/seori-auth-agent/codex/relay.sock",
   "expectedPeer": { "uid": 5010, "gid": 5010 },
@@ -77,9 +102,14 @@ root config에는 인증 값이 아니라 경로와 공개 binding만 기록합�
 }
 ```
 
-위 SHA-256과 UID/GID는 예시 자리표시자입니다. 실제 설치에서는 exact build readback과
-`dscl` 결과로 render하고, config와 key는 root 소유로 둡니다. relay entrypoint는 root가
-아니거나 config가 root 소유 regular file이 아니면 시작하지 않습니다.
+위 중앙 객체 ID·해시, native helper SHA-256, UID/GID는 예시입니다. 예시
+`projectionDigest`는 보이는 나머지 예시 필드에서 계산한 값입니다. 실제 설치에서는
+native helper와 `dscl` readback을 각각 append-only `DiscoveryObservation`과
+`ProviderObservation`에 기록하고, 사람이 활성화한 exact `ConfigRevision`에서 Backoffice가
+이 JSON을 생성합니다. 운영자는 로컬에서 값을 조립하거나 수정하지 않습니다. config와
+key는 root 소유로 두며 relay entrypoint는 root가 아니거나 config가 root 소유 regular
+file이 아니거나 projection digest가 다르면 시작하지 않습니다. 이 digest는 승인본과 실행
+캐시의 drift 검출값입니다. root 자체의 침해를 막는 서명으로 사용하지 않습니다.
 
 worker는 요청을 stdin으로만 보냅니다.
 
@@ -95,14 +125,18 @@ argv·환경변수·로그에는 요청 body나 인증 값을 넣지 않습니�
 ## 활성화 순서
 
 1. exact source에서 native helper를 빌드하고 checksum을 읽은 뒤 root-owned immutable 경로에
-   설치합니다.
-2. 두 전용 사용자와 사용자별 agent login을 readback합니다.
+   설치하고 `DiscoveryObservation`에 기록합니다.
+2. 두 전용 사용자와 사용자별 agent login을 readback해 공개 UID/GID 상태를
+   `ProviderObservation`에 기록합니다.
 3. runtime을 `replicas: 0`으로 둔 채 server/client SAN, fingerprint, serial, Backoffice origin,
-   GitHub App 공개 identity를 대조합니다.
-4. root relay와 통신 경로를 설치하되 worker launchd job은 disabled로 둡니다.
-5. fake private repository에서 cross-UID 거부, response loss, token revoke, restart,
+   GitHub App 공개 identity를 대조하고 같은 `ProviderObservation`에 기록합니다.
+4. 관측값을 반영한 ConfigRevision을 검토·활성화하고 Backoffice가 worker별 projection을
+   생성합니다.
+5. root relay와 통신 경로를 설치하되 worker launchd job은 disabled로 둡니다. 시작 직후
+   `READY.controlPlane`을 중앙 projection과 대조합니다.
+6. fake private repository에서 cross-UID 거부, response loss, token revoke, restart,
    `CREATE_COMMIT/CREATE_REF/CREATE_PR` partial resume를 검증합니다.
-6. 별도 검토 PR에서 runtime과 READY_PR gate를 열고, 일반 worker 각각 한 번의
+7. 별도 검토 PR에서 runtime과 READY_PR gate를 열고, 일반 worker 각각 한 번의
    claim·heartbeat·완료와 Backoffice readback을 확인합니다.
 
 이 문서는 사용자·인증서·launchd·Kubernetes 객체를 생성하거나 활성화하지 않습니다.

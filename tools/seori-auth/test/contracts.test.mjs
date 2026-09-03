@@ -39,9 +39,24 @@ test('example policy and JSON schemas are parseable', async () => {
   assert.equal(brokerSchema.$defs.executionBinding.additionalProperties, false);
   assert.equal(brokerSchema.oneOf.length, 5);
   assert.equal(agentRelaySchema.additionalProperties, false);
+  assert.equal(agentRelaySchema.properties.schemaVersion.const, 2);
+  assert.equal(agentRelaySchema.required.includes('controlPlane'), true);
+  assert.equal(agentRelaySchema.properties.controlPlane.additionalProperties, false);
   assert.deepEqual(agentRelaySchema.properties.workerKind.enum, ['CODEX', 'CLAUDE']);
   assert.equal(agentRelaySchema.properties.expectedPeer.properties.uid.minimum, 1);
   assert.equal(agentRelaySchema.properties.upstream.properties.tls.additionalProperties, false);
+  const relayOrigin = new RegExp(agentRelaySchema.properties.upstream.properties.origin.pattern);
+  for (const origin of [
+    'https://relay.example.com',
+    'https://relay.example.com:1',
+    'https://127.0.0.1:443',
+    'https://[::1]:65535',
+  ]) assert.equal(relayOrigin.test(origin), true, origin);
+  for (const origin of [
+    'https://relay.example.com:0',
+    'https://relay.example.com:65536',
+    'https://relay.example.com:99999',
+  ]) assert.equal(relayOrigin.test(origin), false, origin);
   assert.deepEqual(
     brokerSchema.$defs.publicIdentity.required,
     ['provider', 'accountId', 'teamId', 'workspaceId', 'appId'],

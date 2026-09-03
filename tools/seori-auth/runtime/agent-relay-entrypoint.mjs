@@ -4,6 +4,7 @@ import { isAbsolute } from 'node:path';
 
 import {
   AgentRelayDaemon,
+  assertAgentRelayProjection,
   createAgentMtlsForwarder,
   NativeSecurityBoundary,
   readImmutableAgentRelayConfig,
@@ -31,8 +32,8 @@ function absolutePath(value, label) {
 
 function validateConfig(config) {
   if (!exactKeys(config, [
-    'expectedPeer', 'nativeHelper', 'schemaVersion', 'socketPath', 'upstream', 'workerKind',
-  ]) || config.schemaVersion !== 1 || !WORKER_KIND.has(config.workerKind)) {
+    'controlPlane', 'expectedPeer', 'nativeHelper', 'schemaVersion', 'socketPath', 'upstream', 'workerKind',
+  ]) || config.schemaVersion !== 2 || !WORKER_KIND.has(config.workerKind)) {
     fail('agent relay config fields are invalid');
   }
   if (
@@ -49,8 +50,9 @@ function validateConfig(config) {
     typeof config.upstream.origin !== 'string' || typeof config.upstream.serverName !== 'string' ||
     !exactKeys(config.upstream.tls, ['caPath', 'certificatePath', 'privateKeyPath'])
   ) fail('agent relay upstream binding is invalid');
-  return Object.freeze({
-    schemaVersion: 1,
+  const validated = {
+    schemaVersion: 2,
+    controlPlane: config.controlPlane,
     workerKind: config.workerKind,
     socketPath: absolutePath(config.socketPath, 'socketPath'),
     expectedPeer: Object.freeze({ ...config.expectedPeer }),
@@ -67,7 +69,9 @@ function validateConfig(config) {
         privateKeyPath: absolutePath(config.upstream.tls.privateKeyPath, 'upstream.tls.privateKeyPath'),
       }),
     }),
-  });
+  };
+  validated.controlPlane = assertAgentRelayProjection(validated);
+  return Object.freeze(validated);
 }
 
 async function readRootConfig(path) {
@@ -112,6 +116,7 @@ async function main() {
 
   await runAgentRelayLifecycle({
     daemon,
+    controlPlane: config.controlPlane,
     workerKind: config.workerKind,
     writeRecord: writeStdoutRecord,
     subscribeSignal: (signal, handler) => process.once(signal, handler),
