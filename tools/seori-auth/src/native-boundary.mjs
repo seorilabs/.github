@@ -396,6 +396,7 @@ export class NativeSecurityBoundary {
             child.once('error', reject);
             child.once('close', (code, signal) => resolve({ code, signal }));
           });
+          void completion.catch(() => {});
           await Promise.all([helperImage.close(), executableImage.close(), childImage.close()]);
           helperImage = undefined;
           executableImage = undefined;
