@@ -26,6 +26,19 @@ async function sha256(path) {
   return createHash('sha256').update(await readFile(path)).digest('hex');
 }
 
+async function trustedWriterImages(testContext) {
+  const root = await mkdtemp(join(packageRoot, 'writer-images-'));
+  const executablePath = join(root, 'node');
+  const childPath = join(root, 'writer.mjs');
+  await Promise.all([
+    copyFile(process.execPath, executablePath),
+    copyFile(writerFixture, childPath),
+  ]);
+  await Promise.all([chmod(executablePath, 0o500), chmod(childPath, 0o400)]);
+  testContext.after(() => rm(root, { recursive: true, force: true }));
+  return { executablePath, childPath };
+}
+
 function principal() {
   return {
     subject: 'k8s:release-workers:worker-a',
@@ -161,11 +174,12 @@ test('trusted adapter runs behind native non-dumpable launcher without secret ar
   }
 });
 
-test('native Secret Manager writer exposes only a strict public result and verifies fake backup restore', async () => {
+test('native Secret Manager writer exposes only a strict public result and verifies fake backup restore', async (testContext) => {
+  const { executablePath, childPath } = await trustedWriterImages(testContext);
   const [helperSha256, executableSha256, childSha256] = await Promise.all([
     sha256(helper),
-    sha256(process.execPath),
-    sha256(writerFixture),
+    sha256(executablePath),
+    sha256(childPath),
   ]);
   const boundary = await NativeSecurityBoundary.open({
     helperPath: helper,
@@ -173,16 +187,16 @@ test('native Secret Manager writer exposes only a strict public result and verif
     resolvePrincipal: async () => principal(),
   });
   const writer = await boundary.secretManagerWriter({
-    executablePath: process.execPath,
+    executablePath,
     executableSha256,
-    childPath: writerFixture,
+    childPath,
     childSha256,
   });
   assert.deepEqual(writer.identity, {
     mode: 'native-secret-manager-writer-v1',
-    executablePath: process.execPath,
+    executablePath,
     executableSha256,
-    childPath: writerFixture,
+    childPath,
     childSha256,
   });
 
@@ -306,9 +320,9 @@ test('native Secret Manager writer exposes only a strict public result and verif
 
   await assert.rejects(
     boundary.secretManagerWriter({
-      executablePath: process.execPath,
+      executablePath,
       executableSha256,
-      childPath: writerFixture,
+      childPath,
       childSha256,
       timeoutMs: 60_001,
     }),
@@ -319,19 +333,20 @@ test('native Secret Manager writer exposes only a strict public result and verif
 
   await assert.rejects(
     boundary.secretManagerWriter({
-      executablePath: process.execPath,
+      executablePath,
       executableSha256,
-      childPath: writerFixture,
+      childPath,
       childSha256: '0'.repeat(64),
     }),
     (error) => error instanceof SeoriAuthError && error.code === 'native_helper_mismatch',
   );
 });
 
-test('native Secret Manager writer rejects writable ancestors and image replacement', async () => {
+test('native Secret Manager writer rejects writable ancestors and image replacement', async (testContext) => {
+  const { executablePath } = await trustedWriterImages(testContext);
   const [helperSha256, executableSha256, childSha256] = await Promise.all([
     sha256(helper),
-    sha256(process.execPath),
+    sha256(executablePath),
     sha256(writerFixture),
   ]);
   const boundary = await NativeSecurityBoundary.open({
@@ -347,7 +362,7 @@ test('native Secret Manager writer rejects writable ancestors and image replacem
     await chmod(writableRoot, 0o777);
     await assert.rejects(
       boundary.secretManagerWriter({
-        executablePath: process.execPath,
+        executablePath,
         executableSha256,
         childPath: writableChild,
         childSha256,
@@ -367,7 +382,7 @@ test('native Secret Manager writer rejects writable ancestors and image replacem
   try {
     await copyFile(writerFixture, replacementChild);
     const writer = await boundary.secretManagerWriter({
-      executablePath: process.execPath,
+      executablePath,
       executableSha256,
       childPath: replacementChild,
       childSha256,
