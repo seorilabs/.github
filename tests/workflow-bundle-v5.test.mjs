@@ -2279,6 +2279,59 @@ test("pnpm and npm staging require exact Platform lock evidence and never retain
     /PACKAGE_DEPENDENCY_SOURCE_FORBIDDEN/u,
   );
 
+  // capacitor 앱은 자기 native 플러그인을 저장소 안 file: package로 참조한다. 그 바이트는
+  // 이미 검증한 checkout 안에 있으므로 허용하고, workspace 밖을 가리키면 그대로 거부한다.
+  const inRepoRoot = await mkdtemp(join(tmpdir(), "workflow-v5-in-repo-package-"));
+  roots.push(inRepoRoot);
+  await cp(npmRoot, inRepoRoot, { recursive: true });
+  await mkdir(join(inRepoRoot, "plugins/native-bridge"), { recursive: true });
+  await writeFile(
+    join(inRepoRoot, "plugins/native-bridge/package.json"),
+    `${JSON.stringify({ name: "@seorilabs/native-bridge", version: "0.1.0", main: "index.js" })}\n`,
+  );
+  const inRepoManifestPath = join(inRepoRoot, "package.json");
+  const inRepoManifest = JSON.parse(await readFile(inRepoManifestPath, "utf8"));
+  inRepoManifest.dependencies["@seorilabs/native-bridge"] = "file:plugins/native-bridge";
+  await writeFile(inRepoManifestPath, `${JSON.stringify(inRepoManifest)}\n`);
+  execFileSync("git", ["-C", inRepoRoot, "add", "-A"], { stdio: "ignore" });
+  await assert.doesNotReject(
+    inspectExactPlatformDependencyV5({
+      repoRoot: inRepoRoot,
+      dependencyRoot: ".",
+      packageManager: "npm",
+    }),
+  );
+
+  for (const escape of ["file:../outside", "file:/etc", "file:plugins/../../outside", "link:../outside"]) {
+    const escapeManifest = JSON.parse(await readFile(inRepoManifestPath, "utf8"));
+    escapeManifest.dependencies["@seorilabs/native-bridge"] = escape;
+    await writeFile(inRepoManifestPath, `${JSON.stringify(escapeManifest)}\n`);
+    await assert.rejects(
+      inspectExactPlatformDependencyV5({
+        repoRoot: inRepoRoot,
+        dependencyRoot: ".",
+        packageManager: "npm",
+      }),
+      /PACKAGE_DEPENDENCY_SOURCE_FORBIDDEN/u,
+      escape,
+    );
+  }
+  inRepoManifest.dependencies["@seorilabs/native-bridge"] = "file:plugins/native-bridge";
+  await writeFile(inRepoManifestPath, `${JSON.stringify(inRepoManifest)}\n`);
+
+  const inRepoLockPath = join(inRepoRoot, "package-lock.json");
+  const inRepoLock = JSON.parse(await readFile(inRepoLockPath, "utf8"));
+  inRepoLock.packages["node_modules/@seorilabs/native-bridge"] = { resolved: "file:../../outside" };
+  await writeFile(inRepoLockPath, `${JSON.stringify(inRepoLock)}\n`);
+  await assert.rejects(
+    inspectExactPlatformDependencyV5({
+      repoRoot: inRepoRoot,
+      dependencyRoot: ".",
+      packageManager: "npm",
+    }),
+    /LOCKFILE_SOURCE_FORBIDDEN/u,
+  );
+
   const attackerRoot = await mkdtemp(join(tmpdir(), "workflow-v5-lock-attack-"));
   roots.push(attackerRoot);
   await cp(npmRoot, attackerRoot, { recursive: true });
