@@ -266,6 +266,45 @@ test('native Secret Manager writer exposes only a strict public result and verif
   );
   assert.ok(checksumMismatchMaterial.every((byte) => byte === 0));
 
+  const versionMismatchMaterial = randomBytes(32);
+  await assert.rejects(
+    writer.writeVersion({
+      resourceName: 'projects/seori-auth-canary/secrets/fake-version-mismatch',
+      expectedVersion: 1,
+      material: versionMismatchMaterial,
+    }),
+    (error) => error instanceof SeoriAuthError &&
+      error.code === 'secret_write_failed' &&
+      error.message === 'trusted Secret Manager writer returned an invalid public result',
+  );
+  assert.ok(versionMismatchMaterial.every((byte) => byte === 0));
+
+  const oversizedResultMaterial = randomBytes(32);
+  await assert.rejects(
+    writer.writeVersion({
+      resourceName: 'projects/seori-auth-canary/secrets/fake-oversized-result',
+      expectedVersion: 1,
+      material: oversizedResultMaterial,
+    }),
+    (error) => error instanceof SeoriAuthError &&
+      error.code === 'secret_write_failed' &&
+      error.message === 'Secret Manager writer public result exceeded its bound',
+  );
+  assert.ok(oversizedResultMaterial.every((byte) => byte === 0));
+
+  await assert.rejects(
+    boundary.secretManagerWriter({
+      executablePath: process.execPath,
+      executableSha256,
+      childPath: writerFixture,
+      childSha256,
+      timeoutMs: 60_001,
+    }),
+    (error) => error instanceof SeoriAuthError &&
+      error.code === 'invalid_native_helper' &&
+      error.message === 'Secret Manager writer contract is invalid',
+  );
+
   await assert.rejects(
     boundary.secretManagerWriter({
       executablePath: process.execPath,

@@ -78,6 +78,12 @@ try {
       if (resourceName.endsWith('-checksum-mismatch')) {
         result.dataCrc32c = String((Number(expectedCrc32c) + 1) % 0x100000000);
       }
+      if (resourceName.endsWith('-version-mismatch')) {
+        result.versionResourceName = `${resourceName}/versions/${expectedVersion + 1}`;
+      }
+      if (resourceName.endsWith('-oversized-result')) {
+        result.padding = 'x'.repeat(4_096);
+      }
       writeFileSync(resultDescriptor, JSON.stringify(result));
       if (!backupRestoreVerified || secretExposed) fail();
     }
