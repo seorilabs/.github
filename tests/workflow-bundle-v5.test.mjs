@@ -352,7 +352,7 @@ function evidenceSet(candidate) {
     artifactSha256: DIGEST,
   });
   const workflowRef = (path) => `seorilabs/.github/${path}@${WORKFLOW_EXECUTION_SHA}`;
-  const staticEvidence = ["react-native", "godot", "capacitor", "ait-web"].map((profile, index) => ({
+  const staticEvidence = ["react-native", "godot", "capacitor"].map((profile, index) => ({
       target: "static",
       profile,
       bindingSourceSha: "d".repeat(40),
@@ -491,10 +491,13 @@ test("v5 candidate binds every contract, runtime asset, profile, and immutable w
     PAUSED: "SHADOW",
     DEPRECATED: "NO_CALLER",
   });
+  // 번들은 ait-web 실행 경로를 계속 담지만 승인 범위에는 넣지 않는다. 그 프로필을 쓰는
+  // 저장소가 모두 폐기돼 증거를 만들 수 없고, 범위에 남기면 모든 승인이 막힌다.
   assert.deepEqual(candidate.promotionScope, {
-    staticProfiles: ["react-native", "godot", "capacitor", "ait-web"],
+    staticProfiles: ["react-native", "godot", "capacitor"],
     buildProfiles: ["react-native-android", "godot-android"],
   });
+  assert.ok(Object.keys(candidate.staticProfiles).includes("ait-web"));
   assert.deepEqual(workflowBundleV5Contract.promotionScope.buildProfiles, [
     "react-native-android",
     "godot-android",
@@ -648,10 +651,16 @@ test("v5 candidate CI runs the cold npm and pnpm fixtures instead of silently sk
   assert.match(coldCacheStep.run, /node --test tests\/workflow-bundle-v5-cold-cache\.test\.mjs/u);
 });
 
-test("approval requires four static and two exact build-only evidence records", async () => {
+test("approval requires the promoted static profiles and two exact build-only evidence records", async () => {
   const { candidate, approved } = await approvedBundleBinding();
   assert.equal(approved.approval.state, "APPROVED");
-  assert.equal(approved.approval.evidence.length, 6);
+  // 승인 범위(static 3 + build 2)와 필수 증거 수는 같은 값에서 파생된다.
+  assert.equal(
+    approved.approval.evidence.length,
+    workflowBundleV5Contract.promotionScope.staticProfiles.length
+      + workflowBundleV5Contract.promotionScope.buildProfiles.length,
+  );
+  assert.equal(approved.approval.evidence.length, 5);
   await assert.rejects(
     promoteWorkflowBundleV5(candidate, evidenceSet(candidate).slice(0, 3), {
       trustedEvidenceVerifier: async () => ({ state: "VERIFIED" }),
@@ -670,7 +679,9 @@ test("approval requires four static and two exact build-only evidence records", 
     /WORKFLOW_BUNDLE_EVIDENCE_RUNTIME_MISMATCH/u,
   );
   const wrongBuildDigest = evidenceSet(candidate);
-  wrongBuildDigest[4].bundlePayloadDigest = `sha256:${"9".repeat(64)}`;
+  // 첫 build 증거를 어긋나게 해서, 어떤 build readback보다 먼저 멈추는지 본다.
+  wrongBuildDigest.find((record) => record.target === "build").bundlePayloadDigest =
+    `sha256:${"9".repeat(64)}`;
   await assert.rejects(
     promoteWorkflowBundleV5(candidate, wrongBuildDigest, {
       trustedEvidenceVerifier: async (record) => {

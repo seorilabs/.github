@@ -547,13 +547,16 @@ export async function loadCandidateWorkflowBundleV5(
   return binding;
 }
 
+// 승인 범위와 필수 증거는 같은 목록이어야 한다. 따로 적으면 한쪽만 바뀌어도
+// 조용히 어긋나므로 범위에서 파생한다.
+const PROMOTION_SCOPE = Object.freeze({
+  staticProfiles: Object.freeze(["react-native", "godot", "capacitor"]),
+  buildProfiles: Object.freeze(["react-native-android", "godot-android"]),
+});
+
 const REQUIRED_EVIDENCE = Object.freeze([
-  "static:react-native",
-  "static:godot",
-  "static:capacitor",
-  "static:ait-web",
-  "build:react-native-android",
-  "build:godot-android",
+  ...PROMOTION_SCOPE.staticProfiles.map((profile) => `static:${profile}`),
+  ...PROMOTION_SCOPE.buildProfiles.map((profile) => `build:${profile}`),
 ]);
 
 function evidenceIdentity(record) {
@@ -1248,10 +1251,7 @@ export const workflowBundleV5Contract = Object.freeze({
   bundleVersion: "5.0.0",
   schemaVersion: 2,
   staticProfiles: Object.freeze(["react-native", "godot", "capacitor", "ait-web"]),
-  promotionScope: Object.freeze({
-    staticProfiles: Object.freeze(["react-native", "godot", "capacitor", "ait-web"]),
-    buildProfiles: Object.freeze(["react-native-android", "godot-android"]),
-  }),
+  promotionScope: PROMOTION_SCOPE,
   buildProfiles: Object.freeze([
     "react-native-android",
     "godot-android",
