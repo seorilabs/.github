@@ -10,6 +10,7 @@ export {
   executeAgentRelayClientRequest,
   readImmutableAgentRelayConfig,
 } from './agent-relay.mjs';
+export { runAgentRelayLifecycle } from './agent-relay-lifecycle.mjs';
 export { SeoriAuthError } from './errors.mjs';
 export {
   computeAuthStrategyEvidenceKey,

@@ -15,6 +15,7 @@ import {
   executeAgentRelayClientRequest,
   NativeSecurityBoundary,
   readImmutableAgentRelayConfig,
+  runAgentRelayLifecycle,
   SeoriAuthError,
 } from '../src/index.mjs';
 
@@ -410,11 +411,48 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
   }
 });
 
-test('agent relay entrypoint flushes lifecycle records without forced process exit', async () => {
+test('agent relay entrypoint delegates lifecycle without forced process exit', async () => {
   const entrypoint = await readFile(new URL('../runtime/agent-relay-entrypoint.mjs', import.meta.url), 'utf8');
-  assert.match(entrypoint, /await writeStdoutRecord\(\{ state: 'STOPPED'/);
-  assert.match(entrypoint, /process\.exitCode = 0/);
+  assert.match(entrypoint, /await runAgentRelayLifecycle\(\{/);
   assert.doesNotMatch(entrypoint, /process\.exit\(/);
+});
+
+test('agent relay lifecycle serializes a startup signal before STOPPED and never emits READY', async () => {
+  let resolveStart;
+  const startGate = new Promise((resolve) => { resolveStart = resolve; });
+  const events = [];
+  const handlers = new Map();
+  const exitCodes = [];
+  const lifecycle = runAgentRelayLifecycle({
+    daemon: {
+      async start() {
+        events.push('STARTING');
+        await startGate;
+        events.push('STARTED');
+      },
+      async stop() {
+        events.push('STOPPED_DAEMON');
+      },
+    },
+    workerKind: 'CODEX',
+    async writeRecord(record) {
+      events.push(record.state);
+    },
+    subscribeSignal(signal, handler) {
+      handlers.set(signal, handler);
+    },
+    setExitCode(code) {
+      exitCodes.push(code);
+    },
+  });
+
+  handlers.get('SIGTERM')();
+  await Promise.resolve();
+  assert.deepEqual(events, ['STARTING']);
+  resolveStart();
+  await lifecycle;
+  assert.deepEqual(events, ['STARTING', 'STARTED', 'STOPPED_DAEMON', 'STOPPED']);
+  assert.deepEqual(exitCodes, [0]);
 });
 
 test('mTLS forwarder converts upstream response stream errors into a stable rejection', async () => {

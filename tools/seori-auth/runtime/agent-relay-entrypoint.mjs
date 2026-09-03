@@ -7,6 +7,7 @@ import {
   createAgentMtlsForwarder,
   NativeSecurityBoundary,
   readImmutableAgentRelayConfig,
+  runAgentRelayLifecycle,
 } from '../src/index.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -109,22 +110,13 @@ async function main() {
     forwarder,
   });
 
-  let stopping = false;
-  async function stop(signal) {
-    if (stopping) return;
-    stopping = true;
-    await daemon.stop();
-    await writeStdoutRecord({ state: 'STOPPED', signal, workerKind: config.workerKind });
-  }
-  process.once('SIGTERM', () => {
-    void stop('SIGTERM').then(() => { process.exitCode = 0; }, () => { process.exitCode = 1; });
+  await runAgentRelayLifecycle({
+    daemon,
+    workerKind: config.workerKind,
+    writeRecord: writeStdoutRecord,
+    subscribeSignal: (signal, handler) => process.once(signal, handler),
+    setExitCode: (code) => { process.exitCode = code; },
   });
-  process.once('SIGINT', () => {
-    void stop('SIGINT').then(() => { process.exitCode = 0; }, () => { process.exitCode = 1; });
-  });
-
-  await daemon.start();
-  await writeStdoutRecord({ state: 'READY', transport: 'unix', workerKind: config.workerKind });
 }
 
 main().catch(() => {
