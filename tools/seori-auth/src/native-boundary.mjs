@@ -392,14 +392,14 @@ export class NativeSecurityBoundary {
             ],
             windowsHide: true,
           });
-          await Promise.all([helperImage.close(), executableImage.close(), childImage.close()]);
-          helperImage = undefined;
-          executableImage = undefined;
-          childImage = undefined;
           completion = new Promise((resolve, reject) => {
             child.once('error', reject);
             child.once('close', (code, signal) => resolve({ code, signal }));
           });
+          await Promise.all([helperImage.close(), executableImage.close(), childImage.close()]);
+          helperImage = undefined;
+          executableImage = undefined;
+          childImage = undefined;
           timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
           timer.unref();
           const writeComplete = new Promise((resolve, reject) => {
