@@ -517,12 +517,19 @@ function validateLockSources(value, field = "", parentField = "") {
     ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].includes(
       parentField,
     );
+  // directory resolution도 저장소 안이어야 한다. lockfile이 바깥 경로를 가리키면 거부한다.
+  if (field === "directory" && parentField === "resolution") {
+    if (inRepoPackageTarget(`file:${value}`) === null) fail("LOCKFILE_SOURCE_FORBIDDEN");
+    return;
+  }
   if (!sourceBearing) return;
   if (/^https?:\/\//u.test(value)) {
     fixedRegistryUrl(value);
     return;
   }
-  if (/^(?:git(?:\+[^:]+)?|github|file):/u.test(value)) {
+  if (value.startsWith("file:")) {
+    if (inRepoPackageTarget(value) === null) fail("LOCKFILE_SOURCE_FORBIDDEN");
+  } else if (/^(?:git(?:\+[^:]+)?|github):/u.test(value)) {
     fail("LOCKFILE_SOURCE_FORBIDDEN");
   }
   if (value.startsWith("link:")) {
@@ -544,14 +551,44 @@ function validateLockSources(value, field = "", parentField = "") {
   }
 }
 
+// 저장소 안에 있는 package를 가리키는 file: 지정자만 허용한다. capacitor 앱은 자기 native
+// 플러그인을 이렇게 참조하며, 그 바이트는 이미 검증한 checkout 안에 있으므로 offline 설치에서
+// 외부 source가 늘지 않는다. workspace를 벗어나거나 절대 경로면 그대로 거부한다.
+function inRepoPackageTarget(value) {
+  if (typeof value !== "string" || !value.startsWith("file:")) return null;
+  const target = value.slice("file:".length);
+  if (
+    target.length === 0 ||
+    target.startsWith("/") ||
+    target.includes("\\") ||
+    /^[A-Za-z]:/u.test(target) ||
+    target.split("/").some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    return null;
+  }
+  return target;
+}
+
+function inRepoPackageTargets(manifest) {
+  const targets = new Set();
+  for (const section of PACKAGE_SECTIONS) {
+    for (const specifier of Object.values(manifest?.[section] ?? {})) {
+      const target = inRepoPackageTarget(specifier);
+      if (target !== null) targets.add(target);
+    }
+  }
+  return targets;
+}
+
 function validateManifestDependencySources(manifest) {
   for (const section of PACKAGE_SECTIONS) {
     for (const [name, specifier] of Object.entries(manifest?.[section] ?? {})) {
+      const inRepo = inRepoPackageTarget(specifier) !== null;
       if (
         typeof specifier !== "string" ||
-        /^(?:https?:\/\/|git(?:\+[^:]+)?:|github:|file:|link:)/u.test(specifier) ||
+        (!inRepo && /^(?:https?:\/\/|git(?:\+[^:]+)?:|github:|file:|link:)/u.test(specifier)) ||
         (name !== PLATFORM_PACKAGE && /^npm:@seorilabs\//u.test(specifier)) ||
-        (name.startsWith("@seorilabs/") && name !== PLATFORM_PACKAGE)
+        (name.startsWith("@seorilabs/") && name !== PLATFORM_PACKAGE && !inRepo)
       ) {
         fail("PACKAGE_DEPENDENCY_SOURCE_FORBIDDEN");
       }
@@ -646,6 +683,9 @@ async function writeTrustedStagingMetadata({
   if (!relativePackagePaths.includes("package.json")) {
     fail("DEPENDENCY_ROOT_PACKAGE_MANIFEST_REQUIRED");
   }
+  // file: 로 참조하는 저장소 안 package는 workspace 멤버가 아니다. manifest는 staging으로
+  // 옮기되 workspace 목록에서는 빼야 --frozen-lockfile이 importer 불일치로 깨지지 않는다.
+  const linkedPackageDirectories = new Set();
   for (let index = 0; index < packagePaths.length; index += 1) {
     const source = await resolveSafeFile(repoRoot, packagePaths[index]);
     const content = await readBounded(
@@ -653,6 +693,18 @@ async function writeTrustedStagingMetadata({
       MAX_PACKAGE_BYTES,
       "PACKAGE_MANIFEST_INVALID",
     );
+    let manifest;
+    try {
+      manifest = JSON.parse(content);
+    } catch {
+      fail("PACKAGE_MANIFEST_INVALID");
+    }
+    const manifestPrefix = relativePackagePaths[index] === "package.json"
+      ? ""
+      : `${dirname(relativePackagePaths[index])}/`;
+    for (const target of inRepoPackageTargets(manifest)) {
+      linkedPackageDirectories.add(`${manifestPrefix}${target}`);
+    }
     const destination = resolve(stagingRoot, relativePackagePaths[index]);
     assertPathWithin(stagingRoot, destination, "STAGING_METADATA_PATH_INVALID");
     await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
@@ -667,7 +719,8 @@ async function writeTrustedStagingMetadata({
   if (packageManager === "pnpm") {
     const workspaceDirectories = relativePackagePaths
       .filter((path) => path !== "package.json")
-      .map((path) => dirname(path));
+      .map((path) => dirname(path))
+      .filter((path) => !linkedPackageDirectories.has(path));
     const workspace = workspaceDirectories.length === 0
       ? ["packages: []"]
       : ["packages:", ...workspaceDirectories.map((path) => `  - ${JSON.stringify(path)}`)];
