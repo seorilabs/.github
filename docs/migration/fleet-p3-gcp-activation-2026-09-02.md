@@ -119,3 +119,17 @@ happy-farm build-only가 2400s에 걸려 [#112](https://github.com/seorilabs/.gi
 `scheduler:desired-state-backfill`이 매시 27분에 `config-source-auto-rebase` revision(24, 25)을 자동 생성·활성화해
 `expectedLatestRevision` 충돌이 났고, DB의 최신 revision을 다시 읽어 26으로 만들었다. main도 `c7f8ae97…`(#540, #541)로
 이동해 실행기 PLAN의 `sourceSha`를 그 값으로 맞췄다. 재실행 결과는 아래에 이어서 기록한다.
+
+## X5 기준 두 앱 재실행 결과
+
+| 항목 | lizard-tycoon | happy-farm |
+| --- | --- | --- |
+| canary PR | #542 | #504 |
+| Org Contract(static) | [33697733212](https://github.com/seorilabs/lizard-tycoon/actions/runs/33697733212) 성공 | [33697308054](https://github.com/seorilabs/happy-farm/actions/runs/33697308054) 성공 |
+| Android Build-only | [33697733244](https://github.com/seorilabs/lizard-tycoon/actions/runs/33697733244) 성공 | __HF_RUN__ |
+| Cloud Build | `544c0f9c-21b7-4a30-a1e3-d5a0f1e659e8`, `godot-android-builder@sha256:b2a9d7a8…` | __HF_CLOUD_BUILD__ |
+| bundle / 설정 / app source | `2fee6630…`, payloadDigest `sha256:fab446c7…`, ConfigRevision 26, `c7f8ae97…` | `2fee6630…`, ConfigRevision 18, `69d29018…` |
+| AAB | 49,290,505 bytes, sha256 `5458967249414eb13fd0…` = provenance `artifactSha256` | __HF_AAB__ |
+| marketUpload | false | false |
+
+증거 JSON은 모두 X5 run의 provenance로 교체했고 X3·X4 기록은 `…-transitions.json`의 `previousAttempts`에 남긴다.
