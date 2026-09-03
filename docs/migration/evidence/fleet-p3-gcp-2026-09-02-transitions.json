@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "observedAt": "2026-09-02T15:20:22.243Z",
+  "observedAt": "2026-09-03T00:45:00Z",
   "sourceSha": "25944aea0a31b8558f470d56293bbefa61672954",
   "scope": "P3_GCP_WIF_PROVIDER_EXECUTION_SHA_TRANSITIONS_X2_X3",
   "temporaryInstallerGrant": {
     "principal": "seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com",
     "project": "seorilabs-ci",
-    "expiresAt": "2026-09-02T16:00:00Z",
-    "title": "p3-installer-20260902"
+    "expiresAt": "2026-09-03T04:00:00Z",
+    "title": "p3-installer-20260903"
   },
   "transitions": [
     {
@@ -257,6 +257,63 @@
         "applyReadbackSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e",
         "readbackAfterSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e"
       }
+    },
+    {
+      "label": "X5",
+      "workflowExecutionSha": "2fee6630a8a2e79128cbf6055087bf9f9402810d",
+      "supersededWorkflowExecutionShas": [
+        "5159ca37fde9306e6b5da265f6889ae5782b03bd"
+      ],
+      "reason": "seorilabs/.github#112 RN build-only Cloud Build timeout 2400s -> 7200s; contract seorilabs/.github#114",
+      "contractDigest": "9a7eecf513a73a5bc4af21ca2b8a352adf8a3c92d37a0112a185ad4f9560d671",
+      "confirmation": "fleet-p3-9a7eecf513a7",
+      "applyExit": 0,
+      "appliedAt": "2026-09-02T23:45Z",
+      "readbackBefore": {
+        "ready": false,
+        "providers": {
+          "github": {
+            "exists": true,
+            "configurationExact": false,
+            "disabled": false,
+            "active": true
+          },
+          "kubernetes": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          }
+        },
+        "iamBindingsPresent": "74/74",
+        "staticKeysCreated": false
+      },
+      "readbackAfter": {
+        "ready": true,
+        "providers": {
+          "github": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          },
+          "kubernetes": {
+            "exists": true,
+            "configurationExact": true,
+            "disabled": false,
+            "active": true
+          }
+        },
+        "iamBindingsPresent": "74/74",
+        "staticKeysCreated": false
+      },
+      "providerAttributeCondition": "assertion.repository_owner_id == '283115031' && ((assertion.repository_id == '1250442131' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@2fee6630a8a2e79128cbf6055087bf9f9402810d') || (assertion.repository_id == '1265192029' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/godot-build-android-cloud-v2.yml@2fee6630a8a2e79128cbf6055087bf9f9402810d') || (assertion.repository_id == '1298244321' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@2fee6630a8a2e79128cbf6055087bf9f9402810d') || (assertion.repository_id == '1298264957' && assertion.job_workflow_ref == 'seorilabs/.github/.github/workflows/rn-build-android-cloud-v2.yml@2fee6630a8a2e79128cbf6055087bf9f9402810d'))",
+      "evidenceDigests": {
+        "planSha256": "2d4dde04fc13e06a6016292f308fd9edca2623c96c7f661a33dc37dd1b332fda",
+        "readbackBeforeSha256": "8311b803ea1e13e2f8a8f98839b8ca3d888f4d63616c1bd79a17b45b6155d0d3",
+        "applySha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e",
+        "readbackAfterSha256": "5f1daef4ac670a8d05038a35f7ea1a5dd6028b060ad2697a146b25ba06401f3e"
+      }
     }
   ],
   "excluded": [
@@ -267,7 +324,12 @@
     "STATIC_KEY_CREATION"
   ],
   "nextGate": {
-    "code": "P3_CANDIDATE_BUILD_ONLY_RUNS_PENDING",
+    "code": "P3_APPROVAL_EVIDENCE_PENDING",
+    "missing": [
+      "static:capacitor",
+      "static:ait-web",
+      "approval-signer"
+    ],
     "issues": [
       "seorilabs/.github#42"
     ]
@@ -275,39 +337,67 @@
   "buildOnlyRuns": {
     "lizard-tycoon": {
       "status": "SUCCEEDED",
-      "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33650716595",
-      "pullRequest": "seorilabs/lizard-tycoon#537",
-      "workflowExecutionSha": "5159ca37fde9306e6b5da265f6889ae5782b03bd",
-      "configRevision": 23,
-      "cloudBuildId": "d2fc1717-effa-4b28-8c05-edd0a518be4f",
-      "artifactSha256": "sha256:c1ca51c43b88249ad3387c1621a89b05505b087c45660acc59654191bccebf0e",
-      "artifactBytes": 49289793,
+      "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33697733244",
+      "pullRequest": "seorilabs/lizard-tycoon#542",
+      "workflowExecutionSha": "2fee6630a8a2e79128cbf6055087bf9f9402810d",
+      "applicationSourceSha": "c7f8ae97e3ec3d82388fdba2034af695c8d91ff6",
+      "configRevision": 26,
+      "cloudBuildId": "544c0f9c-21b7-4a30-a1e3-d5a0f1e659e8",
+      "artifactSha256": "sha256:5458967249414eb13fd06ea74b0ef23c2590451962e7a72652943c9986e0c6a8",
+      "artifactBytes": 49290505,
       "provenance": "fleet-p3-build-godot-android-lizard-tycoon-2026-09-02.json",
       "marketUpload": false,
-      "previous": {
-        "status": "SUCCEEDED",
-        "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33645367627",
-        "pullRequest": "seorilabs/lizard-tycoon#536",
-        "workflowExecutionSha": "7790257716bca71ae865aa11274803520adf13e3",
-        "configRevision": 21,
-        "cloudBuildId": "385fa128-ba8c-4047-bf5a-6ffe114a6343",
-        "artifactSha256": "sha256:bc92475649a66699616ccf852e8a1648d38655805c1704f03cffb57d60c936ae",
-        "artifactBytes": 49289785
-      }
+      "previousAttempts": [
+        {
+          "status": "SUCCEEDED",
+          "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33650716595",
+          "pullRequest": "seorilabs/lizard-tycoon#537",
+          "workflowExecutionSha": "5159ca37fde9306e6b5da265f6889ae5782b03bd",
+          "configRevision": 23,
+          "cloudBuildId": "d2fc1717-effa-4b28-8c05-edd0a518be4f",
+          "artifactSha256": "sha256:c1ca51c43b88249ad3387c1621a89b05505b087c45660acc59654191bccebf0e",
+          "artifactBytes": 49289793
+        },
+        {
+          "status": "SUCCEEDED",
+          "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33645367627",
+          "pullRequest": "seorilabs/lizard-tycoon#536",
+          "workflowExecutionSha": "7790257716bca71ae865aa11274803520adf13e3",
+          "configRevision": 21,
+          "cloudBuildId": "385fa128-ba8c-4047-bf5a-6ffe114a6343",
+          "artifactSha256": "sha256:bc92475649a66699616ccf852e8a1648d38655805c1704f03cffb57d60c936ae",
+          "artifactBytes": 49289785
+        }
+      ]
     },
     "happy-farm": {
-      "status": "TIMEOUT_PENDING_X5",
-      "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33651252122",
-      "pullRequest": "seorilabs/happy-farm#503",
-      "workflowExecutionSha": "5159ca37fde9306e6b5da265f6889ae5782b03bd",
-      "configRevision": 17,
-      "cloudBuildId": "fb0cf593-13d7-4b26-8df9-8982ea21d808",
-      "cloudBuildStatus": "TIMEOUT",
-      "cloudBuildTimeoutSeconds": 2400,
-      "elapsedMinutes": 40.3,
-      "lastGradleTask": ":react-native-iap:buildCMakeRelWithDebInfo[x86_64]",
-      "fix": "seorilabs/.github#112 (timeout 7200s)",
+      "status": "SUCCEEDED",
+      "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33697307788",
+      "pullRequest": "seorilabs/happy-farm#504",
+      "workflowExecutionSha": "2fee6630a8a2e79128cbf6055087bf9f9402810d",
+      "applicationSourceSha": "69d29018edf8e6b15943e9d517bd22a2caaaad15",
+      "configRevision": 18,
+      "cloudBuildId": "17fc3660-a439-4ead-81ce-16c24550fb50",
+      "cloudBuildTimeoutSeconds": 7200,
+      "elapsedMinutes": 33.9,
+      "artifactSha256": "sha256:947a4c4185f64f9190d37d52a78dd8b054651270fbbdbd007ceed6ee62313164",
+      "artifactBytes": 62271123,
+      "provenance": "fleet-p3-build-react-native-android-happy-farm-2026-09-02.json",
+      "marketUpload": false,
       "previousAttempts": [
+        {
+          "status": "TIMEOUT_PENDING_X5",
+          "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33651252122",
+          "pullRequest": "seorilabs/happy-farm#503",
+          "workflowExecutionSha": "5159ca37fde9306e6b5da265f6889ae5782b03bd",
+          "configRevision": 17,
+          "cloudBuildId": "fb0cf593-13d7-4b26-8df9-8982ea21d808",
+          "cloudBuildStatus": "TIMEOUT",
+          "cloudBuildTimeoutSeconds": 2400,
+          "elapsedMinutes": 40.3,
+          "lastGradleTask": ":react-native-iap:buildCMakeRelWithDebInfo[x86_64]",
+          "fix": "seorilabs/.github#112 (timeout 7200s)"
+        },
         {
           "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33647994835",
           "pullRequest": "seorilabs/happy-farm#501",
@@ -322,7 +412,30 @@
     }
   },
   "staticEvidence": {
-    "static:godot": "fleet-p3-static-godot-lizard-tycoon-2026-09-02.json",
-    "static:react-native": "fleet-p3-static-react-native-happy-farm-2026-09-02.json"
-  }
+    "static:godot": {
+      "file": "fleet-p3-static-godot-lizard-tycoon-2026-09-02.json",
+      "runUrl": "https://github.com/seorilabs/lizard-tycoon/actions/runs/33697733212",
+      "configRevision": 26
+    },
+    "static:react-native": {
+      "file": "fleet-p3-static-react-native-happy-farm-2026-09-02.json",
+      "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33697308054",
+      "configRevision": 18
+    }
+  },
+  "previousInstallerGrants": [
+    {
+      "principal": "seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com",
+      "project": "seorilabs-ci",
+      "expiresAt": "2026-09-02T16:00:00Z",
+      "title": "p3-installer-20260902"
+    },
+    {
+      "principal": "seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com",
+      "project": "seorilabs-ci",
+      "expiresAt": "2026-09-02T21:00:00Z",
+      "title": "p3-installer-20260902b",
+      "note": "granted after its own expiry; never effective"
+    }
+  ]
 }

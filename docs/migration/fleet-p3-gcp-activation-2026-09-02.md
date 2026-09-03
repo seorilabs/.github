@@ -102,3 +102,39 @@ static 증거도 X4로 갱신했다: `static:godot`([33650716200](https://github
 `static:react-native`([33651252134](https://github.com/seorilabs/happy-farm/actions/runs/33651252134), ConfigRevision 17). 승인(APPROVED)에는 `static:capacitor`, `static:ait-web` 증거가 더 필요하다.
 provenance 원본은 `evidence/fleet-p3-*-2026-09-02.json`에 보관하며 X3 기록은 `…-transitions.json`의 `previous`에 남긴다.
 마켓 업로드는 하지 않았다.
+
+## 네 번째 전환 — 2fee6630 (RN Cloud Build timeout 7200s)
+
+happy-farm build-only가 2400s에 걸려 [#112](https://github.com/seorilabs/.github/pull/112)로 timeout을 7200s로 올리자
+후보가 `2fee6630a8a2e79128cbf6055087bf9f9402810d`(X5, registry record `cmtkcl6bf3n6ruv01uw6t0fz4`)로 바뀌었다.
+계약 전환은 [#114](https://github.com/seorilabs/.github/pull/114)이다. 16:00Z에 만료된 installer 권한은 사용자가
+`p3-installer-20260903`(2026-09-03T04:00Z 만료)으로 다시 부여했다. 그 사이 한 번 부여한 `p3-installer-20260902b`는
+조건 만료 시각(21:00Z)이 부여 시점보다 앞서 효력이 없었고, 만료된 binding은 그대로 둔다.
+
+2026-09-02 23:45Z에 `readback`(github provider `configurationExact: false`, `ready: false`) → `apply fleet-p3-9a7eecf513a7`
+(exit 0) → `readback`(exact·active·`ready: true`, binding 74/74, 새 정적 키 0) 순서로 전환했다. 라이브 조건에는 `@2fee6630…`
+조합 4개만 남았다.
+
+두 앱의 ACTIVE 설정을 X5로 올렸다(happy-farm ConfigRevision 18, lizard-tycoon 26). lizard-tycoon은 그 사이
+`scheduler:desired-state-backfill`이 매시 27분에 `config-source-auto-rebase` revision(24, 25)을 자동 생성·활성화해
+`expectedLatestRevision` 충돌이 났고, DB의 최신 revision을 다시 읽어 26으로 만들었다. main도 `c7f8ae97…`(#540, #541)로
+이동해 실행기 PLAN의 `sourceSha`를 그 값으로 맞췄다. 재실행 결과는 아래에 이어서 기록한다.
+
+## X5 기준 두 앱 재실행 결과
+
+| 항목 | lizard-tycoon | happy-farm |
+| --- | --- | --- |
+| canary PR | #542 | #504 |
+| Org Contract(static) | [33697733212](https://github.com/seorilabs/lizard-tycoon/actions/runs/33697733212) 성공 | [33697308054](https://github.com/seorilabs/happy-farm/actions/runs/33697308054) 성공 |
+| Android Build-only | [33697733244](https://github.com/seorilabs/lizard-tycoon/actions/runs/33697733244) 성공 | [33697307788](https://github.com/seorilabs/happy-farm/actions/runs/33697307788) 성공 |
+| Cloud Build | `544c0f9c-21b7-4a30-a1e3-d5a0f1e659e8`, `godot-android-builder@sha256:b2a9d7a8…` | `17fc3660-a439-4ead-81ce-16c24550fb50`, `rn-android-builder@sha256:ed73c852…`, E2_STANDARD_2, 33.9분 |
+| bundle / 설정 / app source | `2fee6630…`, payloadDigest `sha256:fab446c7…`, ConfigRevision 26, `c7f8ae97…` | `2fee6630…`, ConfigRevision 18, `69d29018…` |
+| AAB | 49,290,505 bytes, sha256 `5458967249414eb13fd0…` = provenance `artifactSha256` | 62,271,123 bytes, sha256 `947a4c4185f64f9190d3…` = provenance `artifactSha256` |
+| marketUpload | false | false |
+
+증거 JSON은 모두 X5 run의 provenance로 교체했고 X3·X4 기록은 `…-transitions.json`의 `previousAttempts`에 남긴다.
+
+이로써 첫 종료 목표인 **두 시범 앱의 중앙 WorkflowBundle v5 build-only 실제 실행과 결과물 검증**을 같은 후보 X5에서 끝냈다.
+happy-farm은 앱 계약 수정(happy-farm#502)과 중앙 timeout 조정(#112) 뒤 33.9분에 끝났고, 두 AAB 모두 로컬 재다운로드로
+sha256을 재계산해 provenance와 대조했다. 승인(APPROVED)에는 `static:capacitor`, `static:ait-web` 증거와 승인 서명 도구가
+남아 있다. 마켓 업로드·심사 제출·공개 배포·앱 signing 변경은 하지 않았다.
