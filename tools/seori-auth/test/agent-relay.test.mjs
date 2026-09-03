@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 
 import {
   AgentRelayDaemon,
+  assertAgentRelayPublicJson,
   createAgentMtlsForwarder,
   NativeSecurityBoundary,
   SeoriAuthError,
@@ -160,6 +161,41 @@ async function tlsFiles(root) {
   return tls;
 }
 
+test('agent relay normalizes conventional credential field names', () => {
+  for (const key of ['accessToken', 'bearerToken', 'lease_token', 'clientCertificate']) {
+    assert.throws(
+      () => assertAgentRelayPublicJson({ [key]: 'fake-secret-canary' }),
+      (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_secret_field_rejected',
+      key,
+    );
+  }
+  assert.deepEqual(assertAgentRelayPublicJson({ tokenPagination: { nextPageTokenPresent: true } }), {
+    tokenPagination: { nextPageTokenPresent: true },
+  });
+});
+
+test('mTLS forwarder rejects writable trust and client certificate files', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'seori-agent-forwarder-mode-')));
+  try {
+    for (const target of ['caPath', 'certificatePath']) {
+      const tls = await tlsFiles(root);
+      await chmod(tls[target], 0o620);
+      await assert.rejects(
+        createAgentMtlsForwarder({
+          origin: 'https://127.0.0.1:19443',
+          serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+          tls,
+        }),
+        (error) => error instanceof SeoriAuthError && error.code === 'invalid_agent_relay_tls',
+        target,
+      );
+      await chmod(tls[target], 0o600);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('mTLS forwarder fixes the upstream origin and rejects credential-shaped responses', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'seori-agent-forwarder-')));
   try {
@@ -211,6 +247,46 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
       },
     );
     secretResponseForwarder.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('mTLS forwarder converts upstream response stream errors into a stable rejection', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'seori-agent-forwarder-error-')));
+  try {
+    const tls = await tlsFiles(root);
+    const requestImpl = (_options, callback) => {
+      const request = new EventEmitter();
+      request.end = () => {
+        const response = new EventEmitter();
+        response.statusCode = 200;
+        response.headers = { 'content-type': 'application/json' };
+        callback(response);
+        queueMicrotask(() => {
+          response.emit('data', Buffer.from('{"ok":', 'utf8'));
+          response.emit('error', new Error('fake upstream reset containing fake-secret-canary'));
+        });
+      };
+      request.destroy = (error) => request.emit('error', error ?? new Error('destroyed'));
+      return request;
+    };
+    const forwarder = await createAgentMtlsForwarder({
+      origin: 'https://127.0.0.1:19443',
+      serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+      tls,
+      requestImpl,
+    });
+    await assert.rejects(
+      forwarder.forward({ operation: 'CLAIM' }),
+      (error) => {
+        assert.ok(error instanceof SeoriAuthError);
+        assert.equal(error.code, 'agent_relay_upstream_rejected');
+        assert.doesNotMatch(error.message, /fake-secret-canary/);
+        return true;
+      },
+    );
+    forwarder.close();
   } finally {
     await rm(root, { recursive: true, force: true });
   }

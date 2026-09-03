@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { chmod, chown, lstat, readFile, realpath, unlink } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { chmod, chown, lstat, open, realpath, unlink } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
 
 import { fail, SeoriAuthError } from './errors.mjs';
@@ -10,18 +11,31 @@ const RESPONSE_LIMIT = 512 * 1024;
 const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const FORBIDDEN_KEYS = new Set([
   'actiontoken',
+  'accesstoken',
   'apikey',
   'authorization',
   'bearer',
+  'bearertoken',
   'certificate',
+  'clientcertificate',
+  'clientsecret',
   'cookie',
   'granttoken',
   'leasetoken',
   'password',
   'privatekey',
   'recoverycode',
+  'refreshtoken',
+  'secret',
+  'sessioncookie',
+  'token',
   'totp',
+  'totpseed',
 ]);
+
+function normalizeJsonKey(value) {
+  return value.replace(/[^a-z0-9]/giu, '').toLowerCase();
+}
 
 export function assertAgentRelayPublicJson(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -36,7 +50,7 @@ export function assertAgentRelayPublicJson(value) {
       continue;
     }
     for (const [key, entry] of Object.entries(current)) {
-      if (FORBIDDEN_KEYS.has(key.toLowerCase())) {
+      if (FORBIDDEN_KEYS.has(normalizeJsonKey(key))) {
         fail('agent_relay_secret_field_rejected', 'agent relay payload contains a forbidden credential field');
       }
       stack.push(entry);
@@ -79,15 +93,28 @@ async function readTlsFile(path, { privateMaterial = false } = {}) {
   if (!entry.isFile() || entry.isSymbolicLink() || canonical !== path || entry.uid !== process.getuid?.()) {
     fail('invalid_agent_relay_tls', 'agent relay TLS material must be a canonical daemon-owned file');
   }
+  if ((entry.mode & 0o022) !== 0) {
+    fail('invalid_agent_relay_tls', 'agent relay TLS material must not be writable by group or world');
+  }
   if (privateMaterial && (entry.mode & 0o077) !== 0) {
     fail('invalid_agent_relay_tls', 'agent relay private key must be owner-only');
   }
-  const value = await readFile(path);
-  if (value.length === 0 || value.length > 1024 * 1024) {
-    value.fill(0);
-    fail('invalid_agent_relay_tls', 'agent relay TLS material size is invalid');
+  const handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const opened = await handle.stat();
+    if (
+      opened.dev !== entry.dev || opened.ino !== entry.ino || opened.uid !== entry.uid ||
+      opened.gid !== entry.gid || opened.mode !== entry.mode || opened.size !== entry.size
+    ) fail('invalid_agent_relay_tls', 'agent relay TLS material changed while opening');
+    const value = await handle.readFile();
+    if (value.length === 0 || value.length > 1024 * 1024) {
+      value.fill(0);
+      fail('invalid_agent_relay_tls', 'agent relay TLS material size is invalid');
+    }
+    return value;
+  } finally {
+    await handle.close();
   }
-  return value;
 }
 
 function validateServerName(value) {
@@ -108,11 +135,21 @@ export async function createAgentMtlsForwarder({
   }
   const target = normalizeHttpsOrigin(origin);
   const expectedServerName = validateServerName(serverName);
-  const [ca, certificate, privateKey] = await Promise.all([
-    readTlsFile(tls.caPath),
-    readTlsFile(tls.certificatePath),
-    readTlsFile(tls.privateKeyPath, { privateMaterial: true }),
-  ]);
+  const loaded = [];
+  let ca;
+  let certificate;
+  let privateKey;
+  try {
+    ca = await readTlsFile(tls.caPath);
+    loaded.push(ca);
+    certificate = await readTlsFile(tls.certificatePath);
+    loaded.push(certificate);
+    privateKey = await readTlsFile(tls.privateKeyPath, { privateMaterial: true });
+    loaded.push(privateKey);
+  } catch (error) {
+    loaded.forEach((entry) => entry.fill(0));
+    throw error;
+  }
   let closed = false;
 
   return Object.freeze({
@@ -146,19 +183,38 @@ export async function createAgentMtlsForwarder({
             const chunks = [];
             let bytes = 0;
             let rejected = false;
+            const rejectResponse = (error) => {
+              if (rejected) return;
+              rejected = true;
+              chunks.forEach((entry) => entry.fill(0));
+              reject(error instanceof SeoriAuthError ? error : new SeoriAuthError(
+                'agent_relay_upstream_rejected',
+                'agent relay upstream response failed',
+              ));
+            };
             response.on('data', (chunk) => {
               if (rejected) return;
               const copy = Buffer.from(chunk);
               bytes += copy.length;
               if (bytes > RESPONSE_LIMIT) {
                 copy.fill(0);
-                chunks.forEach((entry) => entry.fill(0));
-                rejected = true;
+                rejectResponse(new SeoriAuthError(
+                  'agent_relay_upstream_rejected',
+                  'agent relay upstream response exceeded its bound',
+                ));
                 request.destroy(new Error('agent relay upstream response exceeded its bound'));
                 return;
               }
               chunks.push(copy);
             });
+            response.once('aborted', () => rejectResponse(new SeoriAuthError(
+              'agent_relay_upstream_rejected',
+              'agent relay upstream response was aborted',
+            )));
+            response.once('error', () => rejectResponse(new SeoriAuthError(
+              'agent_relay_upstream_rejected',
+              'agent relay upstream response failed',
+            )));
             response.on('end', () => {
               if (rejected) return;
               const statusCode = response.statusCode ?? 500;
