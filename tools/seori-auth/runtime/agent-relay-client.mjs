@@ -4,7 +4,7 @@ import { isAbsolute } from 'node:path';
 
 import {
   assertAgentRelayClientSocket,
-  assertAgentRelayPublicJson,
+  assertAgentRelayPublicRequest,
   executeAgentRelayClientRequest,
 } from '../src/index.mjs';
 
@@ -36,7 +36,7 @@ async function stdinJson() {
   }
   const encoded = Buffer.concat(chunks);
   try {
-    return assertAgentRelayPublicJson(JSON.parse(encoded.toString('utf8')));
+    return assertAgentRelayPublicRequest(JSON.parse(encoded.toString('utf8')));
   } finally {
     encoded.fill(0);
     chunks.forEach((entry) => entry.fill(0));

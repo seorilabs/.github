@@ -12,7 +12,8 @@ import {
   agentRelayProjectionDigest,
   assertAgentRelayProjection,
   assertAgentRelayClientSocket,
-  assertAgentRelayPublicJson,
+  assertAgentRelayPublicRequest,
+  assertAgentRelayPublicResponse,
   createAgentMtlsForwarder,
   executeAgentRelayClientRequest,
   NativeSecurityBoundary,
@@ -22,6 +23,14 @@ import {
 } from '../src/index.mjs';
 
 const helper = new URL('../.build/seori-auth-native', import.meta.url).pathname;
+
+function publicRequest(operation, body, suffix = 'test') {
+  return { requestId: `relay-request:${operation.toLowerCase()}:${suffix}`, operation, body };
+}
+
+function publicResult(outcomeCode, extra = {}) {
+  return { outcomeCode, summary: 'public result', costMicros: 0, ...extra };
+}
 
 function relayProjectionConfig() {
   const config = {
@@ -116,10 +125,10 @@ test('agent relay binds one Unix peer to a private socket and forwards public JS
   const forwarder = {
     async forward(body) {
       forwarded += 1;
-      assert.deepEqual(body, { body: { leaseSeconds: 300 }, operation: 'CLAIM' });
+      assert.deepEqual(body, publicRequest('CLAIM', { leaseSeconds: 300 }));
       return {
         statusCode: 200,
-        body: Buffer.from(`${JSON.stringify({ claim: null, ok: true })}\n`, 'utf8'),
+        body: Buffer.from(`${JSON.stringify({ ok: true, result: { claim: null, ok: true } })}\n`, 'utf8'),
       };
     },
     close() {
@@ -157,13 +166,16 @@ test('agent relay binds one Unix peer to a private socket and forwards public JS
     );
     await chmod(root, 0o711);
 
-    const success = await post(socketPath, { operation: 'CLAIM', body: { leaseSeconds: 300 } });
-    assert.deepEqual(success, { statusCode: 200, body: { claim: null, ok: true } });
+    const success = await post(socketPath, publicRequest('CLAIM', { leaseSeconds: 300 }));
+    assert.deepEqual(success, {
+      statusCode: 200,
+      body: { ok: true, result: { claim: null, ok: true } },
+    });
     assert.equal(forwarded, 1);
 
     const credentialHeader = await post(
       socketPath,
-      { operation: 'CLAIM', body: { leaseSeconds: 300 } },
+      publicRequest('CLAIM', { leaseSeconds: 300 }),
       { headers: { authorization: 'fake-secret-canary' } },
     );
     assert.deepEqual(credentialHeader, {
@@ -172,12 +184,15 @@ test('agent relay binds one Unix peer to a private socket and forwards public JS
     });
 
     const secretField = await post(socketPath, {
-      operation: 'COMPLETE',
-      body: { leaseToken: 'fake-secret-canary' },
+      ...publicRequest('COMPLETE', {
+        sessionId: 'agent-session:public',
+        result: publicResult('NO_CHANGES'),
+      }),
+      signedJwt: 'fake-secret-canary',
     });
     assert.deepEqual(secretField, {
       statusCode: 400,
-      body: { error: { code: 'agent_relay_secret_field_rejected' } },
+      body: { error: { code: 'invalid_agent_relay_payload' } },
     });
     assert.doesNotMatch(JSON.stringify(secretField), /fake-secret-canary/);
     assert.equal(forwarded, 1);
@@ -225,10 +240,13 @@ test('agent relay rejects excess in-flight work before peer attestation or body 
   });
   try {
     await daemon.start();
-    const first = post(socketPath, { operation: 'CLAIM' });
-    const second = post(socketPath, { operation: 'HEARTBEAT' });
+    const first = post(socketPath, publicRequest('CLAIM', {}, 'first'));
+    const second = post(socketPath, publicRequest('HEARTBEAT', {
+      sessionId: 'agent-session:public',
+      leaseSeconds: 300,
+    }, 'second'));
     await saturated;
-    const excess = await post(socketPath, { operation: 'CLAIM' });
+    const excess = await post(socketPath, publicRequest('CLAIM', {}, 'excess'));
     assert.deepEqual(excess, {
       statusCode: 503,
       body: { error: { code: 'agent_relay_busy' } },
@@ -281,58 +299,152 @@ async function tlsFiles(root) {
   return tls;
 }
 
-test('agent relay rejects credential key variants and permits fixed pagination metadata', () => {
-  for (const key of [
-    'accessToken',
-    'apiToken',
-    'auth_token',
-    'bearerToken',
-    'clientCertificate',
-    'lease_token',
-    'privateKeyPem',
-    'x-api-key',
-  ]) {
+test('agent relay accepts only operation-specific public request and response fields', () => {
+  const claim = publicRequest('CLAIM', { leaseSeconds: 300 });
+  assert.deepEqual(assertAgentRelayPublicRequest(claim), claim);
+  const response = { ok: true, result: { ok: true, claim: null } };
+  assert.deepEqual(assertAgentRelayPublicResponse(response, 'CLAIM'), response);
+
+  for (const key of ['signedJwt', 'jwtAssertion', 'clientAssertion', 'samlAssertion']) {
     assert.throws(
-      () => assertAgentRelayPublicJson({ [key]: 'fake-secret-canary' }),
-      (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_secret_field_rejected',
+      () => assertAgentRelayPublicRequest({ ...claim, [key]: 'fake-secret-canary' }),
+      (error) => error instanceof SeoriAuthError && error.code === 'invalid_agent_relay_payload',
+      key,
+    );
+    assert.throws(
+      () => assertAgentRelayPublicResponse({
+        ok: true,
+        result: { ok: true, claim: null, [key]: 'fake-secret-canary' },
+      }, 'CLAIM'),
+      (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_upstream_rejected',
       key,
     );
   }
-  assert.deepEqual(assertAgentRelayPublicJson({ tokenPagination: { nextPageTokenPresent: true } }), {
-    tokenPagination: { nextPageTokenPresent: true },
-  });
-  assert.deepEqual(assertAgentRelayPublicJson({ nextPageTokenPresent: false }), {
-    nextPageTokenPresent: false,
-  });
-  for (const payload of [
-    { nextPageTokenPresent: 'actual-token' },
-    { tokenPagination: 'actual-token' },
-    { tokenPagination: { nextPageTokenPresent: true, token: 'actual-token' } },
-  ]) {
-    assert.throws(
-      () => assertAgentRelayPublicJson(payload),
-      (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_secret_field_rejected',
-    );
-  }
-  for (const key of [
-    'jwt',
-    'j_w_t',
-    'clientCert',
-    'client-cert',
-    'privatePem',
-    'private_pem',
-    'passphrase',
-    'pass_phrase',
-    'passcode',
-    'pin',
-    'seedPhrase',
-  ]) {
-    assert.throws(
-      () => assertAgentRelayPublicJson({ [key]: 'fake-secret-canary' }),
-      (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_secret_field_rejected',
-      key,
-    );
-  }
+
+  assert.throws(
+    () => assertAgentRelayPublicRequest(publicRequest('COMPLETE', {
+      sessionId: 'agent-session:public',
+      result: publicResult('NO_CHANGES'),
+      leaseToken: 'fake-secret-canary',
+    })),
+    (error) => error instanceof SeoriAuthError && error.code === 'invalid_agent_relay_payload',
+  );
+  assert.throws(
+    () => assertAgentRelayPublicResponse({ ok: true, result: { tokenPagination: {} } }, 'CLAIM'),
+    (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_upstream_rejected',
+  );
+});
+
+test('agent relay public schemas cover every worker operation and known claim task', () => {
+  const sessionId = 'agent-session:123e4567-e89b-42d3-a456-426614174000';
+  const requests = [
+    publicRequest('CLAIM', {}),
+    publicRequest('HEARTBEAT', { sessionId, leaseSeconds: 60 }),
+    publicRequest('COMPLETE', { sessionId, result: publicResult('NO_CHANGES') }),
+    publicRequest('FAIL', { sessionId, result: publicResult('BLOCKED'), error: 'WORKER_FAILED' }),
+    publicRequest('READBACK_REQUIRED', { sessionId, result: publicResult('RESULT_UNKNOWN') }),
+    publicRequest('READBACK_RESOLVE', {
+      sessionId,
+      resolution: 'RESUME',
+      result: publicResult('READBACK_CONFIRMED'),
+    }),
+    publicRequest('GITHUB_READY_PR', {
+      sessionId,
+      repoId: '1250442131',
+      repoFullName: 'seorilabs/example',
+      issueNumber: 42,
+      sourceSha: '1'.repeat(40),
+      title: '공개 PR',
+      body: '공개 본문',
+      commitMessage: 'fix: 공개 변경',
+      files: [{ path: 'src/example.ts', contentBase64: Buffer.from('export {};\n').toString('base64') }],
+    }),
+    publicRequest('GITHUB_READY_PR_READBACK', { sessionId }),
+  ];
+  requests.forEach((request) => assert.equal(assertAgentRelayPublicRequest(request), request));
+
+  const baseClaim = {
+    sessionId,
+    runId: 'agent-run:123e4567-e89b-42d3-a456-426614174000',
+    repoFullName: 'seorilabs/example',
+    issueNumber: 42,
+    agentKind: 'CODEX',
+    model: null,
+    approvalPolicy: 'READY_PR',
+    budgetCeilingMicros: 1_000_000,
+    spentMicros: 0,
+    remainingBudgetMicros: 1_000_000,
+    actionCapabilities: [
+      'github.issue.read',
+      'github.pull_request.read',
+      'provider.readback',
+      'github.branch.write',
+      'github.commit.write',
+      'github.pull_request.create',
+    ],
+    resumeMode: 'START',
+    generation: 1,
+    expiresAt: '2026-09-04T00:05:00.000Z',
+    duplicate: false,
+  };
+  const claims = [
+    { ...baseClaim, template: 'repo-task-autopilot-v1', taskInput: null },
+    {
+      ...baseClaim,
+      issueNumber: null,
+      template: 'platform-fleet-reconcile-v1',
+      taskInput: {
+        schemaVersion: 1,
+        kind: 'PLATFORM_SDK_UPDATE',
+        planId: 'platform-plan:example',
+        repoId: '1250442131',
+        repoFullName: 'seorilabs/example',
+        sourceSha: '1'.repeat(40),
+        manifestDigest: '2'.repeat(64),
+        releaseVersion: '0.6.8',
+        releaseSourceSha: '3'.repeat(40),
+        contractRevision: '4'.repeat(64),
+        artifact: {
+          kind: 'TYPESCRIPT',
+          version: '0.6.8',
+          digest: '5'.repeat(64),
+          packageName: '@seorilabs/platform',
+        },
+        pullRequestMarker: `<!-- seorilabs-platform-fleet:${'6'.repeat(64)}:1250442131 -->`,
+        requiredChecks: ['test:core', 'repo-contract'],
+      },
+    },
+    {
+      ...baseClaim,
+      template: 'repo-source-remediation-v1',
+      taskInput: {
+        kind: 'SOURCE_REMEDIATION',
+        reasonCode: 'NO_CANDIDATE',
+        discoveryGeneration: 7,
+        sourceSha: '7'.repeat(40),
+      },
+    },
+  ];
+  claims.forEach((claim) => assert.deepEqual(
+    assertAgentRelayPublicResponse({ ok: true, result: { ok: true, claim } }, 'CLAIM'),
+    { ok: true, result: { ok: true, claim } },
+  ));
+
+  const responses = [
+    ['HEARTBEAT', { ok: true, result: { ok: true, sessionId, expiresAt: '2026-09-04T00:05:00.000Z', duplicate: false } }],
+    ['COMPLETE', { ok: true, result: { ok: true, runId: baseClaim.runId, status: 'SUCCEEDED', retry: false, duplicate: false } }],
+    ['FAIL', { ok: true, result: { ok: true, runId: baseClaim.runId, status: 'PENDING', retry: true, duplicate: false } }],
+    ['READBACK_REQUIRED', { ok: true, result: { ok: true, runId: baseClaim.runId, status: 'FAILED', retry: false, duplicate: false } }],
+    ['READBACK_RESOLVE', { ok: true, result: { ok: true, runId: baseClaim.runId, status: 'PENDING', duplicate: false } }],
+    ['GITHUB_READY_PR', { ok: true, result: { executionId: 'mutation-execution:public', status: 'VERIFIED', writeAttempted: true, pullRequestNumber: 7, pullRequestUrl: 'https://github.com/seorilabs/example/pull/7' } }],
+    ['GITHUB_READY_PR_READBACK', { ok: true, result: { executionId: 'mutation-execution:public', status: 'NOT_APPLIED', writeAttempted: false, safeToResume: true } }],
+  ];
+  responses.forEach(([operation, response]) => assert.equal(
+    assertAgentRelayPublicResponse(response, operation),
+    response,
+  ));
+  const error = { error: { code: 'seori_auth_request_rejected' } };
+  assert.equal(assertAgentRelayPublicResponse(error, 'CLAIM'), error);
 });
 
 test('agent relay refuses a private socket directory below a writable ancestor', async () => {
@@ -447,13 +559,17 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
       origin: 'https://127.0.0.1:19443',
       serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
       tls,
-      requestImpl: fakeHttpsRequest(JSON.stringify({ ok: true, sessionId: 'agent-session:public' }), capture),
+      requestImpl: fakeHttpsRequest(JSON.stringify({
+        ok: true,
+        result: { ok: true, claim: null },
+      }), capture),
     });
-    const result = await forwarder.forward({ body: { leaseSeconds: 300 }, operation: 'CLAIM' });
+    const request = publicRequest('CLAIM', { leaseSeconds: 300 });
+    const result = await forwarder.forward(request);
     assert.equal(result.statusCode, 200);
     assert.deepEqual(JSON.parse(result.body.toString('utf8')), {
       ok: true,
-      sessionId: 'agent-session:public',
+      result: { ok: true, claim: null },
     });
     assert.equal(capture.options.hostname, '127.0.0.1');
     assert.equal(capture.options.port, 19_443);
@@ -463,8 +579,7 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
     assert.equal(capture.options.maxVersion, 'TLSv1.3');
     assert.equal(capture.options.agent.options.keepAlive, false);
     assert.deepEqual(JSON.parse(capture.requestBody.toString('utf8')), {
-      body: { leaseSeconds: 300 },
-      operation: 'CLAIM',
+      ...request,
     });
     capture.requestBody.fill(0);
     result.body.fill(0);
@@ -473,7 +588,7 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
     forwarder.close();
     assert.equal(agentDestroyed, true);
     await assert.rejects(
-      forwarder.forward({ operation: 'CLAIM' }),
+      forwarder.forward(publicRequest('CLAIM', {})),
       (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_closed',
     );
 
@@ -481,13 +596,16 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
       origin: 'https://127.0.0.1:19443',
       serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
       tls,
-      requestImpl: fakeHttpsRequest(JSON.stringify({ leaseToken: 'fake-secret-canary' }), {}),
+      requestImpl: fakeHttpsRequest(JSON.stringify({
+        ok: true,
+        result: { ok: true, claim: null, signedJwt: 'fake-secret-canary' },
+      }), {}),
     });
     await assert.rejects(
-      secretResponseForwarder.forward({ operation: 'CLAIM' }),
+      secretResponseForwarder.forward(publicRequest('CLAIM', {})),
       (error) => {
         assert.ok(error instanceof SeoriAuthError);
-        assert.equal(error.code, 'agent_relay_secret_field_rejected');
+        assert.equal(error.code, 'agent_relay_upstream_rejected');
         assert.doesNotMatch(error.message, /fake-secret-canary/);
         return true;
       },
@@ -499,9 +617,9 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
       origin: 'https://[::1]:19443',
       serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
       tls,
-      requestImpl: fakeHttpsRequest(JSON.stringify({ ok: true }), ipv6Capture),
+      requestImpl: fakeHttpsRequest(JSON.stringify({ ok: true, result: { ok: true, claim: null } }), ipv6Capture),
     });
-    const ipv6Result = await ipv6Forwarder.forward({ operation: 'CLAIM' });
+    const ipv6Result = await ipv6Forwarder.forward(publicRequest('CLAIM', {}));
     assert.equal(ipv6Capture.options.hostname, '::1');
     ipv6Result.body.fill(0);
     ipv6Forwarder.close();
@@ -642,7 +760,7 @@ test('mTLS forwarder converts upstream response stream errors into a stable reje
       requestImpl,
     });
     await assert.rejects(
-      forwarder.forward({ operation: 'CLAIM' }),
+      forwarder.forward(publicRequest('CLAIM', {})),
       (error) => {
         assert.ok(error instanceof SeoriAuthError);
         assert.equal(error.code, 'agent_relay_upstream_rejected');
@@ -673,7 +791,7 @@ test('agent relay client rejects response stream errors without reflecting detai
     request.destroy = () => request.emit('error', new Error('destroyed'));
     return request;
   };
-  const encoded = Buffer.from('{"operation":"CLAIM"}', 'utf8');
+  const encoded = Buffer.from(JSON.stringify(publicRequest('CLAIM', {})), 'utf8');
   try {
     await assert.rejects(
       executeAgentRelayClientRequest({
