@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  evidenceFieldSets,
   planWorkflowBundleApproval,
+  projectEvidence,
   publishWorkflowBundleApproval,
   readbackWorkflowBundleApproval,
   signWorkflowBundleApproval,
@@ -80,6 +82,49 @@ test("missing input files fail closed instead of being treated as empty", async 
   await assert.rejects(
     planWorkflowBundleApproval({ candidate: join(root, "absent.json"), evidence: join(root, "absent.json") }),
     /INPUT_MISSING/u,
+  );
+});
+
+test("증거는 계약 스키마가 정의한 필드만 담고, 빠진 필드와 알 수 없는 target은 fail-closed한다", (t) => {
+  const root = fixture(t);
+  assert.throws(() => evidenceFieldSets(root), /EVIDENCE_SCHEMA_UNREADABLE/u);
+
+  mkdirSync(join(root, "contracts"), { recursive: true });
+  writeFileSync(
+    join(root, "contracts/workflow-bundle-v5.schema.json"),
+    JSON.stringify({
+      $defs: {
+        evidenceBase: { required: ["target", "runId"] },
+        staticEvidence: { allOf: [{ $ref: "#/$defs/evidenceBase" }, { required: ["profile"] }] },
+        buildEvidence: {
+          oneOf: [{ allOf: [{ $ref: "#/$defs/evidenceBase" }, { required: ["buildProfile"] }] }],
+        },
+      },
+    }),
+  );
+  const fields = evidenceFieldSets(root);
+  assert.deepEqual([...fields.static].sort(), ["profile", "runId", "target"]);
+  assert.deepEqual([...fields.build].sort(), ["buildProfile", "runId", "target"]);
+
+  // build provenance는 release 경로 필드를 더 싣고 온다. 승인 증거 스키마는
+  // additionalProperties를 막으므로 스키마가 정의한 필드만 남아야 한다.
+  const projected = projectEvidence({
+    target: "build",
+    runId: 7,
+    buildProfile: "godot-android",
+    bindingMode: "candidate-pull-request",
+    releaseTag: null,
+    releaseVersionName: null,
+  }, fields);
+  assert.deepEqual(projected, { buildProfile: "godot-android", runId: 7, target: "build" });
+
+  assert.throws(
+    () => projectEvidence({ target: "build", buildProfile: "godot-android" }, fields),
+    /EVIDENCE_FIELD_MISSING/u,
+  );
+  assert.throws(
+    () => projectEvidence({ target: "release", runId: 1 }, fields),
+    /EVIDENCE_TARGET_INVALID/u,
   );
 });
 
