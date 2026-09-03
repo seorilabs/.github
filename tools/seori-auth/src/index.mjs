@@ -2,6 +2,11 @@ export { TrustedAdapterRegistry } from './adapters.mjs';
 export { CanonicalAccountRegistry } from './accounts.mjs';
 export { EncryptedBrowserVault } from './browser-vault.mjs';
 export { BrowserLoginBoundary } from './browser-login.mjs';
+export {
+  AgentRelayDaemon,
+  assertAgentRelayPublicJson,
+  createAgentMtlsForwarder,
+} from './agent-relay.mjs';
 export { SeoriAuthError } from './errors.mjs';
 export {
   computeAuthStrategyEvidenceKey,

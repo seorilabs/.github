@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/seorilabs/.github/tools/seori-auth/schemas/agent-relay-config.schema.json",
+  "title": "Seori Auth macOS agent relay configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "workerKind",
+    "socketPath",
+    "expectedPeer",
+    "nativeHelper",
+    "upstream"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "workerKind": { "enum": ["CODEX", "CLAUDE"] },
+    "socketPath": { "type": "string", "pattern": "^/[^\\u0000]+$", "maxLength": 1024 },
+    "expectedPeer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uid", "gid"],
+      "properties": {
+        "uid": { "type": "integer", "minimum": 1 },
+        "gid": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "nativeHelper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^/[^\\u0000]+$", "maxLength": 1024 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "serverName", "tls"],
+      "properties": {
+        "origin": { "type": "string", "pattern": "^https://[^/]+$", "maxLength": 2048 },
+        "serverName": {
+          "type": "string",
+          "pattern": "^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["caPath", "certificatePath", "privateKeyPath"],
+          "properties": {
+            "caPath": { "type": "string", "pattern": "^/[^\\u0000]+$", "maxLength": 1024 },
+            "certificatePath": { "type": "string", "pattern": "^/[^\\u0000]+$", "maxLength": 1024 },
+            "privateKeyPath": { "type": "string", "pattern": "^/[^\\u0000]+$", "maxLength": 1024 }
+          }
+        }
+      }
+    }
+  }
+}

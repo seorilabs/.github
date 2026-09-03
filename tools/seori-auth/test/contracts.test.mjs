@@ -15,6 +15,7 @@ test('example policy and JSON schemas are parseable', async () => {
   const policySchema = JSON.parse(await read('schemas/policy.schema.json'));
   const leaseSchema = JSON.parse(await read('schemas/lease-request.schema.json'));
   const brokerSchema = JSON.parse(await read('schemas/local-broker.schema.json'));
+  const agentRelaySchema = JSON.parse(await read('schemas/agent-relay-config.schema.json'));
 
   assert.equal(new PolicyEngine(policy).generation, 1);
   assert.equal(policySchema.additionalProperties, false);
@@ -37,6 +38,10 @@ test('example policy and JSON schemas are parseable', async () => {
   assert.deepEqual(brokerSchema.$defs.leaseCreateRequest.required, ['idempotencyKey', 'workerId', 'request']);
   assert.equal(brokerSchema.$defs.executionBinding.additionalProperties, false);
   assert.equal(brokerSchema.oneOf.length, 5);
+  assert.equal(agentRelaySchema.additionalProperties, false);
+  assert.deepEqual(agentRelaySchema.properties.workerKind.enum, ['CODEX', 'CLAUDE']);
+  assert.equal(agentRelaySchema.properties.expectedPeer.properties.uid.minimum, 1);
+  assert.equal(agentRelaySchema.properties.upstream.properties.tls.additionalProperties, false);
   assert.deepEqual(
     brokerSchema.$defs.publicIdentity.required,
     ['provider', 'accountId', 'teamId', 'workspaceId', 'appId'],
