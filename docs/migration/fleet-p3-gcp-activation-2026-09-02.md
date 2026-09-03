@@ -138,3 +138,34 @@ happy-farm build-only가 2400s에 걸려 [#112](https://github.com/seorilabs/.gi
 happy-farm은 앱 계약 수정(happy-farm#502)과 중앙 timeout 조정(#112) 뒤 33.9분에 끝났고, 두 AAB 모두 로컬 재다운로드로
 sha256을 재계산해 provenance와 대조했다. 승인(APPROVED)에는 `static:capacitor`, `static:ait-web` 증거와 승인 서명 도구가
 남아 있다. 마켓 업로드·심사 제출·공개 배포·앱 signing 변경은 하지 않았다.
+
+## 다섯 번째 전환 — 42cd8819, 그리고 capacitor 온보딩
+
+saju-reader의 v5 static이 `PACKAGE_DEPENDENCY_SOURCE_FORBIDDEN`으로 멈췄다. 이 앱은 자기 Capacitor native 플러그인을
+`@seorilabs/ungeul-identity = file:plugins/ungeul-identity`로 참조하는데, 계약이 `file:` 지정자와 platform SDK 외
+`@seorilabs/*` 이름을 둘 다 금지하고 있었다. capacitor 앱의 일반적인 구조이므로 저장소 하나의 문제가 아니라 계약 결함이다.
+[#120](https://github.com/seorilabs/.github/pull/120)이 저장소 안을 가리키는 경로만 허용하도록 고치면서, 이전에는 검사하지
+않던 `resolution.directory`까지 검사 범위를 넓혔고, staging이 그 디렉터리를 workspace 멤버로 오인해 `--frozen-lockfile`이
+깨지던 문제도 함께 고쳤다.
+
+이 변경으로 후보가 `42cd881944674b370453fe4e9924a1e8c92a2206`(X6, registry record `cmtlcy3a35ve4r201xxzc3gja`,
+payloadDigest `sha256:4d6b1b91…`)로 바뀌었다. 계약 전환은 [#121](https://github.com/seorilabs/.github/pull/121)이고,
+기한부 installer 권한 `p3-installer-20260903b`(2026-09-03T14:00Z 만료)로 `readback` → `apply fleet-p3-7753dfb5cf5b`
+(exit 0) → `readback`(exact·active·`ready: true`, binding 74/74, 새 정적 키 0)을 실행했다.
+
+saju-reader 온보딩에는 저장소 쪽 작업이 셋 더 필요했다. 조직 static 계약 3종 진입점([#89](https://github.com/seorilabs/saju-reader/pull/89)),
+감사 위반 18건을 상위 패치가 없는 3건으로 줄이는 의존성 정리(같은 PR, 서명 예외는 사용자 `approval:security` 승인),
+Platform SDK 정확 버전 선언([#91](https://github.com/seorilabs/saju-reader/pull/91)). caller는 [#90](https://github.com/seorilabs/saju-reader/pull/90)으로 main에 남겼다.
+
+| 증거 | run | 설정 | 산출물 |
+| --- | --- | --- | --- |
+| `build:react-native-android` | [33743874892](https://github.com/seorilabs/happy-farm/actions/runs/33743874892) (PR #505) | ConfigRevision 19 | AAB 62,271,125 bytes, sha256 `f794f5bae8ea…` = provenance |
+| `static:react-native` | [33743874914](https://github.com/seorilabs/happy-farm/actions/runs/33743874914) | 19 | — |
+| `build:godot-android` | [33744365228](https://github.com/seorilabs/lizard-tycoon/actions/runs/33744365228) (PR #546) | 29 | AAB 49,291,593 bytes, sha256 `515b436961e3…` = provenance |
+| `static:godot` | [33744365182](https://github.com/seorilabs/lizard-tycoon/actions/runs/33744365182) | 29 | — |
+| `static:capacitor` | [33744451213](https://github.com/seorilabs/saju-reader/actions/runs/33744451213) (PR #90) | 25 | — |
+
+승인 도구 `scripts/fleet/workflow-bundle-approval.mjs`([#117](https://github.com/seorilabs/.github/pull/117))의 `plan`이
+다섯 증거를 GitHub에서 독립적으로 재조회해 전부 `MATCHED`, `state: READY`를 반환했다. 승인(APPROVED)에는 `static:ait-web`이
+하나 더 필요한데 그 프로필 저장소 두 곳(dpti-app, periodic-table-app)이 모두 폐기 상태라 사용자 지시로 보류했다.
+마켓 업로드·심사 제출·공개 배포·앱 signing 변경은 하지 않았다.
