@@ -39,6 +39,7 @@ extern char **environ;
 #define NATIVE_LAUNCH_MARKER "SEORI_AUTH_NATIVE_LAUNCHED"
 #define PROCESS_BOUNDARY_FD_MARKER "SEORI_AUTH_PROCESS_BOUNDARY_FD"
 #define PROCESS_BOUNDARY_FD 5
+#define VERIFIED_EXECUTABLE_FD 6
 #define LOCAL_CONTROLLER_FD_MARKER "SEORI_AUTH_LOCAL_CONTROLLER_FD"
 #define LOCAL_CONTROLLER_FD 6
 #define LOCAL_SOURCE_RECEIPT_FD_MARKER "SEORI_AUTH_LOCAL_SOURCE_RECEIPT_FD"
@@ -287,6 +288,70 @@ static int launch(int argc, char **argv) {
   harden_process();
   execve(argv[3], &argv[3], environ);
   fail_closed(errno == ENOENT ? "trusted executable does not exist" : "trusted executable failed to start");
+  return 126;
+}
+
+static void require_descriptor_matches_path(
+    int descriptor, const char *path, const char *message) {
+  struct stat descriptor_state;
+  struct stat path_state;
+  if (
+      fstat(descriptor, &descriptor_state) != 0 ||
+      lstat(path, &path_state) != 0 ||
+      !S_ISREG(descriptor_state.st_mode) || !S_ISREG(path_state.st_mode) ||
+      descriptor_state.st_dev != path_state.st_dev ||
+      descriptor_state.st_ino != path_state.st_ino ||
+      descriptor_state.st_uid != path_state.st_uid ||
+      (descriptor_state.st_mode & 0022) != 0 ||
+      (descriptor_state.st_uid != 0 && descriptor_state.st_uid != geteuid())) {
+    fail_closed(message);
+  }
+}
+
+static int launch_verified_writer(int argc, char **argv) {
+  if (
+      argc < 7 || strcmp(argv[2], "--") != 0 ||
+      argv[3][0] != '/' || argv[4][0] != '/') {
+    fail_closed("launch-verified-writer contract is invalid");
+  }
+  require_descriptor_matches_path(
+      VERIFIED_EXECUTABLE_FD, argv[3], "verified writer executable changed before launch");
+  require_descriptor_matches_path(
+      STDIN_FILENO, argv[4], "verified writer child changed before launch");
+  int descriptor_flags = fcntl(VERIFIED_EXECUTABLE_FD, F_GETFD);
+  if (
+      descriptor_flags < 0 ||
+      fcntl(VERIFIED_EXECUTABLE_FD, F_SETFD, descriptor_flags & ~FD_CLOEXEC) != 0) {
+    fail_closed("verified writer executable descriptor cannot cross exec");
+  }
+  char **child_argv = calloc((size_t)argc - 1, sizeof(char *));
+  if (child_argv == NULL) {
+    fail_closed("unable to allocate verified writer arguments");
+  }
+  child_argv[0] = argv[3];
+  child_argv[1] = "--input-type=module";
+  child_argv[2] = "-";
+  for (int index = 5; index < argc; index += 1) {
+    child_argv[index - 2] = argv[index];
+  }
+  child_argv[argc - 2] = NULL;
+  harden_process();
+#if defined(__linux__)
+  execve("/proc/self/fd/6", child_argv, environ);
+#elif defined(__APPLE__)
+  char executable_path[PATH_MAX];
+  if (fcntl(VERIFIED_EXECUTABLE_FD, F_GETPATH, executable_path) != 0) {
+    fail_closed("unable to resolve verified writer executable descriptor");
+  }
+  require_descriptor_matches_path(
+      VERIFIED_EXECUTABLE_FD,
+      executable_path,
+      "verified writer executable descriptor path changed before launch");
+  execve(executable_path, child_argv, environ);
+#endif
+  fail_closed(errno == ENOENT
+      ? "verified writer executable does not exist"
+      : "verified writer executable failed to start");
   return 126;
 }
 
@@ -778,6 +843,9 @@ int main(int argc, char **argv) {
   }
   if (argc >= 2 && strcmp(argv[1], "launch") == 0) {
     return launch(argc, argv);
+  }
+  if (argc >= 2 && strcmp(argv[1], "launch-verified-writer") == 0) {
+    return launch_verified_writer(argc, argv);
   }
   if (argc >= 2 && strcmp(argv[1], "launch-local-controller") == 0) {
     return launch_local_controller(argc, argv);

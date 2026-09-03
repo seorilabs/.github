@@ -350,7 +350,7 @@ export class NativeSecurityBoundary {
             fail('native_helper_mismatch', 'trusted Secret Manager writer image changed before launch');
           }
           child = spawn(helperPath, [
-            'launch', '--', executablePath, childPath,
+            'launch-verified-writer', '--', executablePath, childPath,
             `--resource=${resourceName}`, `--expected-version=${expectedVersion}`,
           ], {
             env: {
@@ -359,7 +359,7 @@ export class NativeSecurityBoundary {
               SEORI_AUTH_RESULT_FD: '5',
             },
             shell: false,
-            stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'ignore', 'pipe'],
+            stdio: [childImage.fd, 'ignore', 'ignore', 'pipe', 'ignore', 'pipe', executableImage.fd],
             windowsHide: true,
           });
           await Promise.all([executableImage.close(), childImage.close()]);

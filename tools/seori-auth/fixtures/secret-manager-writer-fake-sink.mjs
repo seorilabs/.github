@@ -44,7 +44,8 @@ let activeCopy;
 let backupCopy;
 try {
   if (
-    process.argv.length !== 4 || secretDescriptor !== 3 || resultDescriptor !== 5 ||
+    process.argv.length !== 4 || process.argv[1] !== '-' ||
+    secretDescriptor !== 3 || resultDescriptor !== 5 ||
     !SECRET_RESOURCE.test(resourceName ?? '') ||
     !Number.isSafeInteger(expectedVersion) || expectedVersion < 1
   ) {
