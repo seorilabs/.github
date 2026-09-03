@@ -4,8 +4,10 @@ export { EncryptedBrowserVault } from './browser-vault.mjs';
 export { BrowserLoginBoundary } from './browser-login.mjs';
 export {
   AgentRelayDaemon,
+  assertAgentRelayClientSocket,
   assertAgentRelayPublicJson,
   createAgentMtlsForwarder,
+  executeAgentRelayClientRequest,
   readImmutableAgentRelayConfig,
 } from './agent-relay.mjs';
 export { SeoriAuthError } from './errors.mjs';

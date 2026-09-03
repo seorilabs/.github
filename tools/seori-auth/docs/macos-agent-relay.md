@@ -10,7 +10,7 @@ kubeconfig를 worker 사용자에게 주지 않습니다.
 - Codex와 Claude는 서로 다른 비관리자 사용자·UID·GID·홈·workspace를 사용합니다.
 - relay는 root로 실행하고 worker마다 별도 config, socket directory, mTLS certificate를
   사용합니다. socket은 해당 worker UID/GID 소유 `0600`, 부모 디렉터리는 root 소유
-  `0711`입니다.
+  `0711`이며 그 상위 경로도 root 소유이고 group/world write가 없어야 합니다.
 - relay는 native helper의 SHA-256을 시작 시 검증하고 macOS `getpeereid`와
   `LOCAL_PEERPID`로 accepted socket의 UID/GID/PID를 읽습니다. 요청 body의 principal은
   신뢰하지 않습니다.

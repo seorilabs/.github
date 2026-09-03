@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 
-import { request as httpRequest } from 'node:http';
-import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 
-import { assertAgentRelayPublicJson } from '../src/index.mjs';
+import {
+  assertAgentRelayClientSocket,
+  assertAgentRelayPublicJson,
+  executeAgentRelayClientRequest,
+} from '../src/index.mjs';
 
 const REQUEST_LIMIT = 6 * 1024 * 1024;
-const RESPONSE_LIMIT = 512 * 1024;
 
 function fail() {
   throw new Error('agent relay client rejected the request');
@@ -42,61 +43,12 @@ async function stdinJson() {
   }
 }
 
-async function assertSocket(path) {
-  const [entry, canonical] = await Promise.all([lstat(path), realpath(path)]);
-  if (
-    !entry.isSocket() || entry.isSymbolicLink() || canonical !== path ||
-    entry.uid !== process.getuid?.() || (entry.mode & 0o777) !== 0o600
-  ) fail();
-}
-
 async function main() {
   const socketPath = socketArgument(process.argv.slice(2));
-  await assertSocket(socketPath);
+  await assertAgentRelayClientSocket(socketPath);
   const encoded = Buffer.from(JSON.stringify(await stdinJson()), 'utf8');
   try {
-    const result = await new Promise((resolve, reject) => {
-      const request = httpRequest({
-        socketPath,
-        path: '/v1/execute',
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'content-length': String(encoded.length),
-        },
-        timeout: 30_000,
-      }, (response) => {
-        const chunks = [];
-        let bytes = 0;
-        response.on('data', (chunk) => {
-          const copy = Buffer.from(chunk);
-          bytes += copy.length;
-          if (bytes > RESPONSE_LIMIT) {
-            copy.fill(0);
-            chunks.forEach((entry) => entry.fill(0));
-            request.destroy();
-            reject(new Error('agent relay response exceeded its bound'));
-            return;
-          }
-          chunks.push(copy);
-        });
-        response.on('end', () => {
-          const payload = Buffer.concat(chunks);
-          try {
-            const body = assertAgentRelayPublicJson(JSON.parse(payload.toString('utf8')));
-            resolve({ statusCode: response.statusCode ?? 500, body });
-          } catch (error) {
-            reject(error);
-          } finally {
-            payload.fill(0);
-            chunks.forEach((entry) => entry.fill(0));
-          }
-        });
-      });
-      request.once('timeout', () => request.destroy());
-      request.once('error', reject);
-      request.end(encoded);
-    });
+    const result = await executeAgentRelayClientRequest({ socketPath, encoded });
     const output = Buffer.from(`${JSON.stringify(result.body)}\n`, 'utf8');
     process.stdout.write(output, () => output.fill(0));
     if (result.statusCode < 200 || result.statusCode >= 300) process.exitCode = 1;

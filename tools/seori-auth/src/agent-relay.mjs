@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { constants as fsConstants } from 'node:fs';
 import { chmod, chown, lstat, open, realpath, unlink } from 'node:fs/promises';
@@ -129,6 +129,121 @@ async function assertTrustedAncestors(path, expectedOwnerUid) {
     if (parent === current) return;
     current = parent;
   }
+}
+
+export async function assertAgentRelayClientSocket(path, {
+  expectedDirectoryUid = 0,
+  expectedSocketUid = process.getuid?.(),
+  expectedSocketGid = process.getgid?.(),
+} = {}) {
+  if (
+    typeof path !== 'string' || !isAbsolute(path) || path.includes('\0') ||
+    !Number.isSafeInteger(expectedDirectoryUid) || expectedDirectoryUid < 0 ||
+    !Number.isSafeInteger(expectedSocketUid) || expectedSocketUid < 1 ||
+    !Number.isSafeInteger(expectedSocketGid) || expectedSocketGid < 1
+  ) fail('invalid_agent_relay_socket', 'agent relay client socket binding is invalid');
+  await assertTrustedAncestors(path, expectedDirectoryUid);
+  const parent = dirname(path);
+  const [parentEntry, canonicalParent] = await Promise.all([lstat(parent), realpath(parent)]);
+  if (
+    !parentEntry.isDirectory() || parentEntry.isSymbolicLink() || canonicalParent !== parent ||
+    parentEntry.uid !== expectedDirectoryUid || (parentEntry.mode & 0o777) !== 0o711
+  ) fail('insecure_agent_relay_socket_directory', 'agent relay socket directory is not trusted');
+  const [entry, canonical] = await Promise.all([lstat(path), realpath(path)]);
+  if (
+    !entry.isSocket() || entry.isSymbolicLink() || canonical !== path ||
+    entry.uid !== expectedSocketUid || entry.gid !== expectedSocketGid ||
+    (entry.mode & 0o777) !== 0o600
+  ) fail('insecure_agent_relay_socket', 'agent relay client socket is not trusted');
+}
+
+export function executeAgentRelayClientRequest({
+  socketPath,
+  encoded,
+  requestImpl = httpRequest,
+  timeoutMs = 30_000,
+}) {
+  if (
+    typeof socketPath !== 'string' || !isAbsolute(socketPath) || socketPath.includes('\0') ||
+    !Buffer.isBuffer(encoded) || encoded.length < 2 || encoded.length > REQUEST_LIMIT ||
+    typeof requestImpl !== 'function' || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1
+  ) fail('invalid_agent_relay_request', 'agent relay client request is invalid');
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let bytes = 0;
+    let settled = false;
+    const clearChunks = () => chunks.forEach((entry) => entry.fill(0));
+    const rejectStable = (code, message) => {
+      if (settled) return;
+      settled = true;
+      clearChunks();
+      reject(new SeoriAuthError(code, message));
+    };
+    const request = requestImpl({
+      socketPath,
+      path: '/v1/execute',
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(encoded.length),
+      },
+      timeout: timeoutMs,
+    }, (response) => {
+      response.on('data', (chunk) => {
+        if (settled) return;
+        const copy = Buffer.from(chunk);
+        bytes += copy.length;
+        if (bytes > RESPONSE_LIMIT) {
+          copy.fill(0);
+          rejectStable('agent_relay_response_too_large', 'agent relay response exceeded its bound');
+          response.destroy();
+          return;
+        }
+        chunks.push(copy);
+      });
+      response.once('aborted', () => rejectStable(
+        'agent_relay_response_rejected',
+        'agent relay response was aborted',
+      ));
+      response.once('error', () => rejectStable(
+        'agent_relay_response_rejected',
+        'agent relay response failed',
+      ));
+      response.on('end', () => {
+        if (settled) return;
+        settled = true;
+        const payload = Buffer.concat(chunks);
+        try {
+          const contentType = String(response.headers['content-type'] ?? '')
+            .split(';', 1)[0].trim().toLowerCase();
+          if (contentType !== 'application/json') {
+            throw new SeoriAuthError(
+              'agent_relay_response_rejected',
+              'agent relay response content type is invalid',
+            );
+          }
+          resolve({
+            statusCode: response.statusCode ?? 500,
+            body: parseJsonBuffer(payload),
+          });
+        } catch (error) {
+          reject(error instanceof SeoriAuthError ? error : new SeoriAuthError(
+            'agent_relay_response_rejected',
+            'agent relay response is invalid',
+          ));
+        } finally {
+          payload.fill(0);
+          clearChunks();
+        }
+      });
+    });
+    request.once('timeout', () => request.destroy());
+    request.once('error', () => rejectStable(
+      'agent_relay_request_failed',
+      'agent relay request failed',
+    ));
+    request.end(encoded);
+  });
 }
 
 export async function readImmutableAgentRelayConfig(path, { expectedOwnerUid = 0 } = {}) {

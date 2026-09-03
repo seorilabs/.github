@@ -9,8 +9,10 @@ import { createHash } from 'node:crypto';
 
 import {
   AgentRelayDaemon,
+  assertAgentRelayClientSocket,
   assertAgentRelayPublicJson,
   createAgentMtlsForwarder,
+  executeAgentRelayClientRequest,
   NativeSecurityBoundary,
   readImmutableAgentRelayConfig,
   SeoriAuthError,
@@ -91,6 +93,22 @@ test('agent relay binds one Unix peer to a private socket and forwards public JS
     assert.equal(socket.mode & 0o777, 0o600);
     assert.equal(socket.uid, process.getuid());
     assert.equal(socket.gid, process.getgid());
+    await assertAgentRelayClientSocket(socketPath, {
+      expectedDirectoryUid: process.getuid(),
+      expectedSocketUid: process.getuid(),
+      expectedSocketGid: process.getgid(),
+    });
+    await chmod(root, 0o700);
+    await assert.rejects(
+      assertAgentRelayClientSocket(socketPath, {
+        expectedDirectoryUid: process.getuid(),
+        expectedSocketUid: process.getuid(),
+        expectedSocketGid: process.getgid(),
+      }),
+      (error) => error instanceof SeoriAuthError &&
+        error.code === 'insecure_agent_relay_socket_directory',
+    );
+    await chmod(root, 0o711);
 
     const success = await post(socketPath, { operation: 'CLAIM', body: { leaseSeconds: 300 } });
     assert.deepEqual(success, { statusCode: 200, body: { claim: null, ok: true } });
@@ -313,5 +331,42 @@ test('mTLS forwarder converts upstream response stream errors into a stable reje
     forwarder.close();
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('agent relay client rejects response stream errors without reflecting details', async () => {
+  const requestImpl = (_options, callback) => {
+    const request = new EventEmitter();
+    request.end = () => {
+      const response = new EventEmitter();
+      response.statusCode = 200;
+      response.headers = { 'content-type': 'application/json' };
+      response.destroy = () => response.emit('aborted');
+      callback(response);
+      queueMicrotask(() => {
+        response.emit('data', Buffer.from('{"ok":', 'utf8'));
+        response.emit('error', new Error('fake local reset containing fake-secret-canary'));
+      });
+    };
+    request.destroy = () => request.emit('error', new Error('destroyed'));
+    return request;
+  };
+  const encoded = Buffer.from('{"operation":"CLAIM"}', 'utf8');
+  try {
+    await assert.rejects(
+      executeAgentRelayClientRequest({
+        socketPath: '/private/var/run/seori-auth-agent/codex/relay.sock',
+        encoded,
+        requestImpl,
+      }),
+      (error) => {
+        assert.ok(error instanceof SeoriAuthError);
+        assert.equal(error.code, 'agent_relay_response_rejected');
+        assert.doesNotMatch(error.message, /fake-secret-canary/);
+        return true;
+      },
+    );
+  } finally {
+    encoded.fill(0);
   }
 });
