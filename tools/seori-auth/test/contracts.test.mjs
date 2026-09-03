@@ -45,18 +45,27 @@ test('example policy and JSON schemas are parseable', async () => {
   assert.deepEqual(agentRelaySchema.properties.workerKind.enum, ['CODEX', 'CLAUDE']);
   assert.equal(agentRelaySchema.properties.expectedPeer.properties.uid.minimum, 1);
   assert.equal(agentRelaySchema.properties.upstream.properties.tls.additionalProperties, false);
-  const relayOrigin = new RegExp(agentRelaySchema.properties.upstream.properties.origin.pattern);
+  const relayOriginPatterns = agentRelaySchema.properties.upstream.properties.origin.oneOf
+    .map(({ pattern }) => new RegExp(pattern));
+  const relayOrigin = (value) => relayOriginPatterns.some((pattern) => pattern.test(value));
   for (const origin of [
     'https://relay.example.com',
     'https://relay.example.com:1',
     'https://127.0.0.1:443',
     'https://[::1]:65535',
-  ]) assert.equal(relayOrigin.test(origin), true, origin);
+    'https://[2001:db8:85a3::8a2e:370:7334]:9443',
+  ]) {
+    assert.equal(relayOrigin(origin), true, origin);
+    assert.doesNotThrow(() => new URL(origin), origin);
+  }
   for (const origin of [
     'https://relay.example.com:0',
     'https://relay.example.com:65536',
     'https://relay.example.com:99999',
-  ]) assert.equal(relayOrigin.test(origin), false, origin);
+    'https://999.999.999.999:443',
+    'https://[:::]:443',
+    'https://[1:2:3]:443',
+  ]) assert.equal(relayOrigin(origin), false, origin);
   assert.deepEqual(
     brokerSchema.$defs.publicIdentity.required,
     ['provider', 'accountId', 'teamId', 'workspaceId', 'appId'],
