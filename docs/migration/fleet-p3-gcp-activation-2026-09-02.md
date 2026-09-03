@@ -126,10 +126,15 @@ happy-farm build-only가 2400s에 걸려 [#112](https://github.com/seorilabs/.gi
 | --- | --- | --- |
 | canary PR | #542 | #504 |
 | Org Contract(static) | [33697733212](https://github.com/seorilabs/lizard-tycoon/actions/runs/33697733212) 성공 | [33697308054](https://github.com/seorilabs/happy-farm/actions/runs/33697308054) 성공 |
-| Android Build-only | [33697733244](https://github.com/seorilabs/lizard-tycoon/actions/runs/33697733244) 성공 | __HF_RUN__ |
-| Cloud Build | `544c0f9c-21b7-4a30-a1e3-d5a0f1e659e8`, `godot-android-builder@sha256:b2a9d7a8…` | __HF_CLOUD_BUILD__ |
+| Android Build-only | [33697733244](https://github.com/seorilabs/lizard-tycoon/actions/runs/33697733244) 성공 | [33697307788](https://github.com/seorilabs/happy-farm/actions/runs/33697307788) 성공 |
+| Cloud Build | `544c0f9c-21b7-4a30-a1e3-d5a0f1e659e8`, `godot-android-builder@sha256:b2a9d7a8…` | `17fc3660-a439-4ead-81ce-16c24550fb50`, `rn-android-builder@sha256:ed73c852…`, E2_STANDARD_2, 33.9분 |
 | bundle / 설정 / app source | `2fee6630…`, payloadDigest `sha256:fab446c7…`, ConfigRevision 26, `c7f8ae97…` | `2fee6630…`, ConfigRevision 18, `69d29018…` |
-| AAB | 49,290,505 bytes, sha256 `5458967249414eb13fd0…` = provenance `artifactSha256` | __HF_AAB__ |
+| AAB | 49,290,505 bytes, sha256 `5458967249414eb13fd0…` = provenance `artifactSha256` | 62,271,123 bytes, sha256 `947a4c4185f64f9190d3…` = provenance `artifactSha256` |
 | marketUpload | false | false |
 
 증거 JSON은 모두 X5 run의 provenance로 교체했고 X3·X4 기록은 `…-transitions.json`의 `previousAttempts`에 남긴다.
+
+이로써 첫 종료 목표인 **두 시범 앱의 중앙 WorkflowBundle v5 build-only 실제 실행과 결과물 검증**을 같은 후보 X5에서 끝냈다.
+happy-farm은 앱 계약 수정(happy-farm#502)과 중앙 timeout 조정(#112) 뒤 33.9분에 끝났고, 두 AAB 모두 로컬 재다운로드로
+sha256을 재계산해 provenance와 대조했다. 승인(APPROVED)에는 `static:capacitor`, `static:ait-web` 증거와 승인 서명 도구가
+남아 있다. 마켓 업로드·심사 제출·공개 배포·앱 signing 변경은 하지 않았다.

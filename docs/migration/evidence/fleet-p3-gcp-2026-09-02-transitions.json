@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "observedAt": "2026-09-02T23:47:00Z",
+  "observedAt": "2026-09-03T00:45:00Z",
   "sourceSha": "25944aea0a31b8558f470d56293bbefa61672954",
   "scope": "P3_GCP_WIF_PROVIDER_EXECUTION_SHA_TRANSITIONS_X2_X3",
   "temporaryInstallerGrant": {
@@ -324,7 +324,12 @@
     "STATIC_KEY_CREATION"
   ],
   "nextGate": {
-    "code": "P3_CANDIDATE_BUILD_ONLY_RUNS_PENDING",
+    "code": "P3_APPROVAL_EVIDENCE_PENDING",
+    "missing": [
+      "static:capacitor",
+      "static:ait-web",
+      "approval-signer"
+    ],
     "issues": [
       "seorilabs/.github#42"
     ]
@@ -366,18 +371,33 @@
       ]
     },
     "happy-farm": {
-      "status": "TIMEOUT_PENDING_X5",
-      "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33651252122",
-      "pullRequest": "seorilabs/happy-farm#503",
-      "workflowExecutionSha": "5159ca37fde9306e6b5da265f6889ae5782b03bd",
-      "configRevision": 17,
-      "cloudBuildId": "fb0cf593-13d7-4b26-8df9-8982ea21d808",
-      "cloudBuildStatus": "TIMEOUT",
-      "cloudBuildTimeoutSeconds": 2400,
-      "elapsedMinutes": 40.3,
-      "lastGradleTask": ":react-native-iap:buildCMakeRelWithDebInfo[x86_64]",
-      "fix": "seorilabs/.github#112 (timeout 7200s)",
+      "status": "SUCCEEDED",
+      "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33697307788",
+      "pullRequest": "seorilabs/happy-farm#504",
+      "workflowExecutionSha": "2fee6630a8a2e79128cbf6055087bf9f9402810d",
+      "applicationSourceSha": "69d29018edf8e6b15943e9d517bd22a2caaaad15",
+      "configRevision": 18,
+      "cloudBuildId": "17fc3660-a439-4ead-81ce-16c24550fb50",
+      "cloudBuildTimeoutSeconds": 7200,
+      "elapsedMinutes": 33.9,
+      "artifactSha256": "sha256:947a4c4185f64f9190d37d52a78dd8b054651270fbbdbd007ceed6ee62313164",
+      "artifactBytes": 62271123,
+      "provenance": "fleet-p3-build-react-native-android-happy-farm-2026-09-02.json",
+      "marketUpload": false,
       "previousAttempts": [
+        {
+          "status": "TIMEOUT_PENDING_X5",
+          "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33651252122",
+          "pullRequest": "seorilabs/happy-farm#503",
+          "workflowExecutionSha": "5159ca37fde9306e6b5da265f6889ae5782b03bd",
+          "configRevision": 17,
+          "cloudBuildId": "fb0cf593-13d7-4b26-8df9-8982ea21d808",
+          "cloudBuildStatus": "TIMEOUT",
+          "cloudBuildTimeoutSeconds": 2400,
+          "elapsedMinutes": 40.3,
+          "lastGradleTask": ":react-native-iap:buildCMakeRelWithDebInfo[x86_64]",
+          "fix": "seorilabs/.github#112 (timeout 7200s)"
+        },
         {
           "runUrl": "https://github.com/seorilabs/happy-farm/actions/runs/33647994835",
           "pullRequest": "seorilabs/happy-farm#501",
