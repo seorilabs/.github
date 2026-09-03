@@ -54,7 +54,7 @@ function post(socketPath, body, { method = 'POST', path = '/v1/execute', headers
 
 test('agent relay binds one Unix peer to a private socket and forwards public JSON only', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'seori-agent-relay-')));
-  await chmod(root, 0o700);
+  await chmod(root, 0o711);
   const socketPath = join(root, 'worker.sock');
   const helperDigest = createHash('sha256').update(await readFile(helper)).digest('hex');
   let forwarded = 0;
@@ -142,6 +142,60 @@ test('agent relay binds one Unix peer to a private socket and forwards public JS
     assert.equal(closed, 1);
     await assert.rejects(stat(socketPath), { code: 'ENOENT' });
     assert.equal((await stat(root)).mode & 0o777, 0o700);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('agent relay rejects excess in-flight work before peer attestation or body buffering', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'seori-agent-relay-bound-')));
+  await chmod(root, 0o700);
+  const socketPath = join(root, 'worker.sock');
+  let attestations = 0;
+  let forwarded = 0;
+  let releaseForwarding;
+  let resolveSaturated;
+  const forwardingGate = new Promise((resolve) => { releaseForwarding = resolve; });
+  const saturated = new Promise((resolve) => { resolveSaturated = resolve; });
+  const daemon = new AgentRelayDaemon({
+    socketPath,
+    expectedPeerUid: process.getuid(),
+    expectedPeerGid: process.getgid(),
+    nativeBoundary: {
+      async attest() {
+        attestations += 1;
+        return { uid: process.getuid(), gid: process.getgid() };
+      },
+    },
+    forwarder: {
+      async forward() {
+        forwarded += 1;
+        if (forwarded === 2) resolveSaturated();
+        await forwardingGate;
+        return { statusCode: 200, body: Buffer.from('{"ok":true}\n', 'utf8') };
+      },
+      close() {},
+    },
+  });
+  try {
+    await daemon.start();
+    const first = post(socketPath, { operation: 'CLAIM' });
+    const second = post(socketPath, { operation: 'HEARTBEAT' });
+    await saturated;
+    const excess = await post(socketPath, { operation: 'CLAIM' });
+    assert.deepEqual(excess, {
+      statusCode: 503,
+      body: { error: { code: 'agent_relay_busy' } },
+    });
+    assert.equal(attestations, 2);
+    assert.equal(forwarded, 2);
+    releaseForwarding();
+    assert.deepEqual(await Promise.all([first, second]), [
+      { statusCode: 200, body: { ok: true } },
+      { statusCode: 200, body: { ok: true } },
+    ]);
+  } finally {
+    releaseForwarding?.();
+    await daemon.stop();
     await rm(root, { recursive: true, force: true });
   }
 });

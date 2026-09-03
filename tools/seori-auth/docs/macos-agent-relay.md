@@ -9,8 +9,11 @@ kubeconfig를 worker 사용자에게 주지 않습니다.
 
 - Codex와 Claude는 서로 다른 비관리자 사용자·UID·GID·홈·workspace를 사용합니다.
 - relay는 root로 실행하고 worker마다 별도 config, socket directory, mTLS certificate를
-  사용합니다. socket은 해당 worker UID/GID 소유 `0600`, 부모 디렉터리는 root 소유
-  `0711`이며 그 상위 경로도 root 소유이고 group/world write가 없어야 합니다.
+  사용합니다. 설치 시 socket 부모 디렉터리는 root 소유 `0700`으로 만듭니다. relay는
+  재시작 때 남은 정상 runtime mode `0711`도 먼저 `0700`으로 좁힌 뒤 socket을 bind하고,
+  socket을 해당 worker UID/GID 소유 `0600`으로 검증한 후 부모만 `0711`로 엽니다. 종료하면
+  부모를 다시 `0700`으로 좁힙니다. 그 상위 경로도 root 소유이고 group/world write가 없어야
+  합니다.
 - relay는 native helper의 SHA-256을 시작 시 검증하고 macOS `getpeereid`와
   `LOCAL_PEERPID`로 accepted socket의 UID/GID/PID를 읽습니다. 요청 body의 principal은
   신뢰하지 않습니다.
@@ -21,6 +24,9 @@ kubeconfig를 worker 사용자에게 주지 않습니다.
   핸들로 사용할 수 있습니다.
 - relay가 비정상 종료해 socket이 남으면 자동 삭제하지 않습니다. inode와 프로세스 부재를
   확인한 운영자가 별도 복구 절차로 처리합니다.
+- relay는 전체 Unix 연결을 4개, peer attestation부터 upstream 응답까지 진행 중인 요청을
+  2개로 제한합니다. 세 번째 진행 요청은 body를 메모리에 담거나 peer를 조회하기 전에
+  `503 agent_relay_busy`로 거부합니다.
 
 ## 설치 전에 필요한 사람 결정
 

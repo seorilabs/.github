@@ -8,6 +8,8 @@ import { fail, SeoriAuthError } from './errors.mjs';
 
 const REQUEST_LIMIT = 6 * 1024 * 1024;
 const RESPONSE_LIMIT = 512 * 1024;
+const MAX_CONNECTIONS = 4;
+const MAX_IN_FLIGHT = 2;
 const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const FORBIDDEN_KEY_PARTS = Object.freeze([
   'apikey',
@@ -425,12 +427,21 @@ export async function createAgentMtlsForwarder({
   });
 }
 
-async function assertPrivateSocketDirectory(path) {
+async function preparePrivateSocketDirectory(path) {
   const [entry, canonical] = await Promise.all([lstat(path), realpath(path)]);
+  const mode = entry.mode & 0o777;
   if (
     !entry.isDirectory() || entry.isSymbolicLink() || canonical !== path ||
-    entry.uid !== process.getuid?.() || (entry.mode & 0o077) !== 0
-  ) fail('insecure_agent_relay_directory', 'agent relay socket directory must be daemon-owned and private');
+    entry.uid !== process.getuid?.() || (mode !== 0o700 && mode !== 0o711)
+  ) fail('insecure_agent_relay_directory', 'agent relay socket directory mode is invalid');
+  if (mode === 0o700) return;
+  await chmod(path, 0o700);
+  const prepared = await lstat(path);
+  if (
+    !prepared.isDirectory() || prepared.isSymbolicLink() ||
+    prepared.dev !== entry.dev || prepared.ino !== entry.ino ||
+    prepared.uid !== entry.uid || (prepared.mode & 0o777) !== 0o700
+  ) fail('insecure_agent_relay_directory', 'agent relay socket directory changed while preparing');
 }
 
 async function assertSocketPathAvailable(path) {
@@ -500,6 +511,7 @@ export class AgentRelayDaemon {
   #forwarder;
   #server;
   #socketIdentity;
+  #inFlight = 0;
 
   constructor({ socketPath, expectedPeerUid, expectedPeerGid, nativeBoundary, forwarder }) {
     if (typeof socketPath !== 'string' || !isAbsolute(socketPath)) {
@@ -531,14 +543,18 @@ export class AgentRelayDaemon {
       code: 'insecure_agent_relay_directory',
       message: 'agent relay socket directory ancestors must be trusted',
     });
-    await assertPrivateSocketDirectory(directory);
+    await preparePrivateSocketDirectory(directory);
     await assertSocketPathAvailable(this.#socketPath);
-    const server = createServer((request, response) => this.dispatch(request, response));
+    const server = createServer((request, response) => {
+      void this.#dispatchBounded(request, response).catch(() => response.destroy());
+    });
     server.requestTimeout = 10_000;
     server.headersTimeout = 5_000;
     server.keepAliveTimeout = 1_000;
     server.maxHeadersCount = 16;
     server.maxRequestsPerSocket = 1;
+    server.maxConnections = MAX_CONNECTIONS;
+    server.dropMaxConnection = true;
     server.on('clientError', (_error, socket) => socket.destroy());
     await new Promise((resolve, reject) => {
       server.once('error', reject);
@@ -568,6 +584,20 @@ export class AgentRelayDaemon {
       throw error;
     }
     return Object.freeze({ transport: 'unix', socketPath: this.#socketPath });
+  }
+
+  async #dispatchBounded(request, response) {
+    if (this.#inFlight >= MAX_IN_FLIGHT) {
+      sendJson(response, 503, { error: { code: 'agent_relay_busy' } });
+      request.resume();
+      return;
+    }
+    this.#inFlight += 1;
+    try {
+      await this.dispatch(request, response);
+    } finally {
+      this.#inFlight -= 1;
+    }
   }
 
   async dispatch(request, response) {
