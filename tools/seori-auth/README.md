@@ -68,6 +68,7 @@ daemon, MAC-chain durable state, native OS 경계, encrypted Browser Vault를 �
   fingerprint·CRC32C intent를 원자적으로
   기록하며 응답 유실 뒤에는 `versions.access` 결과를 같은 native child 안에서 fd3 material과
   대조해 성공 여부를 복구합니다. secret 값은 이 복구 경계 밖으로 반환하지 않습니다. 설치는
+  root 소유·일반 사용자 쓰기 불가·정확한 `0555/0444` 모드로
   `scripts/fleet/install-p3-secret-manager-writer.sh`, 백업 복원 검증과 네 값 등록은
   `scripts/fleet/provision-p3-secret-values.mjs`의 plan/apply/readback 순서로 수행합니다.
 - `authenticatePrincipal(socket, metadata)`가 증명한 subject/run/repository/worker와 HTTP claim이

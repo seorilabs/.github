@@ -49,17 +49,17 @@ trap cleanup EXIT INT TERM
 cp "$node_path" "${staging}/seori-auth-node"
 cp "$helper_source" "${staging}/seori-auth-native"
 cp "$child_source" "${staging}/secret-manager-writer.mjs"
-chmod 500 "${staging}/seori-auth-node" "${staging}/seori-auth-native"
-chmod 400 "${staging}/secret-manager-writer.mjs"
+chmod 555 "${staging}/seori-auth-node" "${staging}/seori-auth-native"
+chmod 444 "${staging}/secret-manager-writer.mjs"
 
 sudo -v
 sudo install -d -o root -g wheel -m 755 /usr/local/libexec
 sudo install -d -o root -g wheel -m 755 /opt/seori-auth /opt/seori-auth/runtime
-sudo install -o root -g wheel -m 500 \
+sudo install -o root -g wheel -m 555 \
   "${staging}/seori-auth-node" /usr/local/libexec/seori-auth-node
-sudo install -o root -g wheel -m 500 \
+sudo install -o root -g wheel -m 555 \
   "${staging}/seori-auth-native" /usr/local/libexec/seori-auth-native
-sudo install -o root -g wheel -m 400 \
+sudo install -o root -g wheel -m 444 \
   "${staging}/secret-manager-writer.mjs" /opt/seori-auth/runtime/secret-manager-writer.mjs
 
 for installed_path in \
