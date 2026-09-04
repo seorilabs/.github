@@ -122,7 +122,7 @@ file이 아니거나 projection digest가 다르면 시작하지 않습니다. �
 macOS `sockaddr_un.sun_path` 한계인 104바이트를 넘지 않습니다. UID/GID는 macOS
 `UID_MAX`·`GID_MAX`인 2147483647 이하의 비-root 정수여야 합니다.
 config, native helper, CA, certificate, private key 경로도 빈 segment, `.`·`..`, trailing
-slash가 없는 canonical 절대 파일 경로만 허용합니다.
+slash가 없는 canonical ASCII 절대 파일 경로만 허용하며 1,024바이트를 넘지 않습니다.
 
 worker는 요청을 stdin으로만 보냅니다.
 

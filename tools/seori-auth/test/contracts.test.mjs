@@ -102,6 +102,8 @@ test('example policy and JSON schemas are parseable', async () => {
     '/private/etc//seori/key.pem',
     '/private/etc/seori/',
     '/./private/key.pem',
+    `/private/etc/${'가'.repeat(600)}/key.pem`,
+    `/${'a'.repeat(1_024)}`,
   ]) {
     assert.equal(schemaAcceptsMaterialPath(path), false, path);
     assert.equal(validMacOsCanonicalFilePath(path), false, path);
