@@ -23,6 +23,9 @@ const BUILD_RUNTIME_SCHEMA_PATH =
 const STATIC_RUNTIME_SCHEMA_PATH =
   "contracts/workflow-bundle-v5-static-runtime-readback.schema.json";
 const XCODE_SCHEMA_PATH = "contracts/xcode-cloud-run-v5.schema.json";
+// Apple build number 정본 이름. release-version-authority schemaVersion 2의
+// appleBuildNumberExceptions와 같은 값이다.
+const XCODE_CLOUD_BUILD_NUMBER_AUTHORITY = "xcode-cloud-ci-build-number";
 const RELEASE_AUTHORITY_CONTRACT_PATH = "contracts/release-version-authority.yaml";
 const CONTRACT_FILES = Object.freeze([
   RELEASE_AUTHORITY_CONTRACT_PATH,
@@ -1152,7 +1155,7 @@ export async function generateXcodeCloudRunV5({
   }
 
   const envelope = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     repositoryId: manifest.repositoryId,
     fullName: manifest.fullName,
     sourceSha: manifest.sourceSha,
@@ -1184,7 +1187,9 @@ export async function generateXcodeCloudRunV5({
       configRevision: releaseBinding.configRevision,
       versionName: releaseBinding.versionName,
       appleMarketingVersion: releaseBinding.appleMarketingVersion,
-      appleBuildNumber: releaseBinding.appleBuildNumber,
+      // Apple build number 정본은 Xcode Cloud가 run마다 발급하는 CI_BUILD_NUMBER다. envelope을
+      // 만드는 시점에는 아직 없으므로 태그 파생값을 넣지 않고 정본 이름만 남긴다.
+      appleBuildNumberAuthority: XCODE_CLOUD_BUILD_NUMBER_AUTHORITY,
       bindingDigest: bindingDigest(releaseBinding),
     },
     productId,
@@ -1205,7 +1210,7 @@ export async function generateXcodeCloudRunV5({
       expectedWorkflowId: workflowId,
       artifactKind: binding.artifactKind,
       expectedMarketingVersion: releaseBinding.appleMarketingVersion,
-      expectedBuildNumber: releaseBinding.appleBuildNumber,
+      buildNumberAuthority: XCODE_CLOUD_BUILD_NUMBER_AUTHORITY,
     },
     // 같은 태그·같은 source·같은 계약 revision이면 언제 다시 만들어도 같은 key다.
     idempotencyKey: `xcode-cloud-v5.${manifest.repositoryId}.${releaseBinding.tag}.${bindingDigest(releaseBinding).slice(0, 32)}`,
@@ -1237,8 +1242,11 @@ export function verifyXcodeCloudRunReadbackV5(envelope, readback) {
     if (readback?.marketingVersion !== expected.expectedMarketingVersion) {
       diagnosticsFound.push("XCODE_RUN_MARKETING_VERSION_MISMATCH");
     }
-    if (Number(readback?.buildNumber) !== expected.expectedBuildNumber) {
-      diagnosticsFound.push("XCODE_RUN_BUILD_NUMBER_MISMATCH");
+    // build number는 Xcode Cloud가 발급하므로 사전 기대값이 없다. run이 실제로 번호를
+    // 붙였는지(양의 정수인지)만 확인하고, 아니면 그 archive를 마켓 경로로 넘기지 않는다.
+    const observedBuildNumber = Number(readback?.buildNumber);
+    if (!Number.isSafeInteger(observedBuildNumber) || observedBuildNumber < 1) {
+      diagnosticsFound.push("XCODE_RUN_BUILD_NUMBER_INVALID");
     }
   }
   return Object.freeze({

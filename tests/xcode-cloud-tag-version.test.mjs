@@ -45,18 +45,21 @@ function repositoryFixture() {
   return { repository, infoPlist, sourceSha: git(repository, 'rev-parse', 'HEAD') };
 }
 
-test('Xcode Cloud는 exact tag commit에서만 Apple version binding을 만든다', () => {
+test('Xcode Cloud는 exact tag commit에서 marketing version을, CI_BUILD_NUMBER에서 build number를 만든다', () => {
   const fixture = repositoryFixture();
   try {
     const binding = resolveXcodeCloudTagBinding({
       tag: 'v1.2.3',
       repository: fixture.repository,
       infoPlist: fixture.infoPlist,
+      buildNumber: '42',
       expectedSourceSha: fixture.sourceSha,
     });
+    // 태그 파생 encodedVersion(1002003)은 런타임 비교값으로만 남고 Apple build number가 아니다.
     assert.equal(binding.runtimeVersionCode, 1001002003);
     assert.equal(binding.appleMarketingVersion, '1.2.3');
-    assert.equal(binding.appleBuildNumber, 1002003);
+    assert.equal(binding.appleBuildNumber, 42);
+    assert.equal(binding.buildNumberAuthority, 'xcode-cloud-ci-build-number');
     assert.equal(binding.sourceSha, fixture.sourceSha);
 
     writeFileSync(join(fixture.repository, 'next.txt'), 'next');
@@ -68,6 +71,7 @@ test('Xcode Cloud는 exact tag commit에서만 Apple version binding을 만든�
           tag: 'v1.2.3',
           repository: fixture.repository,
           infoPlist: fixture.infoPlist,
+          buildNumber: '42',
         }),
       (error) => error.code === 'source-sha-mismatch',
     );
@@ -87,6 +91,7 @@ test('Xcode Cloud authority는 repository 밖 또는 symlink Info.plist를 거�
           tag: 'v1.2.3',
           repository: fixture.repository,
           infoPlist: outside,
+          buildNumber: '42',
         }),
       (error) => error.code === 'artifact-provenance-mismatch',
     );
@@ -98,6 +103,7 @@ test('Xcode Cloud authority는 repository 밖 또는 symlink Info.plist를 거�
           tag: 'v1.2.3',
           repository: fixture.repository,
           infoPlist: link,
+          buildNumber: '42',
         }),
       (error) => error.code === 'artifact-provenance-mismatch',
     );
@@ -126,7 +132,8 @@ test('Xcode Cloud CLI dry-run은 plist를 바꾸지 않고 공개 binding만 출
         '--dry-run',
         '--json',
       ],
-      { encoding: 'utf8' },
+      // build number는 Xcode Cloud가 환경 변수로만 넘긴다.
+      { encoding: 'utf8', env: { ...process.env, CI_BUILD_NUMBER: '42' } },
     );
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), {
@@ -134,7 +141,8 @@ test('Xcode Cloud CLI dry-run은 plist를 바꾸지 않고 공개 binding만 출
       sourceSha: fixture.sourceSha,
       runtimeVersionCode: 1001002003,
       appleMarketingVersion: '1.2.3',
-      appleBuildNumber: 1002003,
+      appleBuildNumber: 42,
+      buildNumberAuthority: 'xcode-cloud-ci-build-number',
       applied: false,
     });
     assert.equal(readFileSync(fixture.infoPlist, 'utf8'), before);
@@ -143,7 +151,7 @@ test('Xcode Cloud CLI dry-run은 plist를 바꾸지 않고 공개 binding만 출
   }
 });
 
-test('macOS에서는 태그 파생 Apple version을 임시 plist에서 검증한 뒤 원자적으로 반영한다', {
+test('macOS에서는 주입할 Apple version을 임시 plist에서 검증한 뒤 원자적으로 반영한다', {
   skip: process.platform !== 'darwin',
 }, () => {
   const fixture = repositoryFixture();
@@ -152,6 +160,7 @@ test('macOS에서는 태그 파생 Apple version을 임시 plist에서 검증한
       tag: 'v1.2.3',
       repository: fixture.repository,
       infoPlist: fixture.infoPlist,
+      buildNumber: '42',
     });
     applyXcodeCloudTagBinding(binding);
     assert.equal(
@@ -174,8 +183,41 @@ test('macOS에서는 태그 파생 Apple version을 임시 plist에서 검증한
         '-',
         fixture.infoPlist,
       ], { encoding: 'utf8' }).trim(),
-      '1002003',
+      '42',
     );
+  } finally {
+    rmSync(fixture.repository, { recursive: true, force: true });
+  }
+});
+
+test('CI_BUILD_NUMBER가 없거나 양의 정수가 아니면 build를 시작하지 않는다', () => {
+  const fixture = repositoryFixture();
+  try {
+    for (const buildNumber of [undefined, '', '0', '-1', '1.5', '0042', 'abc', '2100000001']) {
+      assert.throws(
+        () =>
+          resolveXcodeCloudTagBinding({
+            tag: 'v1.2.3',
+            repository: fixture.repository,
+            infoPlist: fixture.infoPlist,
+            buildNumber,
+          }),
+        (error) => error.code === 'xcode-cloud-build-number-invalid',
+        String(buildNumber),
+      );
+    }
+
+    // CLI도 CI_BUILD_NUMBER 없이는 plist를 건드리지 않고 실패한다.
+    const { CI_BUILD_NUMBER: _ignored, ...env } = process.env;
+    const before = readFileSync(fixture.infoPlist, 'utf8');
+    const result = spawnSync(
+      process.execPath,
+      [CLI, '--tag', 'v1.2.3', '--repository', fixture.repository, '--info-plist', fixture.infoPlist],
+      { encoding: 'utf8', env },
+    );
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /xcode-cloud-build-number-invalid/u);
+    assert.equal(readFileSync(fixture.infoPlist, 'utf8'), before);
   } finally {
     rmSync(fixture.repository, { recursive: true, force: true });
   }

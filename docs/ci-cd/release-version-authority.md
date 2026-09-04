@@ -13,7 +13,7 @@ GitHub 릴리즈 태그 `vMAJOR.MINOR.PATCH`가 Google Play, Apple App Store, Ap
 | Android `versionName` | display version | `1.2.3` |
 | Android `versionCode` | `1,000,000,000 + major * 1,000,000 + minor * 1,000 + patch` | `1001002003` |
 | Apple `CFBundleShortVersionString` | display version | `1.2.3` |
-| Apple `CFBundleVersion` | `major * 1,000,000 + minor * 1,000 + patch` | `1002003` |
+| Apple `CFBundleVersion` | `major * 1,000,000 + minor * 1,000 + patch` (Xcode Cloud 제외) | `1002003` |
 | Play release name | display version | `1.2.3` |
 
 Android의 `1,000,000,000`은 기존 Fleet에서 관측된 레거시 `versionCode`를 한 번에 넘기는 조직
@@ -23,6 +23,28 @@ Android의 `1,000,000,000`은 기존 Fleet에서 관측된 레거시 `versionCod
 `0`이라 태그 생성과 배포 양쪽에서 `derived-version-code-out-of-range`로 막는다. 최소 사용 가능한
 태그는 `v0.0.1`이다. 조건을 만족하지 않는 태그는 `release-tag.yml`이 생성 자체를 막고, 배포 경로도
 build 전에 거부한다.
+
+## Apple build number 예외: Xcode Cloud
+
+계약 `schemaVersion 2`는 Apple build number의 정본을 실행 환경별로 나눈다. 기본값은 위 표의
+`encoded-version`이고, **Xcode Cloud 경로만** `appleBuildNumberExceptions`로 분리한다.
+
+| 값 | Xcode Cloud 정본 | `v0.1.9` + `CI_BUILD_NUMBER=6` |
+|---|---|---|
+| `CFBundleShortVersionString` | 태그에서 `v` 제거 | `0.1.9` |
+| `CFBundleVersion` | Xcode Cloud가 발급한 `CI_BUILD_NUMBER` | `6` |
+
+Xcode Cloud는 build마다 자기 카운터를 발급하고 App Store Connect는 그 번호로 build를 식별한다.
+태그 파생 `encodedVersion`을 `CFBundleVersion`에 쓰면 `v0.1.9`가 `1009`, `v0.2.0`이 `2000`처럼
+태그마다 값이 튀고, 같은 marketing version을 다시 올릴 때 번호가 되돌아가 업로드가 거부된다.
+
+- `CI_BUILD_NUMBER`는 **필수**다. 값이 없거나 `0`이거나 정수가 아니면
+  `xcode-cloud-build-number-invalid`로 build 전에 fail-closed한다.
+- 태그 파생 `encodedVersion`은 이 경로에서 Apple build number가 아니라 런타임 최소지원버전
+  비교값(`runtimeVersionCode`)으로만 남는다.
+- marketing version은 여전히 태그 하나가 정본이다. 예외는 build number에만 적용된다.
+- 나머지 Apple 경로(GitHub Actions `xcodebuild` archive, Godot iOS export preset)는
+  `schemaVersion 1`과 같은 `encoded-version`을 그대로 쓴다.
 
 ## authority가 아닌 값
 
@@ -37,7 +59,7 @@ build 전에 거부한다.
 - `play-store/google-play.config.json`, `app-store/app-store.config.json`
 - 저장소 로컬 `scripts/resolve-release-version.mjs`
 - caller가 넘기던 `version_name`, `version_code`, `version_script` 입력
-- `github.run_number` 같은 비결정 카운터
+- `github.run_number` 같은 비결정 카운터 (Xcode Cloud `CI_BUILD_NUMBER`는 예외 계약이다)
 
 ## 실행 경로
 
@@ -159,10 +181,12 @@ Apple archive는 Xcode Cloud가 표준 실행 환경이다. run envelope 계약�
 `scripts/release/xcode-cloud-apply-tag-version.mjs`와 `tag-version-authority.mjs`를
 각각 checksum 검증한 뒤 실행한다. 앱 저장소에 별도 version resolver를 두지 않는다.
 helper의 `runtimeVersionCode`는 Android와 iOS 런타임이 공유하는 최소지원버전 비교값이며,
-native `CFBundleVersion`에는 별도의 `appleBuildNumber`를 그대로 사용한다.
+native `CFBundleVersion`에는 Xcode Cloud가 발급한 `CI_BUILD_NUMBER`를 그대로 쓴다.
 `sourceRef`가 exact stable 태그 ref, `sourceReference.kind`가 `TAG`, `immutable`이 `true`여야 한다.
-`requiredReadback`에는 기대 commit, reference, workflow, marketing version, build number가 들어가고
-build run readback이 하나라도 다르면 그 archive를 마켓 경로로 넘기지 않는다. run 생성은
+build number는 run이 시작해야 정해지므로 envelope은 기대값 대신 정본 이름만 담는다
+(`release.appleBuildNumberAuthority`, `requiredReadback.buildNumberAuthority`). `requiredReadback`에는
+기대 commit, reference, workflow, marketing version이 들어가고, build number는 run readback에서
+양의 정수인지만 확인한다. 하나라도 어긋나면 그 archive를 마켓 경로로 넘기지 않는다. run 생성은
 `capacitor-ios-xcode-cloud` profile이 승격되기 전까지 `BUILD_PROFILE_NOT_PROMOTED`로 fail-closed다.
 
 ## fail-closed 조건
@@ -185,6 +209,7 @@ build run readback이 하나라도 다르면 그 archive를 마켓 경로로 넘
 | `godot-preset-selector-required` | export preset 선택자 없이 주입을 시도한 경우 |
 | `godot-preset-selector-mismatch` | 선택한 preset이 없거나 platform이 다른 경우 |
 | `godot-preset-selector-ambiguous` | 같은 이름 preset이 둘 이상인 경우 |
+| `xcode-cloud-build-number-invalid` | Xcode Cloud `CI_BUILD_NUMBER` 누락·`0`·비정수 |
 
 ## 태그 receipt
 

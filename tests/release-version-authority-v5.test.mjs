@@ -632,7 +632,7 @@ test('caller migration inventory는 남은 결함을 기계적으로 찾아낸�
   }
 });
 
-test('Xcode Cloud v5 envelope는 태그 하나를 version authority로 고정한다', async () => {
+test('Xcode Cloud v5 envelope는 marketing version은 태그에, build number는 Xcode Cloud에 묶는다', async () => {
   const Ajv2020 = (await import('ajv/dist/2020.js')).default;
   const schema = JSON.parse(
     readFileSync(resolve(REPOSITORY_ROOT, 'contracts/xcode-cloud-run-v5.schema.json'), 'utf8'),
@@ -660,7 +660,11 @@ test('Xcode Cloud v5 envelope는 태그 하나를 version authority로 고정한
     }),
   });
   assert.equal(envelope.release.appleMarketingVersion, expected.appleMarketingVersion);
-  assert.equal(envelope.release.appleBuildNumber, expected.appleBuildNumber);
+  // build number는 run이 시작해야 정해지므로 envelope에 태그 파생값을 담지 않는다.
+  assert.equal(Object.hasOwn(envelope.release, 'appleBuildNumber'), false);
+  assert.equal(envelope.release.appleBuildNumberAuthority, 'xcode-cloud-ci-build-number');
+  assert.equal(Object.hasOwn(envelope.requiredReadback, 'expectedBuildNumber'), false);
+  assert.equal(envelope.requiredReadback.buildNumberAuthority, 'xcode-cloud-ci-build-number');
   assert.equal(envelope.release.configRevision, expected.configRevision);
   assert.equal(envelope.release.authorityRevision, expected.authorityRevision);
   assert.equal(envelope.release.bindingDigest, bindingDigest(expected));
@@ -676,13 +680,18 @@ test('Xcode Cloud v5 envelope는 태그 하나를 version authority로 고정한
     { ...envelope, sourceRef: 'refs/tags/v1.2.3-rc.1' },
     { ...envelope, sourceReference: { ...envelope.sourceReference, kind: 'BRANCH' } },
     { ...envelope, sourceReference: { ...envelope.sourceReference, immutable: false } },
-    { ...envelope, release: { ...envelope.release, appleBuildNumber: 0 } },
+    { ...envelope, release: { ...envelope.release, appleBuildNumberAuthority: 'encoded-version' } },
+    { ...envelope, release: { ...envelope.release, appleBuildNumber: 1002003 } },
+    {
+      ...envelope,
+      requiredReadback: { ...envelope.requiredReadback, expectedBuildNumber: 1002003 },
+    },
   ]) {
     assert.equal(validate(broken), false, JSON.stringify(broken.sourceRef));
   }
 });
 
-test('Xcode Cloud build run readback이 태그 파생값과 다르면 fail-closed한다', async () => {
+test('Xcode Cloud build run readback이 태그 파생값과 다르거나 build number가 없으면 fail-closed한다', async () => {
   const { verifyXcodeCloudRunReadbackV5, generateXcodeCloudRunV5 } = await import(
     '../packages/repo-contract/src/workflow-bundle-v5.mjs'
   );
@@ -694,7 +703,8 @@ test('Xcode Cloud build run readback이 태그 파생값과 다르면 fail-close
     sourceReferenceId: envelope.requiredReadback.expectedSourceReferenceId,
     workflowId: envelope.requiredReadback.expectedWorkflowId,
     marketingVersion: envelope.requiredReadback.expectedMarketingVersion,
-    buildNumber: envelope.requiredReadback.expectedBuildNumber,
+    // Xcode Cloud가 run에 붙인 번호. 사전 기대값이 없으므로 양의 정수인지만 확인한다.
+    buildNumber: 42,
   };
   assert.deepEqual(verifyXcodeCloudRunReadbackV5(envelope, good), { ok: true, diagnostics: [] });
 
@@ -703,12 +713,21 @@ test('Xcode Cloud build run readback이 태그 파생값과 다르면 fail-close
     ['sourceReferenceId', 'other-reference', 'XCODE_RUN_SOURCE_REFERENCE_MISMATCH'],
     ['workflowId', 'other-workflow', 'XCODE_RUN_WORKFLOW_MISMATCH'],
     ['marketingVersion', '9.9.9', 'XCODE_RUN_MARKETING_VERSION_MISMATCH'],
-    ['buildNumber', 1, 'XCODE_RUN_BUILD_NUMBER_MISMATCH'],
+    ['buildNumber', 0, 'XCODE_RUN_BUILD_NUMBER_INVALID'],
+    ['buildNumber', -1, 'XCODE_RUN_BUILD_NUMBER_INVALID'],
+    ['buildNumber', '1.5', 'XCODE_RUN_BUILD_NUMBER_INVALID'],
+    ['buildNumber', 'none', 'XCODE_RUN_BUILD_NUMBER_INVALID'],
+    ['buildNumber', undefined, 'XCODE_RUN_BUILD_NUMBER_INVALID'],
   ]) {
     const result = verifyXcodeCloudRunReadbackV5(envelope, { ...good, [field]: value });
-    assert.equal(result.ok, false, field);
-    assert.deepEqual([...result.diagnostics], [diagnostic], field);
+    assert.equal(result.ok, false, `${field}=${value}`);
+    assert.deepEqual([...result.diagnostics], [diagnostic], `${field}=${value}`);
   }
+  // Xcode Cloud가 붙인 번호는 태그와 무관하게 그대로 받는다.
+  assert.deepEqual(verifyXcodeCloudRunReadbackV5(envelope, { ...good, buildNumber: 1 }), {
+    ok: true,
+    diagnostics: [],
+  });
 
   // 승인 binding 없이는 run envelope 자체를 만들 수 없다.
   await assert.rejects(

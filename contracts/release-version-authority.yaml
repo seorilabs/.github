@@ -1,6 +1,11 @@
 # GitHub release tag를 모든 지원 마켓 artifact의 유일한 version source of truth로 고정한다.
 # 이 계약은 기계 판독 정본이며 문서와 충돌하면 이 파일이 우선한다.
-schemaVersion: 1
+#
+# schemaVersion 2: Apple build number의 정본을 실행 환경별로 나눴다. Xcode Cloud 경로만
+# appleBuildNumberExceptions로 분리하고, 나머지 Apple 경로는 schemaVersion 1과 같은
+# derivation.appleBuildNumber=encoded-version을 그대로 쓴다. 같은 필드의 의미가 실행 환경에
+# 따라 갈라지므로 값을 조용히 바꾸지 않고 schemaVersion을 올린다.
+schemaVersion: 2
 id: release-version-authority-v1
 
 authority:
@@ -38,6 +43,9 @@ forbiddenAuthorities:
     locations: ["workflow_call.inputs.version_name", "workflow_call.inputs.version_code", "workflow_call.inputs.version_script"]
   - id: non-deterministic-build-counter
     locations: ["github.run_number", "github.run_id", "wall-clock"]
+    # Xcode Cloud의 CI_BUILD_NUMBER는 여기 해당하지 않는다. Apple이 workflow별로 발급하고
+    # App Store Connect가 build 식별자로 되읽는 값이라 appleBuildNumberExceptions로 분리한다.
+    exceptions: [xcode-cloud-ci-build-number]
 
 derivation:
   # v prefix를 제거한 값이 display/marketing version이다.
@@ -49,6 +57,7 @@ derivation:
   encodedVersionFormula: 'major * 1000000 + minor * 1000 + patch'
   androidVersionCodeEpoch: 1000000000
   androidVersionCodeFormula: 'androidVersionCodeEpoch + encodedVersion'
+  # Apple build number의 기본 정본. Xcode Cloud 실행만 appleBuildNumberExceptions가 대신한다.
   appleBuildNumber: encoded-version
   releaseName: display-version
   bounds:
@@ -60,8 +69,35 @@ derivation:
     # artifact도 만들 수 없으므로 태그 생성과 배포 양쪽에서 거부한다.
     versionCodeMin: 1
 
+# Apple build number 정본의 실행 환경별 예외. 여기 없는 경로는 derivation.appleBuildNumber를 쓴다.
+appleBuildNumberExceptions:
+  # Xcode Cloud는 build마다 자기 카운터(CI_BUILD_NUMBER)를 발급하고 App Store Connect는 그
+  # 번호로 build를 식별한다. 태그 파생 encodedVersion을 CFBundleVersion에 쓰면 v0.1.9가 1009,
+  # v0.2.0이 2000처럼 태그마다 값이 튀고, 같은 marketing version을 다시 올릴 때 번호가 되돌아가
+  # 업로드가 거부된다. 그래서 이 경로만 build number 정본을 분리한다. 마케팅 버전은 여전히
+  # 태그 하나가 정본이다(v0.1.9 -> 0.1.9).
+  - id: xcode-cloud-ci-build-number
+    appliesTo: xcode-cloud
+    marketingVersion: tag-without-v-prefix
+    buildNumber: xcode-cloud-run-build-number
+    source: CI_BUILD_NUMBER
+    required: true
+    valueConstraint: positive-integer
+    bounds:
+      min: 1
+      max: 2100000000
+    injects:
+      CFBundleShortVersionString: marketingVersion
+      CFBundleVersion: buildNumber
+    # 태그 파생 encodedVersion은 이 경로에서 Apple build number가 아니다. Android/iOS 런타임이
+    # 공유하는 최소지원버전 비교값(runtimeVersionCode)으로만 남는다.
+    encodedVersionRole: runtime-version-code-only
+    failClosed: xcode-cloud-build-number-invalid
+
 binding:
   # 하나의 release binding은 아래 필드로만 식별된다. 재현 불가능한 값은 포함하지 않는다.
+  # appleBuildNumber는 derivation의 기본 파생값이다. Xcode Cloud archive의 CFBundleVersion은
+  # appleBuildNumberExceptions를 따르므로 이 값과 다를 수 있고, binding은 그 값을 담지 않는다.
   fields:
     - tag
     - sourceSha
@@ -220,12 +256,15 @@ workflowBundleV5:
   xcodeCloud:
     envelope: contracts/xcode-cloud-run-v5.schema.json
     sourceReferenceKind: TAG
+    # build number는 run이 시작해야 정해지므로 envelope에 기대값을 박을 수 없다. 대신 정본이
+    # 무엇인지 선언하고, run readback에서 양의 정수인지만 fail-closed로 확인한다.
+    buildNumberAuthority: xcode-cloud-ci-build-number
     requiredReadback:
       - expectedSourceCommitSha
       - expectedSourceReferenceId
       - expectedWorkflowId
       - expectedMarketingVersion
-      - expectedBuildNumber
+      - buildNumberAuthority
 
 failClosed:
   - id: tag-pattern-mismatch
@@ -242,3 +281,4 @@ failClosed:
   - id: tag-reuse-with-different-source
   - id: tag-reuse-with-different-config
   - id: forbidden-authority-override
+  - id: xcode-cloud-build-number-invalid

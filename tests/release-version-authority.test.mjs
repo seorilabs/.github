@@ -1741,7 +1741,7 @@ test('RN Play public repo는 private ARC를 사용하지 않는다', () => {
 test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독으로 고정한다', () => {
   const contract = parse(readFileSync(AUTHORITY_CONTRACT, 'utf8'));
 
-  assert.equal(contract.schemaVersion, 1);
+  assert.equal(contract.schemaVersion, 2);
   assert.equal(contract.id, AUTHORITY_ID);
   assert.equal(contract.authority.source, 'github-release-tag');
   assert.equal(contract.authority.prereleaseAllowed, false);
@@ -1796,10 +1796,37 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
       'tag-ref-mismatch',
       'tag-reuse-with-different-config',
       'tag-reuse-with-different-source',
+      'xcode-cloud-build-number-invalid',
     ],
   );
   // 마켓 최소 versionCode. v0.0.0은 어떤 artifact도 만들 수 없다.
   assert.equal(contract.derivation.bounds.versionCodeMin, 1);
+  // Xcode Cloud만 Apple build number 정본을 분리한다. 나머지 Apple 경로는 encoded-version 그대로다.
+  assert.deepEqual(
+    contract.appleBuildNumberExceptions.map(({ id }) => id),
+    ['xcode-cloud-ci-build-number'],
+  );
+  const [xcodeCloudBuildNumber] = contract.appleBuildNumberExceptions;
+  assert.equal(xcodeCloudBuildNumber.appliesTo, 'xcode-cloud');
+  assert.equal(xcodeCloudBuildNumber.marketingVersion, 'tag-without-v-prefix');
+  assert.equal(xcodeCloudBuildNumber.source, 'CI_BUILD_NUMBER');
+  assert.equal(xcodeCloudBuildNumber.required, true);
+  assert.equal(xcodeCloudBuildNumber.valueConstraint, 'positive-integer');
+  assert.equal(xcodeCloudBuildNumber.bounds.min, 1);
+  assert.equal(xcodeCloudBuildNumber.bounds.max, 2_100_000_000);
+  assert.deepEqual(xcodeCloudBuildNumber.injects, {
+    CFBundleShortVersionString: 'marketingVersion',
+    CFBundleVersion: 'buildNumber',
+  });
+  assert.equal(xcodeCloudBuildNumber.encodedVersionRole, 'runtime-version-code-only');
+  assert.equal(xcodeCloudBuildNumber.failClosed, 'xcode-cloud-build-number-invalid');
+  assert.ok(contract.failClosed.some(({ id }) => id === xcodeCloudBuildNumber.failClosed));
+  // CI_BUILD_NUMBER는 금지된 비결정 카운터가 아니라 이 예외 계약의 정본이다.
+  assert.deepEqual(
+    contract.forbiddenAuthorities.find(({ id }) => id === 'non-deterministic-build-counter')
+      .exceptions,
+    [xcodeCloudBuildNumber.id],
+  );
   // .ait 형식 계약: 내부 version 필드가 없고 memo가 artifact digest를 담는다.
   assert.deepEqual(contract.artifactReadback.ait.supportedFormats, ['ait', 'zip']);
   assert.equal(contract.artifactReadback.ait.internalVersionField, 'none');
@@ -1852,6 +1879,18 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
     '.github/workflows/rn-build-android-cloud-v2.yml',
   ]);
   assert.equal(contract.workflowBundleV5.bindingMode, 'RELEASE');
+  // Xcode Cloud envelope은 build number 기대값 대신 정본 이름을 담는다.
+  assert.equal(
+    contract.workflowBundleV5.xcodeCloud.buildNumberAuthority,
+    'xcode-cloud-ci-build-number',
+  );
+  assert.deepEqual(contract.workflowBundleV5.xcodeCloud.requiredReadback, [
+    'expectedSourceCommitSha',
+    'expectedSourceReferenceId',
+    'expectedWorkflowId',
+    'expectedMarketingVersion',
+    'buildNumberAuthority',
+  ]);
   assert.equal(contract.workflowBundleV5.requiresApprovedBundle, true);
   const releaseRefPattern = new RegExp(contract.workflowBundleV5.releaseRefPattern, 'u');
   assert.equal(releaseRefPattern.test('refs/tags/v1.2.3'), true);
