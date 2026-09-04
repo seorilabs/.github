@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { PolicyEngine, validMacOsUnixSocketPath } from '../src/index.mjs';
+import { PolicyEngine, validMacOsId, validMacOsUnixSocketPath } from '../src/index.mjs';
 
 const packageRoot = new URL('../', import.meta.url);
 
@@ -63,7 +63,20 @@ test('example policy and JSON schemas are parseable', async () => {
     assert.equal(schemaAcceptsSocket(socketPath), false, socketPath);
     assert.equal(validMacOsUnixSocketPath(socketPath), false, socketPath);
   }
+  for (const socketPath of [
+    '/private/var/run/relay/../relay.sock',
+    '/private//var/run/relay.sock',
+    '/private/var/run/relay/',
+    '/./relay.sock',
+  ]) {
+    assert.equal(schemaAcceptsSocket(socketPath), false, socketPath);
+    assert.equal(validMacOsUnixSocketPath(socketPath), false, socketPath);
+  }
   assert.equal(agentRelaySchema.properties.expectedPeer.properties.uid.minimum, 1);
+  assert.equal(agentRelaySchema.properties.expectedPeer.properties.uid.maximum, 2_147_483_647);
+  assert.equal(agentRelaySchema.properties.expectedPeer.properties.gid.maximum, 2_147_483_647);
+  assert.equal(validMacOsId(2_147_483_647), true);
+  assert.equal(validMacOsId(2_147_483_648), false);
   assert.equal(agentRelaySchema.properties.upstream.properties.tls.additionalProperties, false);
   const relayOriginPatterns = agentRelaySchema.properties.upstream.properties.origin.oneOf
     .map(({ pattern }) => new RegExp(pattern));

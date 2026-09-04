@@ -9,6 +9,7 @@ import {
   NativeSecurityBoundary,
   readImmutableAgentRelayConfig,
   runAgentRelayLifecycle,
+  validMacOsId,
   validMacOsUnixSocketPath,
 } from '../src/index.mjs';
 
@@ -39,8 +40,7 @@ function validateConfig(config) {
   }
   if (
     !exactKeys(config.expectedPeer, ['gid', 'uid']) ||
-    !Number.isSafeInteger(config.expectedPeer.uid) || config.expectedPeer.uid < 1 ||
-    !Number.isSafeInteger(config.expectedPeer.gid) || config.expectedPeer.gid < 1
+    !validMacOsId(config.expectedPeer.uid) || !validMacOsId(config.expectedPeer.gid)
   ) fail('agent relay peer binding is invalid');
   if (
     !exactKeys(config.nativeHelper, ['path', 'sha256']) ||

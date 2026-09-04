@@ -12,6 +12,7 @@ export {
   createAgentMtlsForwarder,
   executeAgentRelayClientRequest,
   readImmutableAgentRelayConfig,
+  validMacOsId,
   validMacOsUnixSocketPath,
 } from './agent-relay.mjs';
 export { runAgentRelayLifecycle } from './agent-relay-lifecycle.mjs';

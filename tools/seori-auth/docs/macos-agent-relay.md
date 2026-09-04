@@ -24,7 +24,9 @@ kubeconfig를 worker 사용자에게 주지 않습니다.
   `projectionDigest`를 다시 계산하고, 시작 `READY` 레코드에 중앙 객체 ID·해시를 내보냅니다.
   Backoffice는 이 readback을 승인 투영본과 exact 비교해야 합니다.
 - relay가 허용하는 목적지는 root config의 exact HTTPS origin과 `/v1/execute` 하나이며,
-  TLS 1.3과 exact server name을 강제합니다. redirect와 임의 host/path는 없습니다.
+  TLS 1.3과 exact server name을 강제합니다. redirect와 임의 host/path는 없습니다. upstream
+  요청은 응답 활동과 무관한 총 30초 deadline을 가지며, 만료하면 request와 response를 모두
+  중단해 진행 슬롯을 반환합니다.
 - 이 upstream은 `seorilabs-backoffice` 이미지의
   `scripts-dist/seori-auth-agent-runtime.cjs`를 실행하는 동명 Kubernetes Deployment입니다.
   이 패키지의 `runtime/entrypoint.mjs`가 만드는 `LocalAuthDaemon`과는 다른 프로세스이며,
@@ -116,6 +118,9 @@ native helper와 `dscl` readback을 각각 append-only `DiscoveryObservation`과
 key는 root 소유로 두며 relay entrypoint는 root가 아니거나 config가 root 소유 regular
 file이 아니거나 projection digest가 다르면 시작하지 않습니다. 이 digest는 승인본과 실행
 캐시의 drift 검출값입니다. root 자체의 침해를 막는 서명으로 사용하지 않습니다.
+`socketPath`는 빈 segment, `.`·`..`, trailing slash가 없는 canonical ASCII 절대 경로여야 하고
+macOS `sockaddr_un.sun_path` 한계인 104바이트를 넘지 않습니다. UID/GID는 macOS
+`UID_MAX`·`GID_MAX`인 2147483647 이하의 비-root 정수여야 합니다.
 
 worker는 요청을 stdin으로만 보냅니다.
 

@@ -12,7 +12,9 @@ const RESPONSE_LIMIT = 512 * 1024;
 const MAX_CONNECTIONS = 4;
 const MAX_IN_FLIGHT = 2;
 const MACOS_UNIX_SOCKET_PATH_MAX_BYTES = 104;
-const MACOS_UNIX_SOCKET_PATH = /^\/[A-Za-z0-9._/-]+$/u;
+const MACOS_ID_MAX = 2_147_483_647;
+const MACOS_UNIX_SOCKET_PATH = /^\/(?!\.{1,2}(?:\/|$))(?!.*\/\.{1,2}(?:\/|$))[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/u;
+const UPSTREAM_TOTAL_TIMEOUT_MS = 30_000;
 const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const PUBLIC_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/;
 const PUBLIC_CONTRACT_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,190}$/;
@@ -86,6 +88,10 @@ function validString(value, { pattern, minimum = 1, maximum = 2_048 } = {}) {
 export function validMacOsUnixSocketPath(value) {
   return typeof value === 'string' && MACOS_UNIX_SOCKET_PATH.test(value) &&
     Buffer.byteLength(value, 'utf8') <= MACOS_UNIX_SOCKET_PATH_MAX_BYTES;
+}
+
+export function validMacOsId(value, { allowRoot = false } = {}) {
+  return Number.isSafeInteger(value) && value >= (allowRoot ? 0 : 1) && value <= MACOS_ID_MAX;
 }
 
 function validHttpsUrl(value) {
@@ -476,9 +482,8 @@ export async function assertAgentRelayClientSocket(path, {
 } = {}) {
   if (
     !validMacOsUnixSocketPath(path) ||
-    !Number.isSafeInteger(expectedDirectoryUid) || expectedDirectoryUid < 0 ||
-    !Number.isSafeInteger(expectedSocketUid) || expectedSocketUid < 1 ||
-    !Number.isSafeInteger(expectedSocketGid) || expectedSocketGid < 1
+    !validMacOsId(expectedDirectoryUid, { allowRoot: true }) ||
+    !validMacOsId(expectedSocketUid) || !validMacOsId(expectedSocketGid)
   ) fail('invalid_agent_relay_socket', 'agent relay client socket binding is invalid');
   await assertTrustedAncestors(path, expectedDirectoryUid);
   const parent = dirname(path);
@@ -593,7 +598,7 @@ export function executeAgentRelayClientRequest({
 export async function readImmutableAgentRelayConfig(path, { expectedOwnerUid = 0 } = {}) {
   if (
     typeof path !== 'string' || !isAbsolute(path) || path.includes('\0') ||
-    !Number.isSafeInteger(expectedOwnerUid) || expectedOwnerUid < 0
+    !validMacOsId(expectedOwnerUid, { allowRoot: true })
   ) fail('invalid_agent_relay_config', 'agent relay config path or owner is invalid');
   await assertTrustedAncestors(path, expectedOwnerUid);
   const [entry, canonical] = await Promise.all([lstat(path), realpath(path)]);
@@ -677,6 +682,27 @@ export async function createAgentMtlsForwarder({
       }
       try {
         return await new Promise((resolve, reject) => {
+          let settled = false;
+          let responseStream;
+          let deadline;
+          const chunks = [];
+          const clearChunks = () => chunks.forEach((entry) => entry.fill(0));
+          const rejectStable = (error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(deadline);
+            clearChunks();
+            reject(error instanceof SeoriAuthError ? error : new SeoriAuthError(
+              'agent_relay_upstream_rejected',
+              'agent relay upstream request failed',
+            ));
+          };
+          const resolveStable = (value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(deadline);
+            resolve(value);
+          };
           const request = requestImpl({
             protocol: 'https:',
             hostname: target.hostname,
@@ -694,27 +720,17 @@ export async function createAgentMtlsForwarder({
               'content-type': 'application/json',
               'content-length': String(encoded.length),
             },
-            timeout: 30_000,
+            timeout: UPSTREAM_TOTAL_TIMEOUT_MS,
           }, (response) => {
-            const chunks = [];
+            responseStream = response;
             let bytes = 0;
-            let rejected = false;
-            const rejectResponse = (error) => {
-              if (rejected) return;
-              rejected = true;
-              chunks.forEach((entry) => entry.fill(0));
-              reject(error instanceof SeoriAuthError ? error : new SeoriAuthError(
-                'agent_relay_upstream_rejected',
-                'agent relay upstream response failed',
-              ));
-            };
             response.on('data', (chunk) => {
-              if (rejected) return;
+              if (settled) return;
               const copy = Buffer.from(chunk);
               bytes += copy.length;
               if (bytes > RESPONSE_LIMIT) {
                 copy.fill(0);
-                rejectResponse(new SeoriAuthError(
+                rejectStable(new SeoriAuthError(
                   'agent_relay_upstream_rejected',
                   'agent relay upstream response exceeded its bound',
                 ));
@@ -723,16 +739,16 @@ export async function createAgentMtlsForwarder({
               }
               chunks.push(copy);
             });
-            response.once('aborted', () => rejectResponse(new SeoriAuthError(
+            response.once('aborted', () => rejectStable(new SeoriAuthError(
               'agent_relay_upstream_rejected',
               'agent relay upstream response was aborted',
             )));
-            response.once('error', () => rejectResponse(new SeoriAuthError(
+            response.once('error', () => rejectStable(new SeoriAuthError(
               'agent_relay_upstream_rejected',
               'agent relay upstream response failed',
             )));
             response.on('end', () => {
-              if (rejected) return;
+              if (settled) return;
               const statusCode = response.statusCode ?? 500;
               const contentType = String(response.headers?.['content-type'] ?? '').split(';', 1)[0].trim().toLowerCase();
               const payload = Buffer.concat(chunks);
@@ -750,17 +766,27 @@ export async function createAgentMtlsForwarder({
                   ),
                 );
                 const body = Buffer.from(`${JSON.stringify(publicResponse)}\n`, 'utf8');
-                resolve(Object.freeze({ statusCode, body }));
+                resolveStable(Object.freeze({ statusCode, body }));
               } catch (error) {
-                reject(error);
+                rejectStable(error);
               } finally {
                 payload.fill(0);
                 chunks.forEach((entry) => entry.fill(0));
               }
             });
           });
-          request.once('timeout', () => request.destroy(new Error('agent relay upstream timed out')));
-          request.once('error', () => reject(new SeoriAuthError(
+          const abortUpstream = () => {
+            responseStream?.destroy?.();
+            request.destroy(new Error('agent relay upstream timed out'));
+            rejectStable(new SeoriAuthError(
+              'agent_relay_upstream_rejected',
+              'agent relay upstream request failed',
+            ));
+          };
+          deadline = setTimeout(abortUpstream, UPSTREAM_TOTAL_TIMEOUT_MS);
+          deadline.unref?.();
+          request.once('timeout', abortUpstream);
+          request.once('error', () => rejectStable(new SeoriAuthError(
             'agent_relay_upstream_rejected',
             'agent relay upstream request failed',
           )));
@@ -872,10 +898,10 @@ export class AgentRelayDaemon {
     if (!validMacOsUnixSocketPath(socketPath)) {
       throw new TypeError('agent relay socketPath must fit the macOS Unix socket path contract');
     }
-    if (!Number.isSafeInteger(expectedPeerUid) || expectedPeerUid < 1) {
+    if (!validMacOsId(expectedPeerUid)) {
       throw new TypeError('agent relay expectedPeerUid must be a non-root OS UID');
     }
-    if (!Number.isSafeInteger(expectedPeerGid) || expectedPeerGid < 1) {
+    if (!validMacOsId(expectedPeerGid)) {
       throw new TypeError('agent relay expectedPeerGid must be a non-root OS GID');
     }
     if (!nativeBoundary || typeof nativeBoundary.attest !== 'function') {

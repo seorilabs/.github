@@ -906,6 +906,60 @@ test('mTLS forwarder converts upstream response stream errors into a stable reje
   }
 });
 
+test('mTLS forwarder enforces one total deadline despite continuing response activity', async (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'seori-agent-forwarder-deadline-')));
+  try {
+    const tls = await tlsFiles(root);
+    let response;
+    let requestDestroyed = false;
+    let responseDestroyed = false;
+    const requestImpl = (options, callback) => {
+      assert.equal(options.timeout, 30_000);
+      const request = new EventEmitter();
+      request.end = () => {
+        response = new EventEmitter();
+        response.statusCode = 503;
+        response.headers = { 'content-type': 'application/json' };
+        response.destroy = () => {
+          responseDestroyed = true;
+          response.emit('aborted');
+        };
+        callback(response);
+        response.emit('data', Buffer.from('{', 'utf8'));
+      };
+      request.destroy = (error) => {
+        requestDestroyed = true;
+        request.emit('error', error ?? new Error('destroyed'));
+      };
+      return request;
+    };
+    const forwarder = await createAgentMtlsForwarder({
+      origin: 'https://127.0.0.1:19443',
+      serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+      workerKind: 'CODEX',
+      tls,
+      requestImpl,
+    });
+    const pending = forwarder.forward(publicRequest('CLAIM', {}));
+    for (const elapsed of [10_000, 10_000, 9_999]) {
+      context.mock.timers.tick(elapsed);
+      response.emit('data', Buffer.from(' ', 'utf8'));
+    }
+    assert.equal(requestDestroyed, false);
+    context.mock.timers.tick(1);
+    await assert.rejects(
+      pending,
+      (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_upstream_rejected',
+    );
+    assert.equal(requestDestroyed, true);
+    assert.equal(responseDestroyed, true);
+    forwarder.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('agent relay client rejects response stream errors without reflecting details', async () => {
   const requestImpl = (_options, callback) => {
     const request = new EventEmitter();
