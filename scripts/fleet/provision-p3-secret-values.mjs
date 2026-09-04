@@ -95,6 +95,23 @@ function crc32c(buffer) {
   return String((crc ^ 0xffffffff) >>> 0);
 }
 
+function canonicalWriterResource(resource) {
+  return `projects/${cloud.projectNumber}/secrets/${resource.secretId}`;
+}
+
+function receiptResult(result, resource) {
+  const canonicalResource = canonicalWriterResource(resource);
+  if (
+    result.resourceName !== canonicalResource ||
+    result.versionResourceName !== `${canonicalResource}/versions/${resource.version}`
+  ) stop("P3_SECRET_VALUE_WRITER_RESULT_MISMATCH");
+  return {
+    ...result,
+    resourceName: resource.resource,
+    versionResourceName: resource.versionResource,
+  };
+}
+
 function parseJson(raw, code) {
   try {
     return JSON.parse(raw);
@@ -595,14 +612,14 @@ async function apply() {
         stop("P3_SECRET_VALUE_EXISTING_VERSION_UNVERIFIED");
       }
       const result = await writer.verifyVersion({
-        resourceName: resource.resource,
+        resourceName: canonicalWriterResource(resource),
         expectedVersion: resource.version,
         material,
       });
       receipt.pending = receipt.pending.filter(
         ({ resourceName }) => resourceName !== resource.resource,
       );
-      receipt.results.push({ ...result, fingerprintSha256 });
+      receipt.results.push({ ...receiptResult(result, resource), fingerprintSha256 });
       persistReceipt(receipt);
       continue;
     }
@@ -624,14 +641,14 @@ async function apply() {
       persistReceipt(receipt);
     }
     const result = await writer.writeVersion({
-      resourceName: resource.resource,
+      resourceName: canonicalWriterResource(resource),
       expectedVersion: resource.version,
       material,
     });
     receipt.pending = receipt.pending.filter(
       ({ resourceName }) => resourceName !== resource.resource,
     );
-    receipt.results.push({ ...result, fingerprintSha256 });
+    receipt.results.push({ ...receiptResult(result, resource), fingerprintSha256 });
     persistReceipt(receipt);
   }
   const readback = publicReadback();

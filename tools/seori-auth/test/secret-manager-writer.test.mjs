@@ -28,7 +28,7 @@ test('production Secret Manager child writes through the API without public secr
   const wrapper = join(root, 'gcloud-cli.sh');
   const token = 'test-access-token-0123456789-abcdefghijklmnopqrstuvwxyz';
   const secret = randomBytes(32);
-  const resource = 'projects/seorilabs-ci/secrets/seori-auth-journal-mac';
+  const resource = 'projects/321365398093/secrets/seori-auth-journal-mac';
   let requestBody = '';
   const server = createServer((request, response) => {
     assert.equal(request.method, 'POST');
@@ -107,7 +107,7 @@ test('production Secret Manager child reconciles an ambiguous write without expo
   const wrapper = join(root, 'gcloud-cli.sh');
   const token = 'test-access-token-0123456789-abcdefghijklmnopqrstuvwxyz';
   const secret = randomBytes(32);
-  const resource = 'projects/seorilabs-ci/secrets/seori-auth-browser-vault';
+  const resource = 'projects/321365398093/secrets/seori-auth-browser-vault';
   const server = createServer((request, response) => {
     assert.equal(request.method, 'GET');
     assert.equal(request.url, `/v1/${resource}/versions/1:access`);
