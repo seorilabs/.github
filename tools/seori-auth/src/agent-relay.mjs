@@ -11,6 +11,8 @@ const REQUEST_LIMIT = 6 * 1024 * 1024;
 const RESPONSE_LIMIT = 512 * 1024;
 const MAX_CONNECTIONS = 4;
 const MAX_IN_FLIGHT = 2;
+const MACOS_UNIX_SOCKET_PATH_MAX_BYTES = 104;
+const MACOS_UNIX_SOCKET_PATH = /^\/[A-Za-z0-9._/-]+$/u;
 const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const PUBLIC_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/;
 const PUBLIC_CONTRACT_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,190}$/;
@@ -79,6 +81,11 @@ function validString(value, { pattern, minimum = 1, maximum = 2_048 } = {}) {
   return typeof value === 'string' && value.length >= minimum && value.length <= maximum &&
     !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value) &&
     (!pattern || pattern.test(value));
+}
+
+export function validMacOsUnixSocketPath(value) {
+  return typeof value === 'string' && MACOS_UNIX_SOCKET_PATH.test(value) &&
+    Buffer.byteLength(value, 'utf8') <= MACOS_UNIX_SOCKET_PATH_MAX_BYTES;
 }
 
 function validHttpsUrl(value) {
@@ -468,7 +475,7 @@ export async function assertAgentRelayClientSocket(path, {
   expectedSocketGid = process.getgid?.(),
 } = {}) {
   if (
-    typeof path !== 'string' || !isAbsolute(path) || path.includes('\0') ||
+    !validMacOsUnixSocketPath(path) ||
     !Number.isSafeInteger(expectedDirectoryUid) || expectedDirectoryUid < 0 ||
     !Number.isSafeInteger(expectedSocketUid) || expectedSocketUid < 1 ||
     !Number.isSafeInteger(expectedSocketGid) || expectedSocketGid < 1
@@ -495,7 +502,7 @@ export function executeAgentRelayClientRequest({
   timeoutMs = 30_000,
 }) {
   if (
-    typeof socketPath !== 'string' || !isAbsolute(socketPath) || socketPath.includes('\0') ||
+    !validMacOsUnixSocketPath(socketPath) ||
     !Buffer.isBuffer(encoded) || encoded.length < 2 || encoded.length > REQUEST_LIMIT ||
     typeof requestImpl !== 'function' || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1
   ) fail('invalid_agent_relay_request', 'agent relay client request is invalid');
@@ -862,8 +869,8 @@ export class AgentRelayDaemon {
   #inFlight = 0;
 
   constructor({ socketPath, expectedPeerUid, expectedPeerGid, nativeBoundary, forwarder }) {
-    if (typeof socketPath !== 'string' || !isAbsolute(socketPath)) {
-      throw new TypeError('agent relay socketPath must be absolute');
+    if (!validMacOsUnixSocketPath(socketPath)) {
+      throw new TypeError('agent relay socketPath must fit the macOS Unix socket path contract');
     }
     if (!Number.isSafeInteger(expectedPeerUid) || expectedPeerUid < 1) {
       throw new TypeError('agent relay expectedPeerUid must be a non-root OS UID');

@@ -13,7 +13,8 @@ kubeconfig를 worker 사용자에게 주지 않습니다.
   재시작 때 남은 정상 runtime mode `0711`도 먼저 `0700`으로 좁힌 뒤 socket을 bind하고,
   socket을 해당 worker UID/GID 소유 `0600`으로 검증한 후 부모만 `0711`로 엽니다. 종료하면
   부모를 다시 `0700`으로 좁힙니다. 그 상위 경로도 root 소유이고 group/world write가 없어야
-  합니다.
+  합니다. socket path는 macOS `sun_path[104]` 경계와 schema/runtime parity를 위해 ASCII
+  절대 경로 104바이트 이하로 제한합니다.
 - relay는 native helper의 SHA-256을 시작 시 검증하고 macOS `getpeereid`와
   `LOCAL_PEERPID`로 accepted socket의 UID/GID/PID를 읽습니다. 요청 body의 principal은
   신뢰하지 않습니다.

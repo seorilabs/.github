@@ -63,7 +63,11 @@
       }
     },
     "workerKind": { "enum": ["CODEX", "CLAUDE"] },
-    "socketPath": { "type": "string", "pattern": "^/[^\\u0000]+$", "maxLength": 1024 },
+    "socketPath": {
+      "type": "string",
+      "pattern": "^/[A-Za-z0-9._/-]+$",
+      "maxLength": 104
+    },
     "expectedPeer": {
       "type": "object",
       "additionalProperties": false,

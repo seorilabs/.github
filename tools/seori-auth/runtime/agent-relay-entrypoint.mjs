@@ -9,6 +9,7 @@ import {
   NativeSecurityBoundary,
   readImmutableAgentRelayConfig,
   runAgentRelayLifecycle,
+  validMacOsUnixSocketPath,
 } from '../src/index.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -54,7 +55,9 @@ function validateConfig(config) {
     schemaVersion: 2,
     controlPlane: config.controlPlane,
     workerKind: config.workerKind,
-    socketPath: absolutePath(config.socketPath, 'socketPath'),
+    socketPath: validMacOsUnixSocketPath(config.socketPath)
+      ? config.socketPath
+      : fail('socketPath must fit the macOS Unix socket path contract'),
     expectedPeer: Object.freeze({ ...config.expectedPeer }),
     nativeHelper: Object.freeze({
       path: absolutePath(config.nativeHelper.path, 'nativeHelper.path'),

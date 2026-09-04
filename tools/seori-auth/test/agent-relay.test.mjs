@@ -524,7 +524,7 @@ test('agent relay public schemas cover every worker operation and known claim ta
 });
 
 test('agent relay refuses a private socket directory below a writable ancestor', async () => {
-  const root = await realpath(await mkdtemp(join(process.cwd(), '.agent-relay-ancestor-test-')));
+  const root = await realpath(await mkdtemp(join(homedir(), '.agent-relay-ancestor-test-')));
   try {
     const unsafe = join(root, 'worker-writable');
     const directory = join(unsafe, 'relay');

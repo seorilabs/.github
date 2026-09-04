@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { PolicyEngine } from '../src/index.mjs';
+import { PolicyEngine, validMacOsUnixSocketPath } from '../src/index.mjs';
 
 const packageRoot = new URL('../', import.meta.url);
 
@@ -43,6 +43,26 @@ test('example policy and JSON schemas are parseable', async () => {
   assert.equal(agentRelaySchema.required.includes('controlPlane'), true);
   assert.equal(agentRelaySchema.properties.controlPlane.additionalProperties, false);
   assert.deepEqual(agentRelaySchema.properties.workerKind.enum, ['CODEX', 'CLAUDE']);
+  const socketSchema = agentRelaySchema.properties.socketPath;
+  const socketPattern = new RegExp(socketSchema.pattern);
+  const schemaAcceptsSocket = (value) =>
+    socketPattern.test(value) && [...value].length <= socketSchema.maxLength;
+  for (const socketPath of [
+    '/private/var/run/seori-auth-agent/codex/relay.sock',
+    `/tmp/${'a'.repeat(99)}`,
+  ]) {
+    assert.equal(Buffer.byteLength(socketPath, 'utf8') <= 104, true, socketPath);
+    assert.equal(schemaAcceptsSocket(socketPath), true, socketPath);
+    assert.equal(validMacOsUnixSocketPath(socketPath), true, socketPath);
+  }
+  for (const socketPath of [
+    `/tmp/${'a'.repeat(100)}`,
+    `/tmp/${'가'.repeat(34)}`,
+  ]) {
+    assert.equal(Buffer.byteLength(socketPath, 'utf8') > 104, true, socketPath);
+    assert.equal(schemaAcceptsSocket(socketPath), false, socketPath);
+    assert.equal(validMacOsUnixSocketPath(socketPath), false, socketPath);
+  }
   assert.equal(agentRelaySchema.properties.expectedPeer.properties.uid.minimum, 1);
   assert.equal(agentRelaySchema.properties.upstream.properties.tls.additionalProperties, false);
   const relayOriginPatterns = agentRelaySchema.properties.upstream.properties.origin.oneOf
