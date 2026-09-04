@@ -738,7 +738,7 @@ export async function createAgentMtlsForwarder({
               const payload = Buffer.concat(chunks);
               try {
                 if (
-                  contentType !== 'application/json' || statusCode < 200 || statusCode >= 500 ||
+                  contentType !== 'application/json' || statusCode < 200 ||
                   (statusCode >= 300 && statusCode < 400)
                 ) fail('agent_relay_upstream_rejected', 'agent relay upstream response is not public JSON');
                 const publicResponse = parseJsonBuffer(

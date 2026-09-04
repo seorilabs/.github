@@ -727,6 +727,20 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
       mislabeledForwarder.close();
     }
 
+    const busyResponse = { error: { code: 'agent_runtime_busy' } };
+    const busyForwarder = await createAgentMtlsForwarder({
+      origin: 'https://127.0.0.1:19443',
+      serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+      workerKind: 'CODEX',
+      tls,
+      requestImpl: fakeHttpsRequest(JSON.stringify(busyResponse), {}, 503),
+    });
+    const busyResult = await busyForwarder.forward(publicRequest('CLAIM', {}));
+    assert.equal(busyResult.statusCode, 503);
+    assert.deepEqual(JSON.parse(busyResult.body.toString('utf8')), busyResponse);
+    busyResult.body.fill(0);
+    busyForwarder.close();
+
     const ipv6Capture = {};
     const ipv6Forwarder = await createAgentMtlsForwarder({
       origin: 'https://[::1]:19443',
