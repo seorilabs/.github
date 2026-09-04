@@ -278,6 +278,10 @@ Secret 권한, Service 노출 확장, NetworkPolicy port 확장,
 추가 state PVC가
 있거나 계약의 외부 gate가 `ready`가 아니면 exit 1로 중단합니다.
 
+전용 macOS UID의 Codex·Claude가 Kubernetes agent runtime을 호출할 때는 worker에게 mTLS
+private key나 kubeconfig를 주지 않습니다. native peer attestor와 root relay를 사용하는
+설치·활성화 계약은 [`docs/macos-agent-relay.md`](docs/macos-agent-relay.md)를 따릅니다.
+
 ```sh
 node scripts/audit-foundation-readiness.mjs --kubeconfig=/canonical/path/to/kubeconfig
 ```

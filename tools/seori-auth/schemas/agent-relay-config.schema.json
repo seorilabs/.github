@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/seorilabs/.github/tools/seori-auth/schemas/agent-relay-config.schema.json",
+  "title": "Seori Auth macOS agent relay configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "controlPlane",
+    "workerKind",
+    "socketPath",
+    "expectedPeer",
+    "nativeHelper",
+    "upstream"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "controlPlane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "projectionId",
+        "projectionDigest",
+        "configRevision",
+        "discoveryObservation",
+        "providerObservation"
+      ],
+      "properties": {
+        "contractVersion": { "const": "agent-relay-projection/v1" },
+        "projectionId": { "$ref": "#/$defs/publicId" },
+        "projectionDigest": { "$ref": "#/$defs/sha256" },
+        "configRevision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["appId", "id", "revision", "snapshotDigest"],
+          "properties": {
+            "appId": { "$ref": "#/$defs/publicId" },
+            "id": { "$ref": "#/$defs/publicId" },
+            "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+            "snapshotDigest": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "discoveryObservation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "sourceSha", "payloadHash"],
+          "properties": {
+            "id": { "$ref": "#/$defs/publicId" },
+            "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "payloadHash": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "providerObservation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "payloadHash"],
+          "properties": {
+            "id": { "$ref": "#/$defs/publicId" },
+            "payloadHash": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    },
+    "workerKind": { "enum": ["CODEX", "CLAUDE"] },
+    "socketPath": {
+      "type": "string",
+      "pattern": "^/(?!\\.{1,2}(?:/|$))(?!.*(?:/)\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$",
+      "maxLength": 104
+    },
+    "expectedPeer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uid", "gid"],
+      "properties": {
+        "uid": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "gid": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+      }
+    },
+    "nativeHelper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/canonicalAbsoluteFilePath" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "serverName", "tls"],
+      "properties": {
+        "origin": {
+          "type": "string",
+          "oneOf": [
+            {
+              "pattern": "^https://(?=[A-Za-z0-9.-]{1,253}(?::[0-9]+)?$)(?=[A-Za-z0-9.-]*[A-Za-z])(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)*[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$"
+            },
+            {
+              "pattern": "^https://(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$"
+            },
+            {
+              "pattern": "^https://\\[(?:(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?:(?::[0-9A-Fa-f]{1,4}){1,6})|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:))\\](?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$"
+            }
+          ],
+          "maxLength": 2048
+        },
+        "serverName": {
+          "type": "string",
+          "pattern": "^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["caPath", "certificatePath", "privateKeyPath"],
+          "properties": {
+            "caPath": { "$ref": "#/$defs/canonicalAbsoluteFilePath" },
+            "certificatePath": { "$ref": "#/$defs/canonicalAbsoluteFilePath" },
+            "privateKeyPath": { "$ref": "#/$defs/canonicalAbsoluteFilePath" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "canonicalAbsoluteFilePath": {
+      "type": "string",
+      "pattern": "^/(?!\\.{1,2}(?:/|$))(?!.*(?:/)\\.{1,2}(?:/|$))[\\x20-\\x2E\\x30-\\x7E]{1,255}(?:/[\\x20-\\x2E\\x30-\\x7E]{1,255})*$",
+      "maxLength": 1023
+    },
+    "publicId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

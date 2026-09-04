@@ -2,6 +2,21 @@ export { TrustedAdapterRegistry } from './adapters.mjs';
 export { CanonicalAccountRegistry } from './accounts.mjs';
 export { EncryptedBrowserVault } from './browser-vault.mjs';
 export { BrowserLoginBoundary } from './browser-login.mjs';
+export {
+  AgentRelayDaemon,
+  agentRelayProjectionDigest,
+  assertAgentRelayProjection,
+  assertAgentRelayClientSocket,
+  assertAgentRelayPublicRequest,
+  assertAgentRelayPublicResponse,
+  createAgentMtlsForwarder,
+  executeAgentRelayClientRequest,
+  readImmutableAgentRelayConfig,
+  validMacOsCanonicalFilePath,
+  validMacOsId,
+  validMacOsUnixSocketPath,
+} from './agent-relay.mjs';
+export { runAgentRelayLifecycle } from './agent-relay-lifecycle.mjs';
 export { SeoriAuthError } from './errors.mjs';
 export {
   computeAuthStrategyEvidenceKey,

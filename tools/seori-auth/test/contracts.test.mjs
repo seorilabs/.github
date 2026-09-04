@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { PolicyEngine } from '../src/index.mjs';
+import {
+  PolicyEngine,
+  validMacOsCanonicalFilePath,
+  validMacOsId,
+  validMacOsUnixSocketPath,
+} from '../src/index.mjs';
 
 const packageRoot = new URL('../', import.meta.url);
 
@@ -15,6 +20,7 @@ test('example policy and JSON schemas are parseable', async () => {
   const policySchema = JSON.parse(await read('schemas/policy.schema.json'));
   const leaseSchema = JSON.parse(await read('schemas/lease-request.schema.json'));
   const brokerSchema = JSON.parse(await read('schemas/local-broker.schema.json'));
+  const agentRelaySchema = JSON.parse(await read('schemas/agent-relay-config.schema.json'));
 
   assert.equal(new PolicyEngine(policy).generation, 1);
   assert.equal(policySchema.additionalProperties, false);
@@ -37,6 +43,106 @@ test('example policy and JSON schemas are parseable', async () => {
   assert.deepEqual(brokerSchema.$defs.leaseCreateRequest.required, ['idempotencyKey', 'workerId', 'request']);
   assert.equal(brokerSchema.$defs.executionBinding.additionalProperties, false);
   assert.equal(brokerSchema.oneOf.length, 5);
+  assert.equal(agentRelaySchema.additionalProperties, false);
+  assert.equal(agentRelaySchema.properties.schemaVersion.const, 2);
+  assert.equal(agentRelaySchema.required.includes('controlPlane'), true);
+  assert.equal(agentRelaySchema.properties.controlPlane.additionalProperties, false);
+  assert.equal(
+    agentRelaySchema.properties.controlPlane.properties.configRevision.properties.revision.maximum,
+    Number.MAX_SAFE_INTEGER,
+  );
+  assert.deepEqual(agentRelaySchema.properties.workerKind.enum, ['CODEX', 'CLAUDE']);
+  const socketSchema = agentRelaySchema.properties.socketPath;
+  const socketPattern = new RegExp(socketSchema.pattern);
+  const schemaAcceptsSocket = (value) =>
+    socketPattern.test(value) && [...value].length <= socketSchema.maxLength;
+  for (const socketPath of [
+    '/private/var/run/seori-auth-agent/codex/relay.sock',
+    `/tmp/${'a'.repeat(99)}`,
+  ]) {
+    assert.equal(Buffer.byteLength(socketPath, 'utf8') <= 104, true, socketPath);
+    assert.equal(schemaAcceptsSocket(socketPath), true, socketPath);
+    assert.equal(validMacOsUnixSocketPath(socketPath), true, socketPath);
+  }
+  for (const socketPath of [
+    `/tmp/${'a'.repeat(100)}`,
+    `/tmp/${'가'.repeat(34)}`,
+  ]) {
+    assert.equal(Buffer.byteLength(socketPath, 'utf8') > 104, true, socketPath);
+    assert.equal(schemaAcceptsSocket(socketPath), false, socketPath);
+    assert.equal(validMacOsUnixSocketPath(socketPath), false, socketPath);
+  }
+  for (const socketPath of [
+    '/private/var/run/relay/../relay.sock',
+    '/private//var/run/relay.sock',
+    '/private/var/run/relay/',
+    '/./relay.sock',
+  ]) {
+    assert.equal(schemaAcceptsSocket(socketPath), false, socketPath);
+    assert.equal(validMacOsUnixSocketPath(socketPath), false, socketPath);
+  }
+  assert.equal(agentRelaySchema.properties.expectedPeer.properties.uid.minimum, 1);
+  assert.equal(agentRelaySchema.properties.expectedPeer.properties.uid.maximum, 2_147_483_647);
+  assert.equal(agentRelaySchema.properties.expectedPeer.properties.gid.maximum, 2_147_483_647);
+  assert.equal(validMacOsId(2_147_483_647), true);
+  assert.equal(validMacOsId(2_147_483_648), false);
+  const materialPathSchema = agentRelaySchema.$defs.canonicalAbsoluteFilePath;
+  const materialPathPattern = new RegExp(materialPathSchema.pattern);
+  const schemaAcceptsMaterialPath = (value) =>
+    materialPathPattern.test(value) && [...value].length <= materialPathSchema.maxLength;
+  for (const path of [
+    '/opt/seori-auth/bin/seori-auth-native',
+    '/private/etc/seori auth/codex/.client-key.pem',
+    `/${'a'.repeat(255)}/${'b'.repeat(255)}/${'c'.repeat(255)}/${'d'.repeat(254)}`,
+  ]) {
+    assert.equal(schemaAcceptsMaterialPath(path), true, path);
+    assert.equal(validMacOsCanonicalFilePath(path), true, path);
+  }
+  for (const path of [
+    '/opt/seori-auth/../seori-auth/bin/helper',
+    '/private/etc//seori/key.pem',
+    '/private/etc/seori/',
+    '/./private/key.pem',
+    `/private/etc/${'가'.repeat(600)}/key.pem`,
+    `/${'a'.repeat(256)}`,
+    `/${'a'.repeat(255)}/${'b'.repeat(255)}/${'c'.repeat(255)}/${'d'.repeat(255)}`,
+  ]) {
+    assert.equal(schemaAcceptsMaterialPath(path), false, path);
+    assert.equal(validMacOsCanonicalFilePath(path), false, path);
+  }
+  assert.equal(
+    agentRelaySchema.properties.nativeHelper.properties.path.$ref,
+    '#/$defs/canonicalAbsoluteFilePath',
+  );
+  for (const property of ['caPath', 'certificatePath', 'privateKeyPath']) {
+    assert.equal(
+      agentRelaySchema.properties.upstream.properties.tls.properties[property].$ref,
+      '#/$defs/canonicalAbsoluteFilePath',
+      property,
+    );
+  }
+  assert.equal(agentRelaySchema.properties.upstream.properties.tls.additionalProperties, false);
+  const relayOriginPatterns = agentRelaySchema.properties.upstream.properties.origin.oneOf
+    .map(({ pattern }) => new RegExp(pattern));
+  const relayOrigin = (value) => relayOriginPatterns.some((pattern) => pattern.test(value));
+  for (const origin of [
+    'https://relay.example.com',
+    'https://relay.example.com:1',
+    'https://127.0.0.1:443',
+    'https://[::1]:65535',
+    'https://[2001:db8:85a3::8a2e:370:7334]:9443',
+  ]) {
+    assert.equal(relayOrigin(origin), true, origin);
+    assert.doesNotThrow(() => new URL(origin), origin);
+  }
+  for (const origin of [
+    'https://relay.example.com:0',
+    'https://relay.example.com:65536',
+    'https://relay.example.com:99999',
+    'https://999.999.999.999:443',
+    'https://[:::]:443',
+    'https://[1:2:3]:443',
+  ]) assert.equal(relayOrigin(origin), false, origin);
   assert.deepEqual(
     brokerSchema.$defs.publicIdentity.required,
     ['provider', 'accountId', 'teamId', 'workspaceId', 'appId'],

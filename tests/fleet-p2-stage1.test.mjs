@@ -975,6 +975,8 @@ test('native SSH relay keeps privileged payload out of sudo stdin in prompt and 
     await writeFile(fakeSsh, `#!/bin/bash
 set -euo pipefail
 if [[ "\${SEORI_TEST_SSH_MODE:-}" == "cached" ]]; then
+  exec 0<&-
+  /bin/sleep 0.05
   exit 0
 fi
 count="$(/usr/bin/wc -c | /usr/bin/tr -d ' ')"

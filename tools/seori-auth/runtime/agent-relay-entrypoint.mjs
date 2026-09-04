@@ -1,0 +1,135 @@
+#!/usr/bin/env node
+
+import {
+  AgentRelayDaemon,
+  assertAgentRelayProjection,
+  createAgentMtlsForwarder,
+  NativeSecurityBoundary,
+  readImmutableAgentRelayConfig,
+  runAgentRelayLifecycle,
+  validMacOsCanonicalFilePath,
+  validMacOsId,
+  validMacOsUnixSocketPath,
+} from '../src/index.mjs';
+
+const SHA256 = /^[0-9a-f]{64}$/;
+const WORKER_KIND = new Set(['CODEX', 'CLAUDE']);
+
+function exactKeys(value, expected) {
+  return value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.keys(value).sort().join('\0') === [...expected].sort().join('\0');
+}
+
+function fail(message) {
+  throw new Error(message);
+}
+
+function absolutePath(value, label) {
+  if (!validMacOsCanonicalFilePath(value)) {
+    fail(`${label} must be a canonical absolute file path`);
+  }
+  return value;
+}
+
+function validateConfig(config) {
+  if (!exactKeys(config, [
+    'controlPlane', 'expectedPeer', 'nativeHelper', 'schemaVersion', 'socketPath', 'upstream', 'workerKind',
+  ]) || config.schemaVersion !== 2 || !WORKER_KIND.has(config.workerKind)) {
+    fail('agent relay config fields are invalid');
+  }
+  if (
+    !exactKeys(config.expectedPeer, ['gid', 'uid']) ||
+    !validMacOsId(config.expectedPeer.uid) || !validMacOsId(config.expectedPeer.gid)
+  ) fail('agent relay peer binding is invalid');
+  if (
+    !exactKeys(config.nativeHelper, ['path', 'sha256']) ||
+    !SHA256.test(config.nativeHelper.sha256 ?? '')
+  ) fail('agent relay native helper binding is invalid');
+  if (
+    !exactKeys(config.upstream, ['origin', 'serverName', 'tls']) ||
+    typeof config.upstream.origin !== 'string' || typeof config.upstream.serverName !== 'string' ||
+    !exactKeys(config.upstream.tls, ['caPath', 'certificatePath', 'privateKeyPath'])
+  ) fail('agent relay upstream binding is invalid');
+  const validated = {
+    schemaVersion: 2,
+    controlPlane: config.controlPlane,
+    workerKind: config.workerKind,
+    socketPath: validMacOsUnixSocketPath(config.socketPath)
+      ? config.socketPath
+      : fail('socketPath must fit the macOS Unix socket path contract'),
+    expectedPeer: Object.freeze({ ...config.expectedPeer }),
+    nativeHelper: Object.freeze({
+      path: absolutePath(config.nativeHelper.path, 'nativeHelper.path'),
+      sha256: config.nativeHelper.sha256,
+    }),
+    upstream: Object.freeze({
+      origin: config.upstream.origin,
+      serverName: config.upstream.serverName,
+      tls: Object.freeze({
+        caPath: absolutePath(config.upstream.tls.caPath, 'upstream.tls.caPath'),
+        certificatePath: absolutePath(config.upstream.tls.certificatePath, 'upstream.tls.certificatePath'),
+        privateKeyPath: absolutePath(config.upstream.tls.privateKeyPath, 'upstream.tls.privateKeyPath'),
+      }),
+    }),
+  };
+  validated.controlPlane = assertAgentRelayProjection(validated);
+  return Object.freeze(validated);
+}
+
+async function readRootConfig(path) {
+  if (process.getuid?.() !== 0) fail('agent relay entrypoint must run as root');
+  absolutePath(path, 'config');
+  return validateConfig(await readImmutableAgentRelayConfig(path));
+}
+
+function configArgument(argv) {
+  if (argv.length !== 1 || !argv[0].startsWith('--config=')) {
+    fail('usage: agent-relay-entrypoint.mjs --config=/absolute/path.json');
+  }
+  return argv[0].slice('--config='.length);
+}
+
+function writeStdoutRecord(value) {
+  return new Promise((resolve, reject) => {
+    process.stdout.write(`${JSON.stringify(value)}\n`, (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+async function main() {
+  const config = await readRootConfig(configArgument(process.argv.slice(2)));
+  const nativeBoundary = await NativeSecurityBoundary.open({
+    helperPath: config.nativeHelper.path,
+    expectedSha256: config.nativeHelper.sha256,
+    expectedUid: config.expectedPeer.uid,
+    expectedGid: config.expectedPeer.gid,
+    resolvePrincipal: async () => fail('agent relay does not resolve request body principals'),
+  });
+  const forwarder = await createAgentMtlsForwarder({
+    ...config.upstream,
+    workerKind: config.workerKind,
+  });
+  const daemon = new AgentRelayDaemon({
+    socketPath: config.socketPath,
+    expectedPeerUid: config.expectedPeer.uid,
+    expectedPeerGid: config.expectedPeer.gid,
+    nativeBoundary,
+    forwarder,
+  });
+
+  await runAgentRelayLifecycle({
+    daemon,
+    controlPlane: config.controlPlane,
+    workerKind: config.workerKind,
+    writeRecord: writeStdoutRecord,
+    subscribeSignal: (signal, handler) => process.once(signal, handler),
+    setExitCode: (code) => { process.exitCode = code; },
+  });
+}
+
+main().catch(() => {
+  process.stderr.write('seori-auth agent relay failed code=STARTUP_REJECTED\n');
+  process.exitCode = 1;
+});
