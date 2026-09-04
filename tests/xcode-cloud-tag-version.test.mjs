@@ -190,6 +190,39 @@ test('macOS에서는 주입할 Apple version을 임시 plist에서 검증한 뒤
   }
 });
 
+test('심볼릭 링크 경로로 실행해도 조용히 통과하지 않는다', () => {
+  // Xcode Cloud hook은 이 CLI를 mktemp -d 아래로 내려받아 실행한다. macOS에서 그 경로는
+  // /var/folders/...이고 /var는 /private/var 심볼릭 링크다. Node는 ESM을 realpath로 정규화하므로
+  // main-module 판정이 호출 경로를 그대로 비교하면 영원히 어긋나고, 스크립트는 아무 일도 하지
+  // 않은 채 exit 0 + 빈 출력이 된다. 그 fail-open을 여기서 잡는다.
+  const fixture = repositoryFixture();
+  const linkRoot = mkdtempSync(join(tmpdir(), 'xcode-tag-authority-link-'));
+  try {
+    const linkedRepository = join(linkRoot, 'central');
+    symlinkSync(ROOT, linkedRepository, 'dir');
+    const result = spawnSync(
+      process.execPath,
+      [
+        join(linkedRepository, 'scripts/release/xcode-cloud-apply-tag-version.mjs'),
+        '--tag',
+        'v1.2.3',
+        '--repository',
+        fixture.repository,
+        '--info-plist',
+        fixture.infoPlist,
+        '--dry-run',
+      ],
+      { encoding: 'utf8', env: { ...process.env, CI_BUILD_NUMBER: '42' } },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.notEqual(result.stdout.trim(), '', '심볼릭 링크 경로에서 빈 출력으로 통과했다.');
+    assert.equal(JSON.parse(result.stdout).appleBuildNumber, 42);
+  } finally {
+    rmSync(linkRoot, { recursive: true, force: true });
+    rmSync(fixture.repository, { recursive: true, force: true });
+  }
+});
+
 test('CI_BUILD_NUMBER가 없거나 양의 정수가 아니면 build를 시작하지 않는다', () => {
   const fixture = repositoryFixture();
   try {
