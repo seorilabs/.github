@@ -45,7 +45,7 @@ test('production Secret Manager child writes through the API without public secr
   try {
     await writeFile(
       wrapper,
-      `#!/bin/sh\nif [ -d /proc/self/fd ] && [ -e /proc/self/fd/3 ]; then exit 9; fi\nprintf '%s\\n' '${token}'\n`,
+      `#!/bin/sh\nif ( : <&3 ) 2>/dev/null; then exit 9; fi\nprintf '%s\\n' '${token}'\n`,
       { mode: 0o500 },
     );
     await chmod(wrapper, 0o500);
