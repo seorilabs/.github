@@ -48,6 +48,7 @@ const ACTION_CAPABILITIES = new Set([
   'github.pull_request.create',
 ]);
 const REQUIRED_CHECKS = new Set(['test:core', 'check:architecture', 'check:release', 'repo-contract']);
+const WORKER_KINDS = new Set(['CODEX', 'CLAUDE']);
 
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -231,7 +232,7 @@ export function assertAgentRelayPublicRequest(value) {
   return value;
 }
 
-function validClaim(value) {
+function validClaim(value, expectedAgentKind) {
   if (value === null) return true;
   if (!exactObject(value, [
     'sessionId', 'runId', 'repoFullName', 'issueNumber', 'template', 'agentKind',
@@ -244,7 +245,8 @@ function validClaim(value) {
     REPOSITORY.test(value.repoFullName ?? '') &&
     (value.issueNumber === null || validInteger(value.issueNumber, 1)) &&
     ['repo-task-autopilot-v1', 'platform-fleet-reconcile-v1', 'repo-source-remediation-v1'].includes(value.template) &&
-    ['CODEX', 'CLAUDE'].includes(value.agentKind) &&
+    WORKER_KINDS.has(value.agentKind) &&
+    (expectedAgentKind === undefined || value.agentKind === expectedAgentKind) &&
     (value.model === null || validString(value.model, { pattern: PUBLIC_CONTRACT_ID, maximum: 191 })) &&
     ['READY_PR', 'READ_ONLY'].includes(value.approvalPolicy) &&
     validInteger(value.budgetCeilingMicros, 1) && validInteger(value.spentMicros) &&
@@ -256,9 +258,10 @@ function validClaim(value) {
     validIsoDate(value.expiresAt) && typeof value.duplicate === 'boolean';
 }
 
-function validQueueResponse(operation, value) {
+function validQueueResponse(operation, value, expectedAgentKind) {
   if (operation === 'CLAIM') {
-    return exactObject(value, ['ok', 'claim']) && value.ok === true && validClaim(value.claim);
+    return exactObject(value, ['ok', 'claim']) && value.ok === true &&
+      validClaim(value.claim, expectedAgentKind);
   }
   if (operation === 'HEARTBEAT') {
     return exactObject(value, ['ok', 'sessionId', 'expiresAt', 'duplicate']) && value.ok === true &&
@@ -298,14 +301,14 @@ function validErrorResponse(value) {
     validString(value.error.code, { pattern: ERROR_CODE, maximum: 128 });
 }
 
-export function assertAgentRelayPublicResponse(value, operation) {
+export function assertAgentRelayPublicResponse(value, operation, expectedAgentKind) {
   if (!OPERATIONS.has(operation)) {
     fail('invalid_agent_relay_request', 'agent relay response operation binding is invalid');
   }
   if (validErrorResponse(value)) return value;
   const validResult = ['GITHUB_READY_PR', 'GITHUB_READY_PR_READBACK'].includes(operation)
     ? validGithubReadyPrResponse(operation, value?.result)
-    : validQueueResponse(operation, value?.result);
+    : validQueueResponse(operation, value?.result, expectedAgentKind);
   if (!exactObject(value, ['ok', 'result']) || value.ok !== true || !validResult) {
     fail('agent_relay_upstream_rejected', 'agent relay response does not match the public operation schema');
   }
@@ -614,9 +617,13 @@ export async function createAgentMtlsForwarder({
   origin,
   serverName,
   tls,
+  workerKind,
   requestImpl = httpsRequest,
 }) {
-  if (!tls || typeof tls !== 'object' || Array.isArray(tls) || typeof requestImpl !== 'function') {
+  if (
+    !tls || typeof tls !== 'object' || Array.isArray(tls) ||
+    !WORKER_KINDS.has(workerKind) || typeof requestImpl !== 'function'
+  ) {
     throw new TypeError('agent relay requires TLS paths and an HTTPS request implementation');
   }
   const target = normalizeHttpsOrigin(origin);
@@ -716,7 +723,11 @@ export async function createAgentMtlsForwarder({
                 ) fail('agent_relay_upstream_rejected', 'agent relay upstream response is not public JSON');
                 const publicResponse = parseJsonBuffer(
                   payload,
-                  (value) => assertAgentRelayPublicResponse(value, publicRequest.operation),
+                  (value) => assertAgentRelayPublicResponse(
+                    value,
+                    publicRequest.operation,
+                    workerKind,
+                  ),
                 );
                 const body = Buffer.from(`${JSON.stringify(publicResponse)}\n`, 'utf8');
                 resolve(Object.freeze({ statusCode, body }));
@@ -784,25 +795,26 @@ async function readRequestBody(request) {
   ) fail('invalid_agent_relay_payload', 'agent relay request length is invalid');
   const chunks = [];
   let bytes = 0;
-  for await (const chunk of request) {
-    const copy = Buffer.from(chunk);
-    bytes += copy.length;
-    if (bytes > REQUEST_LIMIT || bytes > Number(declaredLength)) {
-      copy.fill(0);
-      chunks.forEach((entry) => entry.fill(0));
-      fail('agent_relay_request_too_large', 'agent relay request exceeded its bound');
-    }
-    chunks.push(copy);
-  }
-  if (bytes !== Number(declaredLength)) {
-    chunks.forEach((entry) => entry.fill(0));
-    fail('invalid_agent_relay_payload', 'agent relay request length does not match');
-  }
-  const encoded = Buffer.concat(chunks);
   try {
-    return parseJsonBuffer(encoded, assertAgentRelayPublicRequest);
+    for await (const chunk of request) {
+      const copy = Buffer.from(chunk);
+      bytes += copy.length;
+      if (bytes > REQUEST_LIMIT || bytes > Number(declaredLength)) {
+        copy.fill(0);
+        fail('agent_relay_request_too_large', 'agent relay request exceeded its bound');
+      }
+      chunks.push(copy);
+    }
+    if (bytes !== Number(declaredLength)) {
+      fail('invalid_agent_relay_payload', 'agent relay request length does not match');
+    }
+    const encoded = Buffer.concat(chunks);
+    try {
+      return parseJsonBuffer(encoded, assertAgentRelayPublicRequest);
+    } finally {
+      encoded.fill(0);
+    }
   } finally {
-    encoded.fill(0);
     chunks.forEach((entry) => entry.fill(0));
   }
 }

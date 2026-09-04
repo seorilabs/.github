@@ -32,6 +32,28 @@ function publicResult(outcomeCode, extra = {}) {
   return { outcomeCode, summary: 'public result', costMicros: 0, ...extra };
 }
 
+function publicClaim(agentKind = 'CODEX') {
+  return {
+    sessionId: 'agent-session:123e4567-e89b-42d3-a456-426614174000',
+    runId: 'agent-run:123e4567-e89b-42d3-a456-426614174000',
+    repoFullName: 'seorilabs/example',
+    issueNumber: 42,
+    template: 'repo-task-autopilot-v1',
+    agentKind,
+    model: null,
+    approvalPolicy: 'READY_PR',
+    budgetCeilingMicros: 1_000_000,
+    spentMicros: 0,
+    remainingBudgetMicros: 1_000_000,
+    taskInput: null,
+    actionCapabilities: ['github.issue.read'],
+    resumeMode: 'START',
+    generation: 1,
+    expiresAt: '2026-09-04T00:05:00.000Z',
+    duplicate: false,
+  };
+}
+
 function relayProjectionConfig() {
   const config = {
     schemaVersion: 2,
@@ -263,6 +285,60 @@ test('agent relay rejects excess in-flight work before peer attestation or body 
     await daemon.stop();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('agent relay clears buffered request chunks when body streaming aborts', async () => {
+  const source = Buffer.from('{"signedJwt":"fake-secret-canary"', 'utf8');
+  const originalBufferFrom = Buffer.from;
+  let bufferedCopy;
+  Buffer.from = function captureRequestCopy(value, ...args) {
+    const copy = originalBufferFrom.call(Buffer, value, ...args);
+    if (value === source) bufferedCopy = copy;
+    return copy;
+  };
+  let forwarded = false;
+  const daemon = new AgentRelayDaemon({
+    socketPath: '/private/var/run/seori-auth-agent/codex/relay.sock',
+    expectedPeerUid: 5010,
+    expectedPeerGid: 5010,
+    nativeBoundary: { async attest() { return { uid: 5010, gid: 5010 }; } },
+    forwarder: {
+      async forward() { forwarded = true; },
+      close() {},
+    },
+  });
+  const request = {
+    method: 'POST',
+    url: '/v1/execute',
+    headers: {
+      'content-type': 'application/json',
+      'content-length': String(source.length + 1),
+    },
+    socket: {},
+    async *[Symbol.asyncIterator]() {
+      yield source;
+      throw new Error('fake request reset containing fake-secret-canary');
+    },
+  };
+  const response = {
+    headersSent: false,
+    writeHead(statusCode) {
+      this.statusCode = statusCode;
+      this.headersSent = true;
+    },
+    end(_encoded, callback) { callback?.(); },
+    destroy() { this.destroyed = true; },
+  };
+  try {
+    await daemon.dispatch(request, response);
+  } finally {
+    Buffer.from = originalBufferFrom;
+    source.fill(0);
+  }
+  assert.equal(forwarded, false);
+  assert.equal(response.statusCode, 500);
+  assert.ok(bufferedCopy);
+  assert.ok(bufferedCopy.every((byte) => byte === 0));
 });
 
 function fakeHttpsRequest(responseBody, capture, statusCode = 200) {
@@ -523,6 +599,7 @@ test('mTLS forwarder rejects writable trust and client certificate files', async
         createAgentMtlsForwarder({
           origin: 'https://127.0.0.1:19443',
           serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+          workerKind: 'CODEX',
           tls,
         }),
         (error) => error instanceof SeoriAuthError && error.code === 'invalid_agent_relay_tls',
@@ -540,6 +617,7 @@ test('mTLS forwarder rejects port zero before reading TLS material', async () =>
     createAgentMtlsForwarder({
       origin: 'https://127.0.0.1:0',
       serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+      workerKind: 'CODEX',
       tls: {
         caPath: '/not-read/ca.pem',
         certificatePath: '/not-read/tls.crt',
@@ -558,6 +636,7 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
     const forwarder = await createAgentMtlsForwarder({
       origin: 'https://127.0.0.1:19443',
       serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+      workerKind: 'CODEX',
       tls,
       requestImpl: fakeHttpsRequest(JSON.stringify({
         ok: true,
@@ -595,6 +674,7 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
     const secretResponseForwarder = await createAgentMtlsForwarder({
       origin: 'https://127.0.0.1:19443',
       serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+      workerKind: 'CODEX',
       tls,
       requestImpl: fakeHttpsRequest(JSON.stringify({
         ok: true,
@@ -612,10 +692,27 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
     );
     secretResponseForwarder.close();
 
+    const mismatchedClaimForwarder = await createAgentMtlsForwarder({
+      origin: 'https://127.0.0.1:19443',
+      serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+      workerKind: 'CODEX',
+      tls,
+      requestImpl: fakeHttpsRequest(JSON.stringify({
+        ok: true,
+        result: { ok: true, claim: publicClaim('CLAUDE') },
+      }), {}),
+    });
+    await assert.rejects(
+      mismatchedClaimForwarder.forward(publicRequest('CLAIM', {})),
+      (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_upstream_rejected',
+    );
+    mismatchedClaimForwarder.close();
+
     const ipv6Capture = {};
     const ipv6Forwarder = await createAgentMtlsForwarder({
       origin: 'https://[::1]:19443',
       serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+      workerKind: 'CODEX',
       tls,
       requestImpl: fakeHttpsRequest(JSON.stringify({ ok: true, result: { ok: true, claim: null } }), ipv6Capture),
     });
@@ -631,6 +728,7 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
 test('agent relay entrypoint delegates lifecycle without forced process exit', async () => {
   const entrypoint = await readFile(new URL('../runtime/agent-relay-entrypoint.mjs', import.meta.url), 'utf8');
   assert.match(entrypoint, /await runAgentRelayLifecycle\(\{/);
+  assert.match(entrypoint, /workerKind: config\.workerKind/);
   assert.doesNotMatch(entrypoint, /process\.exit\(/);
 });
 
@@ -756,6 +854,7 @@ test('mTLS forwarder converts upstream response stream errors into a stable reje
     const forwarder = await createAgentMtlsForwarder({
       origin: 'https://127.0.0.1:19443',
       serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+      workerKind: 'CODEX',
       tls,
       requestImpl,
     });

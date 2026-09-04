@@ -33,7 +33,8 @@ kubeconfig를 worker 사용자에게 주지 않습니다.
   `GITHUB_READY_PR_READBACK`별 닫힌 공개 스키마로 검증합니다. 각 object는 명시된 필드만
   허용하고 claim의 `taskInput`도 template별 고정 구조만 허용합니다. 따라서 이름을 미리
   열거하지 않은 credential 필드도 전달되지 않으며, `sessionId`만 공개 실행 핸들로
-  사용할 수 있습니다.
+  사용할 수 있습니다. `CLAIM` 응답의 `agentKind`는 해당 relay의 `workerKind`와 정확히
+  일치해야 하며, 요청 stream이 중단돼도 relay가 만든 누적 Buffer는 반환 전에 지웁니다.
 - relay가 비정상 종료해 socket이 남으면 자동 삭제하지 않습니다. inode와 프로세스 부재를
   확인한 운영자가 별도 복구 절차로 처리합니다.
 - relay는 전체 Unix 연결을 4개, peer attestation부터 upstream 응답까지 진행 중인 요청을

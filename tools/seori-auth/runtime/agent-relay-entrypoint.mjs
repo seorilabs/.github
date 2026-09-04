@@ -105,7 +105,10 @@ async function main() {
     expectedGid: config.expectedPeer.gid,
     resolvePrincipal: async () => fail('agent relay does not resolve request body principals'),
   });
-  const forwarder = await createAgentMtlsForwarder(config.upstream);
+  const forwarder = await createAgentMtlsForwarder({
+    ...config.upstream,
+    workerKind: config.workerKind,
+  });
   const daemon = new AgentRelayDaemon({
     socketPath: config.socketPath,
     expectedPeerUid: config.expectedPeer.uid,
