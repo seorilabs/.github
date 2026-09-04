@@ -169,3 +169,42 @@ Platform SDK 정확 버전 선언([#91](https://github.com/seorilabs/saju-reader
 다섯 증거를 GitHub에서 독립적으로 재조회해 전부 `MATCHED`, `state: READY`를 반환했다. 승인(APPROVED)에는 `static:ait-web`이
 하나 더 필요한데 그 프로필 저장소 두 곳(dpti-app, periodic-table-app)이 모두 폐기 상태라 사용자 지시로 보류했다.
 마켓 업로드·심사 제출·공개 배포·앱 signing 변경은 하지 않았다.
+
+## 여섯 번째 전환 — 3e9b2d90, 그리고 첫 APPROVED
+
+승인 범위에서 `ait-web`을 뺐다([#123](https://github.com/seorilabs/.github/pull/123)). 그 프로필을 쓰는 저장소는 dpti-app과
+periodic-table-app 둘뿐이고 모두 폐기 상태라, 범위에 남기면 번들이 바뀔 때마다 아무도 배포하지 않는 앱에서 증거를 다시
+뽑아야 했다. 조직은 앞으로 AppsInToss 앱을 React Native로만 만들기로 했다. 같은 PR에서 `REQUIRED_EVIDENCE`를
+`promotionScope`에서 파생하도록 바꿔 두 목록이 갈라질 수 없게 했다.
+
+새 후보 `3e9b2d9029b03224aa71f9cea9d253a5bdc404a5`(X7)로 provider를 전환하고(`apply fleet-p3-bd9af79890fc` exit 0,
+readback `ready: true`, binding 74/74) 세 앱을 재결합해 증거를 다시 모았다.
+
+| 증거 | run | ConfigRevision | 산출물 |
+| --- | --- | --- | --- |
+| `build:react-native-android` | [33756166130](https://github.com/seorilabs/happy-farm/actions/runs/33756166130) (PR #506) | 20 | AAB 62,271,121 bytes, sha256 `7abfd7e1ca04…` = provenance |
+| `static:react-native` | [33756166139](https://github.com/seorilabs/happy-farm/actions/runs/33756166139) | 20 | — |
+| `build:godot-android` | [33756668489](https://github.com/seorilabs/lizard-tycoon/actions/runs/33756668489) (PR #548) | 30 | AAB 49,291,603 bytes, sha256 `62427b4d8583…` = provenance |
+| `static:godot` | [33756668496](https://github.com/seorilabs/lizard-tycoon/actions/runs/33756668496) | 30 | — |
+| `static:capacitor` | [33759592639](https://github.com/seorilabs/saju-reader/actions/runs/33759592639) (PR #96) | 28 | — |
+
+### APPROVED
+
+`scripts/fleet/workflow-bundle-approval.mjs`의 `sign`이 native launcher 안에서 Ed25519 서명을 만들고, `publish`가
+control plane에 올렸다. registry record `cmtmdpz310mrzt2013cc7apkw`, payloadDigest `sha256:ea26c56b…`,
+candidateDigest `sha256:6f55629b…`, approvalKeyId `workflow-bundle-v5-20260902-145012ae1370`,
+policyRevision `workflow-bundle-v5-approval-v1`. registry는 CANDIDATE 29 / **APPROVED 1**이다.
+
+발행까지 Backoffice 미러가 중앙 계약과 어긋난 곳을 넷 더 걷어냈다.
+
+| 결함 | 내용 | 수정 |
+| --- | --- | --- |
+| 증거 개수 고정 | 스키마가 6개로 고정하고 기대 식별자에 `ait-web`을 따로 적어 둠 | [backoffice#308](https://github.com/seorilabs/seorilabs-backoffice/pull/308) 범위에서 파생 |
+| 증거 필드 초과 | build provenance의 release 경로 필드 7개를 증거 스키마가 거부 | [#125](https://github.com/seorilabs/.github/pull/125) 스키마 필드로 투영 |
+| 정규화 방식 | 중앙은 code unit 정렬, Backoffice는 `localeCompare`라 payloadDigest가 갈라짐 | [backoffice#311](https://github.com/seorilabs/seorilabs-backoffice/pull/311) 계약 정규화 도입 |
+| Cloud Build 설정 경로 | canary 증거를 v1 경로 digest와 대조 | [backoffice#312](https://github.com/seorilabs/seorilabs-backoffice/pull/312) v2로 교정, 자산 누락을 명시적으로 보고 |
+
+승격 결과를 다시 읽는 경로도 없어 [backoffice#313](https://github.com/seorilabs/seorilabs-backoffice/pull/313)으로
+`GET /api/control-plane/workflow-bundles`를 추가했다.
+
+P3에 남은 완료 조건은 신규 저장소 자동 연결 실증 하나다. 마켓 업로드·심사 제출·공개 배포·앱 signing 변경은 하지 않았다.
