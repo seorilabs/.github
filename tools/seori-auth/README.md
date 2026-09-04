@@ -60,6 +60,11 @@ daemon, MAC-chain durable state, native OS 경계, encrypted Browser Vault를 �
   전달 전 material에서 계산한 값과 대조합니다.
 - child stdout/stderr는 exact-match redaction에 의존하지 않고 broker 경계에서 전부
   폐기합니다. 출력 byte 상한과 exit status만 사용합니다.
+- 실제 Secret Manager 값 등록은 `runtime/secret-manager-writer.mjs`가 담당합니다. 이 child는
+  등록된 `gcloud-cli.sh`를 secret fd를 열기 전에, fd0-2만 물려 접근 토큰 발급에 사용한 뒤
+  Google Secret Manager `addVersion` API에 CRC32C를 포함해 version `1`을 기록합니다. 설치는
+  `scripts/fleet/install-p3-secret-manager-writer.sh`, 백업 복원 검증과 네 값 등록은
+  `scripts/fleet/provision-p3-secret-values.mjs`의 plan/apply/readback 순서로 수행합니다.
 - `authenticatePrincipal(socket, metadata)`가 증명한 subject/run/repository/worker와 HTTP claim이
   하나라도 다르면 정책 평가 전에 거부합니다. Authorization header나 body bearer는
   principal 증명으로 사용하지 않습니다.
