@@ -208,6 +208,7 @@ cloudBuild:
   region: asia-northeast3
   requiredServices:
     - artifactregistry.googleapis.com
+    - cloudasset.googleapis.com
     - cloudbuild.googleapis.com
     - cloudresourcemanager.googleapis.com
     - iam.googleapis.com
@@ -507,6 +508,15 @@ authBroker:
   secretManager:
     projectId: seorilabs-ci
     state: blocked_unverified
+    effectiveAccessPolicy:
+      analyzer: CLOUD_ASSET_POLICY_ANALYZER
+      scope: projects/seorilabs-ci
+      permission: secretmanager.versions.access
+      expandRoles: true
+      requireFullyExplored: true
+      allowedProjectPrincipals:
+        - serviceAccount:seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com
+        - user:ih@seorilabs.com
     provisioning:
       state: blocked_unverified
       adapterMode: native-secret-manager-writer
@@ -540,6 +550,8 @@ authBroker:
           - four_numeric_versions_active
           - public_crc32c_verified
           - backup_restore_verified
+          - secret_effective_access_fully_explored
+          - secret_effective_access_principals_exact
     resources:
       - secretId: seori-auth-journal-mac
         resource: projects/seorilabs-ci/secrets/seori-auth-journal-mac
@@ -584,6 +596,7 @@ authBroker:
       requiredReadback:
         - four_secret_level_accessor_bindings_exact
         - cross_role_access_denied
+        - effective_secret_access_exact
         - secret_access_config_digests_exact
         - fake_password_execution_copy_verified
         - fake_totp_execution_copy_verified

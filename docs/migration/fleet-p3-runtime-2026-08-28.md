@@ -311,6 +311,12 @@ provider와 네 secret/version을 먼저 읽고 drift나 cross-role accessor가 
 0건으로 중단한다. rollback은 두 provider만 preflight하고, secret이 사라진 비상 상황에도
 pre-existing 여부를 알 수 없는 IAM을 제거하지 않은 채 Kubernetes provider를 disable한다.
 
+2026-09-04부터 값 writer와 role bootstrap은 Cloud Asset Policy Analyzer로 각 Secret의
+`secretmanager.versions.access` 유효 권한을 프로젝트와 상위 계층까지 확장해 검사한다. 분석이
+완전히 탐색되지 않았거나 계약에 고정한 운영자, provisioner, 해당 Secret의 단일 consumer 외
+주체가 하나라도 나오면 중단한다. 값 writer는 빈 Secret 리소스를 만든 직후 이 검사를 마치고,
+통과한 뒤에만 로컬 material을 읽고 native writer를 연다.
+
 `tools/seori-auth`에는 SHA-256 고정 child를 native non-dumpable launcher 뒤에서 실행하고 fd3
 material을 소비·zeroize하며 fd5 strict public result와 전달 전 CRC32C를 대조하는 writer 경계를 추가했다. fake sink의
 메모리 내 backup/wipe/restore와 stdout/stderr·argv·환경 비노출은 자동 테스트로 검증하지만,
@@ -323,9 +329,10 @@ node scripts/fleet/bootstrap-p3-secret-manager.mjs readback
 node scripts/fleet/bootstrap-p3-secret-manager.mjs rollback '<plan이 반환한 rollback confirmation>'
 ```
 
-현재 provisioner의 project IAM readback은 `PERMISSION_DENIED`이므로 resource 부재로 판단하지
-않는다. 실제 네 secret/version, secret-level IAM, WIF 활성화, workload와 fake canary는 모두
-미적용·미검증 상태다.
+현재 provisioner의 project IAM과 Cloud Asset 분석 권한은 확인됐지만, 기존 프로젝트 기본
+Compute 서비스 계정이 프로젝트 범위 Secret 접근권한을 상속받으므로 새 검사가 값을 읽기 전에
+fail-closed한다. 실제 네 secret/version, secret-level IAM, WIF 활성화, workload와 fake canary는
+계속 미적용·미검증 상태다.
 
 2026-08-30에는 runtime 계약을 breaking major `schemaVersion: 2`로 올리고 block-device 암호화
 의무를 application-layer envelope로 대체했다. Browser Vault는 AES-256-GCM envelope만 저장하고,

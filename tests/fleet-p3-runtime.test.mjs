@@ -1339,12 +1339,26 @@ test("Secret Manager bootstrap은 role partition을 two-phase 적용하고 rollb
         }],
       }]),
     ),
-    bindings: [{
-      resourceType: "secret",
-      resource: "projects/seorilabs-ci/secrets/unrelated",
-      role: "roles/secretmanager.secretAccessor",
-      member: "serviceAccount:unrelated@seorilabs-ci.iam.gserviceaccount.com",
-    }],
+    bindings: [
+      {
+        resourceType: "secret",
+        resource: "projects/seorilabs-ci/secrets/unrelated",
+        role: "roles/secretmanager.secretAccessor",
+        member: "serviceAccount:unrelated@seorilabs-ci.iam.gserviceaccount.com",
+      },
+      {
+        resourceType: "project",
+        resource: "projects/seorilabs-ci",
+        role: "roles/secretmanager.admin",
+        member: "serviceAccount:seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com",
+      },
+      {
+        resourceType: "project",
+        resource: "projects/seorilabs-ci",
+        role: "roles/owner",
+        member: "user:ih@seorilabs.com",
+      },
+    ],
     history: [],
   };
   const environment = {
@@ -1381,13 +1395,28 @@ test("Secret Manager bootstrap은 role partition을 two-phase 적용하고 rollb
       resourceType: "project",
       resource: "projects/seorilabs-ci",
       role: "roles/secretmanager.secretAccessor",
-      member: "serviceAccount:seori-auth-broker@seorilabs-ci.iam.gserviceaccount.com",
+      member: "serviceAccount:321365398093-compute@developer.gserviceaccount.com",
     });
     await writeState(projectWide);
     await assert.rejects(
       bootstrap("apply", plan.confirmation),
       (error) => {
-        assert.match(error.stderr, /P3_SECRET_MANAGER_PROJECT_ACCESSOR_PRESENT/u);
+        assert.match(
+          error.stderr,
+          /P3_SECRET_MANAGER_UNEXPECTED_EFFECTIVE_ACCESS_PRESENT/u,
+        );
+        return true;
+      },
+    );
+    assert.deepEqual((await readState()).history, []);
+
+    const incompleteAnalysis = structuredClone(initial);
+    incompleteAnalysis.assetFullyExplored = false;
+    await writeState(incompleteAnalysis);
+    await assert.rejects(
+      bootstrap("apply", plan.confirmation),
+      (error) => {
+        assert.match(error.stderr, /P3_SECRET_MANAGER_EFFECTIVE_ACCESS_INCOMPLETE/u);
         return true;
       },
     );
@@ -1404,7 +1433,10 @@ test("Secret Manager bootstrap은 role partition을 two-phase 적용하고 rollb
     await assert.rejects(
       bootstrap("apply", plan.confirmation),
       (error) => {
-        assert.match(error.stderr, /P3_SECRET_MANAGER_UNEXPECTED_ACCESSOR_PRESENT/u);
+        assert.match(
+          error.stderr,
+          /P3_SECRET_MANAGER_UNEXPECTED_EFFECTIVE_ACCESS_PRESENT/u,
+        );
         return true;
       },
     );
