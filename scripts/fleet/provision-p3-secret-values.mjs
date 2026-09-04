@@ -45,6 +45,11 @@ const installed = Object.freeze({
   executablePath: "/usr/local/libexec/seori-auth-node",
   childPath: "/opt/seori-auth/runtime/secret-manager-writer.mjs",
 });
+const installedModes = Object.freeze({
+  helperPath: 0o555,
+  executablePath: 0o555,
+  childPath: 0o444,
+});
 const localBackupRoot = join(home, ".seorilabs-credential-backups");
 const beeBackupRoot = join(
   home,
@@ -188,10 +193,14 @@ function installedIdentity({ required }) {
     const stat = lstatSync(path);
     if (
       !stat.isFile() || stat.isSymbolicLink() || stat.uid !== 0 ||
-      (stat.mode & 0o022) !== 0 || realpathSync(path) !== path
+      (stat.mode & 0o777) !== installedModes[key] || realpathSync(path) !== path
     ) stop("P3_SECRET_VALUE_WRITER_IDENTITY_INVALID");
     identity[key] = path;
-    identity[`${key.slice(0, -4)}Sha256`] = sha256(readFileSync(path));
+    try {
+      identity[`${key.slice(0, -4)}Sha256`] = sha256(readFileSync(path));
+    } catch {
+      stop("P3_SECRET_VALUE_WRITER_IDENTITY_INVALID");
+    }
   }
   return identity;
 }
