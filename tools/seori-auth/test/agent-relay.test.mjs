@@ -708,6 +708,25 @@ test('mTLS forwarder fixes the upstream origin and rejects credential-shaped res
     );
     mismatchedClaimForwarder.close();
 
+    for (const [statusCode, response] of [
+      [200, { error: { code: 'claim_rejected' } }],
+      [400, { ok: true, result: { ok: true, claim: null } }],
+    ]) {
+      const mislabeledForwarder = await createAgentMtlsForwarder({
+        origin: 'https://127.0.0.1:19443',
+        serverName: 'seori-auth-agent-runtime.auth-broker.svc.cluster.local',
+        workerKind: 'CODEX',
+        tls,
+        requestImpl: fakeHttpsRequest(JSON.stringify(response), {}, statusCode),
+      });
+      await assert.rejects(
+        mislabeledForwarder.forward(publicRequest('CLAIM', {})),
+        (error) => error instanceof SeoriAuthError && error.code === 'agent_relay_upstream_rejected',
+        `status ${statusCode}`,
+      );
+      mislabeledForwarder.close();
+    }
+
     const ipv6Capture = {};
     const ipv6Forwarder = await createAgentMtlsForwarder({
       origin: 'https://[::1]:19443',

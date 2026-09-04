@@ -301,11 +301,19 @@ function validErrorResponse(value) {
     validString(value.error.code, { pattern: ERROR_CODE, maximum: 128 });
 }
 
-export function assertAgentRelayPublicResponse(value, operation, expectedAgentKind) {
+export function assertAgentRelayPublicResponse(value, operation, {
+  expectedAgentKind,
+  statusCode,
+} = {}) {
   if (!OPERATIONS.has(operation)) {
     fail('invalid_agent_relay_request', 'agent relay response operation binding is invalid');
   }
-  if (validErrorResponse(value)) return value;
+  const errorEnvelope = validErrorResponse(value);
+  if (
+    statusCode !== undefined &&
+    (!validInteger(statusCode, 100, 599) || ((statusCode >= 200 && statusCode < 300) === errorEnvelope))
+  ) fail('agent_relay_upstream_rejected', 'agent relay response status does not match its envelope');
+  if (errorEnvelope) return value;
   const validResult = ['GITHUB_READY_PR', 'GITHUB_READY_PR_READBACK'].includes(operation)
     ? validGithubReadyPrResponse(operation, value?.result)
     : validQueueResponse(operation, value?.result, expectedAgentKind);
@@ -546,9 +554,14 @@ export function executeAgentRelayClientRequest({
               'agent relay response content type is invalid',
             );
           }
+          const statusCode = response.statusCode ?? 500;
           resolve({
-            statusCode: response.statusCode ?? 500,
-            body: parseJsonBuffer(payload, (value) => assertAgentRelayPublicResponse(value, operation)),
+            statusCode,
+            body: parseJsonBuffer(payload, (value) => assertAgentRelayPublicResponse(
+              value,
+              operation,
+              { statusCode },
+            )),
           });
         } catch (error) {
           reject(error instanceof SeoriAuthError ? error : new SeoriAuthError(
@@ -624,7 +637,7 @@ export async function createAgentMtlsForwarder({
     !tls || typeof tls !== 'object' || Array.isArray(tls) ||
     !WORKER_KINDS.has(workerKind) || typeof requestImpl !== 'function'
   ) {
-    throw new TypeError('agent relay requires TLS paths and an HTTPS request implementation');
+    throw new TypeError('agent relay requires a worker-bound mTLS forwarder configuration');
   }
   const target = normalizeHttpsOrigin(origin);
   const expectedServerName = validateServerName(serverName);
@@ -726,7 +739,7 @@ export async function createAgentMtlsForwarder({
                   (value) => assertAgentRelayPublicResponse(
                     value,
                     publicRequest.operation,
-                    workerKind,
+                    { expectedAgentKind: workerKind, statusCode },
                   ),
                 );
                 const body = Buffer.from(`${JSON.stringify(publicResponse)}\n`, 'utf8');
