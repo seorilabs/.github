@@ -11,7 +11,8 @@
     "./repo-contract/fleet-migration-collector": "./packages/repo-contract/src/fleet-migration-collector.mjs",
     "./repo-contract/fleet-migration-legacy-validator": "./packages/repo-contract/src/fleet-migration-legacy-validator.mjs",
     "./repo-contract/trusted-cleanup-executor": "./packages/repo-contract/src/trusted-cleanup-executor.mjs",
-    "./repo-contract/trusted-inventory-issuer": "./packages/repo-contract/src/trusted-inventory-issuer.mjs"
+    "./repo-contract/trusted-inventory-issuer": "./packages/repo-contract/src/trusted-inventory-issuer.mjs",
+    "./repo-contract/workflow-bundle-v5": "./packages/repo-contract/src/workflow-bundle-v5.mjs"
   },
   "files": [
     "contracts",
