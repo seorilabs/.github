@@ -15,7 +15,6 @@ import {
   rmSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { ReleaseAuthorityError, deriveReleaseVersion } from './tag-version-authority.mjs';
 
@@ -203,7 +202,11 @@ function main() {
   process.stdout.write(`${JSON.stringify(publicResult)}\n`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+// Node가 ESM 경로를 realpath로 정규화하므로 import.meta.url과 process.argv[1]을 직접 비교하면
+// 심볼릭 링크 경로에서 영원히 어긋난다. macOS mktemp -d가 주는 /var/folders/...가 그 경우이고
+// (/var는 /private/var 링크), 그때 이 스크립트는 아무 일도 하지 않고 exit 0 하는 fail-open이
+// 된다. import.meta.main은 Node가 직접 판정하므로 호출 경로 형태에 영향받지 않는다.
+if (import.meta.main) {
   try {
     main();
   } catch (error) {
