@@ -27,6 +27,19 @@ async function fixtureHome(mode) {
   const wrapper = join(scriptsRoot, "gcloud-cli.sh");
   await writeFile(wrapper, `#!/bin/sh
 case "$*" in
+  *"asset analyze-iam-policy"*)
+    full_resource=""
+    for argument in "$@"; do
+      case "$argument" in
+        --full-resource-name=*) full_resource="\${argument#--full-resource-name=}" ;;
+      esac
+    done
+    principal="serviceAccount:seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com"
+    fully_explored=true
+    if [ "${mode}" = "effective-access" ]; then principal="allUsers"; fi
+    if [ "${mode}" = "incomplete-access" ]; then fully_explored=false; fi
+    printf '{"fullyExplored":%s,"mainAnalysis":{"fullyExplored":%s,"analysisQuery":{"scope":"projects/seorilabs-ci","resourceSelector":{"fullResourceName":"%s"},"accessSelector":{"permissions":["secretmanager.versions.access"]},"options":{"expandRoles":true}},"analysisResults":[{"fullyExplored":%s,"attachedResourceFullName":"//cloudresourcemanager.googleapis.com/projects/seorilabs-ci","iamBinding":{"role":"roles/secretmanager.admin","members":["%s"]},"identityList":{"identities":[{"name":"%s"}]},"accessControlLists":[{"accesses":[{"permission":"secretmanager.versions.access"}],"resources":[{"fullResourceName":"%s"}]}]}]}}\\n' "$fully_explored" "$fully_explored" "$full_resource" "$fully_explored" "$principal" "$principal" "$full_resource"
+    ;;
   *"secrets describe"*)
     secret_id=""
     previous=""
@@ -114,6 +127,34 @@ test("P3 value provisioner rejects a Secret with resource-level IAM bindings", a
     assert.equal(
       JSON.parse(result.stderr).code,
       "P3_SECRET_VALUE_RESOURCE_IAM_MISMATCH",
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("P3 value provisioner rejects inherited access outside the contract allowlist", async () => {
+  const home = await fixtureHome("effective-access");
+  try {
+    const result = runReadback(home);
+    assert.equal(result.status, 1);
+    assert.equal(
+      JSON.parse(result.stderr).code,
+      "P3_SECRET_VALUE_UNEXPECTED_EFFECTIVE_ACCESS",
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("P3 value provisioner rejects an incomplete effective access analysis", async () => {
+  const home = await fixtureHome("incomplete-access");
+  try {
+    const result = runReadback(home);
+    assert.equal(result.status, 1);
+    assert.equal(
+      JSON.parse(result.stderr).code,
+      "P3_SECRET_VALUE_EFFECTIVE_ACCESS_INCOMPLETE",
     );
   } finally {
     await rm(home, { recursive: true, force: true });

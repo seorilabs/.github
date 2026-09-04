@@ -139,6 +139,13 @@ for (const { name, prefix, stderr, stdout, code, command = "apply", script = boo
     code: "P3_SECRET_MANAGER_IAM_READ_FAILED",
   },
   {
+    name: "Secret Manager 유효 접근 분석 실패 뒤 접근을 부여하지 않는다",
+    script: secretBootstrapPath,
+    prefix: ["asset", "analyze-iam-policy"],
+    stderr: deniedDiagnostic,
+    code: "P3_SECRET_MANAGER_EFFECTIVE_ACCESS_READ_FAILED",
+  },
+  {
     name: "Secret Manager IAM 변경 NOT_FOUND 뒤 나머지 변경을 계속하지 않는다",
     script: secretBootstrapPath,
     prefix: ["secrets", "add-iam-policy-binding"],

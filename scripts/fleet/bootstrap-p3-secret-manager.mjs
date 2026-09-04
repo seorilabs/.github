@@ -16,6 +16,10 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 import { createTrustedWifProviderPolicy } from "../../packages/repo-contract/src/trusted-executor.mjs";
+import {
+  evaluateSecretEffectiveAccess,
+  secretEffectiveAccessArgs,
+} from "../../packages/repo-contract/src/secret-manager-effective-access.mjs";
 
 const contractPath = fileURLToPath(
   new URL("../../contracts/fleet-p3-runtime.yaml", import.meta.url),
@@ -81,6 +85,18 @@ if (process.argv.length > 4) fail("P3_SECRET_MANAGER_COMMAND_INVALID");
 const cloud = contract.cloudBuild;
 const auth = contract.authBroker;
 const manager = auth.secretManager;
+const effectiveAccessPolicy = manager?.effectiveAccessPolicy;
+if (
+  effectiveAccessPolicy?.analyzer !== "CLOUD_ASSET_POLICY_ANALYZER" ||
+  effectiveAccessPolicy.scope !== `projects/${manager.projectId}` ||
+  effectiveAccessPolicy.permission !== "secretmanager.versions.access" ||
+  effectiveAccessPolicy.expandRoles !== true ||
+  effectiveAccessPolicy.requireFullyExplored !== true ||
+  JSON.stringify(effectiveAccessPolicy.allowedProjectPrincipals) !== JSON.stringify([
+    "serviceAccount:seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com",
+    "user:ih@seorilabs.com",
+  ])
+) fail("P3_SECRET_MANAGER_EFFECTIVE_ACCESS_CONTRACT_MISMATCH");
 const contractDigest = createHash("sha256")
   .update(JSON.stringify(canonical(contract)))
   .digest("hex");
@@ -317,32 +333,41 @@ function accessorBindings(policy) {
   );
 }
 
-function projectPolicyRead() {
-  const raw = gcloudRun(
-    [
-      "projects",
-      "get-iam-policy",
-      manager.projectId,
-      "--format=json",
-    ],
-    "P3_SECRET_MANAGER_PROJECT_IAM_READ_FAILED",
-  );
-  return parseIamPolicy(
-    raw,
-    "P3_SECRET_MANAGER_PROJECT_IAM_RESPONSE_INVALID",
-  );
-}
-
-function projectScopedP3Accessors(policy) {
-  const roleMembers = new Set(
-    auth.roles.map(
-      ({ googleServiceAccount }) => `serviceAccount:${googleServiceAccount}`,
-    ),
-  );
-  return (policy.bindings ?? [])
-    .filter(({ role }) => role === "roles/secretmanager.secretAccessor")
-    .flatMap(({ members = [] }) => members)
-    .filter((candidate) => roleMembers.has(candidate));
+function effectiveAccessRead(resource) {
+  let analysis;
+  try {
+    analysis = parsePublicJson(
+      gcloudRun(
+        secretEffectiveAccessArgs({
+          projectId: manager.projectId,
+          projectNumber: cloud.projectNumber,
+          secretId: resource.secretId,
+          permission: effectiveAccessPolicy.permission,
+        }),
+        "P3_SECRET_MANAGER_EFFECTIVE_ACCESS_READ_FAILED",
+      ),
+      "P3_SECRET_MANAGER_EFFECTIVE_ACCESS_RESPONSE_INVALID",
+    );
+    return evaluateSecretEffectiveAccess({
+      analysis,
+      projectId: manager.projectId,
+      projectNumber: cloud.projectNumber,
+      secretId: resource.secretId,
+      permission: effectiveAccessPolicy.permission,
+      allowedPrincipals: [
+        ...effectiveAccessPolicy.allowedProjectPrincipals,
+        `serviceAccount:${resource.googleServiceAccount}`,
+      ],
+    });
+  } catch (error) {
+    if (error?.code === "SECRET_EFFECTIVE_ACCESS_INCOMPLETE") {
+      fail("P3_SECRET_MANAGER_EFFECTIVE_ACCESS_INCOMPLETE");
+    }
+    if (error?.code === "SECRET_EFFECTIVE_ACCESS_RESPONSE_INVALID") {
+      fail("P3_SECRET_MANAGER_EFFECTIVE_ACCESS_RESPONSE_INVALID");
+    }
+    throw error;
+  }
 }
 
 function publicPlan() {
@@ -393,10 +418,6 @@ function preflightProviders() {
 
 function preflight() {
   const providers = preflightProviders();
-  const projectPolicy = projectPolicyRead();
-  if (projectScopedP3Accessors(projectPolicy).length !== 0) {
-    fail("P3_SECRET_MANAGER_PROJECT_ACCESSOR_PRESENT");
-  }
   const resources = manager.resources.map(secretRead);
   if (resources.some(({ exists }) => !exists)) {
     fail("P3_SECRET_MANAGER_RESOURCE_MISSING");
@@ -404,7 +425,11 @@ function preflight() {
   if (resources.some(({ identityExact, versionExact }) => !identityExact || !versionExact)) {
     fail("P3_SECRET_MANAGER_RESOURCE_DRIFT");
   }
-  return { providers, resources };
+  const effectiveAccess = manager.resources.map(effectiveAccessRead);
+  if (effectiveAccess.some(({ exact }) => !exact)) {
+    fail("P3_SECRET_MANAGER_UNEXPECTED_EFFECTIVE_ACCESS_PRESENT");
+  }
+  return { providers, resources, effectiveAccess };
 }
 
 function updateKubernetesProviderDisabled(disabled) {
@@ -465,12 +490,10 @@ function apply() {
 
 function readback() {
   validateGcloudExecutable();
-  const projectPolicy = projectPolicyRead();
-  const projectScopedAccessDenied =
-    projectScopedP3Accessors(projectPolicy).length === 0;
   const resources = manager.resources.map((resource) => {
     const state = secretRead(resource);
     const policy = policyRead(resource);
+    const effectiveAccess = effectiveAccessRead(resource);
     const members = accessorMembers(policy);
     const bindings = accessorBindings(policy);
     const otherRoleMembers = auth.roles
@@ -482,6 +505,7 @@ function readback() {
       versionResource: resource.versionResource,
       consumerRole: resource.consumerRole,
       googleServiceAccount: resource.googleServiceAccount,
+      effectiveAccess,
       exists: state.exists,
       identityExact: state.identityExact,
       versionExact: state.versionExact,
@@ -495,6 +519,9 @@ function readback() {
       ),
     };
   });
+  const projectScopedAccessDenied = resources.every(
+    ({ effectiveAccess }) => effectiveAccess.exact,
+  );
   const providers = providerStates();
   const kubernetes = providers.find(({ name }) => name === "kubernetes");
   return {
@@ -517,8 +544,16 @@ function readback() {
     },
     ready:
       resources.every(
-        ({ exists, identityExact, versionExact, accessorBindingExact, crossRoleAccessDenied }) =>
-          exists && identityExact && versionExact && accessorBindingExact && crossRoleAccessDenied,
+        ({
+          exists,
+          identityExact,
+          versionExact,
+          accessorBindingExact,
+          crossRoleAccessDenied,
+          effectiveAccess,
+        }) =>
+          exists && identityExact && versionExact && accessorBindingExact &&
+          crossRoleAccessDenied && effectiveAccess.exact,
       ) &&
       projectScopedAccessDenied &&
       kubernetes?.exact === true &&

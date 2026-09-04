@@ -265,10 +265,11 @@
         "region": { "const": "asia-northeast3" },
         "requiredServices": {
           "type": "array",
-          "minItems": 10,
-          "maxItems": 10,
+          "minItems": 11,
+          "maxItems": 11,
           "prefixItems": [
             { "const": "artifactregistry.googleapis.com" },
+            { "const": "cloudasset.googleapis.com" },
             { "const": "cloudbuild.googleapis.com" },
             { "const": "cloudresourcemanager.googleapis.com" },
             { "const": "iam.googleapis.com" },
@@ -500,10 +501,32 @@
         "secretManager": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["projectId", "state", "provisioning", "resources", "humanGate"],
+          "required": ["projectId", "state", "effectiveAccessPolicy", "provisioning", "resources", "humanGate"],
           "properties": {
             "projectId": { "const": "seorilabs-ci" },
             "state": { "const": "blocked_unverified" },
+            "effectiveAccessPolicy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["analyzer", "scope", "permission", "expandRoles", "requireFullyExplored", "allowedProjectPrincipals"],
+              "properties": {
+                "analyzer": { "const": "CLOUD_ASSET_POLICY_ANALYZER" },
+                "scope": { "const": "projects/seorilabs-ci" },
+                "permission": { "const": "secretmanager.versions.access" },
+                "expandRoles": { "const": true },
+                "requireFullyExplored": { "const": true },
+                "allowedProjectPrincipals": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "prefixItems": [
+                    { "const": "serviceAccount:seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com" },
+                    { "const": "user:ih@seorilabs.com" }
+                  ],
+                  "items": false
+                }
+              }
+            },
             "provisioning": {
               "type": "object",
               "additionalProperties": false,
@@ -533,13 +556,15 @@
                     "requiredRole": { "const": "gcp_security_admin" },
                     "automaticRetry": { "const": false },
                     "requiredReadback": {
-                      "type": "array", "minItems": 5, "maxItems": 5,
+                      "type": "array", "minItems": 7, "maxItems": 7,
                       "prefixItems": [
                         { "const": "native_writer_identity_exact" },
                         { "const": "secret_values_absent_from_argv_env_stdout_files" },
                         { "const": "four_numeric_versions_active" },
                         { "const": "public_crc32c_verified" },
-                        { "const": "backup_restore_verified" }
+                        { "const": "backup_restore_verified" },
+                        { "const": "secret_effective_access_fully_explored" },
+                        { "const": "secret_effective_access_principals_exact" }
                       ],
                       "items": false
                     }
@@ -588,10 +613,11 @@
                   "items": false
                 },
                 "requiredReadback": {
-                  "type": "array", "minItems": 7, "maxItems": 7,
+                  "type": "array", "minItems": 8, "maxItems": 8,
                   "prefixItems": [
                     { "const": "four_secret_level_accessor_bindings_exact" },
                     { "const": "cross_role_access_denied" },
+                    { "const": "effective_secret_access_exact" },
                     { "const": "secret_access_config_digests_exact" },
                     { "const": "fake_password_execution_copy_verified" },
                     { "const": "fake_totp_execution_copy_verified" },

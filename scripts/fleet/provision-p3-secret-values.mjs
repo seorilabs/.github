@@ -20,6 +20,10 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 import { NativeSecurityBoundary } from "../../tools/seori-auth/src/native-boundary.mjs";
+import {
+  evaluateSecretEffectiveAccess,
+  secretEffectiveAccessArgs,
+} from "../../packages/repo-contract/src/secret-manager-effective-access.mjs";
 
 const mode = process.argv[2] ?? "plan";
 const confirmation = process.argv[3] ?? "";
@@ -140,6 +144,7 @@ if (!new Set(["plan", "apply", "readback"]).has(mode) || process.argv.length > 4
 }
 const manager = contract.authBroker?.secretManager;
 const cloud = contract.cloudBuild;
+const effectiveAccessPolicy = manager?.effectiveAccessPolicy;
 const expectedBindings = new Map([
   ["seori-auth-journal-mac", "shared/seori-auth/journal-mac"],
   ["seori-auth-browser-vault", "shared/seori-auth/browser-vault"],
@@ -149,6 +154,15 @@ const expectedBindings = new Map([
 if (
   manager?.projectId !== "seorilabs-ci" || cloud?.projectNumber !== "321365398093" ||
   cloud.projectId !== manager.projectId || manager.resources?.length !== 4 ||
+  effectiveAccessPolicy?.analyzer !== "CLOUD_ASSET_POLICY_ANALYZER" ||
+  effectiveAccessPolicy.scope !== `projects/${manager.projectId}` ||
+  effectiveAccessPolicy.permission !== "secretmanager.versions.access" ||
+  effectiveAccessPolicy.expandRoles !== true ||
+  effectiveAccessPolicy.requireFullyExplored !== true ||
+  JSON.stringify(effectiveAccessPolicy.allowedProjectPrincipals) !== JSON.stringify([
+    "serviceAccount:seorilabs-provisioner@seorilabs-gws.iam.gserviceaccount.com",
+    "user:ih@seorilabs.com",
+  ]) ||
   manager.provisioning?.adapterMode !== "native-secret-manager-writer" ||
   manager.provisioning?.plaintextTransport !== "fd3" ||
   manager.provisioning?.values?.length !== 4 ||
@@ -362,13 +376,58 @@ function secretState(resource) {
   return { exists: true, versions };
 }
 
+function effectiveAccessState(resource) {
+  let analysis;
+  try {
+    analysis = parseJson(
+      gcloudRun(
+        secretEffectiveAccessArgs({
+          projectId: manager.projectId,
+          projectNumber: cloud.projectNumber,
+          secretId: resource.secretId,
+          permission: effectiveAccessPolicy.permission,
+        }),
+        "P3_SECRET_VALUE_EFFECTIVE_ACCESS_READ_FAILED",
+      ),
+      "P3_SECRET_VALUE_EFFECTIVE_ACCESS_RESPONSE_INVALID",
+    );
+    return evaluateSecretEffectiveAccess({
+      analysis,
+      projectId: manager.projectId,
+      projectNumber: cloud.projectNumber,
+      secretId: resource.secretId,
+      permission: effectiveAccessPolicy.permission,
+      allowedPrincipals: [
+        ...effectiveAccessPolicy.allowedProjectPrincipals,
+        `serviceAccount:${resource.googleServiceAccount}`,
+      ],
+    });
+  } catch (error) {
+    if (error?.code === "SECRET_EFFECTIVE_ACCESS_INCOMPLETE") {
+      stop("P3_SECRET_VALUE_EFFECTIVE_ACCESS_INCOMPLETE");
+    }
+    if (error?.code === "SECRET_EFFECTIVE_ACCESS_RESPONSE_INVALID") {
+      stop("P3_SECRET_VALUE_EFFECTIVE_ACCESS_RESPONSE_INVALID");
+    }
+    throw error;
+  }
+}
+
+function assertEffectiveAccess(resource) {
+  const access = effectiveAccessState(resource);
+  if (!access.exact) stop("P3_SECRET_VALUE_UNEXPECTED_EFFECTIVE_ACCESS");
+  return access;
+}
+
 function publicReadback() {
   const resources = manager.resources.map((resource) => {
     const state = secretState(resource);
+    const effectiveAccess = assertEffectiveAccess(resource);
     const version = state.versions[0];
     return {
       secretId: resource.secretId,
       exists: state.exists,
+      effectiveAccess,
       versionCount: state.versions.length,
       versionExact:
         state.versions.length === 1 && version?.name.endsWith("/versions/1") &&
@@ -470,6 +529,7 @@ async function apply() {
   }
   const receipt = loadReceipt(identity);
   for (const resource of manager.resources) createSecret(resource);
+  for (const resource of manager.resources) assertEffectiveAccess(resource);
   const boundary = await NativeSecurityBoundary.open({
     helperPath: identity.helperPath,
     expectedSha256: identity.helperSha256,
@@ -593,6 +653,7 @@ if (mode === "plan") {
     resources: manager.resources.map(({ secretId, resource, version, logicalCredentialId }) => ({
       secretId, resource, version, logicalCredentialId,
     })),
+    effectiveAccessPolicy,
     backupPair: findBackupPair().generation,
     confirmation: expectedConfirmation,
     apply: `node scripts/fleet/provision-p3-secret-values.mjs apply ${expectedConfirmation}`,

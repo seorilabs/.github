@@ -148,6 +148,61 @@ if (args[0] === "services" && args[1] === "enable") {
   process.exit(0);
 }
 
+if (args[0] === "asset" && args[1] === "analyze-iam-policy") {
+  if (state.assetResponseOverride !== undefined) {
+    output(state.assetResponseOverride);
+    process.exit(0);
+  }
+  const fullResourceName = flag("--full-resource-name");
+  const permission = flag("--permissions");
+  const projectId = flag("--project");
+  const prefix = `//secretmanager.googleapis.com/projects/${state.projectNumber}/secrets/`;
+  if (
+    !fullResourceName?.startsWith(prefix) ||
+    permission !== "secretmanager.versions.access" ||
+    !args.includes("--expand-roles") || !args.includes("--show-response")
+  ) fail();
+  const secretId = fullResourceName.slice(prefix.length);
+  const effectiveRoles = new Set([
+    "roles/owner",
+    "roles/secretmanager.admin",
+    "roles/secretmanager.secretAccessor",
+  ]);
+  const applicable = state.bindings.filter(({ resourceType, resource, role }) =>
+    effectiveRoles.has(role) && (
+      (resourceType === "project" && resource === `projects/${projectId}`) ||
+      (resourceType === "secret" &&
+        resource === `projects/${projectId}/secrets/${secretId}`)
+    ),
+  );
+  const fullyExplored = state.assetFullyExplored !== false;
+  output({
+    fullyExplored,
+    mainAnalysis: {
+      fullyExplored,
+      analysisQuery: {
+        scope: `projects/${projectId}`,
+        resourceSelector: { fullResourceName },
+        accessSelector: { permissions: [permission] },
+        options: { expandRoles: true },
+      },
+      analysisResults: applicable.map((binding) => ({
+        fullyExplored,
+        attachedResourceFullName: binding.resourceType === "secret"
+          ? fullResourceName
+          : `//cloudresourcemanager.googleapis.com/projects/${projectId}`,
+        iamBinding: { role: binding.role, members: [binding.member] },
+        identityList: { identities: [{ name: binding.member }] },
+        accessControlLists: [{
+          accesses: [{ permission }],
+          resources: [{ fullResourceName }],
+        }],
+      })),
+    },
+  });
+  process.exit(0);
+}
+
 if (args[0] === "secrets" && args[1] === "describe") {
   const secret = state.secrets?.[args[2]];
   if (!secret) notFound();
