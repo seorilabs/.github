@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-import { isAbsolute } from 'node:path';
-
 import {
   AgentRelayDaemon,
   assertAgentRelayProjection,
@@ -9,6 +7,7 @@ import {
   NativeSecurityBoundary,
   readImmutableAgentRelayConfig,
   runAgentRelayLifecycle,
+  validMacOsCanonicalFilePath,
   validMacOsId,
   validMacOsUnixSocketPath,
 } from '../src/index.mjs';
@@ -26,8 +25,8 @@ function fail(message) {
 }
 
 function absolutePath(value, label) {
-  if (typeof value !== 'string' || !isAbsolute(value) || value.includes('\0')) {
-    fail(`${label} must be an absolute path`);
+  if (!validMacOsCanonicalFilePath(value)) {
+    fail(`${label} must be a canonical absolute file path`);
   }
   return value;
 }

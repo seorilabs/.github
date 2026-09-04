@@ -82,7 +82,7 @@
       "additionalProperties": false,
       "required": ["path", "sha256"],
       "properties": {
-        "path": { "type": "string", "pattern": "^/[^\\u0000]+$", "maxLength": 1024 },
+        "path": { "$ref": "#/$defs/canonicalAbsoluteFilePath" },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
     },
@@ -115,15 +115,20 @@
           "additionalProperties": false,
           "required": ["caPath", "certificatePath", "privateKeyPath"],
           "properties": {
-            "caPath": { "type": "string", "pattern": "^/[^\\u0000]+$", "maxLength": 1024 },
-            "certificatePath": { "type": "string", "pattern": "^/[^\\u0000]+$", "maxLength": 1024 },
-            "privateKeyPath": { "type": "string", "pattern": "^/[^\\u0000]+$", "maxLength": 1024 }
+            "caPath": { "$ref": "#/$defs/canonicalAbsoluteFilePath" },
+            "certificatePath": { "$ref": "#/$defs/canonicalAbsoluteFilePath" },
+            "privateKeyPath": { "$ref": "#/$defs/canonicalAbsoluteFilePath" }
           }
         }
       }
     }
   },
   "$defs": {
+    "canonicalAbsoluteFilePath": {
+      "type": "string",
+      "pattern": "^/(?!\\.{1,2}(?:/|$))(?!.*(?:/)\\.{1,2}(?:/|$))[^/\\u0000]+(?:/[^/\\u0000]+)*$",
+      "maxLength": 1024
+    },
     "publicId": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$"

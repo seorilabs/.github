@@ -3,7 +3,7 @@ import { createServer, request as httpRequest } from 'node:http';
 import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
 import { constants as fsConstants } from 'node:fs';
 import { chmod, chown, lstat, open, realpath, unlink } from 'node:fs/promises';
-import { dirname, isAbsolute } from 'node:path';
+import { dirname } from 'node:path';
 
 import { fail, SeoriAuthError } from './errors.mjs';
 
@@ -13,6 +13,8 @@ const MAX_CONNECTIONS = 4;
 const MAX_IN_FLIGHT = 2;
 const MACOS_UNIX_SOCKET_PATH_MAX_BYTES = 104;
 const MACOS_ID_MAX = 2_147_483_647;
+const MACOS_CANONICAL_FILE_PATH_MAX_CHARACTERS = 1_024;
+const MACOS_CANONICAL_FILE_PATH = /^\/(?!\.{1,2}(?:\/|$))(?!.*\/\.{1,2}(?:\/|$))[^/\u0000]+(?:\/[^/\u0000]+)*$/u;
 const MACOS_UNIX_SOCKET_PATH = /^\/(?!\.{1,2}(?:\/|$))(?!.*\/\.{1,2}(?:\/|$))[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/u;
 const UPSTREAM_TOTAL_TIMEOUT_MS = 30_000;
 const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -92,6 +94,11 @@ export function validMacOsUnixSocketPath(value) {
 
 export function validMacOsId(value, { allowRoot = false } = {}) {
   return Number.isSafeInteger(value) && value >= (allowRoot ? 0 : 1) && value <= MACOS_ID_MAX;
+}
+
+export function validMacOsCanonicalFilePath(value) {
+  return typeof value === 'string' && MACOS_CANONICAL_FILE_PATH.test(value) &&
+    [...value].length <= MACOS_CANONICAL_FILE_PATH_MAX_CHARACTERS;
 }
 
 function validHttpsUrl(value) {
@@ -427,7 +434,7 @@ function normalizeHttpsOrigin(value) {
 }
 
 async function readTlsFile(path, { privateMaterial = false } = {}) {
-  if (typeof path !== 'string' || !isAbsolute(path)) {
+  if (!validMacOsCanonicalFilePath(path)) {
     fail('invalid_agent_relay_tls', 'agent relay TLS paths must be absolute');
   }
   const [entry, canonical] = await Promise.all([lstat(path), realpath(path)]);
@@ -597,7 +604,7 @@ export function executeAgentRelayClientRequest({
 
 export async function readImmutableAgentRelayConfig(path, { expectedOwnerUid = 0 } = {}) {
   if (
-    typeof path !== 'string' || !isAbsolute(path) || path.includes('\0') ||
+    !validMacOsCanonicalFilePath(path) ||
     !validMacOsId(expectedOwnerUid, { allowRoot: true })
   ) fail('invalid_agent_relay_config', 'agent relay config path or owner is invalid');
   await assertTrustedAncestors(path, expectedOwnerUid);

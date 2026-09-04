@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { PolicyEngine, validMacOsId, validMacOsUnixSocketPath } from '../src/index.mjs';
+import {
+  PolicyEngine,
+  validMacOsCanonicalFilePath,
+  validMacOsId,
+  validMacOsUnixSocketPath,
+} from '../src/index.mjs';
 
 const packageRoot = new URL('../', import.meta.url);
 
@@ -81,6 +86,37 @@ test('example policy and JSON schemas are parseable', async () => {
   assert.equal(agentRelaySchema.properties.expectedPeer.properties.gid.maximum, 2_147_483_647);
   assert.equal(validMacOsId(2_147_483_647), true);
   assert.equal(validMacOsId(2_147_483_648), false);
+  const materialPathSchema = agentRelaySchema.$defs.canonicalAbsoluteFilePath;
+  const materialPathPattern = new RegExp(materialPathSchema.pattern);
+  const schemaAcceptsMaterialPath = (value) =>
+    materialPathPattern.test(value) && [...value].length <= materialPathSchema.maxLength;
+  for (const path of [
+    '/opt/seori-auth/bin/seori-auth-native',
+    '/private/etc/seori auth/codex/.client-key.pem',
+  ]) {
+    assert.equal(schemaAcceptsMaterialPath(path), true, path);
+    assert.equal(validMacOsCanonicalFilePath(path), true, path);
+  }
+  for (const path of [
+    '/opt/seori-auth/../seori-auth/bin/helper',
+    '/private/etc//seori/key.pem',
+    '/private/etc/seori/',
+    '/./private/key.pem',
+  ]) {
+    assert.equal(schemaAcceptsMaterialPath(path), false, path);
+    assert.equal(validMacOsCanonicalFilePath(path), false, path);
+  }
+  assert.equal(
+    agentRelaySchema.properties.nativeHelper.properties.path.$ref,
+    '#/$defs/canonicalAbsoluteFilePath',
+  );
+  for (const property of ['caPath', 'certificatePath', 'privateKeyPath']) {
+    assert.equal(
+      agentRelaySchema.properties.upstream.properties.tls.properties[property].$ref,
+      '#/$defs/canonicalAbsoluteFilePath',
+      property,
+    );
+  }
   assert.equal(agentRelaySchema.properties.upstream.properties.tls.additionalProperties, false);
   const relayOriginPatterns = agentRelaySchema.properties.upstream.properties.origin.oneOf
     .map(({ pattern }) => new RegExp(pattern));
