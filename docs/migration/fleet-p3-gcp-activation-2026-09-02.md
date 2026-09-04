@@ -182,9 +182,9 @@ readback `ready: true`, binding 74/74) 세 앱을 재결합해 증거를 다시 
 
 | 증거 | run | ConfigRevision | 산출물 |
 | --- | --- | --- | --- |
-| `build:react-native-android` | [33756166130](https://github.com/seorilabs/happy-farm/actions/runs/33756166130) (PR #506) | 20 | AAB 62,271,121 bytes, sha256 `f794f5bae8ea…` = provenance |
+| `build:react-native-android` | [33756166130](https://github.com/seorilabs/happy-farm/actions/runs/33756166130) (PR #506) | 20 | AAB 62,271,121 bytes, sha256 `7abfd7e1ca04…` = provenance |
 | `static:react-native` | [33756166139](https://github.com/seorilabs/happy-farm/actions/runs/33756166139) | 20 | — |
-| `build:godot-android` | [33756668489](https://github.com/seorilabs/lizard-tycoon/actions/runs/33756668489) (PR #548) | 30 | AAB 49,291,603 bytes, sha256 `515b436961e3…` = provenance |
+| `build:godot-android` | [33756668489](https://github.com/seorilabs/lizard-tycoon/actions/runs/33756668489) (PR #548) | 30 | AAB 49,291,603 bytes, sha256 `62427b4d8583…` = provenance |
 | `static:godot` | [33756668496](https://github.com/seorilabs/lizard-tycoon/actions/runs/33756668496) | 30 | — |
 | `static:capacitor` | [33759592639](https://github.com/seorilabs/saju-reader/actions/runs/33759592639) (PR #96) | 28 | — |
 
