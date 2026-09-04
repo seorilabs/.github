@@ -574,6 +574,19 @@ test('agent relay config is bound to one central revision and observation projec
   const config = relayProjectionConfig();
   assert.deepEqual(assertAgentRelayProjection(config), config.controlPlane);
 
+  const maximumRevision = structuredClone(config);
+  maximumRevision.controlPlane.configRevision.revision = Number.MAX_SAFE_INTEGER;
+  maximumRevision.controlPlane.projectionDigest = agentRelayProjectionDigest(maximumRevision);
+  assert.deepEqual(assertAgentRelayProjection(maximumRevision), maximumRevision.controlPlane);
+
+  const unsafeRevision = structuredClone(config);
+  unsafeRevision.controlPlane.configRevision.revision = Number.MAX_SAFE_INTEGER + 1;
+  unsafeRevision.controlPlane.projectionDigest = agentRelayProjectionDigest(unsafeRevision);
+  assert.throws(
+    () => assertAgentRelayProjection(unsafeRevision),
+    (error) => error instanceof SeoriAuthError && error.code === 'invalid_agent_relay_projection',
+  );
+
   const tampered = structuredClone(config);
   tampered.expectedPeer.uid += 1;
   assert.throws(

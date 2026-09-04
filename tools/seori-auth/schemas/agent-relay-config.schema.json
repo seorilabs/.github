@@ -37,7 +37,7 @@
           "properties": {
             "appId": { "$ref": "#/$defs/publicId" },
             "id": { "$ref": "#/$defs/publicId" },
-            "revision": { "type": "integer", "minimum": 1 },
+            "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
             "snapshotDigest": { "$ref": "#/$defs/sha256" }
           }
         },

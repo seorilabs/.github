@@ -42,6 +42,10 @@ test('example policy and JSON schemas are parseable', async () => {
   assert.equal(agentRelaySchema.properties.schemaVersion.const, 2);
   assert.equal(agentRelaySchema.required.includes('controlPlane'), true);
   assert.equal(agentRelaySchema.properties.controlPlane.additionalProperties, false);
+  assert.equal(
+    agentRelaySchema.properties.controlPlane.properties.configRevision.properties.revision.maximum,
+    Number.MAX_SAFE_INTEGER,
+  );
   assert.deepEqual(agentRelaySchema.properties.workerKind.enum, ['CODEX', 'CLAUDE']);
   const socketSchema = agentRelaySchema.properties.socketPath;
   const socketPattern = new RegExp(socketSchema.pattern);
