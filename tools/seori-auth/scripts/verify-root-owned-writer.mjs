@@ -131,6 +131,17 @@ try {
   assert.equal(result.secretExposed, false);
   assert.ok(material.every((byte) => byte === 0));
 
+  const verificationMaterial = randomBytes(32);
+  const verification = await writer.verifyVersion({
+    resourceName: 'projects/seori-auth-canary/secrets/fake-root-owned-verifier',
+    expectedVersion: 1,
+    material: verificationMaterial,
+  });
+  assert.equal(verification.operation, 'secret-version-verify');
+  assert.equal(verification.backupRestoreVerified, true);
+  assert.equal(verification.secretExposed, false);
+  assert.ok(verificationMaterial.every((byte) => byte === 0));
+
   const firstMaterial = randomBytes(32);
   const duplicateMaterial = randomBytes(32);
   const firstWrite = writer.writeVersion({

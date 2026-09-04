@@ -126,8 +126,12 @@ async function readBoundedResponse(response) {
 
 const secretDescriptor = Number(process.env.SEORI_AUTH_SECRET_FD);
 const resultDescriptor = Number(process.env.SEORI_AUTH_RESULT_FD);
-const resourceArgument = process.argv[2];
-const versionArgument = process.argv[3];
+const operationArgument = process.argv[2];
+const resourceArgument = process.argv[3];
+const versionArgument = process.argv[4];
+const operation = operationArgument?.startsWith('--operation=')
+  ? operationArgument.slice('--operation='.length)
+  : undefined;
 const resourceName = resourceArgument?.startsWith('--resource=')
   ? resourceArgument.slice('--resource='.length)
   : undefined;
@@ -138,11 +142,13 @@ const expectedVersion = versionArgument?.startsWith('--expected-version=')
 let material;
 let activeCopy;
 let backupCopy;
+let remoteMaterial;
 let payloadData = '';
+let remotePayloadData = '';
 let accessToken = '';
 try {
   if (
-    process.argv.length !== 4 ||
+    process.argv.length !== 5 || !new Set(['write', 'verify']).has(operation) ||
     secretDescriptor !== 3 || resultDescriptor !== 5 ||
     !SECRET_RESOURCE.test(resourceName ?? '') ||
     !Number.isSafeInteger(expectedVersion) || expectedVersion !== 1
@@ -164,21 +170,24 @@ try {
       backupCopy.copy(activeCopy);
       const backupRestoreVerified =
         timingSafeEqual(activeCopy, backupCopy) && crc32c(activeCopy) === expectedCrc32c;
-      payloadData = activeCopy.toString('base64');
+      if (operation === 'write') payloadData = activeCopy.toString('base64');
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 30_000);
       timer.unref();
       let response;
       try {
-        response = await fetch(`${endpoint}/v1/${resourceName}:addVersion`, {
-          method: 'POST',
+        const url = operation === 'write'
+          ? `${endpoint}/v1/${resourceName}:addVersion`
+          : `${endpoint}/v1/${resourceName}/versions/${expectedVersion}:access`;
+        response = await fetch(url, {
+          method: operation === 'write' ? 'POST' : 'GET',
           headers: {
             authorization: `Bearer ${accessToken}`,
             'content-type': 'application/json',
           },
-          body: JSON.stringify({
-            payload: { data: payloadData, dataCrc32c: expectedCrc32c },
-          }),
+          body: operation === 'write'
+            ? JSON.stringify({ payload: { data: payloadData, dataCrc32c: expectedCrc32c } })
+            : undefined,
           redirect: 'error',
           signal: controller.signal,
         });
@@ -189,16 +198,38 @@ try {
       if (!response.ok) throw new Error('Secret Manager rejected the write');
       const value = await readBoundedResponse(response);
       const expectedVersionResource = `${resourceName}/versions/${expectedVersion}`;
-      if (
-        value === null || typeof value !== 'object' || Array.isArray(value) ||
-        value.name !== expectedVersionResource || !VERSION_RESOURCE.test(value.name) ||
-        JSON.stringify(value).includes(payloadData)
-      ) {
-        throw new Error('Secret Manager response is invalid');
+      if (value === null || typeof value !== 'object' || Array.isArray(value) ||
+          value.name !== expectedVersionResource || !VERSION_RESOURCE.test(value.name)) {
+        throw new Error('Secret Manager response identity is invalid');
+      }
+      if (operation === 'write') {
+        if (JSON.stringify(value).includes(payloadData)) {
+          throw new Error('Secret Manager write response is invalid');
+        }
+      } else {
+        remotePayloadData = value.payload?.data;
+        const remoteCrc32c = value.payload?.dataCrc32c;
+        if (
+          typeof remotePayloadData !== 'string' || remotePayloadData.length > 5_464 ||
+          !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(remotePayloadData) ||
+          remoteCrc32c !== expectedCrc32c
+        ) {
+          throw new Error('Secret Manager access response is invalid');
+        }
+        remoteMaterial = Buffer.from(remotePayloadData, 'base64');
+        if (
+          remoteMaterial.length !== material.length ||
+          remoteMaterial.toString('base64') !== remotePayloadData ||
+          crc32c(remoteMaterial) !== expectedCrc32c ||
+          !timingSafeEqual(remoteMaterial, material)
+        ) {
+          throw new Error('Secret Manager version does not match local material');
+        }
+        value.payload.data = '';
       }
       const result = {
         schemaVersion: 1,
-        operation: 'secret-version-write',
+        operation: `secret-version-${operation}`,
         resourceName,
         versionResourceName: value.name,
         dataCrc32c: expectedCrc32c,
@@ -217,7 +248,9 @@ try {
 } finally {
   accessToken = '';
   payloadData = '';
+  remotePayloadData = '';
   if (Buffer.isBuffer(material)) material.fill(0);
   if (Buffer.isBuffer(activeCopy)) activeCopy.fill(0);
   if (Buffer.isBuffer(backupCopy)) backupCopy.fill(0);
+  if (Buffer.isBuffer(remoteMaterial)) remoteMaterial.fill(0);
 }

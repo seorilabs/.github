@@ -62,7 +62,12 @@ daemon, MAC-chain durable state, native OS 경계, encrypted Browser Vault를 �
   폐기합니다. 출력 byte 상한과 exit status만 사용합니다.
 - 실제 Secret Manager 값 등록은 `runtime/secret-manager-writer.mjs`가 담당합니다. 이 child는
   등록된 `gcloud-cli.sh`를 secret fd를 열기 전에, fd0-2만 물려 접근 토큰 발급에 사용한 뒤
-  Google Secret Manager `addVersion` API에 CRC32C를 포함해 version `1`을 기록합니다. 설치는
+  Google Secret Manager `addVersion` API에 CRC32C를 포함해 version `1`을 기록합니다. 기존
+  resource는 automatic replication, 정확한 관리 label, 비어 있거나 계약의 단일 consumer만
+  있는 secret-level IAM policy를 모두 확인한 뒤에만 사용합니다. 원격 write 전에 공개
+  fingerprint·CRC32C intent를 원자적으로
+  기록하며 응답 유실 뒤에는 `versions.access` 결과를 같은 native child 안에서 fd3 material과
+  대조해 성공 여부를 복구합니다. secret 값은 이 복구 경계 밖으로 반환하지 않습니다. 설치는
   `scripts/fleet/install-p3-secret-manager-writer.sh`, 백업 복원 검증과 네 값 등록은
   `scripts/fleet/provision-p3-secret-values.mjs`의 plan/apply/readback 순서로 수행합니다.
 - `authenticatePrincipal(socket, metadata)`가 증명한 subject/run/repository/worker와 HTTP claim이

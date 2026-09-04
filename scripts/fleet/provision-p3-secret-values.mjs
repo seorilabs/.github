@@ -51,6 +51,10 @@ const beeBackupRoot = join(
   "seorilabs-credentials",
   "backups",
 );
+const managedSecretLabels = Object.freeze({
+  "managed-by": "fleet-control-plane",
+  purpose: "seori-auth",
+});
 
 function stop(code) {
   process.stderr.write(`${JSON.stringify({ ok: false, code })}\n`);
@@ -135,6 +139,7 @@ if (!new Set(["plan", "apply", "readback"]).has(mode) || process.argv.length > 4
   stop("P3_SECRET_VALUE_COMMAND_INVALID");
 }
 const manager = contract.authBroker?.secretManager;
+const cloud = contract.cloudBuild;
 const expectedBindings = new Map([
   ["seori-auth-journal-mac", "shared/seori-auth/journal-mac"],
   ["seori-auth-browser-vault", "shared/seori-auth/browser-vault"],
@@ -142,7 +147,8 @@ const expectedBindings = new Map([
   ["seori-auth-canary-totp-seed", "shared/seori-auth/canary-totp-seed"],
 ]);
 if (
-  manager?.projectId !== "seorilabs-ci" || manager.resources?.length !== 4 ||
+  manager?.projectId !== "seorilabs-ci" || cloud?.projectNumber !== "321365398093" ||
+  cloud.projectId !== manager.projectId || manager.resources?.length !== 4 ||
   manager.provisioning?.adapterMode !== "native-secret-manager-writer" ||
   manager.provisioning?.plaintextTransport !== "fd3" ||
   manager.provisioning?.values?.length !== 4 ||
@@ -285,15 +291,19 @@ function restoreReadback(path) {
 }
 
 function secretState(resource) {
-  const described = gcloudRun(
+  const describedRaw = gcloudRun(
     [
       "secrets", "describe", resource.secretId,
-      `--project=${manager.projectId}`, "--format=value(name)",
+      `--project=${manager.projectId}`, "--format=json",
     ],
     "P3_SECRET_VALUE_RESOURCE_READ_FAILED",
     { allowNotFound: true },
   );
-  if (described === null) return { exists: false, versions: [] };
+  if (describedRaw === null) return { exists: false, versions: [] };
+  const described = parseJson(
+    describedRaw,
+    "P3_SECRET_VALUE_RESOURCE_RESPONSE_INVALID",
+  );
   const versions = parseJson(
     gcloudRun(
       [
@@ -304,10 +314,51 @@ function secretState(resource) {
     ),
     "P3_SECRET_VALUE_VERSION_RESPONSE_INVALID",
   );
-  const identityExact =
-    described === resource.resource ||
-    described.endsWith(`/secrets/${resource.secretId}`);
+  const identityExact = new Set([
+    resource.resource,
+    `projects/${cloud.projectNumber}/secrets/${resource.secretId}`,
+  ]).has(described?.name);
   if (!identityExact) stop("P3_SECRET_VALUE_RESOURCE_IDENTITY_MISMATCH");
+  const automatic = described.replication?.automatic;
+  const metadataExact =
+    automatic !== null && typeof automatic === "object" && !Array.isArray(automatic) &&
+    Object.keys(automatic).length === 0 &&
+    Object.keys(described.replication ?? {}).length === 1 &&
+    JSON.stringify(canonical(described.labels ?? {})) ===
+      JSON.stringify(canonical(managedSecretLabels)) &&
+    (described.topics === undefined || described.topics?.length === 0) &&
+    described.rotation === undefined &&
+    (described.versionAliases === undefined ||
+      Object.keys(described.versionAliases ?? {}).length === 0) &&
+    (described.annotations === undefined ||
+      Object.keys(described.annotations ?? {}).length === 0) &&
+    described.expireTime === undefined && described.ttl === undefined;
+  if (!metadataExact) stop("P3_SECRET_VALUE_RESOURCE_MANAGEMENT_MISMATCH");
+  const policy = parseJson(
+    gcloudRun(
+      [
+        "secrets", "get-iam-policy", resource.secretId,
+        `--project=${manager.projectId}`, "--format=json",
+      ],
+      "P3_SECRET_VALUE_RESOURCE_IAM_READ_FAILED",
+    ),
+    "P3_SECRET_VALUE_RESOURCE_IAM_RESPONSE_INVALID",
+  );
+  const bindings = policy?.bindings ?? [];
+  const expectedAccessor = `serviceAccount:${resource.googleServiceAccount}`;
+  const accessExact = bindings.length === 0 || (
+    bindings.length === 1 &&
+    bindings[0]?.role === "roles/secretmanager.secretAccessor" &&
+    bindings[0]?.condition === undefined &&
+    Array.isArray(bindings[0]?.members) && bindings[0].members.length === 1 &&
+    bindings[0].members[0] === expectedAccessor
+  );
+  if (
+    !policy || typeof policy !== "object" || Array.isArray(policy) ||
+    !Array.isArray(bindings) || !accessExact ||
+    (policy.auditConfigs !== undefined &&
+      (!Array.isArray(policy.auditConfigs) || policy.auditConfigs.length !== 0))
+  ) stop("P3_SECRET_VALUE_RESOURCE_IAM_MISMATCH");
   return { exists: true, versions };
 }
 
@@ -355,9 +406,10 @@ function createSecret(resource) {
 function loadReceipt(identity) {
   if (!existsSync(receiptPath)) {
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       contractDigest,
       writerIdentity: identity,
+      pending: [],
       results: [],
     };
   }
@@ -366,13 +418,34 @@ function loadReceipt(identity) {
     "P3_SECRET_VALUE_RECEIPT_INVALID",
   );
   if (
-    receipt.schemaVersion !== 1 || receipt.contractDigest !== contractDigest ||
+    receipt.schemaVersion !== 2 || receipt.contractDigest !== contractDigest ||
     JSON.stringify(receipt.writerIdentity) !== JSON.stringify(identity) ||
-    !Array.isArray(receipt.results) ||
+    !Array.isArray(receipt.pending) || !Array.isArray(receipt.results) ||
+    new Set(receipt.pending.map(({ resourceName }) => resourceName)).size !==
+      receipt.pending.length ||
     new Set(receipt.results.map(({ resourceName }) => resourceName)).size !==
       receipt.results.length ||
-    receipt.results.some(({ resourceName }) =>
-      !manager.resources.some(({ resource }) => resource === resourceName))
+    receipt.pending.some(({ resourceName }) =>
+      receipt.results.some((result) => result.resourceName === resourceName)) ||
+    receipt.pending.some((entry) =>
+      Object.keys(entry).toSorted().join(",") !==
+        "dataCrc32c,fingerprintSha256,resourceName,versionResourceName" ||
+      !manager.resources.some(({ resource, versionResource }) =>
+        resource === entry.resourceName && versionResource === entry.versionResourceName) ||
+      !/^(?:0|[1-9][0-9]{0,9})$/u.test(entry.dataCrc32c ?? "") ||
+      !/^[0-9a-f]{64}$/u.test(entry.fingerprintSha256 ?? "")) ||
+    receipt.results.some((entry) =>
+      Object.keys(entry).toSorted().join(",") !== [
+        "backupRestoreVerified", "dataCrc32c", "fingerprintSha256", "operation",
+        "resourceName", "schemaVersion", "secretExposed", "versionResourceName",
+      ].toSorted().join(",") ||
+      entry.schemaVersion !== 1 ||
+      !new Set(["secret-version-write", "secret-version-verify"]).has(entry.operation) ||
+      entry.backupRestoreVerified !== true || entry.secretExposed !== false ||
+      !manager.resources.some(({ resource, versionResource }) =>
+        resource === entry.resourceName && versionResource === entry.versionResourceName) ||
+      !/^(?:0|[1-9][0-9]{0,9})$/u.test(entry.dataCrc32c ?? "") ||
+      !/^[0-9a-f]{64}$/u.test(entry.fingerprintSha256 ?? ""))
   ) stop("P3_SECRET_VALUE_RECEIPT_INVALID");
   return receipt;
 }
@@ -426,25 +499,69 @@ async function apply() {
     const recorded = receipt.results.find(
       ({ resourceName }) => resourceName === resource.resource,
     );
+    const pending = receipt.pending.find(
+      ({ resourceName }) => resourceName === resource.resource,
+    );
+    const intentExact = (entry) =>
+      entry?.versionResourceName === resource.versionResource &&
+      entry?.dataCrc32c === expectedCrc32c &&
+      entry?.fingerprintSha256 === fingerprintSha256;
     if (state.versions.length > 0) {
-      material.fill(0);
       if (
         state.versions.length !== 1 || !state.versions[0].name.endsWith("/versions/1") ||
-        state.versions[0].state !== "ENABLED" ||
-        recorded?.dataCrc32c !== expectedCrc32c ||
-        recorded?.fingerprintSha256 !== fingerprintSha256
-      ) stop("P3_SECRET_VALUE_EXISTING_VERSION_UNVERIFIED");
+        state.versions[0].state !== "ENABLED"
+      ) {
+        material.fill(0);
+        stop("P3_SECRET_VALUE_EXISTING_VERSION_UNVERIFIED");
+      }
+      if (recorded) {
+        material.fill(0);
+        if (!intentExact(recorded)) {
+          stop("P3_SECRET_VALUE_EXISTING_VERSION_UNVERIFIED");
+        }
+        continue;
+      }
+      if (!intentExact(pending)) {
+        material.fill(0);
+        stop("P3_SECRET_VALUE_EXISTING_VERSION_UNVERIFIED");
+      }
+      const result = await writer.verifyVersion({
+        resourceName: resource.resource,
+        expectedVersion: resource.version,
+        material,
+      });
+      receipt.pending = receipt.pending.filter(
+        ({ resourceName }) => resourceName !== resource.resource,
+      );
+      receipt.results.push({ ...result, fingerprintSha256 });
+      persistReceipt(receipt);
       continue;
     }
     if (recorded) {
       material.fill(0);
       stop("P3_SECRET_VALUE_RECEIPT_REMOTE_MISMATCH");
     }
+    if (pending && !intentExact(pending)) {
+      material.fill(0);
+      stop("P3_SECRET_VALUE_PENDING_INTENT_MISMATCH");
+    }
+    if (!pending) {
+      receipt.pending.push({
+        resourceName: resource.resource,
+        versionResourceName: resource.versionResource,
+        dataCrc32c: expectedCrc32c,
+        fingerprintSha256,
+      });
+      persistReceipt(receipt);
+    }
     const result = await writer.writeVersion({
       resourceName: resource.resource,
       expectedVersion: resource.version,
       material,
     });
+    receipt.pending = receipt.pending.filter(
+      ({ resourceName }) => resourceName !== resource.resource,
+    );
     receipt.results.push({ ...result, fingerprintSha256 });
     persistReceipt(receipt);
   }

@@ -30,8 +30,12 @@ function exposedOnPublicProcessSurface(material) {
 
 const secretDescriptor = Number(process.env.SEORI_AUTH_SECRET_FD);
 const resultDescriptor = Number(process.env.SEORI_AUTH_RESULT_FD);
-const resourceArgument = process.argv[2];
-const versionArgument = process.argv[3];
+const operationArgument = process.argv[2];
+const resourceArgument = process.argv[3];
+const versionArgument = process.argv[4];
+const operation = operationArgument?.startsWith('--operation=')
+  ? operationArgument.slice('--operation='.length)
+  : undefined;
 const resourceName = resourceArgument?.startsWith('--resource=')
   ? resourceArgument.slice('--resource='.length)
   : undefined;
@@ -44,7 +48,8 @@ let activeCopy;
 let backupCopy;
 try {
   if (
-    process.argv.length !== 4 || process.argv[1] !== '-' ||
+    process.argv.length !== 5 || process.argv[1] !== '-' ||
+    !new Set(['write', 'verify']).has(operation) ||
     secretDescriptor !== 3 || resultDescriptor !== 5 ||
     !SECRET_RESOURCE.test(resourceName ?? '') ||
     !Number.isSafeInteger(expectedVersion) || expectedVersion < 1
@@ -69,7 +74,7 @@ try {
       process.stderr.write(material.toString('base64'));
       const result = {
         schemaVersion: 1,
-        operation: 'secret-version-write',
+        operation: `secret-version-${operation}`,
         resourceName,
         versionResourceName: `${resourceName}/versions/${expectedVersion}`,
         dataCrc32c: expectedCrc32c,

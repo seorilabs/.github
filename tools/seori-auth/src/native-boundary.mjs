@@ -129,8 +129,9 @@ function crc32c(buffer) {
   return String((crc ^ 0xffffffff) >>> 0);
 }
 
-function normalizeSecretManagerWriteResult(
+function normalizeSecretManagerVersionResult(
   value,
+  expectedOperation,
   resourceName,
   expectedVersion,
   expectedDataCrc32c,
@@ -147,7 +148,7 @@ function normalizeSecretManagerWriteResult(
       'secretExposed',
       'versionResourceName',
     ].join(',') ||
-    value.schemaVersion !== 1 || value.operation !== 'secret-version-write' ||
+    value.schemaVersion !== 1 || value.operation !== `secret-version-${expectedOperation}` ||
     value.resourceName !== resourceName ||
     value.versionResourceName !== `${resourceName}/versions/${expectedVersion}` ||
     !SECRET_MANAGER_RESOURCE.test(value.versionResourceName) ||
@@ -306,9 +307,10 @@ export class NativeSecurityBoundary {
       childPath,
       childSha256,
     });
-    return Object.freeze({
-      identity,
-      async writeVersion({ resourceName, expectedVersion, material }) {
+    const runVersionOperation = async (
+      operation,
+      { resourceName, expectedVersion, material },
+    ) => {
         const ownedMaterial = material;
         let resourceLocked = false;
         let helperImage;
@@ -319,7 +321,10 @@ export class NativeSecurityBoundary {
         let timer;
         const resultChunks = [];
         try {
-          if (!Buffer.isBuffer(ownedMaterial) || ownedMaterial.length < 16 || ownedMaterial.length > 4_096) {
+          if (
+            !new Set(['write', 'verify']).has(operation) ||
+            !Buffer.isBuffer(ownedMaterial) || ownedMaterial.length < 16 || ownedMaterial.length > 4_096
+          ) {
             fail('secret_write_failed', 'Secret Manager write material is invalid');
           }
           if (!SECRET_MANAGER_SECRET.test(resourceName ?? '')) {
@@ -372,6 +377,7 @@ export class NativeSecurityBoundary {
           }
           child = spawn(process.platform === 'linux' ? '/proc/self/fd/7' : helperPath, [
             'launch-verified-writer', '--', executablePath, childPath,
+            `--operation=${operation}`,
             `--resource=${resourceName}`, `--expected-version=${expectedVersion}`,
           ], {
             env: {
@@ -438,8 +444,9 @@ export class NativeSecurityBoundary {
           if (processResult.code !== 0 || processResult.signal !== null) {
             fail('secret_write_failed', 'trusted Secret Manager writer failed');
           }
-          return normalizeSecretManagerWriteResult(
+          return normalizeSecretManagerVersionResult(
             result,
+            operation,
             resourceName,
             expectedVersion,
             expectedDataCrc32c,
@@ -460,6 +467,14 @@ export class NativeSecurityBoundary {
           for (const chunk of resultChunks) chunk.fill(0);
           if (Buffer.isBuffer(ownedMaterial)) ownedMaterial.fill(0);
         }
+      };
+    return Object.freeze({
+      identity,
+      async writeVersion(options) {
+        return runVersionOperation('write', options);
+      },
+      async verifyVersion(options) {
+        return runVersionOperation('verify', options);
       },
     });
   }
