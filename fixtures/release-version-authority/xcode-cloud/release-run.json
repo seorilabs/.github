@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "repositoryId": "7001",
   "fullName": "seorilabs/saju-reader",
   "sourceSha": "dddddddddddddddddddddddddddddddddddddddd",
@@ -25,14 +25,14 @@
   },
   "release": {
     "authority": "release-version-authority-v1",
-    "authorityRevision": "5daeca364a98da1f7bdcca32d31aeba51caeaf2c1f7fc4abf7365f023962e4db",
+    "authorityRevision": "7ab1a4a23c136205968b86b024583c084f8d44be6d3957a1dd39c91da7d4d903",
     "tag": "v1.2.3",
     "sourceSha": "dddddddddddddddddddddddddddddddddddddddd",
-    "configRevision": "63914dcb853735004e4759e8ea746941650f4f2e8fb1367da30713437d232fab",
+    "configRevision": "5b5175033b6f59cf44351a2ece45296686009d9e6e8280e7aa1180b8a5522329",
     "versionName": "1.2.3",
     "appleMarketingVersion": "1.2.3",
-    "appleBuildNumber": 1002003,
-    "bindingDigest": "26506f592dc5d622bba78f93e6477f0fb71b27a82d7cc479d9be811837ab0508"
+    "appleBuildNumberAuthority": "xcode-cloud-ci-build-number",
+    "bindingDigest": "a3ef8dd8b8a30c358dc1ab89607181477e6d54336ddaa7170bc11065383d479b"
   },
   "productId": "product-saju",
   "workflowId": "workflow-saju",
@@ -57,7 +57,7 @@
     "expectedWorkflowId": "workflow-saju",
     "artifactKind": "xcode-archive",
     "expectedMarketingVersion": "1.2.3",
-    "expectedBuildNumber": 1002003
+    "buildNumberAuthority": "xcode-cloud-ci-build-number"
   },
-  "idempotencyKey": "xcode-cloud-v5.7001.v1.2.3.26506f592dc5d622bba78f93e6477f0f"
+  "idempotencyKey": "xcode-cloud-v5.7001.v1.2.3.a3ef8dd8b8a30c358dc1ab8960718147"
 }

@@ -53,6 +53,7 @@ const YAML_CONTRACTS = [
 ];
 const YAML_SCHEMA_VERSIONS = new Map([
   ["contracts/autonomous-issue-policy.yaml", 3],
+  ["contracts/release-version-authority.yaml", 2],
 ]);
 
 function localMarkdownTargets(markdown) {
