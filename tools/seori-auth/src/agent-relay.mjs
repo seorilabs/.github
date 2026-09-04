@@ -13,8 +13,9 @@ const MAX_CONNECTIONS = 4;
 const MAX_IN_FLIGHT = 2;
 const MACOS_UNIX_SOCKET_PATH_MAX_BYTES = 104;
 const MACOS_ID_MAX = 2_147_483_647;
-const MACOS_CANONICAL_FILE_PATH_MAX_BYTES = 1_024;
-const MACOS_CANONICAL_FILE_PATH = /^\/(?!\.{1,2}(?:\/|$))(?!.*\/\.{1,2}(?:\/|$))[\x20-\x2e\x30-\x7e]+(?:\/[\x20-\x2e\x30-\x7e]+)*$/u;
+const MACOS_CANONICAL_FILE_PATH_MAX_BYTES = 1_023;
+const MACOS_FILE_NAME_MAX_BYTES = 255;
+const MACOS_CANONICAL_FILE_PATH = /^\/(?!\.{1,2}(?:\/|$))(?!.*\/\.{1,2}(?:\/|$))[\x20-\x2e\x30-\x7e]{1,255}(?:\/[\x20-\x2e\x30-\x7e]{1,255})*$/u;
 const MACOS_UNIX_SOCKET_PATH = /^\/(?!\.{1,2}(?:\/|$))(?!.*\/\.{1,2}(?:\/|$))[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/u;
 const UPSTREAM_TOTAL_TIMEOUT_MS = 30_000;
 const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -98,7 +99,9 @@ export function validMacOsId(value, { allowRoot = false } = {}) {
 
 export function validMacOsCanonicalFilePath(value) {
   return typeof value === 'string' && MACOS_CANONICAL_FILE_PATH.test(value) &&
-    Buffer.byteLength(value, 'utf8') <= MACOS_CANONICAL_FILE_PATH_MAX_BYTES;
+    Buffer.byteLength(value, 'utf8') <= MACOS_CANONICAL_FILE_PATH_MAX_BYTES &&
+    value.slice(1).split('/').every((component) =>
+      Buffer.byteLength(component, 'utf8') <= MACOS_FILE_NAME_MAX_BYTES);
 }
 
 function validHttpsUrl(value) {

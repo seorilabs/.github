@@ -93,6 +93,7 @@ test('example policy and JSON schemas are parseable', async () => {
   for (const path of [
     '/opt/seori-auth/bin/seori-auth-native',
     '/private/etc/seori auth/codex/.client-key.pem',
+    `/${'a'.repeat(255)}/${'b'.repeat(255)}/${'c'.repeat(255)}/${'d'.repeat(254)}`,
   ]) {
     assert.equal(schemaAcceptsMaterialPath(path), true, path);
     assert.equal(validMacOsCanonicalFilePath(path), true, path);
@@ -103,7 +104,8 @@ test('example policy and JSON schemas are parseable', async () => {
     '/private/etc/seori/',
     '/./private/key.pem',
     `/private/etc/${'가'.repeat(600)}/key.pem`,
-    `/${'a'.repeat(1_024)}`,
+    `/${'a'.repeat(256)}`,
+    `/${'a'.repeat(255)}/${'b'.repeat(255)}/${'c'.repeat(255)}/${'d'.repeat(255)}`,
   ]) {
     assert.equal(schemaAcceptsMaterialPath(path), false, path);
     assert.equal(validMacOsCanonicalFilePath(path), false, path);
