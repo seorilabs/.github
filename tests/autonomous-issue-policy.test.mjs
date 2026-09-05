@@ -23,11 +23,8 @@ const ENABLED = [
   "seorilabs/slotmachine-game",
   "seorilabs/reascend",
   "seorilabs/cycle-pair",
-  "seorilabs/foam-party",
-  "seorilabs/lucid-reversi",
   "seorilabs/starlit-apprentice",
   "seorilabs/matgo",
-  "seorilabs/match-picture-app",
   "seorilabs/daoewo",
   "seorilabs/animal-chess",
   "seorilabs/minimax-defense",
@@ -37,6 +34,10 @@ const ENABLED = [
   "seorilabs/keeum",
 ];
 const EXCLUDED = [
+  // 2026-09-05 GitHub archive 완료. 쓰기가 불가능해 자율 처리 대상에서 제외한다.
+  "seorilabs/foam-party",
+  "seorilabs/lucid-reversi",
+  "seorilabs/match-picture-app",
   "seorilabs/happy-farm",
   "seorilabs/lucid-chess",
   "seorilabs/trait-test-hub",
