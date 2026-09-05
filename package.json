@@ -17,7 +17,8 @@
   "files": [
     "contracts",
     "packages/repo-contract/src",
-    "scripts/fleet/github-settings-readback.mjs"
+    "scripts/fleet/github-settings-readback.mjs",
+    "scripts/release/tag-version-authority.mjs"
   ],
   "engines": {
     "node": "24.x"
