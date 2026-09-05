@@ -178,11 +178,11 @@ repositories:
     registration: ENABLED
     processing: ENABLED
   - repository: seorilabs/foam-party
-    registration: ENABLED
-    processing: ENABLED
+    registration: EXCLUDED
+    processing: EXCLUDED
   - repository: seorilabs/lucid-reversi
-    registration: ENABLED
-    processing: ENABLED
+    registration: EXCLUDED
+    processing: EXCLUDED
   - repository: seorilabs/starlit-apprentice
     registration: ENABLED
     processing: ENABLED
@@ -190,8 +190,8 @@ repositories:
     registration: ENABLED
     processing: ENABLED
   - repository: seorilabs/match-picture-app
-    registration: ENABLED
-    processing: ENABLED
+    registration: EXCLUDED
+    processing: EXCLUDED
   - repository: seorilabs/daoewo
     registration: ENABLED
     processing: ENABLED
