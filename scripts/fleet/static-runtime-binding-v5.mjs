@@ -107,6 +107,11 @@ const STATIC_MANIFEST_RETRY_DELAYS_MS = Object.freeze([
   30_000,
   30_000,
 ]);
+const CONTROL_PLANE_ERROR_CODE = /^[A-Z][A-Z0-9_]{1,127}$/u;
+const RETRYABLE_MANIFEST_CONFLICT_CODES = Object.freeze([
+  "NO_DISCOVERY_FOR_SHA",
+]);
+const MANIFEST_CONFLICT_RESPONSE_MAX_BYTES = 16 * 1024;
 const CANDIDATE_BRANCH =
   /^seori\/workflow-bundle-v5-canary\/([1-9][0-9]{0,31})\/([0-9a-f]{12})\/([0-9a-f]{64})$/u;
 
@@ -500,6 +505,31 @@ async function readLimitedText(response, maximumBytes) {
   return text;
 }
 
+async function manifestConflictCode(response) {
+  const contentType = response.headers?.get?.("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("application/json")) return null;
+  try {
+    const payload = JSON.parse(
+      await readLimitedText(response, MANIFEST_CONFLICT_RESPONSE_MAX_BYTES),
+    );
+    return typeof payload?.error === "string" && CONTROL_PLANE_ERROR_CODE.test(payload.error)
+      ? payload.error
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function retryManifestConflict({ response, attempt, errorPrefix, waitImpl }) {
+  const code = await manifestConflictCode(response);
+  const retryable = code === null || RETRYABLE_MANIFEST_CONFLICT_CODES.includes(code);
+  if (retryable && attempt < STATIC_MANIFEST_RETRY_DELAYS_MS.length) {
+    await waitImpl(STATIC_MANIFEST_RETRY_DELAYS_MS[attempt]);
+    return true;
+  }
+  fail(`${errorPrefix}_HTTP_409_${code ?? "ERROR_CODE_UNKNOWN"}`);
+}
+
 export async function requestGithubOidcToken(
   audience,
   { fetchImpl = globalThis.fetch, env = process.env } = {},
@@ -595,10 +625,13 @@ export function createStaticManifestReadbackV5({
       } catch {
         fail("STATIC_RUNTIME_MANIFEST_REQUEST_FAILED");
       }
-      if (response?.status === 409 && attempt < STATIC_MANIFEST_RETRY_DELAYS_MS.length) {
-        await response.body?.cancel?.().catch(() => undefined);
-        await waitImpl(STATIC_MANIFEST_RETRY_DELAYS_MS[attempt]);
-        continue;
+      if (response?.status === 409) {
+        if (await retryManifestConflict({
+          response,
+          attempt,
+          errorPrefix: "STATIC_RUNTIME_MANIFEST",
+          waitImpl,
+        })) continue;
       }
       if (!response?.ok) fail(`STATIC_RUNTIME_MANIFEST_HTTP_${response?.status ?? "UNKNOWN"}`);
       const contentType = response.headers?.get?.("content-type") ?? "";
@@ -930,10 +963,13 @@ export function createBuildManifestReadbackV5({
       } catch {
         fail("BUILD_RUNTIME_MANIFEST_REQUEST_FAILED");
       }
-      if (response?.status === 409 && attempt < STATIC_MANIFEST_RETRY_DELAYS_MS.length) {
-        await response.body?.cancel?.().catch(() => undefined);
-        await waitImpl(STATIC_MANIFEST_RETRY_DELAYS_MS[attempt]);
-        continue;
+      if (response?.status === 409) {
+        if (await retryManifestConflict({
+          response,
+          attempt,
+          errorPrefix: "BUILD_RUNTIME_MANIFEST",
+          waitImpl,
+        })) continue;
       }
       if (!response?.ok) fail(`BUILD_RUNTIME_MANIFEST_HTTP_${response?.status ?? "UNKNOWN"}`);
       if (!(response.headers?.get?.("content-type") ?? "").toLowerCase().startsWith("application/json")) {
