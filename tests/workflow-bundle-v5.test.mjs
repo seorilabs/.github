@@ -1473,7 +1473,7 @@ test("same-repo PR binds merge, base, and called path while trusted drift readba
     resolveStaticRuntimeBindingV5(context, { trustedManifestReadback: staleReadback }),
     /STATIC_RUNTIME_MANIFEST_HTTP_409/u,
   );
-  assert.equal(staleCalls, 3);
+  assert.equal(staleCalls, 8);
 
   const pushContext = staticRuntimeContext({ applicationSourceSha: baseSha });
   const tampered = staticRuntimeResponse({
@@ -2038,7 +2038,7 @@ test("static manifest adapter fixes origin, uses OIDC only in headers, and fails
     waitImpl: async (delayMs) => retryDelays.push(delayMs),
     fetchImpl: async (input) => {
       retryFetchCalls += 1;
-      if (retryFetchCalls < 3) {
+      if (retryFetchCalls < 8) {
         return new Response(JSON.stringify({ error: "stale discovery" }), {
           status: 409,
           headers: { "content-type": "application/json" },
@@ -2058,8 +2058,11 @@ test("static manifest adapter fixes origin, uses OIDC only in headers, and fails
   });
   await resolveStaticRuntimeBindingV5(context, { trustedManifestReadback: retryingReadback });
   assert.equal(retryTokenCalls, 1);
-  assert.equal(retryFetchCalls, 3);
-  assert.deepEqual(retryDelays, [250, 750]);
+  assert.equal(retryFetchCalls, 8);
+  assert.deepEqual(retryDelays, [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000]);
+  // push[main] 직후 discovery 관측이 기록되기까지 실측 30~40초였다. 총 대기가 그보다
+  // 짧아지면 같은 경합이 다시 열린다.
+  assert.ok(retryDelays.reduce((total, delay) => total + delay, 0) >= 90_000);
 
   let exhaustedCalls = 0;
   const exhaustedReadback = createStaticManifestReadbackV5({
@@ -2074,7 +2077,7 @@ test("static manifest adapter fixes origin, uses OIDC only in headers, and fails
     resolveStaticRuntimeBindingV5(context, { trustedManifestReadback: exhaustedReadback }),
     /STATIC_RUNTIME_MANIFEST_HTTP_409/u,
   );
-  assert.equal(exhaustedCalls, 3);
+  assert.equal(exhaustedCalls, 8);
 
   const failingReadback = createStaticManifestReadbackV5({
     oidcTokenProvider: async () => token,

@@ -95,7 +95,18 @@ const BUILD_CANARIES = Object.freeze({
   }),
 });
 const MAX_RESPONSE_BYTES = 1024 * 1024;
-const STATIC_MANIFEST_RETRY_DELAYS_MS = Object.freeze([250, 750]);
+// push[main] caller는 discovery 관측이 기록되기 전에 binding을 읽으므로 409를 만난다.
+// 실측 간격은 push 이벤트로부터 약 30~40초였다. 요청 timeout이 10초라 서버가 응답을
+// 붙잡아 둘 수 없으므로 caller가 지수 백오프로 기다린다. 총 대기는 91초다.
+const STATIC_MANIFEST_RETRY_DELAYS_MS = Object.freeze([
+  1_000,
+  2_000,
+  4_000,
+  8_000,
+  16_000,
+  30_000,
+  30_000,
+]);
 const CANDIDATE_BRANCH =
   /^seori\/workflow-bundle-v5-canary\/([1-9][0-9]{0,31})\/([0-9a-f]{12})\/([0-9a-f]{64})$/u;
 
