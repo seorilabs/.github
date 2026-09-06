@@ -1930,6 +1930,61 @@ test("build manifest adapter fixes origin and exposes only public exact claims",
   assert.equal(calls[0].options.headers.Authorization, `Bearer ${token}`);
   assert.doesNotMatch(calls[0].input, /header|payload|signature/u);
 
+  let retryConflictCalls = 0;
+  const retryConflictDelays = [];
+  const retryConflictReadback = createBuildManifestReadbackV5({
+    oidcTokenProvider: async () => token,
+    waitImpl: async (delayMs) => retryConflictDelays.push(delayMs),
+    fetchImpl: async (input) => {
+      retryConflictCalls += 1;
+      if (retryConflictCalls === 1) {
+        return new Response(JSON.stringify({ error: "NO_DISCOVERY_FOR_SHA" }), {
+          status: 409,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const url = new URL(input);
+      return new Response(JSON.stringify(buildRuntimeResponse({
+        repositoryId: context.repositoryId,
+        fullName: context.fullName,
+        applicationSourceSha: url.searchParams.get("ref"),
+        eventSourceSha: url.searchParams.get("event_ref"),
+        workflowExecutionSha: url.searchParams.get("workflow_sha"),
+        buildProfile: url.searchParams.get("build_profile"),
+        mode: "APPROVED",
+      })), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+  await resolveBuildRuntimeBindingV5(context, { trustedManifestReadback: retryConflictReadback });
+  assert.equal(retryConflictCalls, 2);
+  assert.deepEqual(retryConflictDelays, [1_000]);
+
+  let permanentConflictCalls = 0;
+  const permanentConflictDelays = [];
+  const permanentConflictReadback = createBuildManifestReadbackV5({
+    oidcTokenProvider: async () => token,
+    waitImpl: async (delayMs) => permanentConflictDelays.push(delayMs),
+    fetchImpl: async () => {
+      permanentConflictCalls += 1;
+      return new Response(JSON.stringify({
+        error: "DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH",
+        message: "operator action required",
+      }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+  await assert.rejects(
+    resolveBuildRuntimeBindingV5(context, { trustedManifestReadback: permanentConflictReadback }),
+    /BUILD_RUNTIME_MANIFEST_HTTP_409_DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH/u,
+  );
+  assert.equal(permanentConflictCalls, 1);
+  assert.deepEqual(permanentConflictDelays, []);
+
   const candidateContext = buildRuntimeContext({
     eventName: "pull_request",
     eventRef: "refs/pull/41/merge",
@@ -2039,7 +2094,7 @@ test("static manifest adapter fixes origin, uses OIDC only in headers, and fails
     fetchImpl: async (input) => {
       retryFetchCalls += 1;
       if (retryFetchCalls < 8) {
-        return new Response(JSON.stringify({ error: "stale discovery" }), {
+        return new Response(JSON.stringify({ error: "NO_DISCOVERY_FOR_SHA" }), {
           status: 409,
           headers: { "content-type": "application/json" },
         });
@@ -2075,9 +2130,32 @@ test("static manifest adapter fixes origin, uses OIDC only in headers, and fails
   });
   await assert.rejects(
     resolveStaticRuntimeBindingV5(context, { trustedManifestReadback: exhaustedReadback }),
-    /STATIC_RUNTIME_MANIFEST_HTTP_409/u,
+    /STATIC_RUNTIME_MANIFEST_HTTP_409_ERROR_CODE_UNKNOWN/u,
   );
   assert.equal(exhaustedCalls, 8);
+
+  let permanentConflictCalls = 0;
+  const permanentConflictDelays = [];
+  const permanentConflictReadback = createStaticManifestReadbackV5({
+    oidcTokenProvider: async () => token,
+    waitImpl: async (delayMs) => permanentConflictDelays.push(delayMs),
+    fetchImpl: async () => {
+      permanentConflictCalls += 1;
+      return new Response(JSON.stringify({
+        error: "DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH",
+        message: "operator action required",
+      }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+  await assert.rejects(
+    resolveStaticRuntimeBindingV5(context, { trustedManifestReadback: permanentConflictReadback }),
+    /STATIC_RUNTIME_MANIFEST_HTTP_409_DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH/u,
+  );
+  assert.equal(permanentConflictCalls, 1);
+  assert.deepEqual(permanentConflictDelays, []);
 
   const failingReadback = createStaticManifestReadbackV5({
     oidcTokenProvider: async () => token,
