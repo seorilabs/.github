@@ -408,6 +408,30 @@ function dependencySpecifiers(importer) {
   });
 }
 
+// Platform #113 이후 @seorilabs/platform-sdk 는 공개 npm 패키지다. 두 해석 형태를
+// 모두 받는다.
+//
+//   공개 npm  — pnpm 은 기본 레지스트리라 tarball 을 적지 않고, npm 은 공개 tarball URL 을 적는다
+//   과거 GitHub Packages — v0.4.x 이하 lockfile 이 실제로 담고 있는 값이라 계속 받는다
+//
+// 어느 쪽도 아니면 제3의 레지스트리를 가리키는 것이므로 거부한다.
+function platformResolutionAllowed(version, url) {
+  if (url === undefined || url === null) return "public";
+  if (typeof url !== "string") return null;
+  if (url === `${PUBLIC_REGISTRY}/@seorilabs/platform-sdk/-/platform-sdk-${version}.tgz`) {
+    return "public";
+  }
+  if (
+    new RegExp(
+      `^${escapeRegExp(PRIVATE_REGISTRY)}/download/@seorilabs/platform-sdk/${escapeRegExp(version)}/[0-9a-f]{40}$`,
+      "u",
+    ).test(url)
+  ) {
+    return "private";
+  }
+  return null;
+}
+
 function verifyPnpmLock(lock, version) {
   const importers = Object.values(lock?.importers ?? {});
   const specs = importers.flatMap(dependencySpecifiers);
@@ -422,12 +446,14 @@ function verifyPnpmLock(lock, version) {
   if (
     typeof resolution?.integrity !== "string" ||
     !/^sha512-[A-Za-z0-9+/=]+$/u.test(resolution.integrity) ||
-    typeof resolution?.tarball !== "string" ||
-    !new RegExp(`^https://npm\\.pkg\\.github\\.com/download/@seorilabs/platform-sdk/${escapeRegExp(version)}/[0-9a-f]{40}$`, "u").test(resolution.tarball)
+    platformResolutionAllowed(version, resolution.tarball) === null
   ) {
     fail("PLATFORM_PACKAGE_LOCK_RESOLUTION_INVALID");
   }
-  return resolution.integrity;
+  return {
+    integrity: resolution.integrity,
+    registry: platformResolutionAllowed(version, resolution.tarball),
+  };
 }
 
 function validatedPnpmOverrides(value) {
@@ -460,16 +486,20 @@ function verifyNpmLock(lock, version) {
     fail("PLATFORM_PACKAGE_LOCK_IMPORTER_INVALID");
   }
   const entry = lock?.packages?.[`node_modules/${PLATFORM_PACKAGE}`];
+  // npm lockfile 은 공개 레지스트리에서도 resolved 를 적으므로 문자열을 요구한다.
   if (
     entry?.version !== version ||
     typeof entry.integrity !== "string" ||
     !/^sha512-[A-Za-z0-9+/=]+$/u.test(entry.integrity) ||
     typeof entry.resolved !== "string" ||
-    !new RegExp(`^https://npm\\.pkg\\.github\\.com/download/@seorilabs/platform-sdk/${escapeRegExp(version)}/[0-9a-f]{40}$`, "u").test(entry.resolved)
+    platformResolutionAllowed(version, entry.resolved) === null
   ) {
     fail("PLATFORM_PACKAGE_LOCK_RESOLUTION_INVALID");
   }
-  return entry.integrity;
+  return {
+    integrity: entry.integrity,
+    registry: platformResolutionAllowed(version, entry.resolved),
+  };
 }
 
 function fixedRegistryUrl(value) {
@@ -655,7 +685,7 @@ export async function inspectExactPlatformDependencyV5({
   const pnpmOverrides = packageManager === "pnpm"
     ? validatedPnpmOverrides(lock?.overrides)
     : Object.freeze({});
-  const integrity = packageManager === "pnpm"
+  const {integrity, registry} = packageManager === "pnpm"
     ? verifyPnpmLock(lock, version)
     : verifyNpmLock(lock, version);
   return Object.freeze({
@@ -665,6 +695,8 @@ export async function inspectExactPlatformDependencyV5({
     dependencyRoot,
     lockPath: lockRelative,
     integrity,
+    // lockfile 이 실제로 가리키는 레지스트리. staging npmrc 가 이걸 따라간다.
+    registry,
     pnpmOverrides,
   });
 }
@@ -914,12 +946,18 @@ export async function stageExactPlatformDependencyV5({
     pnpmOverrides: inspected.pnpmOverrides,
     stagingRoot,
   });
+  // lockfile 이 가리키는 레지스트리를 그대로 따라간다. 공개 npm 이면 토큰 줄을 쓰지
+  // 않는다. 필요 없는 인증을 남기면 토큰이 없다는 이유로 설치가 막힌다.
   await writeFile(
     stagingConfig,
     [
       `registry=${PUBLIC_REGISTRY}`,
-      `@seorilabs:registry=${PRIVATE_REGISTRY}`,
-      "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}",
+      ...(inspected.registry === "private"
+        ? [
+            `@seorilabs:registry=${PRIVATE_REGISTRY}`,
+            "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}",
+          ]
+        : [`@seorilabs:registry=${PUBLIC_REGISTRY}`]),
       "always-auth=false",
       "ignore-scripts=true",
       "audit=false",
