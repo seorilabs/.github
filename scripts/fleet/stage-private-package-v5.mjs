@@ -44,9 +44,11 @@ const MAX_PACKAGE_BYTES = 2 * 1024 * 1024;
 const MAX_LOCK_BYTES = 24 * 1024 * 1024;
 const MAX_PNPM_OVERRIDES = 64;
 const MAX_AUDIT_EXCEPTION_BYTES = 32 * 1024;
-// pnpm 11's lock-graph audit is CPU-bound and takes over 100 seconds on the
-// ARM64 ARC runner, so use the same bounded window as the locked install.
-const DEPENDENCY_AUDIT_TIMEOUT_MS = 300_000;
+// pnpm 11's lock-graph audit is CPU-bound. On the ARM64 ARC runner it took
+// 6~7 minutes on seorilabs/saju-reader (2026-09-08, four consecutive timeouts
+// on one PR while the same lockfile passed on another runner in under 5), so
+// the window is 15 minutes — the audit result, not the wall clock, is the gate.
+const DEPENDENCY_AUDIT_TIMEOUT_MS = 900_000;
 const SHA = /^[0-9a-f]{40}$/u;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const REPOSITORY_ID = /^[1-9][0-9]{0,31}$/u;

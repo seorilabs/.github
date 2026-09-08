@@ -2500,7 +2500,7 @@ test("audit exception permits only the exact high advisory set for one source an
       }
       assert.equal(_args.includes("--json"), true);
       assert.equal(options.env.NODE_AUTH_TOKEN, undefined);
-      assert.equal(options.timeout, 300_000);
+      assert.equal(options.timeout, 900_000);
       return { status: 1, signal: null, stdout: auditReport };
     },
   });
