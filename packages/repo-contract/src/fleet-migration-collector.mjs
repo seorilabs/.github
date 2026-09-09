@@ -42,7 +42,7 @@ const BLOB_CONTRACT = "seorilabs-github-repository-blob-readback-v1";
 // 형태가 바뀌면 식별자도 함께 올린다. 옛 shape을 돌려주는 producer가 v1을 계속 주장하면
 // 필수 필드 부재가 아니라 계약 불일치로 즉시 닫힌다.
 const BACKOFFICE_CONTRACT =
-  "seorilabs-fleet-migration-backoffice-public-evidence-v2";
+  "seorilabs-fleet-migration-backoffice-public-evidence-v3";
 const MODES = Object.freeze(["FIXTURE", "READ_ONLY_SHADOW"]);
 const REQUIRED_GITHUB_APP_PERMISSIONS = deepFreeze([
   { name: "actions", access: "write" },
@@ -1960,7 +1960,7 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
         throw new Error("FLEET_MIGRATION_BASELINE_RATIFICATION_MISMATCH");
       }
       const inventory = {
-        schemaVersion: 3,
+        schemaVersion: 4,
         inventoryId: input.inventoryId,
         capturedAt: new Date(capturedAtMs).toISOString(),
         expiresAt: new Date(capturedAtMs + MAX_INVENTORY_TTL_MS).toISOString(),

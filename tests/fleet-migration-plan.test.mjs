@@ -1040,7 +1040,7 @@ function makeFleetInventory(contextOptions = {}) {
     );
   }
   const inventory = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     inventoryId: "fleet-inventory-20260829-0001",
     capturedAt: CAPTURED_AT,
     expiresAt: EXPIRES_AT,
