@@ -173,17 +173,21 @@ export function validateFleetMigrationLegacyDocument(request) {
     throw new Error("FLEET_MIGRATION_LEGACY_VALIDATION_REQUEST_INVALID");
   }
   const definition = definitionForRequest(request);
+  // 저장소 신원 결박은 스키마 형태가 아니라 귀속 문제다. 한 저장소의 문서를 다른
+  // 저장소 것으로 제출하는 substitution은 계속 fail-closed로 막는다.
   if (
     definition.contract === "MARKET_LAUNCH_STATE" &&
     request.document.app?.repo !== request.fullName
   ) {
     throw new Error("FLEET_MIGRATION_LEGACY_SCHEMA_VALIDATION_FAILED");
   }
-  if (validators.get(definition.contract)(request.document) !== true) {
-    throw new Error("FLEET_MIGRATION_LEGACY_SCHEMA_VALIDATION_FAILED");
-  }
+  // 반면 이관 대상 문서가 목표 스키마와 다른 것은 오류가 아니라 관측 결과다. 여기서
+  // throw하면 "이관 대상이 이미 이관돼 있어야 조사를 시작할 수 있는" 순서 역전이 생겨,
+  // 아직 옮기지 않은 저장소가 하나라도 있으면 inventory 자체가 불가능해진다. 상태로
+  // 돌려주고 판단은 호출자에게 맡긴다.
+  const matched = validators.get(definition.contract)(request.document) === true;
   return Object.freeze({
-    state: "MATCH",
+    state: matched ? "MATCH" : "SCHEMA_MISMATCH",
     contract: definition.contract,
     schemaId: definition.schemaId,
     contentDigest: request.contentDigest,

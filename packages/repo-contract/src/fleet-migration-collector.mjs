@@ -950,7 +950,7 @@ async function legacyDetections(
       "state",
       "validatorRevision",
     ]) ||
-    validation.state !== "MATCH" ||
+    (validation.state !== "MATCH" && validation.state !== "SCHEMA_MISMATCH") ||
     validation.contract !== definition.contract ||
     validation.schemaId !== definition.schemaId ||
     validation.contentDigest !== contentDigest ||
@@ -958,12 +958,16 @@ async function legacyDetections(
   ) {
     throw new Error("FLEET_MIGRATION_COLLECTOR_LEGACY_SCHEMA_MISMATCH");
   }
+  // 아직 목표 스키마로 옮기지 않은 문서도 이관 대상이므로 관측 결과로 남긴다.
+  // `matchedBy`로 두 경우를 구분해, 소비자가 "일치해서 잡힌 것"과 "경로로 잡혔지만
+  // 형태가 다른 것"을 섞어 보지 않게 한다.
   return [
     {
       type: "LEGACY_OPERATION_JSON",
       contract: definition.contract,
       schemaId: definition.schemaId,
-      matchedBy: "SCHEMA_VALIDATION",
+      matchedBy:
+        validation.state === "MATCH" ? "SCHEMA_VALIDATION" : "LEGACY_PATH_SCHEMA_MISMATCH",
       detectorSha: detectorSourceSha,
     },
   ];

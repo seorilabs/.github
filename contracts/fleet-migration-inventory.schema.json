@@ -869,7 +869,7 @@
           ]
         },
         "schemaId": { "type": "string", "minLength": 16, "maxLength": 256 },
-        "matchedBy": { "const": "SCHEMA_VALIDATION" },
+        "matchedBy": { "enum": ["SCHEMA_VALIDATION", "LEGACY_PATH_SCHEMA_MISMATCH"] },
         "detectorSha": { "$ref": "#/$defs/sha" }
       }
     },
