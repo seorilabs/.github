@@ -534,6 +534,38 @@ test("승인본 판본 불일치와 미연결도 이관 전 실태로 기록한�
     [null, null],
   );
 
+  // Platform 원장에 아직 등록되지 않은 앱도 연결 사실 자체는 기록한다. 연결이 없다고
+  // 적으면 거짓이고, 식별자 부재를 이유로 막으면 조직 전체 기록이 다시 멈춘다.
+  const unregistered = makeCollectorFixture({ count: 2, nowMs });
+  const readUnregistered = unregistered.configuration.readBackofficePublicEvidence;
+  unregistered.configuration.readBackofficePublicEvidence = async (request) => {
+    const result = await readUnregistered(request);
+    const publicEvidence = structuredClone(result.publicEvidence);
+    if (publicEvidence.platformFleetBinding !== null) {
+      publicEvidence.platformFleetBinding.platformAppId = null;
+      publicEvidence.evidenceDigest = computeFleetEvidenceDigest(publicEvidence);
+    }
+    return { ...result, publicEvidence };
+  };
+
+  const unregisteredCollection = await collect(unregistered, {
+    ...REQUEST,
+    baselineRatification: null,
+    mode: "FIXTURE",
+  });
+  assert.equal(unregisteredCollection.state, "FIXTURE_COMPLETE");
+  assert.deepEqual(
+    unregisteredCollection.inventory.collectionEvidence.repositoryEvidence
+      .map(({ backoffice }) => backoffice.platformFleetBinding?.platformAppId ?? null),
+    [null, null],
+  );
+  // 연결이 없는 것과 구분된다.
+  assert.notEqual(
+    unregisteredCollection.inventory.collectionEvidence.repositoryEvidence[0]
+      .backoffice.platformFleetBinding,
+    null,
+  );
+
   // 뒤처진 측정도 사실대로 기록한다. 다만 "현재 커밋에서 쟀다"는 주장은 실제와 같아야 한다.
   const stale = makeCollectorFixture({ count: 2, nowMs });
   const readStale = stale.configuration.readBackofficePublicEvidence;

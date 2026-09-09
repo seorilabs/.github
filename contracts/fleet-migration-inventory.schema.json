@@ -2009,7 +2009,9 @@
             "revision": { "$ref": "#/$defs/numericId" },
             "digest": { "$ref": "#/$defs/digest" },
             "appId": { "$ref": "#/$defs/appId" },
-            "platformAppId": { "$ref": "#/$defs/appId" },
+            "platformAppId": {
+              "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/appId" }]
+            },
             "platformRepositoryId": { "$ref": "#/$defs/numericId" },
             "platformSourceSha": { "$ref": "#/$defs/sha" },
             "appSourceSha": { "$ref": "#/$defs/sha" },
