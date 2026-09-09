@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { parse } from 'yaml';
@@ -45,3 +48,53 @@ test('Godot Play 업로드는 pip가 있는 고정 Python을 설치한 뒤 API c
   assert.match(install.run, /python3 -m pip install --upgrade pip/u);
   assert.match(install.run, /google-api-python-client/u);
 });
+
+for (const projectDir of ['.', 'game', 'nested game/project']) {
+  test(`Godot export는 프로젝트 위치 ${projectDir}와 무관하게 업로드 대상에 AAB를 만든다`, async () => {
+    const workflow = parse(await readFile(workflowPath, 'utf8'));
+    const step = workflow.jobs['build-aab'].steps.find(
+      ({ name }) => name === 'Export signed Android AAB',
+    );
+    const workspace = await mkdtemp(join(tmpdir(), 'godot aab workspace '));
+    try {
+      await mkdir(join(workspace, projectDir), { recursive: true });
+      // Godot CLI처럼 상대 출력 경로를 --path 프로젝트 디렉터리에서 해석한다.
+      const commands = `
+        keytool() { printf 'Alias name: fixture\\n'; }
+        godot() {
+          local project output
+          while [ "$#" -gt 0 ]; do
+            case "$1" in
+              --path) project="$2"; shift 2 ;;
+              --export-release) output="$3"; shift 3 ;;
+              *) shift ;;
+            esac
+          done
+          (cd "$project" && printf 'fixture AAB' > "$output")
+        }
+      `;
+      const result = spawnSync('bash', ['-c', commands + step.run], {
+        cwd: workspace,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GITHUB_WORKSPACE: workspace,
+          PROJECT_DIR: projectDir,
+          ANDROID_EXPORT_PRESET: 'Android',
+          AAB_PATH: 'build/android/moonlight-matgo.aab',
+          GODOT_ANDROID_KEYSTORE_RELEASE_PATH: '/unused/fixture.jks',
+          GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD: 'fixture-only',
+          GOOGLE_PLAY_UPLOAD_KEY_PASSWORD: '',
+          GOOGLE_PLAY_UPLOAD_KEY_ALIAS: '',
+        },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(
+        await readFile(join(workspace, 'build/android/moonlight-matgo.aab'), 'utf8'),
+        'fixture AAB',
+      );
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+}
