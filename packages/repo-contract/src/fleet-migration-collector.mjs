@@ -1161,12 +1161,14 @@ function validatePublicEvidence(value, repository, head, organizationId) {
       value.app === null ||
       value.activeConfig === null ||
       value.signedSnapshot === null ||
-      value.platformFleetBinding === null ||
       value.app.repositoryId !== repository.id ||
       value.app.sourceSha !== head.sourceSha ||
       value.activeConfig.signedSnapshotDigest !==
         value.signedSnapshot.snapshotDigest ||
-      value.platformFleetBinding.appId !== value.app.appId
+      // 승인본 연결이 없는 저장소도 이관 전 실태로 기록한다. 연결이 있으면
+      // 반드시 같은 App을 가리켜야 한다.
+      (value.platformFleetBinding !== null &&
+        value.platformFleetBinding.appId !== value.app.appId)
     ) {
       throw new Error("FLEET_MIGRATION_COLLECTOR_BACKOFFICE_READBACK_MISMATCH");
     }
@@ -1952,7 +1954,7 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
         throw new Error("FLEET_MIGRATION_BASELINE_RATIFICATION_MISMATCH");
       }
       const inventory = {
-        schemaVersion: 2,
+        schemaVersion: 3,
         inventoryId: input.inventoryId,
         capturedAt: new Date(capturedAtMs).toISOString(),
         expiresAt: new Date(capturedAtMs + MAX_INVENTORY_TTL_MS).toISOString(),

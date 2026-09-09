@@ -1124,7 +1124,10 @@ function publicBackofficeEvidence(context, repository) {
           platformAppId: `registry-${appId}`,
           platformRepositoryId: platformRepository.id,
           platformSourceSha: platformRepository.sourceSha,
+          appSourceSha: repository.sourceSha,
           state: "ACTIVE",
+          compliance: "COMPLIANT",
+          complianceDetail: "COMPLIANT",
         }
       : null,
     providerObservations: isProduct

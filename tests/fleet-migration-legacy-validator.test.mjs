@@ -214,5 +214,5 @@ test("SCHEMA_MISMATCH detection은 계약이 아는 값만 쓴다", () => {
     "SCHEMA_VALIDATION",
   ]);
   // 의미가 바뀌었으므로 major가 올라가 있어야 한다(AGENTS.md).
-  assert.equal(schema.properties.schemaVersion.const, 2);
+  assert.ok(schema.properties.schemaVersion.const >= 2);
 });

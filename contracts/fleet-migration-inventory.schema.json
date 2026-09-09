@@ -18,7 +18,7 @@
     "attestation"
   ],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "inventoryId": { "$ref": "#/$defs/evidenceId" },
     "capturedAt": { "$ref": "#/$defs/dateTime" },
     "expiresAt": { "$ref": "#/$defs/dateTime" },
@@ -1998,7 +1998,10 @@
             "platformAppId",
             "platformRepositoryId",
             "platformSourceSha",
-            "state"
+            "appSourceSha",
+            "state",
+            "compliance",
+            "complianceDetail"
           ],
           "properties": {
             "observationId": { "$ref": "#/$defs/evidenceId" },
@@ -2008,7 +2011,15 @@
             "platformAppId": { "$ref": "#/$defs/appId" },
             "platformRepositoryId": { "$ref": "#/$defs/numericId" },
             "platformSourceSha": { "$ref": "#/$defs/sha" },
-            "state": { "const": "ACTIVE" }
+            "appSourceSha": {
+              "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha" }]
+            },
+            "state": { "const": "ACTIVE" },
+            "compliance": { "enum": ["COMPLIANT", "DIVERGENT"] },
+            "complianceDetail": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+            }
           }
         }
       ]
