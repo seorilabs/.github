@@ -534,6 +534,53 @@ test("승인본 판본 불일치와 미연결도 이관 전 실태로 기록한�
     [null, null],
   );
 
+  // 뒤처진 측정도 사실대로 기록한다. 다만 "현재 커밋에서 쟀다"는 주장은 실제와 같아야 한다.
+  const stale = makeCollectorFixture({ count: 2, nowMs });
+  const readStale = stale.configuration.readBackofficePublicEvidence;
+  stale.configuration.readBackofficePublicEvidence = async (request) => {
+    const result = await readStale(request);
+    const publicEvidence = structuredClone(result.publicEvidence);
+    if (publicEvidence.platformFleetBinding !== null) {
+      publicEvidence.platformFleetBinding.appSourceSha = "9".repeat(40);
+      publicEvidence.platformFleetBinding.appSourceCurrent = false;
+      publicEvidence.platformFleetBinding.compliance = "DIVERGENT";
+      publicEvidence.platformFleetBinding.complianceDetail = "UPDATE_PR_QUEUED";
+      publicEvidence.evidenceDigest = computeFleetEvidenceDigest(publicEvidence);
+    }
+    return { ...result, publicEvidence };
+  };
+
+  const staleCollection = await collect(stale, {
+    ...REQUEST,
+    baselineRatification: null,
+    mode: "FIXTURE",
+  });
+  assert.equal(staleCollection.state, "FIXTURE_COMPLETE");
+  assert.deepEqual(
+    staleCollection.inventory.collectionEvidence.repositoryEvidence
+      .map(({ backoffice }) => backoffice.platformFleetBinding?.appSourceCurrent),
+    [false, false],
+  );
+
+  // 뒤처진 측정인데 현재 커밋에서 쟀다고 주장하면 거부한다.
+  const forgedCurrency = makeCollectorFixture({ count: 2, nowMs });
+  const readForged = forgedCurrency.configuration.readBackofficePublicEvidence;
+  forgedCurrency.configuration.readBackofficePublicEvidence = async (request) => {
+    const result = await readForged(request);
+    const publicEvidence = structuredClone(result.publicEvidence);
+    if (publicEvidence.platformFleetBinding !== null) {
+      publicEvidence.platformFleetBinding.appSourceSha = "9".repeat(40);
+      publicEvidence.platformFleetBinding.appSourceCurrent = true;
+      publicEvidence.evidenceDigest = computeFleetEvidenceDigest(publicEvidence);
+    }
+    return { ...result, publicEvidence };
+  };
+
+  await assert.rejects(
+    () => collect(forgedCurrency, { ...REQUEST, baselineRatification: null, mode: "FIXTURE" }),
+    /FLEET_MIGRATION_COLLECTOR_BACKOFFICE_READBACK_MISMATCH/,
+  );
+
   // 연결이 있는데 다른 App을 가리키는 것은 여전히 귀속 오류라 계속 거부한다.
   const misattributed = makeCollectorFixture({ count: 2, nowMs });
   const readMisattributed = misattributed.configuration.readBackofficePublicEvidence;

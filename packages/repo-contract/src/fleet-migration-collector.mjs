@@ -39,8 +39,10 @@ const PAGE_CONTRACT =
 const HEAD_CONTRACT = "seorilabs-github-repository-head-readback-v1";
 const TREE_CONTRACT = "seorilabs-github-repository-tree-readback-v1";
 const BLOB_CONTRACT = "seorilabs-github-repository-blob-readback-v1";
+// 형태가 바뀌면 식별자도 함께 올린다. 옛 shape을 돌려주는 producer가 v1을 계속 주장하면
+// 필수 필드 부재가 아니라 계약 불일치로 즉시 닫힌다.
 const BACKOFFICE_CONTRACT =
-  "seorilabs-fleet-migration-backoffice-public-evidence-v1";
+  "seorilabs-fleet-migration-backoffice-public-evidence-v2";
 const MODES = Object.freeze(["FIXTURE", "READ_ONLY_SHADOW"]);
 const REQUIRED_GITHUB_APP_PERMISSIONS = deepFreeze([
   { name: "actions", access: "write" },
@@ -1168,7 +1170,11 @@ function validatePublicEvidence(value, repository, head, organizationId) {
       // 승인본 연결이 없는 저장소도 이관 전 실태로 기록한다. 연결이 있으면
       // 반드시 같은 App을 가리켜야 한다.
       (value.platformFleetBinding !== null &&
-        value.platformFleetBinding.appId !== value.app.appId)
+        (value.platformFleetBinding.appId !== value.app.appId ||
+          // 판본 상태를 어느 커밋에서 쟀는지는 기록의 일부다. 뒤처진 측정도 기록하되
+          // 현재 관측 커밋에서 쟀다는 주장은 실제와 같을 때만 받는다.
+          value.platformFleetBinding.appSourceCurrent !==
+            (value.platformFleetBinding.appSourceSha === head.sourceSha)))
     ) {
       throw new Error("FLEET_MIGRATION_COLLECTOR_BACKOFFICE_READBACK_MISMATCH");
     }
