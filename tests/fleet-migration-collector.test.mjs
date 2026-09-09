@@ -480,6 +480,126 @@ test("2-repository fixture는 public evidence만 가진 비권위 collection으�
   assert.equal(validateFleetGitHubAppCapability(fixture.capability).ok, true);
 });
 
+test("승인본 판본 불일치와 미연결도 이관 전 실태로 기록한다", async () => {
+  // inventory는 저장소가 지금 무엇을 쓰는지 사실대로 남기는 것이 목적이다. 승인본
+  // 수렴은 이 기록을 근거로 각 저장소가 이어서 하는 별도 작업이라, 수렴 전이라는
+  // 이유로 수집을 막으면 조직 전체가 동시에 수렴할 때까지 실태를 한 번도 남길 수 없다.
+  const nowMs = Date.now();
+
+  const divergent = makeCollectorFixture({ count: 2, nowMs });
+  const readDivergent = divergent.configuration.readBackofficePublicEvidence;
+  divergent.configuration.readBackofficePublicEvidence = async (request) => {
+    const result = await readDivergent(request);
+    const publicEvidence = structuredClone(result.publicEvidence);
+    if (publicEvidence.platformFleetBinding !== null) {
+      publicEvidence.platformFleetBinding.compliance = "DIVERGENT";
+      publicEvidence.platformFleetBinding.complianceDetail = "UPDATE_PR_QUEUED";
+      publicEvidence.evidenceDigest = computeFleetEvidenceDigest(publicEvidence);
+    }
+    return { ...result, publicEvidence };
+  };
+
+  const divergentCollection = await collect(divergent, {
+    ...REQUEST,
+    baselineRatification: null,
+    mode: "FIXTURE",
+  });
+  assert.equal(divergentCollection.state, "FIXTURE_COMPLETE");
+  assert.equal(divergentCollection.inventory.schemaVersion, 3);
+  assert.deepEqual(
+    divergentCollection.inventory.collectionEvidence.repositoryEvidence
+      .map(({ backoffice }) => backoffice.platformFleetBinding?.compliance ?? null),
+    ["DIVERGENT", "DIVERGENT"],
+  );
+
+  const unbound = makeCollectorFixture({ count: 2, nowMs });
+  const readUnbound = unbound.configuration.readBackofficePublicEvidence;
+  unbound.configuration.readBackofficePublicEvidence = async (request) => {
+    const result = await readUnbound(request);
+    const publicEvidence = structuredClone(result.publicEvidence);
+    publicEvidence.platformFleetBinding = null;
+    publicEvidence.evidenceDigest = computeFleetEvidenceDigest(publicEvidence);
+    return { ...result, publicEvidence };
+  };
+
+  const unboundCollection = await collect(unbound, {
+    ...REQUEST,
+    baselineRatification: null,
+    mode: "FIXTURE",
+  });
+  assert.equal(unboundCollection.state, "FIXTURE_COMPLETE");
+  assert.deepEqual(
+    unboundCollection.inventory.collectionEvidence.repositoryEvidence
+      .map(({ backoffice }) => backoffice.platformFleetBinding),
+    [null, null],
+  );
+
+  // 뒤처진 측정도 사실대로 기록한다. 다만 "현재 커밋에서 쟀다"는 주장은 실제와 같아야 한다.
+  const stale = makeCollectorFixture({ count: 2, nowMs });
+  const readStale = stale.configuration.readBackofficePublicEvidence;
+  stale.configuration.readBackofficePublicEvidence = async (request) => {
+    const result = await readStale(request);
+    const publicEvidence = structuredClone(result.publicEvidence);
+    if (publicEvidence.platformFleetBinding !== null) {
+      publicEvidence.platformFleetBinding.appSourceSha = "9".repeat(40);
+      publicEvidence.platformFleetBinding.appSourceCurrent = false;
+      publicEvidence.platformFleetBinding.compliance = "DIVERGENT";
+      publicEvidence.platformFleetBinding.complianceDetail = "UPDATE_PR_QUEUED";
+      publicEvidence.evidenceDigest = computeFleetEvidenceDigest(publicEvidence);
+    }
+    return { ...result, publicEvidence };
+  };
+
+  const staleCollection = await collect(stale, {
+    ...REQUEST,
+    baselineRatification: null,
+    mode: "FIXTURE",
+  });
+  assert.equal(staleCollection.state, "FIXTURE_COMPLETE");
+  assert.deepEqual(
+    staleCollection.inventory.collectionEvidence.repositoryEvidence
+      .map(({ backoffice }) => backoffice.platformFleetBinding?.appSourceCurrent),
+    [false, false],
+  );
+
+  // 뒤처진 측정인데 현재 커밋에서 쟀다고 주장하면 거부한다.
+  const forgedCurrency = makeCollectorFixture({ count: 2, nowMs });
+  const readForged = forgedCurrency.configuration.readBackofficePublicEvidence;
+  forgedCurrency.configuration.readBackofficePublicEvidence = async (request) => {
+    const result = await readForged(request);
+    const publicEvidence = structuredClone(result.publicEvidence);
+    if (publicEvidence.platformFleetBinding !== null) {
+      publicEvidence.platformFleetBinding.appSourceSha = "9".repeat(40);
+      publicEvidence.platformFleetBinding.appSourceCurrent = true;
+      publicEvidence.evidenceDigest = computeFleetEvidenceDigest(publicEvidence);
+    }
+    return { ...result, publicEvidence };
+  };
+
+  await assert.rejects(
+    () => collect(forgedCurrency, { ...REQUEST, baselineRatification: null, mode: "FIXTURE" }),
+    /FLEET_MIGRATION_COLLECTOR_BACKOFFICE_READBACK_MISMATCH/,
+  );
+
+  // 연결이 있는데 다른 App을 가리키는 것은 여전히 귀속 오류라 계속 거부한다.
+  const misattributed = makeCollectorFixture({ count: 2, nowMs });
+  const readMisattributed = misattributed.configuration.readBackofficePublicEvidence;
+  misattributed.configuration.readBackofficePublicEvidence = async (request) => {
+    const result = await readMisattributed(request);
+    const publicEvidence = structuredClone(result.publicEvidence);
+    if (publicEvidence.platformFleetBinding !== null) {
+      publicEvidence.platformFleetBinding.appId = "app-someone-else-0001";
+      publicEvidence.evidenceDigest = computeFleetEvidenceDigest(publicEvidence);
+    }
+    return { ...result, publicEvidence };
+  };
+
+  await assert.rejects(
+    () => collect(misattributed, { ...REQUEST, baselineRatification: null, mode: "FIXTURE" }),
+    /FLEET_MIGRATION_COLLECTOR_BACKOFFICE_READBACK_MISMATCH/,
+  );
+});
+
 test("38-repository exact fixture와 verified capability만 authoritative READY를 발급한다", async () => {
   const nowMs = Date.now();
   const fixture = makeCollectorFixture({
