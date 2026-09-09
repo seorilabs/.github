@@ -18,7 +18,7 @@
     "attestation"
   ],
   "properties": {
-    "schemaVersion": { "const": 3 },
+    "schemaVersion": { "const": 4 },
     "inventoryId": { "$ref": "#/$defs/evidenceId" },
     "capturedAt": { "$ref": "#/$defs/dateTime" },
     "expiresAt": { "$ref": "#/$defs/dateTime" },
@@ -2128,7 +2128,7 @@
       ],
       "properties": {
         "contract": {
-          "const": "seorilabs-fleet-migration-backoffice-public-evidence-v2"
+          "const": "seorilabs-fleet-migration-backoffice-public-evidence-v3"
         },
         "readbackId": { "$ref": "#/$defs/evidenceId" },
         "observedAt": { "$ref": "#/$defs/dateTime" },

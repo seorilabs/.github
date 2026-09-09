@@ -505,7 +505,7 @@ test("승인본 판본 불일치와 미연결도 이관 전 실태로 기록한�
     mode: "FIXTURE",
   });
   assert.equal(divergentCollection.state, "FIXTURE_COMPLETE");
-  assert.equal(divergentCollection.inventory.schemaVersion, 3);
+  assert.equal(divergentCollection.inventory.schemaVersion, 4);
   assert.deepEqual(
     divergentCollection.inventory.collectionEvidence.repositoryEvidence
       .map(({ backoffice }) => backoffice.platformFleetBinding?.compliance ?? null),

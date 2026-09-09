@@ -1076,7 +1076,7 @@ function publicBackofficeEvidence(context, repository) {
       sourceSha: sha("source:seorilabs/platform"),
     };
   return evidence({
-    contract: "seorilabs-fleet-migration-backoffice-public-evidence-v2",
+    contract: "seorilabs-fleet-migration-backoffice-public-evidence-v3",
     readbackId: `backoffice-readback-${repository.id}`,
     observedAt: new Date(context.nowMs - 90_000).toISOString(),
     organizationId: ORGANIZATION_ID,
