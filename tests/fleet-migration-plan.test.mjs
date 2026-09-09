@@ -1040,7 +1040,7 @@ function makeFleetInventory(contextOptions = {}) {
     );
   }
   const inventory = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     inventoryId: "fleet-inventory-20260829-0001",
     capturedAt: CAPTURED_AT,
     expiresAt: EXPIRES_AT,
@@ -1508,7 +1508,7 @@ test("축소 inventory와 끊긴 pagination cursor chain은 서명되어도 trus
   );
 });
 
-test("legacy schemaVersion 1 inventory와 checkpoint는 구조 호환되지만 authoritative binding은 거부된다", () => {
+test("선택 필드를 생략한 옛 inventory와 checkpoint는 구조 호환되지만 authoritative binding은 거부된다", () => {
   const legacy = structuredClone(makeFleetInventory());
   delete legacy.baselineRatification;
   for (const { repository } of legacy.repositories) {

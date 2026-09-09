@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -199,4 +200,19 @@ test("저장소 신원 substitution은 스키마와 무관하게 계속 거부�
     () => validateFleetMigrationLegacyDocument(request),
     /FLEET_MIGRATION_LEGACY_SCHEMA_VALIDATION_FAILED/u,
   );
+});
+
+test("SCHEMA_MISMATCH detection은 계약이 아는 값만 쓴다", () => {
+  // collector가 만드는 matchedBy 값은 inventory 계약의 enum에 있어야 한다. 없으면
+  // 수집은 통과하고 inventory 검증에서 뒤늦게 깨진다.
+  const schema = JSON.parse(
+    readFileSync(new URL("../contracts/fleet-migration-inventory.schema.json", import.meta.url), "utf8"),
+  );
+  const matchedBy = schema.$defs.legacyDetection.properties.matchedBy;
+  assert.deepEqual([...matchedBy.enum].sort(), [
+    "LEGACY_PATH_SCHEMA_MISMATCH",
+    "SCHEMA_VALIDATION",
+  ]);
+  // 의미가 바뀌었으므로 major가 올라가 있어야 한다(AGENTS.md).
+  assert.equal(schema.properties.schemaVersion.const, 2);
 });

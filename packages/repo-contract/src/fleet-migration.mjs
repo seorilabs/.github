@@ -2480,6 +2480,12 @@ function legacyDetectionReasons(candidate, repository) {
   const { detection, path } = candidate;
   const contract = LEGACY_CONTRACTS[detection.contract];
   const reasons = [];
+  // 목표 스키마를 통과하지 않은 문서는 이관이 끝나지 않았다는 뜻이다. 여기서 사유를
+  // 붙이지 않으면 정상 검증본과 똑같은 READY_FOR_REVIEW DELETE 후보가 되어, 아직 옮기지
+  // 않은 운영 설정이 이관 완료된 것처럼 삭제 계획에 실린다.
+  if (detection.matchedBy === "LEGACY_PATH_SCHEMA_MISMATCH") {
+    reasons.push("DETECTION_LEGACY_SCHEMA_UNMIGRATED");
+  }
   if (contract.schemaId !== detection.schemaId) {
     reasons.push("DETECTION_SCHEMA_MISMATCH");
   }
@@ -3733,7 +3739,7 @@ function buildFleetMigrationPlan(
     ...repositories.flatMap(({ reasonCodes }) => reasonCodes),
   ]);
   const unsigned = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     mode: "PLAN_ONLY",
     executionAllowed: false,
     inventory: inventorySummary,

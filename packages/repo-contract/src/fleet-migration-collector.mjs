@@ -1952,7 +1952,7 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
         throw new Error("FLEET_MIGRATION_BASELINE_RATIFICATION_MISMATCH");
       }
       const inventory = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         inventoryId: input.inventoryId,
         capturedAt: new Date(capturedAtMs).toISOString(),
         expiresAt: new Date(capturedAtMs + MAX_INVENTORY_TTL_MS).toISOString(),
