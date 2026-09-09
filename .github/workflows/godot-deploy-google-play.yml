@@ -433,8 +433,11 @@ jobs:
           export GODOT_ANDROID_KEYSTORE_RELEASE_USER="$alias"
           export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="$GOOGLE_PLAY_UPLOAD_KEYSTORE_PASSWORD"
           export GODOT_ANDROID_KEYSTORE_RELEASE_KEY_PASSWORD="$key_password"
-          mkdir -p "$(dirname "$AAB_PATH")"
-          godot --headless --path "$PROJECT_DIR" --export-release "$ANDROID_EXPORT_PRESET" "$AAB_PATH"
+          # Godot은 상대 출력 경로를 --path 기준으로 해석한다. 후속 검증·업로드와
+          # 같은 workspace 경로에 내보내도록 프로젝트 깊이와 무관한 절대 경로를 쓴다.
+          output_path="$GITHUB_WORKSPACE/$AAB_PATH"
+          mkdir -p "$(dirname "$output_path")"
+          godot --headless --path "$PROJECT_DIR" --export-release "$ANDROID_EXPORT_PRESET" "$output_path"
 
       # Godot이 preset 값을 무시하거나 오래된 build template이 남아 있으면 여기서 fail-closed한다.
       - name: Verify AAB version against the release tag
