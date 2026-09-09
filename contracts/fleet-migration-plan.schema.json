@@ -15,7 +15,7 @@
     "planDigest"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "mode": { "const": "PLAN_ONLY" },
     "executionAllowed": { "const": false },
     "inventory": { "$ref": "#/$defs/inventorySummary" },
@@ -113,6 +113,7 @@
         "UNCLASSIFIED_CANDIDATE",
         "DETECTION_PATH_MISMATCH",
         "DETECTION_SCHEMA_MISMATCH",
+        "DETECTION_LEGACY_SCHEMA_UNMIGRATED",
         "REPLACEMENT_MISSING",
         "REPLACEMENT_TYPE_MISMATCH",
         "EVIDENCE_DIGEST_MISMATCH",
