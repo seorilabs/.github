@@ -265,11 +265,20 @@ function validateDependencyAuditException(value, request, actionClass, nowMs) {
     fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
   }
   for (const binding of value.bindings) {
+    const candidate = binding?.pullRequestCandidate;
     if (
-      !exactKeys(binding, bindingKeys) ||
+      !exactKeys(binding, candidate === undefined ? bindingKeys : [...bindingKeys, "pullRequestCandidate"]) ||
       !expectedActions.includes(binding.actionClass) ||
       !SHA.test(binding.sourceSha ?? "") ||
-      !SHA256.test(binding.lockfileSha256 ?? "")
+      !SHA256.test(binding.lockfileSha256 ?? "") ||
+      (candidate !== undefined && (
+        binding.actionClass !== "STATIC_CHECK" ||
+        !exactKeys(candidate, ["number", "headSha", "mergeSha", "lockfileSha256"]) ||
+        !Number.isSafeInteger(candidate.number) || candidate.number < 1 ||
+        !SHA.test(candidate.headSha ?? "") ||
+        !SHA.test(candidate.mergeSha ?? "") ||
+        !SHA256.test(candidate.lockfileSha256 ?? "")
+      ))
     ) {
       fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
     }
@@ -302,6 +311,15 @@ function validateDependencyAuditException(value, request, actionClass, nowMs) {
   // 아니라 PR base다. lockfile digest 결합은 staging 단계가 별도로 강제한다.
   const boundSourceSha = request.bindingSourceSha ?? request.applicationSourceSha;
   if (!binding || binding.sourceSha !== boundSourceSha) {
+    fail("DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH");
+  }
+  const candidate = binding.pullRequestCandidate;
+  if (candidate !== undefined && (
+    actionClass !== "STATIC_CHECK" ||
+    candidate.number !== request.pullRequestNumber ||
+    candidate.headSha !== request.pullRequestHeadSha ||
+    candidate.mergeSha !== request.applicationSourceSha
+  )) {
     fail("DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH");
   }
   return Object.freeze(structuredClone(value));
@@ -374,6 +392,7 @@ function validateContext(context) {
     if (
       !/^refs\/pull\/[1-9][0-9]*\/merge$/u.test(context.eventRef ?? "") ||
       !SHA.test(context.pullRequestBaseSha ?? "") ||
+      ((context.pullRequestHeadSha ?? "") !== "" && !SHA.test(context.pullRequestHeadSha)) ||
       context.pullRequestHeadRepository !== context.fullName
     ) {
       fail("STATIC_RUNTIME_PULL_REQUEST_IDENTITY_INVALID");
@@ -388,6 +407,7 @@ function validateContext(context) {
     !["push", "workflow_dispatch"].includes(context.eventName) ||
     context.eventRef !== "refs/heads/main" ||
     (context.pullRequestBaseSha ?? "") !== "" ||
+    (context.pullRequestHeadSha ?? "") !== "" ||
     (context.pullRequestHeadRepository ?? "") !== ""
   ) {
     fail("STATIC_RUNTIME_MAIN_IDENTITY_INVALID");
@@ -662,6 +682,10 @@ export async function resolveStaticRuntimeBindingV5(
     fullName: context.fullName,
     applicationSourceSha: identity.applicationSourceSha,
     bindingSourceSha: identity.bindingSourceSha,
+    ...(context.eventName === "pull_request" ? {
+      pullRequestNumber: Number(context.eventRef.split("/")[2]),
+      pullRequestHeadSha: context.pullRequestHeadSha ?? "",
+    } : {}),
     callerWorkflowRef: context.callerWorkflowRef,
     calledWorkflowRef: context.jobWorkflowRef,
     calledWorkflowPath: identity.calledWorkflowPath,
@@ -1083,6 +1107,7 @@ function environmentContext(env) {
     applicationSourceSha: env.APPLICATION_SOURCE_SHA,
     eventSourceSha: env.EVENT_SOURCE_SHA,
     pullRequestBaseSha: env.PR_BASE_SHA ?? "",
+    pullRequestHeadSha: env.PR_HEAD_SHA ?? "",
     pullRequestHeadRepository: env.PR_HEAD_REPOSITORY ?? "",
     pullRequestHeadRef: env.PR_HEAD_REF ?? "",
     repositoryId: env.REPOSITORY_ID,
