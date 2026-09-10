@@ -92,6 +92,7 @@ function staticRuntimeContext({
   eventRef = "refs/heads/main",
   applicationSourceSha = "d".repeat(40),
   pullRequestBaseSha = "",
+  pullRequestHeadSha = "",
   pullRequestHeadRepository = "",
   calledWorkflowPath = ".github/workflows/js-static-checks-v1.yml",
 } = {}) {
@@ -101,6 +102,7 @@ function staticRuntimeContext({
     eventRef,
     applicationSourceSha,
     pullRequestBaseSha,
+    pullRequestHeadSha,
     pullRequestHeadRepository,
     repositoryId: "7001",
     fullName,
@@ -960,7 +962,7 @@ test("Godot v3 fixture generates a stable dynamic caller without package authori
   await verifySource(nextSha);
 });
 
-test("candidate canary generator permits only Happy Farm RN and Lizard Tycoon Godot", async () => {
+test("candidate generator adds Ungeul static without widening the two Android canaries", async () => {
   const candidate = await createWorkflowBundleV5({
     sourceSha: WORKFLOW_EXECUTION_SHA,
     workflowExecutionSha: WORKFLOW_EXECUTION_SHA,
@@ -1043,7 +1045,9 @@ test("candidate canary generator permits only Happy Farm RN and Lizard Tycoon Go
     });
     const candidateStaticDocument = parse(candidateStaticCaller);
     assert.deepEqual(candidateStaticDocument.on, {
-      pull_request: { paths: [".github/workflows/org-contract.yml"] },
+      pull_request: { branches: ["main"] },
+      push: { branches: ["main"] },
+      workflow_dispatch: {},
     });
     assert.equal(
       candidateStaticDocument.jobs["org-contract"].uses,
@@ -1052,12 +1056,16 @@ test("candidate canary generator permits only Happy Farm RN and Lizard Tycoon Go
     assert.equal(candidateStaticDocument.permissions["id-token"], "write");
     assert.doesNotMatch(
       candidateStaticCaller,
-      /push:|workflow_dispatch:|\bwith:|secrets:|runs-on:|@main\b/u,
+      /\bwith:|secrets:|runs-on:|@main\b/u,
     );
     assert.equal(validateCandidateStaticCallerV5(candidateStaticCaller, {
       candidateBundleBinding,
       resolvedBinding: resolved,
     }).ok, true);
+    assert.equal(validateCandidateStaticCallerV5(
+      candidateStaticCaller.replace("  push:\n    branches:\n      - main\n", ""),
+      { candidateBundleBinding, resolvedBinding: resolved },
+    ).ok, false);
 
     const candidateCaller = generateCandidateBuildCallerV5({
       candidateBundleBinding,
@@ -1082,6 +1090,10 @@ test("candidate canary generator permits only Happy Farm RN and Lizard Tycoon Go
       },
     };
     const approvedResolved = await resolvedBinding(root, approvedManifest);
+    assert.equal(candidateStaticCaller, generateStaticCallerV5({
+      approvedBundleBinding: approved.binding,
+      resolvedBinding: approvedResolved,
+    }), "The same workflow SHA keeps the canary caller unchanged after approval");
     const approvedCaller = generateBuildCallerV5({
       approvedBundleBinding: approved.binding,
       resolvedBinding: approvedResolved,
@@ -1092,6 +1104,76 @@ test("candidate canary generator permits only Happy Farm RN and Lizard Tycoon Go
   }
 
   const { root, manifest: original } = await fixtureRepository("saju-reader");
+  const capacitor = {
+    ...original,
+    repositoryId: "1335099739",
+    sourceSha: git(root, ["rev-parse", "HEAD"]),
+    workflowBundleBinding: {
+      sourceSha: candidate.source.sha,
+      payloadDigest: candidate.integrity.payloadDigest,
+    },
+  };
+  const capacitorBinding = await resolvedBinding(root, capacitor);
+  const capacitorCaller = generateCandidateStaticCallerV5({
+    candidateBundleBinding,
+    resolvedBinding: capacitorBinding,
+  });
+  const capacitorDocument = parse(capacitorCaller);
+  assert.deepEqual(capacitorDocument.on, {
+    pull_request: { branches: ["main"] },
+    push: { branches: ["main"] },
+    workflow_dispatch: {},
+  });
+  assert.equal(capacitorDocument.jobs["org-contract"].uses,
+    `seorilabs/.github/.github/workflows/js-static-checks-v1.yml@${WORKFLOW_EXECUTION_SHA}`);
+  assert.doesNotMatch(capacitorCaller, /secrets:|runs-on:|@main\b/u);
+  assert.equal(validateCandidateStaticCallerV5(capacitorCaller, {
+    candidateBundleBinding,
+    resolvedBinding: capacitorBinding,
+  }).ok, true);
+  const approvedCapacitorBinding = await resolvedBinding(root, {
+    ...capacitor,
+    workflowBundleBinding: {
+      sourceSha: approved.approved.source.sha,
+      payloadDigest: approved.approved.integrity.payloadDigest,
+    },
+  });
+  assert.equal(capacitorCaller, generateStaticCallerV5({
+    approvedBundleBinding: approved.binding,
+    resolvedBinding: approvedCapacitorBinding,
+  }));
+  assert.throws(() => generateCandidateBuildCallerV5({
+    candidateBundleBinding,
+    resolvedBinding: capacitorBinding,
+    target: "android",
+  }), /BUILD_PROFILE_NOT_PROMOTED/u);
+  const crossedAndroidBinding = await resolvedBinding(root, {
+    ...capacitor,
+    staticBinding: { ...capacitor.staticBinding, profile: "react-native" },
+    buildBindings: [{
+      ...capacitor.buildBindings.find((binding) => binding.target === "android"),
+      buildProfile: "react-native-android",
+    }],
+  });
+  assert.throws(() => generateCandidateBuildCallerV5({
+    candidateBundleBinding,
+    resolvedBinding: crossedAndroidBinding,
+    target: "android",
+  }), /CANDIDATE_BUILD_REPOSITORY_NOT_ALLOWED/u);
+  assert.throws(() => generateCandidateStaticCallerV5({
+    candidateBundleBinding,
+    resolvedBinding: crossedAndroidBinding,
+  }), /CANDIDATE_STATIC_REPOSITORY_NOT_ALLOWED/u);
+  for (const changed of [
+    { repositoryId: "7001" },
+    { fullName: "seorilabs/other-app" },
+  ]) {
+    const wrongBinding = await resolvedBinding(root, { ...capacitor, ...changed });
+    assert.throws(() => generateCandidateStaticCallerV5({
+      candidateBundleBinding,
+      resolvedBinding: wrongBinding,
+    }), /CANDIDATE_STATIC_REPOSITORY_NOT_ALLOWED/u);
+  }
   const crossed = {
     ...original,
     repositoryId: "1250442131",
@@ -1384,6 +1466,8 @@ test("same-repo PR binds merge, base, and called path while trusted drift readba
         fullName: context.fullName,
         applicationSourceSha: mergeSha,
         bindingSourceSha: baseSha,
+        pullRequestNumber: 37,
+        pullRequestHeadSha: context.pullRequestHeadSha,
         callerWorkflowRef: context.callerWorkflowRef,
         calledWorkflowRef: context.jobWorkflowRef,
         calledWorkflowPath: ".github/workflows/js-static-checks-v1.yml",
@@ -1582,6 +1666,95 @@ test("signed dependency audit exception is exact-source, scoped, ordered, and ti
       /DEPENDENCY_AUDIT_EXCEPTION_(?:INVALID|BINDING_MISMATCH)/u,
     );
   }
+});
+
+test("PR audit approval binds the exact base, head, merge, and PR number", async () => {
+  const context = staticRuntimeContext({
+    eventName: "pull_request",
+    eventRef: "refs/pull/41/merge",
+    applicationSourceSha: "a".repeat(40),
+    pullRequestBaseSha: "8".repeat(40),
+    pullRequestHeadSha: "c".repeat(40),
+    pullRequestHeadRepository: "seorilabs/runtime-canary",
+  });
+  const exception = dependencyAuditExceptionFixture({
+    repositoryId: context.repositoryId,
+    fullName: context.fullName,
+    staticSourceSha: context.pullRequestBaseSha,
+    androidSourceSha: "9".repeat(40),
+  });
+  const candidate = {
+    number: 41,
+    headSha: context.pullRequestHeadSha,
+    mergeSha: context.applicationSourceSha,
+    lockfileSha256: `sha256:${"3".repeat(64)}`,
+  };
+  exception.bindings[1].pullRequestCandidate = candidate;
+  const options = {
+    now: () => new Date("2026-08-30T00:00:00Z"),
+    trustedManifestReadback: async (request) => staticRuntimeResponse(request, {
+      dependencyAuditException: exception,
+    }),
+  };
+  const resolved = await resolveStaticRuntimeBindingV5(context, options);
+  assert.deepEqual(
+    JSON.parse(Buffer.from(resolved.dependencyAuditException, "base64url").toString("utf8")),
+    canonicalize(exception),
+  );
+  const schema = JSON.parse(await readFile(
+    "contracts/workflow-bundle-v5-static-runtime-readback.schema.json", "utf8",
+  ));
+  const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
+  const response = staticRuntimeResponse({
+    repositoryId: context.repositoryId,
+    fullName: context.fullName,
+    bindingSourceSha: context.pullRequestBaseSha,
+    applicationSourceSha: context.applicationSourceSha,
+  }, { dependencyAuditException: exception });
+  assert.equal(validate(response), true, JSON.stringify(validate.errors));
+
+  for (const changed of [
+    { pullRequestBaseSha: "7".repeat(40) },
+    { pullRequestHeadSha: "7".repeat(40) },
+    { pullRequestHeadSha: "" },
+    { applicationSourceSha: "7".repeat(40) },
+    {
+      eventRef: "refs/pull/42/merge",
+      callerWorkflowRef: `${context.fullName}/.github/workflows/org-contract.yml@refs/pull/42/merge`,
+    },
+  ]) {
+    await assert.rejects(
+      resolveStaticRuntimeBindingV5({ ...context, ...changed }, options),
+      /DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH/u,
+    );
+  }
+  await assert.rejects(
+    resolveStaticRuntimeBindingV5(staticRuntimeContext({
+      applicationSourceSha: context.pullRequestBaseSha,
+    }), options),
+    /DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH/u,
+  );
+  for (const changedCandidate of [
+    null,
+    { ...candidate, number: 0 },
+    { ...candidate, number: "41" },
+    { ...candidate, mergeSha: "HEAD" },
+    { ...candidate, headSha: "HEAD" },
+    { ...candidate, lockfileSha256: "latest" },
+    { ...candidate, unexpected: true },
+  ]) {
+    const invalid = structuredClone(exception);
+    invalid.bindings[1].pullRequestCandidate = changedCandidate;
+    await assert.rejects(resolveStaticRuntimeBindingV5(context, {
+      ...options,
+      trustedManifestReadback: async (request) => staticRuntimeResponse(request, {
+        dependencyAuditException: invalid,
+      }),
+    }), /DEPENDENCY_AUDIT_EXCEPTION_INVALID/u);
+  }
+  const androidCandidate = structuredClone(response);
+  androidCandidate.manifest.dependencyAuditException.bindings[0].pullRequestCandidate = candidate;
+  assert.equal(validate(androidCandidate), false);
 });
 
 test("called workflow path, profile, and package manager are one exact runtime identity", async () => {
@@ -2590,6 +2763,112 @@ test("audit exception permits only the exact high advisory set for one source an
     /DEPENDENCY_AUDIT_EXCEPTION_MISMATCH/u,
   );
   assert.equal(await lstat(cacheRoot).catch(() => null), null);
+});
+
+test("staging accepts a changed lock only for the approved exact PR checkout", async () => {
+  const { root } = await fixtureRepository("saju-reader");
+  const sourceSha = git(root, ["rev-parse", "HEAD"]);
+  const lockDigest = sha256(await readFile(join(root, "pnpm-lock.yaml")));
+  const baseSha = "b".repeat(40);
+  const headSha = "c".repeat(40);
+  const exception = dependencyAuditExceptionFixture({
+    repositoryId: "1250442131",
+    fullName: "seorilabs/happy-farm",
+    staticSourceSha: baseSha,
+    androidSourceSha: "9".repeat(40),
+  });
+  exception.bindings[1].pullRequestCandidate = {
+    number: 41, headSha, mergeSha: sourceSha, lockfileSha256: lockDigest,
+  };
+  const cacheRoot = join(root, ".seorilabs-pnpm-store");
+  const options = {
+    repoRoot: root,
+    dependencyRoot: ".",
+    packageManager: "pnpm",
+    cacheRoot,
+    token: "token-that-must-never-be-persisted",
+    childEnvironment: { HOME: "/tmp/fixture-home", PATH: "/usr/bin:/bin" },
+    dependencyAuditException: exception,
+    auditActionClass: "STATIC_CHECK",
+    repositoryId: exception.repositoryId,
+    fullName: exception.fullName,
+    sourceSha,
+    bindingSourceSha: baseSha,
+    pullRequestNumber: 41,
+    pullRequestHeadSha: headSha,
+    now: () => new Date("2026-08-30T00:00:00Z"),
+  };
+  const auditReport = JSON.stringify({
+    advisories: Object.fromEntries(exception.advisories.map((advisory, index) => [String(index), {
+      github_advisory_id: advisory.ghsa,
+      module_name: advisory.module,
+      severity: advisory.severity,
+      findings: advisory.versions.map((version) => ({ version })),
+    }])),
+  });
+  let calls = 0;
+  const staged = await stageExactPlatformDependencyV5({
+    ...options,
+    spawn: (_command, _args, { env }) => {
+      calls += 1;
+      if (!env.NODE_AUTH_TOKEN) return { status: 1, signal: null, stdout: auditReport };
+      mkdirSync(join(cacheRoot, "content"), { recursive: true });
+      writeFileSync(join(cacheRoot, "content", "package.tgz"), "public-package-bytes");
+      return { status: 0, signal: null };
+    },
+  });
+  assert.equal(calls, 2);
+  assert.equal(staged.dependencyAuditExceptionDigest, sha256(JSON.stringify(canonicalize(exception))));
+  await rm(cacheRoot, { recursive: true, force: true });
+  const changedLock = structuredClone(exception);
+  changedLock.bindings[1].pullRequestCandidate.lockfileSha256 = `sha256:${"4".repeat(64)}`;
+  const changedMerge = structuredClone(exception);
+  changedMerge.bindings[1].pullRequestCandidate.mergeSha = "d".repeat(40);
+  const unapproved = structuredClone(exception);
+  delete unapproved.bindings[1].pullRequestCandidate;
+  for (const changed of [
+    { pullRequestNumber: 42 },
+    { pullRequestNumber: undefined },
+    { pullRequestHeadSha: "d".repeat(40) },
+    { bindingSourceSha: "d".repeat(40) },
+    { dependencyAuditException: changedLock },
+    { dependencyAuditException: changedMerge },
+    { dependencyAuditException: unapproved },
+  ]) {
+    await assert.rejects(stageExactPlatformDependencyV5({
+      ...options, ...changed,
+      spawn: () => assert.fail("Unapproved candidates must fail before package credentials are used"),
+    }), /DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH/u);
+  }
+  const androidException = structuredClone(exception);
+  androidException.bindings[0].sourceSha = sourceSha;
+  androidException.bindings[0].lockfileSha256 = lockDigest;
+  androidException.bindings[1].pullRequestCandidate.lockfileSha256 = `sha256:${"4".repeat(64)}`;
+  const androidOptions = {
+    ...options,
+    auditActionClass: "ANDROID_BUILD_ONLY",
+    bindingSourceSha: sourceSha,
+    pullRequestNumber: undefined,
+    pullRequestHeadSha: undefined,
+    dependencyAuditException: androidException,
+  };
+  const androidStaged = await stageExactPlatformDependencyV5({
+    ...androidOptions,
+    spawn: (_command, _args, { env }) => {
+      if (!env.NODE_AUTH_TOKEN) return { status: 1, signal: null, stdout: auditReport };
+      mkdirSync(join(cacheRoot, "content"), { recursive: true });
+      writeFileSync(join(cacheRoot, "content", "package.tgz"), "public-package-bytes");
+      return { status: 0, signal: null };
+    },
+  });
+  assert.equal(androidStaged.dependencyAuditExceptionDigest, sha256(JSON.stringify(canonicalize(androidException))));
+  await rm(cacheRoot, { recursive: true, force: true });
+  androidException.bindings[0].lockfileSha256 = `sha256:${"4".repeat(64)}`;
+  androidException.bindings[1].pullRequestCandidate.lockfileSha256 = lockDigest;
+  await assert.rejects(stageExactPlatformDependencyV5({
+    ...androidOptions,
+    spawn: () => assert.fail("An Android build cannot use the static candidate lock approval"),
+  }), /DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH/u);
 });
 
 test("staging prunes dangling pnpm project symlinks so Cloud Build source packaging cannot crash", async () => {

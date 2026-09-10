@@ -137,6 +137,13 @@ const CANDIDATE_CANARIES = Object.freeze({
     buildProfile: "godot-android",
   }),
 });
+const CANDIDATE_STATIC_CANARIES = Object.freeze({
+  ...CANDIDATE_CANARIES,
+  "1335099739": Object.freeze({
+    fullName: "seorilabs/saju-reader",
+    staticProfile: "capacitor",
+  }),
+});
 
 function fail(code) {
   throw new Error(code);
@@ -878,8 +885,8 @@ function selectedBuild(manifest, target) {
   return candidates[0];
 }
 
-function candidateCanary(manifest, diagnostic) {
-  const allowed = CANDIDATE_CANARIES[manifest.repositoryId];
+function candidateCanary(manifest, diagnostic, canaries = CANDIDATE_CANARIES) {
+  const allowed = canaries[manifest.repositoryId];
   if (
     !allowed ||
     manifest.fullName !== allowed.fullName ||
@@ -945,7 +952,9 @@ function buildCaller(bundle, manifest, target, { candidate = false } = {}) {
 
 function staticCaller(bundle, manifest, { candidate = false } = {}) {
   if (manifest.state === "DEPRECATED") fail("DEPRECATED_NO_CALLER");
-  if (candidate) candidateCanary(manifest, "CANDIDATE_STATIC_REPOSITORY_NOT_ALLOWED");
+  if (candidate) {
+    candidateCanary(manifest, "CANDIDATE_STATIC_REPOSITORY_NOT_ALLOWED", CANDIDATE_STATIC_CANARIES);
+  }
   if (candidate && (
     manifest.workflowBundleBinding?.sourceSha !== bundle.source.sha ||
     manifest.workflowBundleBinding?.payloadDigest !== bundle.integrity.payloadDigest
@@ -956,13 +965,13 @@ function staticCaller(bundle, manifest, { candidate = false } = {}) {
   const workflow = bundle.staticProfiles[staticBinding.profile];
   return workflowDocument({
     name: "Org Contract",
-    on: candidate
-      ? { pull_request: { paths: [".github/workflows/org-contract.yml"] } }
-      : {
-          pull_request: { branches: ["main"] },
-          push: { branches: ["main"] },
-          workflow_dispatch: {},
-        },
+    // 고정 canary도 보안 패치 병합 뒤 main 검사를 유지한다. CANDIDATE 사용은
+    // 위의 repo/profile과 signed ACTIVE binding으로 제한하며 Android trigger는 별개다.
+    on: {
+      pull_request: { branches: ["main"] },
+      push: { branches: ["main"] },
+      workflow_dispatch: {},
+    },
     permissions: staticPermissions(staticBinding.profile),
     concurrency: {
       group: "org-contract-${{ github.repository_id }}-${{ github.ref }}",

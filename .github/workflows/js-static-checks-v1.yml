@@ -71,6 +71,7 @@ jobs:
           EVENT_REF: ${{ github.ref }}
           APPLICATION_SOURCE_SHA: ${{ github.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           REPOSITORY_ID: ${{ github.repository_id }}
           FULL_NAME: ${{ github.repository }}
@@ -206,6 +207,8 @@ jobs:
           SEORI_REPOSITORY: ${{ github.repository }}
           SEORI_SOURCE_SHA: ${{ needs.resolve-binding.outputs.application_source_sha }}
           SEORI_BINDING_SOURCE_SHA: ${{ needs.resolve-binding.outputs.binding_source_sha }}
+          SEORI_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          SEORI_PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           ulimit -c 0

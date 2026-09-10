@@ -132,6 +132,9 @@ function validateDependencyAuditException({
   repositoryId,
   fullName,
   sourceSha,
+  applicationSourceSha,
+  pullRequestNumber,
+  pullRequestHeadSha,
   lockfileSha256,
   now,
 }) {
@@ -175,11 +178,20 @@ function validateDependencyAuditException({
     fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
   }
   for (const binding of value.bindings) {
+    const candidate = binding?.pullRequestCandidate;
     if (
-      !exactKeys(binding, bindingKeys) ||
+      !exactKeys(binding, candidate === undefined ? bindingKeys : [...bindingKeys, "pullRequestCandidate"]) ||
       !expectedActions.includes(binding.actionClass) ||
       !SHA.test(binding.sourceSha ?? "") ||
-      !SHA256.test(binding.lockfileSha256 ?? "")
+      !SHA256.test(binding.lockfileSha256 ?? "") ||
+      (candidate !== undefined && (
+        binding.actionClass !== "STATIC_CHECK" ||
+        !exactKeys(candidate, ["number", "headSha", "mergeSha", "lockfileSha256"]) ||
+        !Number.isSafeInteger(candidate.number) || candidate.number < 1 ||
+        !SHA.test(candidate.headSha ?? "") ||
+        !SHA.test(candidate.mergeSha ?? "") ||
+        !SHA256.test(candidate.lockfileSha256 ?? "")
+      ))
     ) {
       fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
     }
@@ -207,10 +219,17 @@ function validateDependencyAuditException({
     fail("DEPENDENCY_AUDIT_EXCEPTION_INVALID");
   }
   const binding = value.bindings.find((candidate) => candidate.actionClass === actionClass);
+  const candidate = binding?.pullRequestCandidate;
   if (
     !binding ||
     binding.sourceSha !== sourceSha ||
-    binding.lockfileSha256 !== lockfileSha256
+    (candidate?.lockfileSha256 ?? binding.lockfileSha256) !== lockfileSha256 ||
+    (candidate !== undefined && (
+      actionClass !== "STATIC_CHECK" ||
+      candidate.number !== pullRequestNumber ||
+      candidate.headSha !== pullRequestHeadSha ||
+      candidate.mergeSha !== applicationSourceSha
+    ))
   ) {
     fail("DEPENDENCY_AUDIT_EXCEPTION_BINDING_MISMATCH");
   }
@@ -843,6 +862,8 @@ export async function stageExactPlatformDependencyV5({
   // 감사 예외가 결합되는 기본 브랜치 exact source. 후보 PR 실행은 checkout(sourceSha)이
   // merge 커밋이므로 base를 따로 받고, 없으면 sourceSha와 같다.
   bindingSourceSha = sourceSha,
+  pullRequestNumber,
+  pullRequestHeadSha,
   now = () => new Date(),
 } = {}) {
   if (
@@ -893,6 +914,9 @@ export async function stageExactPlatformDependencyV5({
     repositoryId,
     fullName,
     sourceSha: bindingSourceSha,
+    applicationSourceSha: actualSourceSha,
+    pullRequestNumber,
+    pullRequestHeadSha,
     lockfileSha256,
     now: current,
   });
@@ -1060,6 +1084,10 @@ async function main() {
     ...(encodedAuditException && process.env.SEORI_BINDING_SOURCE_SHA
       ? { bindingSourceSha: process.env.SEORI_BINDING_SOURCE_SHA }
       : {}),
+    ...(encodedAuditException && process.env.SEORI_PULL_REQUEST_NUMBER ? {
+      pullRequestNumber: Number(process.env.SEORI_PULL_REQUEST_NUMBER),
+      pullRequestHeadSha: process.env.SEORI_PULL_REQUEST_HEAD_SHA,
+    } : {}),
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

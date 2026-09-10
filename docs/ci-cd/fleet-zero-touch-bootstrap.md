@@ -146,6 +146,32 @@ runtime은 현재 identity와 만료를 다시 검증하고 canonical public pay
 high/critical 항목이 예외 집합과 정확히 같을 때만 계속한다. 새 advisory, critical, source/lock
 drift, 만료, 취약점 소멸 뒤 남은 불필요 예외는 모두 fail-closed다. 이 예외는 static 및 Android
 build-only에만 적용되며 release upload, 심사 제출, production/public 작업에는 전달하지 않는다.
+
+의존성 보안 패치로 PR의 lockfile이 바뀌면 `STATIC_CHECK` binding에 선택적
+`pullRequestCandidate`를 승인한다. 기존 `sourceSha`와 `lockfileSha256`은 base 승인 의미를
+유지하고, 후보에는 PR `number`, `headSha`, `mergeSha`, 후보 `lockfileSha256`을 고정한다.
+Backoffice는 GitHub에서 현재 open same-repository PR의 base/head/merge를 조회하고, head와
+merge의 실제 lockfile hash를 모두 확인한다. 같은 PR에서 head 또는 base가 바뀌면 hash가
+같아도 이전 후보 승인을 재사용하지 않는다. 기존 동일-lock source 재결합으로 후보의 base를
+이동시키지 않는다. main, 다른 PR, Android 실행에는 후보 필드를 제외한 기존 예외만 전달한다.
+원본 ConfigRevision과 서명 snapshot은 후보를 포함한 전체 승인을 보존한다.
+새 번들의 필수 `static:capacitor` 증거는 운글의 STATIC 전용 candidate caller로 수집한다.
+중앙 generator는 실제 운글 repo ID/name/profile 조합만 추가 허용하며, Android candidate
+생성·실행 대상은 기존 Happy Farm과 Lizard Tycoon 두 앱으로 유지한다.
+고정 세 앱의 STATIC candidate caller도 main 대상 PR, main push, 수동 main 검사 조건을
+유지한다. workflow 파일만 바뀐 PR에서 실행하는 조건을 남기면 보안 패치를 병합한 뒤 main
+검사가 사라지고, main을 빌드하는 Android 검증까지 진행할 수 없기 때문이다. 생성 시 중앙
+bundle artifact의 CANDIDATE integrity와 서버가 검증한 ACTIVE binding을 확인한다. 실행 시에는
+기존 OIDC default-branch·exact source 검증과 서명된 ACTIVE bundle SHA·감사 승인을 적용한다.
+STATIC runtime이 registry 승인 상태를 매번 조회하는 것은 아니다. 이 경로는 고정 canary의
+정적 검증만 허용하며, 일반 fleet generator의 APPROVED 요구와 다섯 가지 승격 증거는 유지한다.
+
+새 static consumer는 PR 번호와 head를 실행 이벤트와 대조하고, staging은 실제 checkout이
+승인된 merge SHA인지와 lock bytes가 후보 hash인지 확인한 뒤 기존의 전체 advisory 검사를
+수행한다. 구 consumer는 후보 필드를 묵인하지 않고 거절하므로 새 승인 번들과 caller를 먼저
+준비해야 한다. 병합 이후에는 후보 승인을 제거하고 정상 ConfigRevision 절차로 exact main
+source를 승인한다. PR 승인을 main 또는 Android 승인으로 자동 확대하지 않는다.
+
 - ARC live Pod imageID와 signed WorkflowBundle runner digest 일치 확인
 - 두 번의 shadow parity 전에는 ruleset Active 전환 금지
 

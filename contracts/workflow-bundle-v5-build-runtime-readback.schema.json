@@ -174,8 +174,23 @@
             "properties": {
               "actionClass": { "enum": ["STATIC_CHECK", "ANDROID_BUILD_ONLY"] },
               "sourceSha": { "$ref": "#/$defs/sha" },
-              "lockfileSha256": { "$ref": "#/$defs/sha256" }
-            }
+              "lockfileSha256": { "$ref": "#/$defs/sha256" },
+              "pullRequestCandidate": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["number", "headSha", "mergeSha", "lockfileSha256"],
+                "properties": {
+                  "number": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+                  "headSha": { "$ref": "#/$defs/sha" },
+                  "mergeSha": { "$ref": "#/$defs/sha" },
+                  "lockfileSha256": { "$ref": "#/$defs/sha256" }
+                }
+              }
+            },
+            "allOf": [{
+              "if": { "properties": { "pullRequestCandidate": {} }, "required": ["pullRequestCandidate"] },
+              "then": { "properties": { "actionClass": { "const": "STATIC_CHECK" } } }
+            }]
           }
         },
         "advisories": {
