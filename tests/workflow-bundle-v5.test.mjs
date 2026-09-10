@@ -1386,6 +1386,8 @@ test("same-repo PR binds merge, base, and called path while trusted drift readba
         fullName: context.fullName,
         applicationSourceSha: mergeSha,
         bindingSourceSha: baseSha,
+        pullRequestNumber: 37,
+        pullRequestHeadSha: context.pullRequestHeadSha,
         callerWorkflowRef: context.callerWorkflowRef,
         calledWorkflowRef: context.jobWorkflowRef,
         calledWorkflowPath: ".github/workflows/js-static-checks-v1.yml",
