@@ -962,7 +962,7 @@ test("Godot v3 fixture generates a stable dynamic caller without package authori
   await verifySource(nextSha);
 });
 
-test("candidate canary generator permits only Happy Farm RN and Lizard Tycoon Godot", async () => {
+test("candidate generator adds Ungeul static without widening the two Android canaries", async () => {
   const candidate = await createWorkflowBundleV5({
     sourceSha: WORKFLOW_EXECUTION_SHA,
     workflowExecutionSha: WORKFLOW_EXECUTION_SHA,
@@ -1094,6 +1094,63 @@ test("candidate canary generator permits only Happy Farm RN and Lizard Tycoon Go
   }
 
   const { root, manifest: original } = await fixtureRepository("saju-reader");
+  const capacitor = {
+    ...original,
+    repositoryId: "1335099739",
+    sourceSha: git(root, ["rev-parse", "HEAD"]),
+    workflowBundleBinding: {
+      sourceSha: candidate.source.sha,
+      payloadDigest: candidate.integrity.payloadDigest,
+    },
+  };
+  const capacitorBinding = await resolvedBinding(root, capacitor);
+  const capacitorCaller = generateCandidateStaticCallerV5({
+    candidateBundleBinding,
+    resolvedBinding: capacitorBinding,
+  });
+  const capacitorDocument = parse(capacitorCaller);
+  assert.deepEqual(capacitorDocument.on, {
+    pull_request: { paths: [".github/workflows/org-contract.yml"] },
+  });
+  assert.equal(capacitorDocument.jobs["org-contract"].uses,
+    `seorilabs/.github/.github/workflows/js-static-checks-v1.yml@${WORKFLOW_EXECUTION_SHA}`);
+  assert.doesNotMatch(capacitorCaller, /push:|workflow_dispatch:|secrets:|runs-on:|@main\b/u);
+  assert.equal(validateCandidateStaticCallerV5(capacitorCaller, {
+    candidateBundleBinding,
+    resolvedBinding: capacitorBinding,
+  }).ok, true);
+  assert.throws(() => generateCandidateBuildCallerV5({
+    candidateBundleBinding,
+    resolvedBinding: capacitorBinding,
+    target: "android",
+  }), /BUILD_PROFILE_NOT_PROMOTED/u);
+  const crossedAndroidBinding = await resolvedBinding(root, {
+    ...capacitor,
+    staticBinding: { ...capacitor.staticBinding, profile: "react-native" },
+    buildBindings: [{
+      ...capacitor.buildBindings.find((binding) => binding.target === "android"),
+      buildProfile: "react-native-android",
+    }],
+  });
+  assert.throws(() => generateCandidateBuildCallerV5({
+    candidateBundleBinding,
+    resolvedBinding: crossedAndroidBinding,
+    target: "android",
+  }), /CANDIDATE_BUILD_REPOSITORY_NOT_ALLOWED/u);
+  assert.throws(() => generateCandidateStaticCallerV5({
+    candidateBundleBinding,
+    resolvedBinding: crossedAndroidBinding,
+  }), /CANDIDATE_STATIC_REPOSITORY_NOT_ALLOWED/u);
+  for (const changed of [
+    { repositoryId: "7001" },
+    { fullName: "seorilabs/other-app" },
+  ]) {
+    const wrongBinding = await resolvedBinding(root, { ...capacitor, ...changed });
+    assert.throws(() => generateCandidateStaticCallerV5({
+      candidateBundleBinding,
+      resolvedBinding: wrongBinding,
+    }), /CANDIDATE_STATIC_REPOSITORY_NOT_ALLOWED/u);
+  }
   const crossed = {
     ...original,
     repositoryId: "1250442131",

@@ -137,6 +137,13 @@ const CANDIDATE_CANARIES = Object.freeze({
     buildProfile: "godot-android",
   }),
 });
+const CANDIDATE_STATIC_CANARIES = Object.freeze({
+  ...CANDIDATE_CANARIES,
+  "1335099739": Object.freeze({
+    fullName: "seorilabs/saju-reader",
+    staticProfile: "capacitor",
+  }),
+});
 
 function fail(code) {
   throw new Error(code);
@@ -878,8 +885,8 @@ function selectedBuild(manifest, target) {
   return candidates[0];
 }
 
-function candidateCanary(manifest, diagnostic) {
-  const allowed = CANDIDATE_CANARIES[manifest.repositoryId];
+function candidateCanary(manifest, diagnostic, canaries = CANDIDATE_CANARIES) {
+  const allowed = canaries[manifest.repositoryId];
   if (
     !allowed ||
     manifest.fullName !== allowed.fullName ||
@@ -945,7 +952,9 @@ function buildCaller(bundle, manifest, target, { candidate = false } = {}) {
 
 function staticCaller(bundle, manifest, { candidate = false } = {}) {
   if (manifest.state === "DEPRECATED") fail("DEPRECATED_NO_CALLER");
-  if (candidate) candidateCanary(manifest, "CANDIDATE_STATIC_REPOSITORY_NOT_ALLOWED");
+  if (candidate) {
+    candidateCanary(manifest, "CANDIDATE_STATIC_REPOSITORY_NOT_ALLOWED", CANDIDATE_STATIC_CANARIES);
+  }
   if (candidate && (
     manifest.workflowBundleBinding?.sourceSha !== bundle.source.sha ||
     manifest.workflowBundleBinding?.payloadDigest !== bundle.integrity.payloadDigest

@@ -155,6 +155,9 @@ merge의 실제 lockfile hash를 모두 확인한다. 같은 PR에서 head 또�
 같아도 이전 후보 승인을 재사용하지 않는다. 기존 동일-lock source 재결합으로 후보의 base를
 이동시키지 않는다. main, 다른 PR, Android 실행에는 후보 필드를 제외한 기존 예외만 전달한다.
 원본 ConfigRevision과 서명 snapshot은 후보를 포함한 전체 승인을 보존한다.
+새 번들의 필수 `static:capacitor` 증거는 운글의 STATIC 전용 candidate caller로 수집한다.
+중앙 generator는 실제 운글 repo ID/name/profile 조합만 추가 허용하며, Android candidate
+생성·실행 대상은 기존 Happy Farm과 Lizard Tycoon 두 앱으로 유지한다.
 
 새 static consumer는 PR 번호와 head를 실행 이벤트와 대조하고, staging은 실제 checkout이
 승인된 merge SHA인지와 lock bytes가 후보 hash인지 확인한 뒤 기존의 전체 advisory 검사를
