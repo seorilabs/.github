@@ -965,13 +965,13 @@ function staticCaller(bundle, manifest, { candidate = false } = {}) {
   const workflow = bundle.staticProfiles[staticBinding.profile];
   return workflowDocument({
     name: "Org Contract",
-    on: candidate
-      ? { pull_request: { paths: [".github/workflows/org-contract.yml"] } }
-      : {
-          pull_request: { branches: ["main"] },
-          push: { branches: ["main"] },
-          workflow_dispatch: {},
-        },
+    // 고정 canary도 보안 패치 병합 뒤 main 검사를 유지한다. CANDIDATE 사용은
+    // 위의 repo/profile과 signed ACTIVE binding으로 제한하며 Android trigger는 별개다.
+    on: {
+      pull_request: { branches: ["main"] },
+      push: { branches: ["main"] },
+      workflow_dispatch: {},
+    },
     permissions: staticPermissions(staticBinding.profile),
     concurrency: {
       group: "org-contract-${{ github.repository_id }}-${{ github.ref }}",

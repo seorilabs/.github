@@ -158,6 +158,13 @@ merge의 실제 lockfile hash를 모두 확인한다. 같은 PR에서 head 또�
 새 번들의 필수 `static:capacitor` 증거는 운글의 STATIC 전용 candidate caller로 수집한다.
 중앙 generator는 실제 운글 repo ID/name/profile 조합만 추가 허용하며, Android candidate
 생성·실행 대상은 기존 Happy Farm과 Lizard Tycoon 두 앱으로 유지한다.
+고정 세 앱의 STATIC candidate caller도 main 대상 PR, main push, 수동 main 검사 조건을
+유지한다. workflow 파일만 바뀐 PR에서 실행하는 조건을 남기면 보안 패치를 병합한 뒤 main
+검사가 사라지고, main을 빌드하는 Android 검증까지 진행할 수 없기 때문이다. 생성 시 중앙
+bundle artifact의 CANDIDATE integrity와 서버가 검증한 ACTIVE binding을 확인한다. 실행 시에는
+기존 OIDC default-branch·exact source 검증과 서명된 ACTIVE bundle SHA·감사 승인을 적용한다.
+STATIC runtime이 registry 승인 상태를 매번 조회하는 것은 아니다. 이 경로는 고정 canary의
+정적 검증만 허용하며, 일반 fleet generator의 APPROVED 요구와 다섯 가지 승격 증거는 유지한다.
 
 새 static consumer는 PR 번호와 head를 실행 이벤트와 대조하고, staging은 실제 checkout이
 승인된 merge SHA인지와 lock bytes가 후보 hash인지 확인한 뒤 기존의 전체 advisory 검사를

@@ -1045,7 +1045,9 @@ test("candidate generator adds Ungeul static without widening the two Android ca
     });
     const candidateStaticDocument = parse(candidateStaticCaller);
     assert.deepEqual(candidateStaticDocument.on, {
-      pull_request: { paths: [".github/workflows/org-contract.yml"] },
+      pull_request: { branches: ["main"] },
+      push: { branches: ["main"] },
+      workflow_dispatch: {},
     });
     assert.equal(
       candidateStaticDocument.jobs["org-contract"].uses,
@@ -1054,12 +1056,16 @@ test("candidate generator adds Ungeul static without widening the two Android ca
     assert.equal(candidateStaticDocument.permissions["id-token"], "write");
     assert.doesNotMatch(
       candidateStaticCaller,
-      /push:|workflow_dispatch:|\bwith:|secrets:|runs-on:|@main\b/u,
+      /\bwith:|secrets:|runs-on:|@main\b/u,
     );
     assert.equal(validateCandidateStaticCallerV5(candidateStaticCaller, {
       candidateBundleBinding,
       resolvedBinding: resolved,
     }).ok, true);
+    assert.equal(validateCandidateStaticCallerV5(
+      candidateStaticCaller.replace("  push:\n    branches:\n      - main\n", ""),
+      { candidateBundleBinding, resolvedBinding: resolved },
+    ).ok, false);
 
     const candidateCaller = generateCandidateBuildCallerV5({
       candidateBundleBinding,
@@ -1084,6 +1090,10 @@ test("candidate generator adds Ungeul static without widening the two Android ca
       },
     };
     const approvedResolved = await resolvedBinding(root, approvedManifest);
+    assert.equal(candidateStaticCaller, generateStaticCallerV5({
+      approvedBundleBinding: approved.binding,
+      resolvedBinding: approvedResolved,
+    }), "The same workflow SHA keeps the canary caller unchanged after approval");
     const approvedCaller = generateBuildCallerV5({
       approvedBundleBinding: approved.binding,
       resolvedBinding: approvedResolved,
@@ -1110,15 +1120,28 @@ test("candidate generator adds Ungeul static without widening the two Android ca
   });
   const capacitorDocument = parse(capacitorCaller);
   assert.deepEqual(capacitorDocument.on, {
-    pull_request: { paths: [".github/workflows/org-contract.yml"] },
+    pull_request: { branches: ["main"] },
+    push: { branches: ["main"] },
+    workflow_dispatch: {},
   });
   assert.equal(capacitorDocument.jobs["org-contract"].uses,
     `seorilabs/.github/.github/workflows/js-static-checks-v1.yml@${WORKFLOW_EXECUTION_SHA}`);
-  assert.doesNotMatch(capacitorCaller, /push:|workflow_dispatch:|secrets:|runs-on:|@main\b/u);
+  assert.doesNotMatch(capacitorCaller, /secrets:|runs-on:|@main\b/u);
   assert.equal(validateCandidateStaticCallerV5(capacitorCaller, {
     candidateBundleBinding,
     resolvedBinding: capacitorBinding,
   }).ok, true);
+  const approvedCapacitorBinding = await resolvedBinding(root, {
+    ...capacitor,
+    workflowBundleBinding: {
+      sourceSha: approved.approved.source.sha,
+      payloadDigest: approved.approved.integrity.payloadDigest,
+    },
+  });
+  assert.equal(capacitorCaller, generateStaticCallerV5({
+    approvedBundleBinding: approved.binding,
+    resolvedBinding: approvedCapacitorBinding,
+  }));
   assert.throws(() => generateCandidateBuildCallerV5({
     candidateBundleBinding,
     resolvedBinding: capacitorBinding,
