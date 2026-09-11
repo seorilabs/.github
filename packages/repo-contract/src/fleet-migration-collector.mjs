@@ -12,7 +12,7 @@ import {
   computeFleetMigrationShadowCohortDigest,
   computeFleetRepositoryReadbackDigest,
   fleetMigrationContract,
-  isFleetMigrationBaselineSuccessionBound,
+  fleetMigrationBaselineSuccessionReasons,
   validateFleetMigrationInventory,
 } from "./fleet-migration.mjs";
 
@@ -2035,15 +2035,16 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
         );
       }
       // 승계는 shadow 단계에서 이미 서명까지 확인한다. 권위 발급에서만 확인하면 잘못된
-      // 승계가 occurrence를 소모한 뒤에야 드러난다.
-      if (
-        inventory.baselineSuccession !== null &&
-        !isFleetMigrationBaselineSuccessionBound(
+      // 승계가 occurrence를 소모한 뒤에야 드러난다. 사유는 고정 상수라 그대로 공개
+      // code로 올린다. 단일 코드로 가리면 어디가 틀렸는지 배포마다 다시 찾아야 한다.
+      if (inventory.baselineSuccession !== null) {
+        const successionReasons = fleetMigrationBaselineSuccessionReasons(
           inventory,
           trustedConfiguration.trustedInventoryKeys,
-        )
-      ) {
-        throw new Error("FLEET_MIGRATION_BASELINE_SUCCESSION_INVALID");
+        );
+        if (successionReasons.length > 0) {
+          throw new Error(`FLEET_MIGRATION_${successionReasons[0]}`);
+        }
       }
       const inventoryDigest = computeFleetMigrationInventoryDigest(inventory);
       const claim = validateOccurrenceClaim(

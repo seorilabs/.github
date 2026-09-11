@@ -29,6 +29,7 @@ import {
   createFleetMigrationAttestationPayload,
   deriveFleetMigrationInventoryCheckpoint,
   createFleetMigrationBaselineSuccessionPayload,
+  fleetMigrationBaselineSuccessionReasons,
   fleetMigrationContract,
   isFleetMigrationBaselineRatificationBound,
   isFleetMigrationBaselineSuccessionBound,
@@ -1892,12 +1893,12 @@ test("서명된 승계는 archive된 repository를 설명하고 inventory에 그
     collection.inventory.baselineRatification,
     fleetMigrationContract.initialBaseline.ratification,
   );
-  assert.equal(
-    isFleetMigrationBaselineSuccessionBound(
+  assert.deepEqual(
+    fleetMigrationBaselineSuccessionReasons(
       collection.inventory,
       fixture.configuration.trustedInventoryKeys,
     ),
-    true,
+    [],
   );
 });
 
@@ -1939,7 +1940,7 @@ test("신뢰되지 않은 키 서명과 설명되지 않은 전이는 shadow 단
   });
   await assert.rejects(
     collect(untrusted.fixture, { ...REQUEST, baselineSuccession: forged }),
-    /FLEET_MIGRATION_BASELINE_SUCCESSION_INVALID/u,
+    /FLEET_MIGRATION_BASELINE_SUCCESSION_ATTESTATION_UNTRUSTED/u,
   );
 
   const mislabelled = await archivedOneFixture(nowMs);
@@ -1956,9 +1957,11 @@ test("신뢰되지 않은 키 서명과 설명되지 않은 전이는 shadow 단
     signedAt: new Date(nowMs).toISOString(),
     privateKey: mislabelled.fixture.successionPrivateKey,
   });
+  // 두 실패가 같은 code로 뭉치면 배포마다 원인을 다시 찾아야 한다. 사유가 서로 다른
+  // 공개 code로 올라오는지 확인한다.
   await assert.rejects(
     collect(mislabelled.fixture, { ...REQUEST, baselineSuccession: unexplained }),
-    /FLEET_MIGRATION_BASELINE_SUCCESSION_INVALID/u,
+    /FLEET_MIGRATION_BASELINE_SUCCESSION_(?:COHORT_UNEXPLAINED|DRIFT_UNEXPLAINED)/u,
   );
 });
 
@@ -2009,4 +2012,23 @@ test("issuer는 승계로 설명된 cohort를 권위 inventory로 발급한다",
     makeIssuer(fixture, keys).issueAuthoritative(unexplained),
     /FLEET_MIGRATION_INVENTORY_NOT_AUTHORITATIVE/u,
   );
+});
+
+test("승계 판정은 reason 목록 하나에서만 파생한다", () => {
+  const source = readFileSync(
+    new URL(
+      "../packages/repo-contract/src/fleet-migration.mjs",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  // boolean 판정이 독립 구현을 갖게 되면 수집기가 보는 사유와 발급기가 보는 판정이
+  // 갈린다. 두 번째 구현이 생기지 않도록 소스 계약으로 고정한다.
+  const bound = source.slice(
+    source.indexOf("export function isFleetMigrationBaselineSuccessionBound("),
+  );
+  const body = bound.slice(0, bound.indexOf("\n}\n") + 2);
+  assert.match(body, /fleetMigrationBaselineSuccessionReasons\(/u);
+  assert.doesNotMatch(body, /baselineSuccessionReasons\(\s*inventory,\s*observedCounts/u);
+  assert.doesNotMatch(body, /hasExactFleetMigrationBaselineRatification/u);
 });
