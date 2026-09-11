@@ -2032,3 +2032,45 @@ test("승계 판정은 reason 목록 하나에서만 파생한다", () => {
   assert.doesNotMatch(body, /baselineSuccessionReasons\(\s*inventory,\s*observedCounts/u);
   assert.doesNotMatch(body, /hasExactFleetMigrationBaselineRatification/u);
 });
+
+test("blob inventory digest는 읽은 시각이 아니라 저장소 내용의 함수다", async () => {
+  // 증적(proof)은 이 digest를 결박하고, 뒤 단계의 shadow가 다시 스캔해 대조한다.
+  // 읽은 시각이 섞여 있으면 같은 저장소 상태인데도 절대 재현되지 않는다.
+  const base = Date.now();
+  const fixtureRequest = { ...REQUEST, baselineRatification: null, mode: "FIXTURE" };
+  const first = await collect(makeCollectorFixture({ count: 38, nowMs: base }), fixtureRequest);
+  const later = await collect(
+    makeCollectorFixture({ count: 38, nowMs: base + 3_600_000 }),
+    fixtureRequest,
+  );
+
+  const inventoryDigests = (collection) => collection.inventory.collectionEvidence
+    .repositoryEvidence
+    .map(({ blobInventoryDigest }) => blobInventoryDigest);
+  const scanned = first.inventory.collectionEvidence.repositoryEvidence
+    .filter(({ blobReadbacks }) => blobReadbacks.length > 0);
+  assert.ok(scanned.length > 0, "blob을 읽은 저장소가 있어야 한다");
+  assert.deepEqual(inventoryDigests(first), inventoryDigests(later));
+
+  // 읽은 사실 자체는 증거에 남는다. 시각을 digest에서 뺀 것이지 지운 것이 아니다.
+  const index = first.inventory.collectionEvidence.repositoryEvidence
+    .findIndex(({ blobReadbacks }) => blobReadbacks.length > 0);
+  const readback = first.inventory.collectionEvidence
+    .repositoryEvidence[index].blobReadbacks[0];
+  assert.match(readback.readbackId, /^github-blob-readback-/u);
+  assert.notEqual(
+    readback.observedAt,
+    later.inventory.collectionEvidence
+      .repositoryEvidence[index].blobReadbacks[0].observedAt,
+  );
+
+  // 반증: 내용이 바뀌면 digest도 바뀌어야 한다.
+  const mutated = makeCollectorFixture({ count: 38, nowMs: base });
+  const repositoryBlobs = mutated.blobs.find((list) => list.length > 0);
+  repositoryBlobs[0] = {
+    ...repositoryBlobs[0],
+    text: `${repositoryBlobs[0].text}\n# drift\n`,
+  };
+  const changed = await collect(mutated, fixtureRequest);
+  assert.notDeepEqual(inventoryDigests(changed), inventoryDigests(first));
+});
