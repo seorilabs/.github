@@ -12,6 +12,7 @@ import {
   computeFleetMigrationShadowCohortDigest,
   computeFleetRepositoryReadbackDigest,
   fleetMigrationContract,
+  fleetMigrationBaselineSuccessionReasons,
   validateFleetMigrationInventory,
 } from "./fleet-migration.mjs";
 
@@ -1756,6 +1757,15 @@ async function readDurableCollection(configuration, claim) {
   return collection;
 }
 
+// 승계 서명 검증에 쓰는 신뢰 공개키 레지스트리다. 승계를 쓰지 않는 실행에서도 명시하게
+// 해 trust root가 호출부마다 달라지지 않도록 한다.
+function isTrustedKeyRegistry(value) {
+  return (
+    value instanceof Map ||
+    (typeof value === "object" && value !== null && !Array.isArray(value))
+  );
+}
+
 function validateConfiguration(configuration) {
   const requiredKeys = [
     "claimOccurrence",
@@ -1773,6 +1783,7 @@ function validateConfiguration(configuration) {
     "readOccurrence",
     "readRepositoryHead",
     "readRepositoryTree",
+    "trustedInventoryKeys",
     "validateLegacyDocument",
   ];
   if (
@@ -1784,6 +1795,7 @@ function validateConfiguration(configuration) {
     !Number.isSafeInteger(configuration.pageSize) ||
     configuration.pageSize < 1 ||
     configuration.pageSize > 100 ||
+    !isTrustedKeyRegistry(configuration.trustedInventoryKeys) ||
     !requiredKeys
       .filter(
         (key) =>
@@ -1793,6 +1805,7 @@ function validateConfiguration(configuration) {
             "installationId",
             "organizationId",
             "pageSize",
+            "trustedInventoryKeys",
           ].includes(key),
       )
       .every((key) => typeof configuration[key] === "function")
@@ -1811,6 +1824,7 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
       if (
         !exactKeys(input, [
           "baselineRatification",
+          "baselineSuccession",
           "deliveryId",
           "inventoryId",
           "mode",
@@ -1821,11 +1835,15 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
         !EVIDENCE_ID_PATTERN.test(input.requestedRunId ?? "") ||
         !MODES.includes(input.mode) ||
         (input.mode === "FIXTURE"
-          ? input.baselineRatification !== null
+          ? input.baselineRatification !== null ||
+            input.baselineSuccession !== null
           : canonicalJson(input.baselineRatification) !==
               canonicalJson(baselineRatification) ||
             trustedConfiguration.detectorRepositoryId !==
-              baselineRatification.detector.repositoryId)
+              baselineRatification.detector.repositoryId ||
+            (input.baselineSuccession !== null &&
+              (typeof input.baselineSuccession !== "object" ||
+                Array.isArray(input.baselineSuccession))))
       ) {
         throw new Error("FLEET_MIGRATION_COLLECTION_REQUEST_INVALID");
       }
@@ -1891,6 +1909,7 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
           detectorRepositoryId: trustedConfiguration.detectorRepositoryId,
           detectorSourceSha: trustedConfiguration.detectorSourceSha,
           baselineRatification: structuredClone(input.baselineRatification),
+          baselineSuccession: structuredClone(input.baselineSuccession),
           githubAppCapabilityDigest: githubAppCapability.evidenceDigest,
           query: {
             organizationLogin: ORGANIZATION_LOGIN,
@@ -1951,13 +1970,21 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
       } catch {
         throw new Error("FLEET_MIGRATION_BASELINE_RATIFICATION_MISMATCH");
       }
-      if (
-        input.mode === "READ_ONLY_SHADOW" &&
-        (canonicalJson(collectedExpectedCounts) !==
-          canonicalJson(baselineRatification.expectedCounts) ||
-          collectedCohortDigest !== baselineRatification.cohortDigest)
-      ) {
-        throw new Error("FLEET_MIGRATION_BASELINE_RATIFICATION_MISMATCH");
+      // ratified 원본과 정확히 같으면 승계 객체를 허용하지 않는다. 다르면 수치를 덮어쓰지
+      // 않고, 어떤 repository가 cohort에서 빠지고 들어왔는지 서명으로 설명한 승계가 있을
+      // 때만 진행한다. 둘 중 어느 경우에도 관측값 자체는 바꾸지 않는다.
+      const matchesRatifiedBaseline =
+        canonicalJson(collectedExpectedCounts) ===
+          canonicalJson(baselineRatification.expectedCounts) &&
+        collectedCohortDigest === baselineRatification.cohortDigest;
+      if (input.mode === "READ_ONLY_SHADOW") {
+        if (matchesRatifiedBaseline) {
+          if (input.baselineSuccession !== null) {
+            throw new Error("FLEET_MIGRATION_BASELINE_SUCCESSION_NOT_ALLOWED");
+          }
+        } else if (input.baselineSuccession === null) {
+          throw new Error("FLEET_MIGRATION_BASELINE_RATIFICATION_MISMATCH");
+        }
       }
       const inventory = {
         schemaVersion: 4,
@@ -1981,6 +2008,10 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
           input.mode === "FIXTURE"
             ? null
             : structuredClone(input.baselineRatification),
+        baselineSuccession:
+          input.mode === "FIXTURE"
+            ? null
+            : structuredClone(input.baselineSuccession),
         lineage: {
           mode: "BOOTSTRAP",
           waveNumber: 0,
@@ -2002,6 +2033,18 @@ export function createFleetMigrationReadOnlyCollector(configuration = {}) {
         throw new Error(
           `FLEET_MIGRATION_COLLECTED_INVENTORY_INVALID:${inventoryValidation.diagnostics.join(",")}`,
         );
+      }
+      // 승계는 shadow 단계에서 이미 서명까지 확인한다. 권위 발급에서만 확인하면 잘못된
+      // 승계가 occurrence를 소모한 뒤에야 드러난다. 사유는 고정 상수라 그대로 공개
+      // code로 올린다. 단일 코드로 가리면 어디가 틀렸는지 배포마다 다시 찾아야 한다.
+      if (inventory.baselineSuccession !== null) {
+        const successionReasons = fleetMigrationBaselineSuccessionReasons(
+          inventory,
+          trustedConfiguration.trustedInventoryKeys,
+        );
+        if (successionReasons.length > 0) {
+          throw new Error(`FLEET_MIGRATION_${successionReasons[0]}`);
+        }
       }
       const inventoryDigest = computeFleetMigrationInventoryDigest(inventory);
       const claim = validateOccurrenceClaim(

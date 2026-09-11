@@ -34,6 +34,7 @@ import {
 const REQUEST = Object.freeze({
   baselineRatification:
     fleetMigrationContract.initialBaseline.ratification,
+  baselineSuccession: null,
   deliveryId: "fleet-cleanup-collector-delivery-0001",
   inventoryId: "fleet-cleanup-inventory-0001",
   mode: "READ_ONLY_SHADOW",

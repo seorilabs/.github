@@ -777,10 +777,15 @@ function baselineSuccessionReasons(
   ) {
     reasons.push("BASELINE_SUCCESSION_ROOT_MISMATCH");
   }
+  // 승계가 주장하는 detector와, live inventory에 실제로 남아 있는 detector repository가
+  // 모두 맞아야 한다. 이 확인이 없으면 승계가 detector 자신을 "빠졌다"고 설명해 통과할 수
+  // 있고, 비준 경로에서 fleetMigrationDetectorRepository가 막던 것이 승계 경로에서만
+  // 사라진다.
   if (
     succession.detector.repositoryId !==
       BASELINE_RATIFICATION.detector.repositoryId ||
-    succession.detector.sourceSha !== inventory.detector.sourceSha
+    succession.detector.sourceSha !== inventory.detector.sourceSha ||
+    fleetMigrationDetectorRepository(inventory) === null
   ) {
     reasons.push("BASELINE_SUCCESSION_DETECTOR_MISMATCH");
   }
@@ -853,20 +858,36 @@ function baselineSuccessionReasons(
   return sortedUnique(reasons);
 }
 
-export function isFleetMigrationBaselineSuccessionBound(
+// 승계가 왜 막혔는지는 단일 boolean으로 알 수 없다. 수집기가 사유를 그대로 공개
+// code로 올릴 수 있도록 reason 목록을 노출하고, 판정은 이 목록 하나에서만 파생한다.
+export function fleetMigrationBaselineSuccessionReasons(
   inventory,
   trustedInventoryKeys,
 ) {
   try {
-    return (
-      hasExactFleetMigrationBaselineRatification(inventory) &&
-      baselineSuccessionReasons(inventory, observedCounts(inventory.repositories), {
-        trustedInventoryKeys,
-      }).length === 0
+    if (!hasExactFleetMigrationBaselineRatification(inventory)) {
+      return Object.freeze(["INITIAL_BASELINE_MISMATCH"]);
+    }
+    return Object.freeze(
+      baselineSuccessionReasons(
+        inventory,
+        observedCounts(inventory.repositories),
+        { trustedInventoryKeys },
+      ),
     );
   } catch {
-    return false;
+    return Object.freeze(["BASELINE_SUCCESSION_UNREADABLE"]);
   }
+}
+
+export function isFleetMigrationBaselineSuccessionBound(
+  inventory,
+  trustedInventoryKeys,
+) {
+  return (
+    fleetMigrationBaselineSuccessionReasons(inventory, trustedInventoryKeys)
+      .length === 0
+  );
 }
 
 function normalizedInventoryForDigest(inventory) {

@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 
 import {
   validateFleetMigrationLegacyDocument,
@@ -20,6 +20,10 @@ export const APP_SLUG = "seorilabs-backoffice";
 export const DETECTOR_REPOSITORY_ID = "1241442018";
 export const DETECTOR_SHA = "cd13b325918cb10401e089074461ba11042c154e";
 export const WORKFLOW_BUNDLE_SHA = "d".repeat(40);
+// trusted-inventory-issuer가 승계와 inventory attestation 검증에 쓰는 trust root ID다.
+// 두 경로가 같은 키를 요구하므로 fixture도 같은 ID를 쓴다.
+export const INVENTORY_KEY_ID = "platform-fleet-release-20260829-5458c56b";
+export const INVENTORY_POLICY_REVISION = "fleet-inventory-policy-0001";
 export const RATIFIED_COHORT = Object.freeze([
   {
     id: "1317999271",
@@ -1405,7 +1409,11 @@ export function makeCollectorFixture({
     nonCanonicalBase64: false,
   };
   const headReads = new Map();
+  // 승계 서명 검증 경로를 fixture에서도 실제 Ed25519 키로 실행한다. 서명 없이 통과하는
+  // 경로가 생기면 shadow 단계의 검증이 사실상 사라진다.
+  const successionKeys = generateKeyPairSync("ed25519");
   const configuration = {
+    trustedInventoryKeys: { [INVENTORY_KEY_ID]: successionKeys.publicKey },
     organizationId: ORGANIZATION_ID,
     installationId: INSTALLATION_ID,
     detectorRepositoryId: DETECTOR_REPOSITORY_ID,
@@ -1546,6 +1554,7 @@ export function makeCollectorFixture({
     durable,
     faults,
     repositories,
+    successionPrivateKey: successionKeys.privateKey,
   };
 }
 
