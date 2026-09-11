@@ -28,13 +28,17 @@ import {
   computeFleetRepositoryReadbackDigest,
   createFleetMigrationAttestationPayload,
   deriveFleetMigrationInventoryCheckpoint,
+  createFleetMigrationBaselineSuccessionPayload,
   fleetMigrationContract,
   isFleetMigrationBaselineRatificationBound,
+  isFleetMigrationBaselineSuccessionBound,
   validateFleetMigrationInventory,
 } from "../packages/repo-contract/src/fleet-migration.mjs";
 import {
   canonicalJson,
   makeCapability,
+  INVENTORY_KEY_ID,
+  INVENTORY_POLICY_REVISION,
   makeCollectorFixture,
   RATIFIED_COHORT,
 } from "./helpers/fleet-migration-collector-fixtures.mjs";
@@ -42,6 +46,7 @@ import {
 const REQUEST = Object.freeze({
   baselineRatification:
     fleetMigrationContract.initialBaseline.ratification,
+  baselineSuccession: null,
   deliveryId: "fleet-collector-delivery-0001",
   inventoryId: "fleet-inventory-collector-0001",
   mode: "READ_ONLY_SHADOW",
@@ -1034,6 +1039,7 @@ test("같은 provider vector의 duplicate delivery는 동일 durable occurrence�
   });
   const second = await collect(fixture, {
     baselineRatification: null,
+    baselineSuccession: null,
     deliveryId: "fleet-collector-delivery-duplicate-0002",
     inventoryId: "fleet-inventory-duplicate-ignored-0002",
     mode: "FIXTURE",
@@ -1060,6 +1066,7 @@ test("completion 결과 불명은 재수집 뒤 같은 occurrence/run의 durable
   );
   const resumed = await collect(fixture, {
     baselineRatification: null,
+    baselineSuccession: null,
     deliveryId: "fleet-collector-delivery-resume-0002",
     inventoryId: "fleet-inventory-resume-0002",
     mode: "FIXTURE",
@@ -1735,5 +1742,271 @@ test("public contracts에는 authoritative gate와 secret-free issuer 경계를 
       "repository",
       "workflow_run",
     ]),
+  );
+});
+
+// ratified 기준선(38곳)에서 실제로 빠진 repository를 서명으로 설명하는 승계 경로를
+// collector와 issuer 양쪽에서 검증한다. 이 경로가 없으면 archive 이후의 cohort는
+// 어떤 shadow도 통과하지 못한다.
+function ratifiedPriorCohort() {
+  return RATIFIED_COHORT.map((entry) => ({
+    id: entry.id,
+    fullName: entry.fullName,
+    defaultRef: `refs/heads/${entry.defaultBranch}`,
+    sourceSha: entry.sourceSha,
+    archived: false,
+    private: entry.private,
+    fork: false,
+  }));
+}
+
+function signedSuccession({
+  expectedCounts,
+  transitions,
+  detectorSourceSha,
+  observedAt,
+  signedAt,
+  privateKey,
+  keyId = INVENTORY_KEY_ID,
+}) {
+  const succession = {
+    reason: "ACTIVE_COHORT_LIFECYCLE_TRANSITION",
+    supersedes: {
+      cohortDigest:
+        fleetMigrationContract.initialBaseline.ratification.cohortDigest,
+      expectedCounts: structuredClone(
+        fleetMigrationContract.initialBaseline.expectedCounts,
+      ),
+    },
+    expectedCounts: structuredClone(expectedCounts),
+    detector: {
+      repositoryId:
+        fleetMigrationContract.initialBaseline.ratification.detector
+          .repositoryId,
+      sourceSha: detectorSourceSha,
+    },
+    priorCohort: ratifiedPriorCohort(),
+    transitions,
+    observedAt,
+    attestation: {
+      algorithm: "Ed25519",
+      purpose: "FLEET_MIGRATION_BASELINE_SUCCESSION",
+      keyId,
+      policyRevision: INVENTORY_POLICY_REVISION,
+      signedAt,
+      value: "",
+    },
+  };
+  // payload는 organization/installation만 inventory에서 읽는다. 둘 다 계약 상수라
+  // 실제 수집 전에 서명할 수 있다.
+  const anchor = {
+    organization: { id: fleetMigrationCollectorContract.organizationId },
+    coverage: {
+      installationId: fleetMigrationCollectorContract.githubApp.installationId,
+    },
+  };
+  succession.attestation.value = signEd25519(
+    null,
+    createFleetMigrationBaselineSuccessionPayload(anchor, succession),
+    privateKey,
+  ).toString("base64url");
+  return succession;
+}
+
+// archive된 저장소는 provider 목록(archived: false 질의)에서 사라진다. fixture의 문서
+// 집합은 그대로 두고 목록에서만 빼서 실제 관측과 같은 상태를 만든다.
+async function archivedOneFixture(nowMs, { verifiedCapability = false } = {}) {
+  const fixture = makeCollectorFixture({
+    count: 38,
+    nowMs,
+    pageSize: 38,
+    verifiedCapability,
+  });
+  const detectorId =
+    fleetMigrationContract.initialBaseline.ratification.detector.repositoryId;
+  const removed = fixture.repositories.find(
+    ({ id, fullName }) =>
+      id !== detectorId && fullName !== "seorilabs/platform",
+  );
+  const readPage = fixture.configuration.readInstallationRepositoriesPage;
+  fixture.configuration.readInstallationRepositoriesPage = async (request) => {
+    const page = await readPage(request);
+    const repositories = page.repositories.filter(
+      ({ id }) => id !== removed.id,
+    );
+    return { ...page, repositories, providerTotalCount: repositories.length };
+  };
+  const prior = ratifiedPriorCohort().find(({ id }) => id === removed.id);
+  return { fixture, removed, prior };
+}
+
+function removalTransition(prior) {
+  return [
+    {
+      id: prior.id,
+      change: "REMOVED_ARCHIVED",
+      from: {
+        fullName: prior.fullName,
+        defaultBranch: prior.defaultRef.slice("refs/heads/".length),
+      },
+      to: null,
+      priorSourceSha: prior.sourceSha,
+    },
+  ];
+}
+
+test("승계 없이는 ratified cohort와 다른 관측을 shadow로 수집하지 못한다", async () => {
+  const { fixture } = await archivedOneFixture(Date.now());
+  await assert.rejects(
+    collect(fixture),
+    /FLEET_MIGRATION_BASELINE_RATIFICATION_MISMATCH/u,
+  );
+});
+
+test("서명된 승계는 archive된 repository를 설명하고 inventory에 그대로 실린다", async () => {
+  const nowMs = Date.now();
+  const probe = await archivedOneFixture(nowMs);
+  const probed = await collect(probe.fixture, {
+    ...REQUEST,
+    baselineRatification: null,
+    mode: "FIXTURE",
+  });
+  assert.equal(probed.inventory.repositories.length, 37);
+
+  const { fixture, prior } = await archivedOneFixture(nowMs);
+  const succession = signedSuccession({
+    expectedCounts: probed.inventory.expectedCounts,
+    transitions: removalTransition(prior),
+    detectorSourceSha: fixture.configuration.detectorSourceSha,
+    observedAt: new Date(nowMs - 1_000).toISOString(),
+    signedAt: new Date(nowMs).toISOString(),
+    privateKey: fixture.successionPrivateKey,
+  });
+
+  const collection = await collect(fixture, { ...REQUEST, baselineSuccession: succession });
+  assert.equal(collection.state, "SHADOW_COMPLETE");
+  assert.equal(collection.inventory.repositories.length, 37);
+  assert.deepEqual(collection.inventory.baselineSuccession, succession);
+  // ratification 자체는 승계가 붙어도 원본 그대로 남는다.
+  assert.deepEqual(
+    collection.inventory.baselineRatification,
+    fleetMigrationContract.initialBaseline.ratification,
+  );
+  assert.equal(
+    isFleetMigrationBaselineSuccessionBound(
+      collection.inventory,
+      fixture.configuration.trustedInventoryKeys,
+    ),
+    true,
+  );
+});
+
+test("ratified cohort를 그대로 관측하면 승계를 허용하지 않는다", async () => {
+  const nowMs = Date.now();
+  const { prior } = await archivedOneFixture(nowMs);
+  const fixture = makeCollectorFixture({ count: 38, nowMs });
+  const succession = signedSuccession({
+    expectedCounts: fleetMigrationContract.initialBaseline.expectedCounts,
+    transitions: removalTransition(prior),
+    detectorSourceSha: fixture.configuration.detectorSourceSha,
+    observedAt: new Date(nowMs - 1_000).toISOString(),
+    signedAt: new Date(nowMs).toISOString(),
+    privateKey: fixture.successionPrivateKey,
+  });
+  await assert.rejects(
+    collect(fixture, { ...REQUEST, baselineSuccession: succession }),
+    /FLEET_MIGRATION_BASELINE_SUCCESSION_NOT_ALLOWED/u,
+  );
+});
+
+test("신뢰되지 않은 키 서명과 설명되지 않은 전이는 shadow 단계에서 막는다", async () => {
+  const nowMs = Date.now();
+  const probe = await archivedOneFixture(nowMs);
+  const probed = await collect(probe.fixture, {
+    ...REQUEST,
+    baselineRatification: null,
+    mode: "FIXTURE",
+  });
+
+  const untrusted = await archivedOneFixture(nowMs);
+  const forged = signedSuccession({
+    expectedCounts: probed.inventory.expectedCounts,
+    transitions: removalTransition(untrusted.prior),
+    detectorSourceSha: untrusted.fixture.configuration.detectorSourceSha,
+    observedAt: new Date(nowMs - 1_000).toISOString(),
+    signedAt: new Date(nowMs).toISOString(),
+    privateKey: generateKeyPairSync("ed25519").privateKey,
+  });
+  await assert.rejects(
+    collect(untrusted.fixture, { ...REQUEST, baselineSuccession: forged }),
+    /FLEET_MIGRATION_BASELINE_SUCCESSION_INVALID/u,
+  );
+
+  const mislabelled = await archivedOneFixture(nowMs);
+  const wrongChange = removalTransition(mislabelled.prior);
+  wrongChange[0].change = "ADDED";
+  wrongChange[0].to = wrongChange[0].from;
+  wrongChange[0].from = null;
+  delete wrongChange[0].priorSourceSha;
+  const unexplained = signedSuccession({
+    expectedCounts: probed.inventory.expectedCounts,
+    transitions: wrongChange,
+    detectorSourceSha: mislabelled.fixture.configuration.detectorSourceSha,
+    observedAt: new Date(nowMs - 1_000).toISOString(),
+    signedAt: new Date(nowMs).toISOString(),
+    privateKey: mislabelled.fixture.successionPrivateKey,
+  });
+  await assert.rejects(
+    collect(mislabelled.fixture, { ...REQUEST, baselineSuccession: unexplained }),
+    /FLEET_MIGRATION_BASELINE_SUCCESSION_INVALID/u,
+  );
+});
+
+test("issuer는 승계로 설명된 cohort를 권위 inventory로 발급한다", async () => {
+  const nowMs = Date.now();
+  const probe = await archivedOneFixture(nowMs);
+  const probed = await collect(probe.fixture, {
+    ...REQUEST,
+    baselineRatification: null,
+    mode: "FIXTURE",
+  });
+
+  const keys = generateKeyPairSync("ed25519");
+  const { fixture, prior } = await archivedOneFixture(nowMs, {
+    verifiedCapability: true,
+  });
+  fixture.configuration.trustedInventoryKeys = {
+    [INVENTORY_KEY_ID]: keys.publicKey,
+  };
+  const succession = signedSuccession({
+    expectedCounts: probed.inventory.expectedCounts,
+    transitions: removalTransition(prior),
+    detectorSourceSha: fixture.configuration.detectorSourceSha,
+    observedAt: new Date(nowMs - 1_000).toISOString(),
+    signedAt: new Date(nowMs).toISOString(),
+    privateKey: keys.privateKey,
+  });
+  const collection = await collect(fixture, {
+    ...REQUEST,
+    baselineSuccession: succession,
+  });
+  const issuance = await makeIssuer(fixture, keys).issueAuthoritative(collection);
+  assert.equal(issuance.inventory.repositories.length, 37);
+  assert.deepEqual(issuance.inventory.baselineSuccession, succession);
+  assert.equal(
+    validateFleetMigrationAuthoritativeInventory(issuance, keys.publicKey, {
+      now: nowMs,
+    }).ok,
+    true,
+  );
+
+  // 같은 관측이라도 승계가 없으면 권위 발급을 통과하지 못한다.
+  const unexplained = structuredClone(collection);
+  unexplained.inventory.baselineSuccession = null;
+  refreshCollectionDigests(unexplained);
+  replaceDurableCollection(fixture, unexplained);
+  await assert.rejects(
+    makeIssuer(fixture, keys).issueAuthoritative(unexplained),
+    /FLEET_MIGRATION_INVENTORY_NOT_AUTHORITATIVE/u,
   );
 });

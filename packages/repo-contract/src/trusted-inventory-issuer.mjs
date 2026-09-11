@@ -17,6 +17,7 @@ import {
   createFleetMigrationAttestationPayload,
   fleetMigrationContract,
   isFleetMigrationBaselineRatificationBound,
+  isFleetMigrationBaselineSuccessionBound,
   loadTrustedFleetMigrationInventoryBinding,
   validateFleetMigrationInventory,
 } from "./fleet-migration.mjs";
@@ -276,8 +277,25 @@ async function readCurrentCapability(configuration, expectedCapability) {
   return deepFreeze(value);
 }
 
-function assertAuthoritativeBaseline(collection) {
+// ratified 원본 수치를 그대로 관측했거나, 그 차이를 서명으로 설명한 승계가 붙어 있어야
+// 권위 발급을 진행한다. 승계가 있어도 ratification 자체는 여전히 정확히 일치해야 한다.
+function baselineAuthority(inventory, trustedInventoryKeys) {
   const expected = fleetMigrationContract.initialBaseline.expectedCounts;
+  if ((inventory.baselineSuccession ?? null) === null) {
+    return (
+      canonicalJson(inventory.expectedCounts) === canonicalJson(expected) &&
+      isFleetMigrationBaselineRatificationBound(inventory) &&
+      inventory.repositories.length === expected.activeRepositories
+    );
+  }
+  return (
+    isFleetMigrationBaselineSuccessionBound(inventory, trustedInventoryKeys) &&
+    inventory.repositories.length ===
+      inventory.expectedCounts.activeRepositories
+  );
+}
+
+function assertAuthoritativeBaseline(collection, trustedInventoryKeys) {
   if (
     collection.mode !== "READ_ONLY_SHADOW" ||
     collection.state !== "SHADOW_COMPLETE" ||
@@ -285,12 +303,9 @@ function assertAuthoritativeBaseline(collection) {
     collection.readyForPlanning !== false ||
     collection.inventory.lineage.mode !== "BOOTSTRAP" ||
     collection.inventory.attestation !== null ||
-    canonicalJson(collection.inventory.expectedCounts) !==
-      canonicalJson(expected) ||
     canonicalJson(collection.inventory.baselineRatification) !==
       canonicalJson(fleetMigrationContract.initialBaseline.ratification) ||
-    !isFleetMigrationBaselineRatificationBound(collection.inventory) ||
-    collection.inventory.repositories.length !== expected.activeRepositories
+    !baselineAuthority(collection.inventory, trustedInventoryKeys)
   ) {
     throw new Error("FLEET_MIGRATION_INVENTORY_NOT_AUTHORITATIVE");
   }
@@ -442,7 +457,9 @@ export function createFleetMigrationInventoryIssuer(configuration = {}) {
         trustedConfiguration,
         collection,
       );
-      assertAuthoritativeBaseline(collection);
+      assertAuthoritativeBaseline(collection, {
+        [INVENTORY_KEY_ID]: publicKey,
+      });
       const capability = await readCurrentCapability(
         trustedConfiguration,
         collection.inventory.collectionEvidence.githubAppCapability,
