@@ -1449,9 +1449,13 @@ async function collectRepository(configuration, pageRepository) {
   ) {
     throw new Error("FLEET_MIGRATION_COLLECTOR_BLOB_READBACK_DUPLICATE");
   }
+  // readbackId와 observedAt은 "언제 읽었는지"라 같은 저장소 상태에서도 실행마다 바뀐다.
+  // 그 둘이 digest에 들어가면 blob inventory가 내용이 아니라 시각의 함수가 되어,
+  // 증적이 결박한 값을 뒤 실행이 재현하지 못하고 같은 관측의 occurrence도 매번 갈린다.
+  // 읽은 사실 자체는 repositoryEvidence.blobReadbacks에 원본 그대로 남는다.
   const blobInventoryDigest = sha256(
     canonicalJson({
-      contract: "seorilabs-fleet-migration-blob-inventory-v1",
+      contract: "seorilabs-fleet-migration-blob-inventory-v2",
       repositoryId: pageRepository.id,
       sourceSha: firstHead.sourceSha,
       treeSha: tree.treeSha,
@@ -1459,7 +1463,13 @@ async function collectRepository(configuration, pageRepository) {
       treeEntryCount: tree.entries.length,
       treeBlobCount: allBlobEntries.length,
       scannedBlobCount: scannedBlobEntries.length,
-      blobs: blobRecords,
+      blobs: blobRecords.map(({ path, mode, objectSha, size, contentDigest }) => ({
+        path,
+        mode,
+        objectSha,
+        size,
+        contentDigest,
+      })),
     }),
   );
   const backofficeRaw = await trustedReadback(
