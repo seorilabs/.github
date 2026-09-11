@@ -3290,3 +3290,39 @@ test("승계 서명은 신뢰 키와 전용 purpose로만 검증된다", () => {
     /BASELINE_SUCCESSION_ATTESTATION_UNTRUSTED/u,
   );
 });
+
+test("승계는 detector repository가 빠졌다고 설명할 수 없다", () => {
+  // 비준 경로는 fleetMigrationDetectorRepository로 detector row를 확인한다. 승계 경로가
+  // 그 확인 없이 통과하면 승계 하나로 detector 자신을 cohort에서 지울 수 있다.
+  const build = () => succeededCohortInventory({
+    mutate: (succession, live) => {
+      const index = live.repositories.findIndex(
+        ({ repository }) => repository.id === RATIFIED_DETECTOR_ID,
+      );
+      const [detector] = live.repositories.splice(index, 1);
+      const prior = succession.priorCohort.find(
+        ({ id }) => id === RATIFIED_DETECTOR_ID,
+      );
+      succession.transitions.push({
+        id: detector.repository.id,
+        change: "REMOVED_ARCHIVED",
+        from: {
+          fullName: prior.fullName,
+          defaultBranch: prior.defaultRef.slice("refs/heads/".length),
+        },
+        to: null,
+        priorSourceSha: prior.sourceSha,
+      });
+      succession.transitions.sort((left, right) =>
+        `${left.id}:${left.change}` < `${right.id}:${right.change}` ? -1 : 1,
+      );
+      const counts = countFindings(live.repositories);
+      succession.expectedCounts = structuredClone(counts);
+      live.expectedCounts = structuredClone(counts);
+    },
+  });
+  assert.throws(
+    () => trustedBinding(build()),
+    /BASELINE_SUCCESSION_DETECTOR_MISMATCH/u,
+  );
+});

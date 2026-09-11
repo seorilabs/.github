@@ -777,10 +777,15 @@ function baselineSuccessionReasons(
   ) {
     reasons.push("BASELINE_SUCCESSION_ROOT_MISMATCH");
   }
+  // 승계가 주장하는 detector와, live inventory에 실제로 남아 있는 detector repository가
+  // 모두 맞아야 한다. 이 확인이 없으면 승계가 detector 자신을 "빠졌다"고 설명해 통과할 수
+  // 있고, 비준 경로에서 fleetMigrationDetectorRepository가 막던 것이 승계 경로에서만
+  // 사라진다.
   if (
     succession.detector.repositoryId !==
       BASELINE_RATIFICATION.detector.repositoryId ||
-    succession.detector.sourceSha !== inventory.detector.sourceSha
+    succession.detector.sourceSha !== inventory.detector.sourceSha ||
+    fleetMigrationDetectorRepository(inventory) === null
   ) {
     reasons.push("BASELINE_SUCCESSION_DETECTOR_MISMATCH");
   }
