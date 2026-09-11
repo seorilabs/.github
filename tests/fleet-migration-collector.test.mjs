@@ -2074,3 +2074,41 @@ test("blob inventory digest는 읽은 시각이 아니라 저장소 내용의 �
   const changed = await collect(mutated, fixtureRequest);
   assert.notDeepEqual(inventoryDigests(changed), inventoryDigests(first));
 });
+
+test("repository 수락은 installation 갱신과의 짧은 순서 역전을 견딘다", () => {
+  // GitHub은 installation을 바꾸는 사건의 repository webhook을 installation.updated_at을
+  // 찍기 전에 보낸다. 실측에서 저장소 하나가 추가될 때 수신이 0.32초 앞섰고, 그 사건을
+  // 증명하는 바로 그 전달이 순서 비교에서 탈락해 권위 발급이 막혔다.
+  const nowMs = Date.now();
+  const base = makeCollectorFixture({ count: 2, nowMs, verifiedCapability: true }).capability;
+  assert.equal(isFleetGitHubAppCapabilityVerified(base), true);
+
+  // 수락을 installation 갱신보다 deltaMs 만큼 앞당긴다. installation.updatedAt을 미래로
+  // 밀면 관측 시각 제약에 먼저 걸려 이 경계를 재지 못한다. digest는 다시 계산한다.
+  const shift = (capability, deltaMs) => {
+    const next = structuredClone(capability);
+    next.eventAcceptance.acceptedAt = new Date(
+      Date.parse(next.installation.updatedAt) - deltaMs,
+    ).toISOString();
+    next.eventAcceptance.evidenceDigest = computeFleetEvidenceDigest(next.eventAcceptance);
+    next.evidenceDigest = computeFleetEvidenceDigest(next);
+    return next;
+  };
+
+  // 같은 작업으로 볼 수 있는 폭(1분) 안의 역전은 통과한다.
+  assert.equal(isFleetGitHubAppCapabilityVerified(shift(base, 320)), true);
+  assert.equal(isFleetGitHubAppCapabilityVerified(shift(base, 60_000)), true);
+
+  // 반증: 그 폭을 넘어선 과거 수락은 여전히 stale로 막는다.
+  assert.equal(isFleetGitHubAppCapabilityVerified(shift(base, 60_001)), false);
+  assert.equal(isFleetGitHubAppCapabilityVerified(shift(base, 10 * 60_000)), false);
+
+  // 관측 시각보다 미래인 수락은 그대로 거부한다. 완화한 것은 한쪽 경계뿐이다.
+  const future = structuredClone(base);
+  future.eventAcceptance.acceptedAt = new Date(
+    Date.parse(future.observedAt) + 1_000,
+  ).toISOString();
+  future.eventAcceptance.evidenceDigest = computeFleetEvidenceDigest(future.eventAcceptance);
+  future.evidenceDigest = computeFleetEvidenceDigest(future);
+  assert.equal(isFleetGitHubAppCapabilityVerified(future), false);
+});
