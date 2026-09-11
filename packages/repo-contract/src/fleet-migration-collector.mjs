@@ -23,6 +23,10 @@ const GITHUB_APP_SLUG = "seorilabs-backoffice";
 const GITHUB_APP_INSTALLATION_ID = "142120077";
 const GITHUB_APP_WEBHOOK_URL = "https://backoffice.vzyx.xyz/api/webhooks";
 const MAX_INVENTORY_TTL_MS = 15 * 60 * 1000;
+// installation 갱신과 그 사건의 repository webhook 사이에 허용하는 순서 역전 폭이다.
+// 둘은 같은 GitHub 작업에서 나오지만 발신 순서가 보장되지 않는다. 실측 역전은 1초 미만이고,
+// 1분은 같은 작업으로 볼 수 있는 상한이면서 오래된 수락을 계속 걸러낸다.
+const INSTALLATION_ACCEPTANCE_SKEW_MS = 60 * 1000;
 const MAX_PAGES = 1000;
 const MAX_REPOSITORIES = 10000;
 const MAX_TREE_ENTRIES = 1000000;
@@ -461,8 +465,14 @@ export function isFleetGitHubAppCapabilityVerified(value) {
         canonicalJson(REQUIRED_GITHUB_APP_PERMISSIONS) &&
       capability.eventAcceptance.state === "ACCEPTED" &&
       capability.eventAcceptance.event === "repository" &&
+      // GitHub은 installation을 바꾸는 사건의 repository webhook을 installation.updated_at을
+      // 찍기 전에 보낸다. 실측에서 저장소 하나가 추가될 때 webhook 수신이 installation
+      // 갱신보다 0.32초 앞섰고, 그 사건을 증명하는 바로 그 전달이 순서 비교에서 탈락했다.
+      // 두 시각의 순서는 GitHub이 보장하지 않으므로 같은 작업으로 볼 수 있는 폭만 허용한다.
+      // 그 폭을 넘어선 과거 수락은 여전히 stale로 막는다.
       Date.parse(capability.eventAcceptance.acceptedAt) >=
-        Date.parse(capability.installation.updatedAt) &&
+        Date.parse(capability.installation.updatedAt) -
+          INSTALLATION_ACCEPTANCE_SKEW_MS &&
       Date.parse(capability.eventAcceptance.acceptedAt) <=
         Date.parse(capability.observedAt)
     );
