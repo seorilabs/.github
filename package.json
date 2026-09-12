@@ -6,8 +6,7 @@
   "exports": {
     "./repo-contract/bootstrap": "./packages/repo-contract/src/bootstrap.mjs",
     "./repo-contract/trusted-executor": "./packages/repo-contract/src/trusted-executor.mjs",
-    "./repo-contract/github-settings-readback": "./scripts/fleet/github-settings-readback.mjs",
-    "./repo-contract/workflow-bundle-v5": "./packages/repo-contract/src/workflow-bundle-v5.mjs"
+    "./repo-contract/github-settings-readback": "./scripts/fleet/github-settings-readback.mjs"
   },
   "files": [
     "contracts",

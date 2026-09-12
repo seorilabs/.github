@@ -76,23 +76,6 @@ callerKinds:
         mustAcceptArguments: ["--promote", "--promote-from-track", "--promote-to-track", "--promote-version-code"]
         # 트랙의 최신 build가 아니라 태그가 정한 versionCode만 승격한다.
         mustPromoteExactly: --promote-version-code
-  - id: workflow-bundle-v5-ait-build-only
-    calledWorkflow: .github/workflows/ait-build-only-v1.yml
-    # v5 정본은 caller 입력을 전혀 받지 않는다. 남아 있으면 workflow_call이 실패한다.
-    removeAllInputs: true
-    requiredRepositoryScripts:
-      - path: scripts/build-ait.sh
-        mustReadEnvironment: [SEORI_RELEASE_TAG, SEORI_RELEASE_VERSION, SEORI_RELEASE_VERSION_CODE]
-        mustWriteOutput: SEORI_AIT_OUTPUT
-  - id: workflow-bundle-v5-android-build-only
-    calledWorkflow: .github/workflows/rn-build-android-cloud-v2.yml
-    alsoAppliesTo: .github/workflows/godot-build-android-cloud-v2.yml
-    removeAllInputs: true
-    requiredRepositoryScripts:
-      - path: scripts/build-android.sh
-        mustReadEnvironment: [SEORI_RELEASE_TAG, SEORI_RELEASE_VERSION_NAME, SEORI_RELEASE_VERSION_CODE]
-        mustWriteOutput: SEORI_ANDROID_AAB_OUTPUT
-
 # caller 저장소에서 제거해야 하는 version authority. 남아 있으면 artifact readback이 fail-closed된다.
 removedRepositoryAuthorities:
   - scripts/resolve-release-version.mjs

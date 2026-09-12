@@ -161,33 +161,15 @@ trailer를 건너뛰고 payload를 찾으면 payload를 열지 못한 채 "versi
 `godot --export-release` 대상 preset에 같은 변수를 쓴다. 선택자가 없거나, 선택자가 실제 platform과
 다르거나, 같은 이름 preset이 둘 이상이면 주입 전에 fail-closed한다.
 
-## WorkflowBundle v5 정본 경로
+## Xcode Cloud 버전 주입
 
-v5 정본(`rn-build-android-cloud-v2.yml`, `godot-build-android-cloud-v2.yml`,
-`ait-build-only-v1.yml`)도 같은 authority를 쓴다.
-
-- release 실행은 `refs/tags/vX.Y.Z` push/dispatch에서만 시작한다(`binding_mode: RELEASE`).
-- Backoffice resolved manifest의 `sourceRef`가 그 태그 ref와 같아야 하고, WorkflowBundle 승인
-  상태가 `APPROVED`여야 한다. CANDIDATE 번들로는 마켓 artifact를 만들지 않는다.
-- 세 워크플로우 모두 caller 입력을 받지 않는다. build profile, 경로, 버전은 서명된 manifest와
-  태그에서만 나온다.
-- build 뒤 실제 artifact(AAB 컨테이너, `.ait` 컨테이너)를 다시 읽어 태그 파생값과 대조한다.
-- Cloud Build에는 `_SEORI_RELEASE_TAG`, `_SEORI_RELEASE_VERSION_NAME`,
-  `_SEORI_RELEASE_VERSION_CODE`로 주입한다. 앱 build script가 이 값을 무시하면 readback에서 걸린다.
-
-Apple archive는 Xcode Cloud가 표준 실행 환경이다. run envelope 계약은
-[`contracts/xcode-cloud-run-v5.schema.json`](../../contracts/xcode-cloud-run-v5.schema.json)이며
-`ci_pre_xcodebuild.sh`는 불변 중앙 commit의
+Apple archive는 Xcode Cloud가 표준 실행 환경이다. `ci_pre_xcodebuild.sh`는 불변 중앙 commit의
 `scripts/release/xcode-cloud-apply-tag-version.mjs`와 `tag-version-authority.mjs`를
 각각 checksum 검증한 뒤 실행한다. 앱 저장소에 별도 version resolver를 두지 않는다.
 helper의 `runtimeVersionCode`는 Android와 iOS 런타임이 공유하는 최소지원버전 비교값이며,
 native `CFBundleVersion`에는 Xcode Cloud가 발급한 `CI_BUILD_NUMBER`를 그대로 쓴다.
-`sourceRef`가 exact stable 태그 ref, `sourceReference.kind`가 `TAG`, `immutable`이 `true`여야 한다.
-build number는 run이 시작해야 정해지므로 envelope은 기대값 대신 정본 이름만 담는다
-(`release.appleBuildNumberAuthority`, `requiredReadback.buildNumberAuthority`). `requiredReadback`에는
-기대 commit, reference, workflow, marketing version이 들어가고, build number는 run readback에서
-양의 정수인지만 확인한다. 하나라도 어긋나면 그 archive를 마켓 경로로 넘기지 않는다. run 생성은
-`capacitor-ios-xcode-cloud` profile이 승격되기 전까지 `BUILD_PROFILE_NOT_PROMOTED`로 fail-closed다.
+build number는 run이 시작해야 정해지므로 미리 기대값을 박지 않고, run readback에서 양의
+정수인지만 확인한다.
 
 ## fail-closed 조건
 

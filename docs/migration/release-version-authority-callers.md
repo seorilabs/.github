@@ -32,8 +32,6 @@ node scripts/release/collect-caller-migration-inventory.mjs <저장소 경로> \
 | `release-tag` | `runs_on` | 러너는 `seorilabs-rpi-arm64`로 중앙 고정 |
 | `promote-google-play` | — | 업로드 도구가 `--promote-version-code`를 수용하고 그 build만 승격 |
 | `rn-build-android` | 같음 | — |
-| `ait-build-only-v1` (v5 정본) | caller 입력 **전체** | `scripts/build-ait.sh`가 `SEORI_RELEASE_TAG`, `SEORI_RELEASE_VERSION`을 읽어 주입 |
-| `rn-build-android-cloud-v2` / `godot-build-android-cloud-v2` (v5 정본) | caller 입력 **전체** | `scripts/build-android.sh`가 `SEORI_RELEASE_VERSION_NAME`, `SEORI_RELEASE_VERSION_CODE`를 읽어 주입 |
 
 `uses:`는 모두 40자리 commit SHA로 고정한다. `@main`, `@v1` 같은 floating ref는 이관 대상이
 아니라 즉시 결함이다. config revision을 고정할 수 없기 때문이다.

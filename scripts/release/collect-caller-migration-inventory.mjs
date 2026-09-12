@@ -27,16 +27,7 @@ export const CALLER_KIND_BY_WORKFLOW = Object.freeze({
   '.github/workflows/rn-build-android.yml': 'rn-build-android',
   '.github/workflows/release-tag.yml': 'release-tag',
   '.github/workflows/promote-google-play.yml': 'promote-google-play',
-  '.github/workflows/ait-build-only-v1.yml': 'workflow-bundle-v5-ait-build-only',
-  '.github/workflows/rn-build-android-cloud-v2.yml': 'workflow-bundle-v5-android-build-only',
-  '.github/workflows/godot-build-android-cloud-v2.yml': 'workflow-bundle-v5-android-build-only',
 });
-
-/** caller 입력을 전혀 받지 않는 v5 정본. 남아 있는 with 입력은 모두 결함이다. */
-const NO_INPUT_CALLER_KINDS = Object.freeze([
-  'workflow-bundle-v5-ait-build-only',
-  'workflow-bundle-v5-android-build-only',
-]);
 
 /**
  * 더 이상 존재하지 않는 caller 입력. 권한 있는 job의 러너는 caller가 고를 수 없게 고정했으므로
@@ -45,17 +36,6 @@ const NO_INPUT_CALLER_KINDS = Object.freeze([
 const OBSOLETE_INPUTS_BY_KIND = Object.freeze({
   'release-tag': Object.freeze(['runs_on']),
   'godot-deploy-google-play': Object.freeze(['runs_on']),
-});
-
-const BUILD_SCRIPT_ENVIRONMENT = Object.freeze({
-  'workflow-bundle-v5-ait-build-only': {
-    path: 'scripts/build-ait.sh',
-    variables: ['SEORI_RELEASE_TAG', 'SEORI_RELEASE_VERSION'],
-  },
-  'workflow-bundle-v5-android-build-only': {
-    path: 'scripts/build-android.sh',
-    variables: ['SEORI_RELEASE_VERSION_NAME', 'SEORI_RELEASE_VERSION_CODE'],
-  },
 });
 
 function readTextOrNull(path) {
@@ -135,7 +115,6 @@ function workflowFiles(root) {
 export function collectCallerMigrationInventory(root, fullName) {
   const callers = [];
   const findings = [];
-  const kinds = new Set();
 
   for (const file of workflowFiles(root)) {
     const text = readTextOrNull(file.absolute);
@@ -147,7 +126,6 @@ export function collectCallerMigrationInventory(root, fullName) {
       if (callerKind === undefined) {
         continue;
       }
-      kinds.add(callerKind);
       callers.push({
         path: file.path,
         callerKind,
@@ -177,13 +155,6 @@ export function collectCallerMigrationInventory(root, fullName) {
             severity: 'blocking',
             path: file.path,
             detail: `${use.calledWorkflow}에서 제거된 입력 ${input}을 넘긴다. 러너는 중앙에서 고정한다.`,
-          });
-        } else if (NO_INPUT_CALLER_KINDS.includes(callerKind)) {
-          findings.push({
-            id: 'forbidden-caller-input',
-            severity: 'blocking',
-            path: file.path,
-            detail: `${use.calledWorkflow}은 caller 입력을 받지 않는데 ${input}을 넘긴다.`,
           });
         }
       }
@@ -229,22 +200,6 @@ export function collectCallerMigrationInventory(root, fullName) {
           severity: 'blocking',
           path: `${path}#release.${key}`,
           detail: '마켓 config JSON은 version authority가 아니므로 값을 제거해야 한다.',
-        });
-      }
-    }
-  }
-
-  for (const kind of kinds) {
-    const script = BUILD_SCRIPT_ENVIRONMENT[kind];
-    if (script !== undefined) {
-      const text = readTextOrNull(join(root, script.path));
-      const missing = script.variables.filter((variable) => !(text ?? '').includes(variable));
-      if (missing.length > 0) {
-        findings.push({
-          id: 'build-script-ignores-release-environment',
-          severity: 'blocking',
-          path: script.path,
-          detail: `build script가 태그 파생 환경변수를 읽지 않는다: ${missing.join(', ')}`,
         });
       }
     }
