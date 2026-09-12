@@ -11,6 +11,12 @@ const paths = [
 ];
 const workflows = await Promise.all(paths.map((path) => readFile(path, "utf8")));
 
+test("RN profile은 공개 npm SDK 발행 레지스트리를 선언한다", async () => {
+  const profile = parse(await readFile("profiles/react-native.yaml", "utf8"));
+  assert.equal(profile.sharedSdk.registry, "npm");
+  assert.equal(profile.sharedSdk.packageResolution.registryHost, "registry.npmjs.org");
+});
+
 test("RN 정적 검사는 공개 npm SDK를 GitHub Packages로 돌려보내지 않는다", () => {
   const workflow = parse(workflows[0]);
   const nodeSteps = workflow.jobs.quality.steps.filter((step) =>

@@ -31,7 +31,6 @@ const JSON_SCHEMAS = [
   "contracts/markets/google-play.schema.json",
   "contracts/workflow-bundle.schema.json",
   "contracts/xcode-cloud-run.schema.json",
-  "contracts/xcode-cloud-run-v5.schema.json",
   "contracts/release-version-authority-migration.schema.json",
 ];
 const YAML_CONTRACTS = [

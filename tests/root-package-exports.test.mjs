@@ -26,7 +26,6 @@ test("root exports는 repo-contract 모듈을 같은 이름으로 노출한다",
     }
   }
 
-  assert.ok(rootModules.includes("workflow-bundle-v5"));
 });
 
 test("root exports가 가리키는 파일은 실제로 불러올 수 있다", async () => {

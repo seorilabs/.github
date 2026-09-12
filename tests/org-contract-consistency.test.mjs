@@ -139,15 +139,43 @@ test("모든 stack profile은 SDK git submodule 배포를 금지한다", () => {
   }
 });
 
-test("상시 자동 코드 리뷰 없이 조건부 2차 의견만 계약된다", () => {
+test("상시 자동 코드 리뷰 없이 요청 기반 리뷰 단계만 계약된다", () => {
   assert.deepEqual(
     reviewPolicy.stages.map(({ id }) => id),
-    ["second-opinion", "required-checks"],
+    ["assisted-review", "second-opinion", "required-checks"],
+  );
+  assert.deepEqual(
+    reviewPolicy.stages.map(({ order }) => order),
+    [1, 2, 3],
   );
   assert.ok(
     reviewPolicy.stages.every(
       ({ trigger }) => trigger !== "automatic-first-turn",
     ),
+  );
+
+  const assistedReview = reviewPolicy.stages.find(
+    ({ id }) => id === "assisted-review",
+  );
+  assert.equal(assistedReview.provider, "copilot");
+  assert.equal(assistedReview.mode, "advisory");
+  assert.equal(assistedReview.trigger, "review-request");
+  assert.equal(assistedReview.reviewer, "copilot-pull-request-reviewer[bot]");
+  assert.equal(assistedReview.optional, true);
+  assert.equal(assistedReview.countsAsApproval, false);
+  assert.equal(assistedReview.blocking, false);
+  assert.equal(assistedReview.threadResolutionRequired, true);
+  assert.deepEqual(
+    [...assistedReview.allowedWhen].sort(),
+    ["author-request", "code-change"],
+  );
+  assert.deepEqual(
+    [...assistedReview.skipWhen].sort(),
+    [
+      "docs-only-change",
+      "generated-file-only-change",
+      "second-opinion-requested",
+    ],
   );
 
   const secondOpinion = reviewPolicy.stages.find(

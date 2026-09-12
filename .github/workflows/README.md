@@ -28,14 +28,9 @@
 |---|---|---|
 | `rn-static-checks-v2.yml` | Fleet RN 고정 품질 게이트와 provenance | private ARC, public ubuntu |
 | `godot-checks-v2.yml` | Fleet Godot 고정 품질·import 게이트와 provenance | private ARC, public ubuntu |
-| `godot-checks-v3.yml` | v5 OIDC runtime binding에 결합된 Godot import·진단 게이트와 target evidence | private ARC, public ubuntu |
 | `godot-product-verification-v1.yml` | 고정된 기능·회귀·UI 계약을 실행하는 Godot EVALUATE gate | private ARC, public ubuntu |
 | `workflow-bundle-candidate.yml` | 불변 WorkflowBundle candidate 생성·검증 | private ARC, public ubuntu |
-| `workflow-bundle-v5-candidate.yml` | v5 split binding 계약과 Saju/Trait/Godot fixture candidate 생성·검증 | private ARC, public ubuntu |
-| `js-static-checks-v1.yml` | OIDC runtime manifest에 결합된 RN·Capacitor·AIT web canonical static gate와 target evidence | private ARC, public ubuntu |
-| `ait-build-only-v1.yml` | exact peeled stable tag에서 AIT 1개와 checksum provenance 생성, 업로드 없음 | private ARC, public stable-tag ubuntu |
 | `ait-upload-v1.yml` | 공용 key 비노출 broker adapter가 준비될 때까지 `RUNTIME_NOT_OPERATIONAL` | public ubuntu, PR 비실행 |
-| `capacitor-build-android-cloud-v1.yml` | Capacitor exact source를 x64 Cloud Build에서 build-only AAB로 생성 | private ARC submit + x64 Cloud Build |
 | `rn-build-android-cloud-v1.yml` | RN exact source를 Cloud Build에 제출하고 build-only AAB 회수 | private ARC submit + x64 Cloud Build |
 | `godot-build-android-cloud-v1.yml` | Godot exact source를 Cloud Build에 제출하고 build-only AAB 회수 | private ARC submit + x64 Cloud Build |
 | `rn-static-checks.yml` | RN/Node 정적 게이트(명령 주입) | ARC(또는 ubuntu) |

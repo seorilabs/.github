@@ -244,28 +244,6 @@ godotExportPreset:
   ambiguousSelector: fail-closed
   mustMatchExportedPreset: true
 
-# WorkflowBundle v5 정본 경로도 같은 authority를 쓴다. release 실행은 exact tag ref에서만 시작한다.
-workflowBundleV5:
-  releaseRefPattern: '^refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
-  bindingMode: RELEASE
-  requiresApprovedBundle: true
-  calledWorkflows:
-    - .github/workflows/rn-build-android-cloud-v2.yml
-    - .github/workflows/godot-build-android-cloud-v2.yml
-    - .github/workflows/ait-build-only-v1.yml
-  xcodeCloud:
-    envelope: contracts/xcode-cloud-run-v5.schema.json
-    sourceReferenceKind: TAG
-    # build number는 run이 시작해야 정해지므로 envelope에 기대값을 박을 수 없다. 대신 정본이
-    # 무엇인지 선언하고, run readback에서 양의 정수인지만 fail-closed로 확인한다.
-    buildNumberAuthority: xcode-cloud-ci-build-number
-    requiredReadback:
-      - expectedSourceCommitSha
-      - expectedSourceReferenceId
-      - expectedWorkflowId
-      - expectedMarketingVersion
-      - buildNumberAuthority
-
 failClosed:
   - id: tag-pattern-mismatch
   - id: derived-version-code-out-of-range

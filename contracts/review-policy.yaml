@@ -10,8 +10,25 @@ pullRequest:
   acceptanceCriteriaRequired: true
 
 stages:
-  - id: second-opinion
+  - id: assisted-review
     order: 1
+    provider: copilot
+    mode: advisory
+    trigger: review-request
+    reviewer: "copilot-pull-request-reviewer[bot]"
+    optional: true
+    countsAsApproval: false
+    blocking: false
+    allowedWhen:
+      - code-change
+      - author-request
+    skipWhen:
+      - docs-only-change
+      - generated-file-only-change
+      - second-opinion-requested
+    threadResolutionRequired: true
+  - id: second-opinion
+    order: 2
     provider: codex
     mode: advisory
     trigger: mention
@@ -22,7 +39,7 @@ stages:
       - author-request
     threadResolutionRequired: true
   - id: required-checks
-    order: 2
+    order: 3
     allRequired: true
 
 mergeGate:

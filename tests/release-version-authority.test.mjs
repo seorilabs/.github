@@ -1872,31 +1872,6 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
   ]);
   assert.equal(contract.godotExportPreset.selector, 'explicit-preset-name-or-index');
   assert.equal(contract.godotExportPreset.ambiguousSelector, 'fail-closed');
-  // WorkflowBundle v5 정본 경로도 같은 authority를 쓴다.
-  assert.deepEqual(contract.workflowBundleV5.calledWorkflows.sort(), [
-    '.github/workflows/ait-build-only-v1.yml',
-    '.github/workflows/godot-build-android-cloud-v2.yml',
-    '.github/workflows/rn-build-android-cloud-v2.yml',
-  ]);
-  assert.equal(contract.workflowBundleV5.bindingMode, 'RELEASE');
-  // Xcode Cloud envelope은 build number 기대값 대신 정본 이름을 담는다.
-  assert.equal(
-    contract.workflowBundleV5.xcodeCloud.buildNumberAuthority,
-    'xcode-cloud-ci-build-number',
-  );
-  assert.deepEqual(contract.workflowBundleV5.xcodeCloud.requiredReadback, [
-    'expectedSourceCommitSha',
-    'expectedSourceReferenceId',
-    'expectedWorkflowId',
-    'expectedMarketingVersion',
-    'buildNumberAuthority',
-  ]);
-  assert.equal(contract.workflowBundleV5.requiresApprovedBundle, true);
-  const releaseRefPattern = new RegExp(contract.workflowBundleV5.releaseRefPattern, 'u');
-  assert.equal(releaseRefPattern.test('refs/tags/v1.2.3'), true);
-  for (const invalid of ['refs/heads/main', 'refs/tags/v1.2.3-rc.1', 'refs/tags/release/v1.2.3']) {
-    assert.equal(releaseRefPattern.test(invalid), false, invalid);
-  }
   assert.deepEqual(contract.artifactReceipt.digestSource, {
     'android-app-bundle': 'artifact-file',
     ait: 'artifact-file',

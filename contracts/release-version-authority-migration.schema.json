@@ -101,11 +101,9 @@
             "enum": [
               "caller-ref-not-pinned",
               "forbidden-version-input",
-              "forbidden-caller-input",
               "obsolete-caller-input",
               "repository-local-version-resolver",
               "market-config-version-authority",
-              "build-script-ignores-release-environment",
               "godot-export-preset-not-declared"
             ]
           },
