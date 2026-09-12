@@ -70,13 +70,39 @@ jobs:
       build_run_id: ${{ steps.dispatch.outputs.xcode_cloud_build_run_id }}
       build_number: ${{ steps.dispatch.outputs.xcode_cloud_build_number }}
     steps:
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.16.0"
+          check-latest: false
+
+      - name: Resolve called workflow identity
+        id: workflow-identity
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const repository = identity.workflow_repository;
+            const sha = identity.workflow_sha;
+            const ref = identity.workflow_ref;
+            const expectedRef = "seorilabs/.github/.github/workflows/app-store-xcode-cloud.yml@" + sha;
+            if (repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(sha ?? "") || ref !== expectedRef) {
+              process.stderr.write("중앙 reusable workflow identity를 검증할 수 없습니다.\n");
+              process.exit(1);
+            }
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + repository, "sha=" + sha].join("\n") + "\n");
+          '
+
       # 트리거 스크립트는 이 워크플로와 같은 커밋에서 가져온다. caller가 pin한 ref가
       # 곧 스크립트 판본이라 둘이 어긋날 수 없다.
       - name: Checkout org scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: seorilabs/.github
-          ref: ${{ github.job_workflow_sha }}
+          repository: ${{ steps.workflow-identity.outputs.repository }}
+          ref: ${{ steps.workflow-identity.outputs.sha }}
           path: .org
           persist-credentials: false
 
@@ -91,12 +117,6 @@ jobs:
           sparse-checkout: ${{ inputs.app_config_path }}
           sparse-checkout-cone-mode: false
           persist-credentials: false
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "24.16.0"
-          check-latest: false
 
       - name: Resolve bundle id
         id: identity
