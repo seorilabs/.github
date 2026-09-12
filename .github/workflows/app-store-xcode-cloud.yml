@@ -1,0 +1,107 @@
+# App Store(iOS) 배포의 조직 표준 경로.
+#
+# Apple archive·upload은 Xcode Cloud에서만 실행한다. GitHub Actions macOS 러너로 archive하지
+# 않는다(서명 경계와 Actions 분량). 이 워크플로는 태그를 Xcode Cloud 빌드 실행으로 넘기는
+# 일만 한다. 빌드 자체는 Xcode Cloud가 저장소에서 직접 가져가 수행한다.
+#
+# 앱 저장소는 이 파일을 부르는 얇은 caller 하나만 둔다. 트리거 스크립트를 저장소마다
+# 복제하지 않는다.
+name: App Store (Xcode Cloud)
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "빌드할 stable SemVer 태그(vX.Y.Z). 비우면 현재 ref 이름을 쓴다."
+        type: string
+        required: false
+        default: ""
+      bundle_id:
+        description: "iOS bundle id. Xcode Cloud 제품을 이 값으로 찾는다."
+        type: string
+        required: true
+      xcode_cloud_workflow:
+        description: "Xcode Cloud workflow 이름. 비우면 활성 workflow 중 첫 번째."
+        type: string
+        required: false
+        default: ""
+      environment:
+        description: "GitHub 배포 환경 이름."
+        type: string
+        required: false
+        default: "app-store"
+    secrets:
+      APP_STORE_CONNECT_API_KEY_ID:
+        required: true
+      APP_STORE_CONNECT_ISSUER_ID:
+        required: true
+      APP_STORE_CONNECT_PRIVATE_KEY_BASE64:
+        required: true
+    outputs:
+      build_run_id:
+        description: "Xcode Cloud ciBuildRun id"
+        value: ${{ jobs.trigger.outputs.build_run_id }}
+      build_number:
+        description: "Xcode Cloud 빌드 번호"
+        value: ${{ jobs.trigger.outputs.build_number }}
+
+permissions:
+  contents: read
+
+jobs:
+  trigger:
+    name: Trigger Xcode Cloud
+    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    environment:
+      name: ${{ inputs.environment }}
+    outputs:
+      build_run_id: ${{ steps.dispatch.outputs.xcode_cloud_build_run_id }}
+      build_number: ${{ steps.dispatch.outputs.xcode_cloud_build_number }}
+    steps:
+      # 트리거 스크립트는 이 워크플로와 같은 커밋에서 가져온다. caller가 pin한 ref가
+      # 곧 스크립트 판본이라 둘이 어긋날 수 없다.
+      - name: Checkout org scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: seorilabs/.github
+          ref: ${{ github.job_workflow_sha }}
+          path: .org
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.16.0"
+          check-latest: false
+
+      - name: Trigger Xcode Cloud build
+        id: dispatch
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          BUNDLE_ID: ${{ inputs.bundle_id }}
+          XCODE_CLOUD_WORKFLOW: ${{ inputs.xcode_cloud_workflow }}
+        run: |
+          set -euo pipefail
+          args=(--tag "$RELEASE_TAG" --bundle-id "$BUNDLE_ID")
+          if [ -n "$XCODE_CLOUD_WORKFLOW" ]; then
+            args+=(--workflow-name "$XCODE_CLOUD_WORKFLOW")
+          fi
+          node .org/scripts/trigger-xcode-cloud.mjs "${args[@]}"
+
+      - name: Summary
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          BUILD_NUMBER: ${{ steps.dispatch.outputs.xcode_cloud_build_number }}
+          BUILD_RUN_ID: ${{ steps.dispatch.outputs.xcode_cloud_build_run_id }}
+        run: |
+          {
+            echo "### Xcode Cloud"
+            echo ""
+            echo "- tag: ${RELEASE_TAG}"
+            echo "- build: ${BUILD_NUMBER:-pending}"
+            echo "- run id: ${BUILD_RUN_ID}"
+          } >> "$GITHUB_STEP_SUMMARY"
