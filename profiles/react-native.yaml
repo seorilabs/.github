@@ -18,12 +18,12 @@ quality:
 
 sharedSdk:
   distribution: package
-  registry: github-packages
+  registry: npm
   versionRequirement: exact-semver
   lockfile: pnpm-lock.yaml
   dependencyLockRequired: true
   packageResolution:
-    registryHost: npm.pkg.github.com
+    registryHost: registry.npmjs.org
     integrity: sha512
   consumerDeclaration: sdk.consumers
   consumerFields:

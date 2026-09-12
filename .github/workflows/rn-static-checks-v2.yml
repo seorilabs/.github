@@ -38,8 +38,6 @@ jobs:
         with:
           node-version: 24.16.0
           check-latest: false
-          registry-url: https://npm.pkg.github.com
-          scope: "@seorilabs"
 
       - name: Resolve called workflow identity
         id: bundle-identity
@@ -99,9 +97,14 @@ jobs:
         working-directory: ${{ format('.seorilabs-application/{0}', inputs.working_directory) }}
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/seorilabs-npm-auth.npmrc
           PACKAGE_MANAGER: ${{ inputs.package_manager }}
         run: |
           set -euo pipefail
+          umask 077
+          cat > "$NPM_CONFIG_USERCONFIG" <<'NPMRC'
+          //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+          NPMRC
           case "$PACKAGE_MANAGER" in
             npm) npm ci --ignore-scripts ;;
             pnpm) pnpm install --frozen-lockfile --ignore-scripts ;;
@@ -125,6 +128,7 @@ jobs:
         working-directory: ${{ format('.seorilabs-application/{0}', inputs.working_directory) }}
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/seorilabs-npm-auth.npmrc
           PACKAGE_MANAGER: ${{ inputs.package_manager }}
         run: |
           case "$PACKAGE_MANAGER" in
