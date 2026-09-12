@@ -11,6 +11,23 @@ const paths = [
 ];
 const workflows = await Promise.all(paths.map((path) => readFile(path, "utf8")));
 
+test("RN 정적 검사는 공개 npm SDK를 GitHub Packages로 돌려보내지 않는다", () => {
+  const workflow = parse(workflows[0]);
+  const nodeSteps = workflow.jobs.quality.steps.filter((step) =>
+    step.uses?.startsWith("actions/setup-node@"),
+  );
+  assert.ok(nodeSteps.length > 0);
+  for (const step of nodeSteps) {
+    assert.equal(step.with["registry-url"], undefined);
+    assert.equal(step.with.scope, undefined);
+  }
+  // 별도 사설 registry가 필요한 저장소의 .npmrc 인증은 계속 지원한다.
+  const install = workflow.jobs.quality.steps.find(
+    (step) => step.name === "Fetch locked dependencies without lifecycle scripts",
+  );
+  assert.equal(install.env.NODE_AUTH_TOKEN, "${{ github.token }}");
+});
+
 test("v2 정적 workflow는 고정 품질 명령과 stable required check를 사용한다", () => {
   for (const workflow of workflows) {
     const parsed = parse(workflow);

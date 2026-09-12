@@ -38,8 +38,6 @@ jobs:
         with:
           node-version: 24.16.0
           check-latest: false
-          registry-url: https://npm.pkg.github.com
-          scope: "@seorilabs"
 
       - name: Resolve called workflow identity
         id: bundle-identity
