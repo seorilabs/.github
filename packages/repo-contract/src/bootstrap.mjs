@@ -326,9 +326,8 @@ function validateProtectionPolicy(value) {
       "providerMode",
       "rolloutMode",
     ]) &&
-    exactKeys(value.checkAppIds, ["orgContract", "seoriReview"]) &&
+    exactKeys(value.checkAppIds, ["orgContract"]) &&
     REPOSITORY_ID_PATTERN.test(value.checkAppIds.orgContract ?? "") &&
-    REPOSITORY_ID_PATTERN.test(value.checkAppIds.seoriReview ?? "") &&
     ["ORG_RULESET", "REPO_BRANCH_PROTECTION"].includes(value.providerMode) &&
     ["SHADOW", "ACTIVE"].includes(value.rolloutMode) &&
     (value.rolloutMode === "SHADOW"
@@ -351,10 +350,6 @@ function protectionPayload(repository, sourceSha, policy) {
         {
           appId: policy.checkAppIds.orgContract,
           context: "Org Contract / Org Contract",
-        },
-        {
-          appId: policy.checkAppIds.seoriReview,
-          context: "Seori Review",
         },
       ],
       strict: true,
@@ -404,7 +399,7 @@ function validateProvisioningGate(value, repository, protectionOperation) {
         "rulesetId",
       ]) &&
       canonicalJson(value.requiredChecks) ===
-        canonicalJson(["Org Contract", "Seori Review"]) &&
+        canonicalJson(["Org Contract"]) &&
       value.rulesetEnforcement === "ACTIVE" &&
       REPOSITORY_ID_PATTERN.test(value.rulesetId ?? "")
     );

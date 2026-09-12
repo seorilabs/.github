@@ -28,7 +28,6 @@ const FULL_NAME = "seorilabs/example-app";
 const NOW = Date.parse("2026-08-28T04:00:00.000Z");
 const TOKEN_TEXT = "installation-token-must-not-escape";
 const ORG_CHECK_APP_ID = "31001";
-const SEORI_CHECK_APP_ID = "31002";
 const CLOUD_BUILD_VARIABLES = Object.freeze({
   GOOGLE_WORKLOAD_IDENTITY_PROVIDER:
     "projects/123456789/locations/global/workloadIdentityPools/seorilabs/providers/github",
@@ -94,7 +93,6 @@ function protectionOperation({
           appId: ORG_CHECK_APP_ID,
           context: "Org Contract / Org Contract",
         },
-        { appId: SEORI_CHECK_APP_ID, context: "Seori Review" },
       ],
       strict: true,
     },
@@ -676,7 +674,6 @@ test("actual strict=false는 MATCH로 오판하지 않고 ACTIVE에서 강화한
   const initial = rawProtection();
   initial.checks = [
     { appId: ORG_CHECK_APP_ID, context: "Org Contract / Org Contract" },
-    { appId: SEORI_CHECK_APP_ID, context: "Seori Review" },
   ];
   initial.reviewPolicy = {
     dismissStaleReviews: true,
@@ -701,7 +698,6 @@ test("unsupported 또는 안전하게 보존할 수 없는 보호 설정은 사�
   const unsupported = rawProtection({ unsupportedSettings: ["bypass_actor"] });
   unsupported.checks = [
     { appId: ORG_CHECK_APP_ID, context: "Org Contract / Org Contract" },
-    { appId: SEORI_CHECK_APP_ID, context: "Seori Review" },
   ];
   unsupported.reviewPolicy = {
     dismissStaleReviews: true,

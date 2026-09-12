@@ -206,7 +206,7 @@ Cloud Build는 이 store를 사용하지만 token이나 `.npmrc` credential은 �
 실제 보호 provider는 계정 capability readback으로 고른다. Enterprise는 조직 ruleset,
 Team은 저장소별 `main` branch protection을 사용한다. Team SHADOW는 mutation 없이
 desired/actual diff만 기록하고, 승인된 ACTIVE wave에서만 app ID가 고정된
-`Org Contract / Org Contract`, `Seori Review`, strict/up-to-date와 최소 review 정책을
+`Org Contract / Org Contract`, strict/up-to-date와 최소 review 정책을
 단조 강화한다. 기존 bypass, restriction 또는 더 강한 보호를 보존할 수 없으면
 `HUMAN_DECISION_REQUIRED`로 멈춘다.
 
