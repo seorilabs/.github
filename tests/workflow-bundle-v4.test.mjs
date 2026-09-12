@@ -505,6 +505,12 @@ test("v4 runtime asset 추가 뒤에도 buildWorkflows가 없던 signed v3 bundl
           contents = contents.replace(
             "          check-latest: false\n",
             '          check-latest: false\n          registry-url: https://npm.pkg.github.com\n          scope: "@seorilabs"\n',
+          ).replaceAll(
+            "          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/seorilabs-npm-auth.npmrc\n",
+            "",
+          ).replace(
+            "          umask 077\n          cat > \"$NPM_CONFIG_USERCONFIG\" <<'NPMRC'\n          //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n          NPMRC\n",
+            "",
           );
         }
         if (path.endsWith("-checks-v2.yml")) {

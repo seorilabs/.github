@@ -7,6 +7,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
+import { parse } from "yaml";
+
 import {
   inspectExactPlatformDependencyV5,
   stageExactPlatformDependencyV5,
@@ -26,6 +28,12 @@ const PRIVATE_TARBALL =
   `https://npm.pkg.github.com/download/@seorilabs/platform-sdk/${VERSION}/${"b".repeat(40)}`;
 
 const execFileAsync = promisify(execFile);
+
+test("RN profile은 공개 npm SDK 발행 레지스트리를 선언한다", () => {
+  const profile = parse(readFileSync("profiles/react-native.yaml", "utf8"));
+  assert.equal(profile.sharedSdk.registry, "npm");
+  assert.equal(profile.sharedSdk.packageResolution.registryHost, "registry.npmjs.org");
+});
 
 // inspect 는 git 이 추적하는 package.json 만 후보로 본다. 저장소를 만들어 준다.
 async function track(root) {

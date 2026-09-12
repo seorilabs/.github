@@ -15,9 +15,12 @@
 - **아티팩트 retention = 3.**
   Docker 자동 build record도 `DOCKER_BUILD_RECORD_RETENTION_DAYS: "3"`을 명시한다.
   미지정 또는 `0`은 저장소·조직 기본 보존 기간을 사용하므로 허용하지 않는다.
-- **private GitHub Packages 소비**: caller는 `permissions.packages: read`만 선언한다. v2
-  재사용 워크플로우가 고정 registry와 scope를 설정하고 install child process에만
-  `github.token`을 제공한다.
+- **RN 공개 npm SDK 소비**: `rn-static-checks-v2.yml`은 기본 npm 레지스트리와 프로젝트의
+  명시적 `.npmrc`를 따르며 `@seorilabs` scope를 GitHub Packages로 덮지 않는다.
+- **RN private GitHub Packages 소비**: caller는 `permissions.packages: read`를 선언한다.
+  기존 GitHub Packages tarball을 위해 `npm.pkg.github.com` 호스트에만 적용되는 인증
+  자리표시자를 제공한다. 해당 userconfig와 `github.token`은 install·audit 단계에만
+  전달하며 rebuild·test에는 전달하지 않는다. Godot v2의 registry 설정은 기존대로 유지한다.
 
 ## 워크플로우 목록
 

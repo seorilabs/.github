@@ -21,7 +21,7 @@ test("RN 정적 검사는 공개 npm SDK를 GitHub Packages로 돌려보내지 �
     assert.equal(step.with["registry-url"], undefined);
     assert.equal(step.with.scope, undefined);
   }
-  // 별도 사설 registry가 필요한 저장소의 .npmrc 인증은 계속 지원한다.
+  // 기본 registry를 바꾸지 않고 과거 GitHub Packages tarball의 인증도 지원한다.
   const install = workflow.jobs.quality.steps.find(
     (step) => step.name === "Fetch locked dependencies without lifecycle scripts",
   );
