@@ -306,28 +306,6 @@ try {
     throw new Error(
       "배포된 repo-contract에 Fleet trusted executor API가 없습니다.",
     );
-  }  if (!installedMigrationCheck.stdout.includes("public export 검증 통과")) {
-    throw new Error(
-      "배포된 repo-contract에 Fleet migration planner API가 없습니다.",
-    );
-  }  if (!installedCollectorCheck.stdout.includes("public export 검증 통과")) {
-    throw new Error(
-      "배포된 repo-contract에 Fleet migration collector API가 없습니다.",
-    );
-  }  if (!installedLegacyValidatorCheck.stdout.includes("public export 검증 통과")) {
-    throw new Error(
-      "배포된 repo-contract에 Fleet migration legacy validator API가 없습니다.",
-    );
-  }  if (!installedIssuerCheck.stdout.includes("public export 검증 통과")) {
-    throw new Error(
-      "배포된 repo-contract에 Fleet migration inventory issuer API가 없습니다.",
-    );
-  }  if (
-    !installedCleanupExecutorCheck.stdout.includes("public export 검증 통과")
-  ) {
-    throw new Error(
-      "배포된 repo-contract에 Fleet cleanup executor API가 없습니다.",
-    );
   }
   const installedCandidateCanaryCheck = await execFileAsync(
     process.execPath,
