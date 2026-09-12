@@ -98,7 +98,7 @@ function requiredEnv(name) {
   return value;
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const values = new Map();
   for (let index = 0; index < argv.length; index += 2) {
     const key = argv[index];
@@ -111,13 +111,16 @@ function parseArgs(argv) {
   const tag = values.get("--tag") ?? "";
   const bundleId = values.get("--bundle-id") ?? "";
   const workflowName = values.get("--workflow-name") ?? "";
+  // 빌드를 실제로 시작하지 않고 제품·workflow·태그 ref 해석까지만 한다. 배선을 바꾼 뒤
+  // 진짜 빌드를 태우지 않고 확인할 수 있어야 한다.
+  const start = (values.get("--start") ?? "true") !== "false";
   if (!/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(tag)) {
     throw new Error(`release tag는 vX.Y.Z 형식이어야 합니다: ${tag || "empty"}`);
   }
   if (!bundleId) {
     throw new Error("--bundle-id가 필요합니다.");
   }
-  return { tag, bundleId, workflowName };
+  return { tag, bundleId, workflowName, start };
 }
 
 async function appStoreConnect(path, token, init = {}) {
@@ -140,7 +143,7 @@ async function appStoreConnect(path, token, init = {}) {
 }
 
 async function main() {
-  const { tag, bundleId, workflowName } = parseArgs(process.argv.slice(2));
+  const { tag, bundleId, workflowName, start } = parseArgs(process.argv.slice(2));
   const token = makeAppStoreConnectToken({
     keyId: requiredEnv("APP_STORE_CONNECT_API_KEY_ID"),
     issuerId: requiredEnv("APP_STORE_CONNECT_ISSUER_ID"),
@@ -161,33 +164,41 @@ async function main() {
   );
   const referenceId = resolveTagReferenceId(references, tag);
 
-  const run = await appStoreConnect("/v1/ciBuildRuns", token, {
-    method: "POST",
-    body: JSON.stringify({
-      data: {
-        type: "ciBuildRuns",
-        relationships: {
-          workflow: { data: { type: "ciWorkflows", id: workflowId } },
-          sourceBranchOrTag: { data: { type: "scmGitReferences", id: referenceId } },
+  let buildRun = null;
+  if (start) {
+    const run = await appStoreConnect("/v1/ciBuildRuns", token, {
+      method: "POST",
+      body: JSON.stringify({
+        data: {
+          type: "ciBuildRuns",
+          relationships: {
+            workflow: { data: { type: "ciWorkflows", id: workflowId } },
+            sourceBranchOrTag: { data: { type: "scmGitReferences", id: referenceId } },
+          },
         },
-      },
-    }),
-  });
-  const buildRun = asArray(run.data)[0];
-  if (!buildRun?.id) {
-    throw new Error("Xcode Cloud 빌드 실행 ID가 없습니다.");
+      }),
+    });
+    buildRun = asArray(run.data)[0] ?? null;
+    if (!buildRun?.id) {
+      throw new Error("Xcode Cloud 빌드 실행 ID가 없습니다.");
+    }
   }
   const buildNumber =
-    typeof buildRun.attributes?.number === "number" ? buildRun.attributes.number : "";
+    typeof buildRun?.attributes?.number === "number" ? buildRun.attributes.number : "";
   if (process.env.GITHUB_OUTPUT) {
     fs.appendFileSync(
       process.env.GITHUB_OUTPUT,
-      `xcode_cloud_build_run_id=${buildRun.id}\n` +
-        `xcode_cloud_build_number=${buildNumber}\n`,
+      `xcode_cloud_build_run_id=${buildRun?.id ?? ""}\n` +
+        `xcode_cloud_build_number=${buildNumber}\n` +
+        `xcode_cloud_product_id=${productId}\n` +
+        `xcode_cloud_workflow_id=${workflowId}\n` +
+        `xcode_cloud_started=${String(start)}\n`,
     );
   }
   console.log(
-    `Xcode Cloud 빌드 트리거 완료: tag=${tag}, build=${buildNumber || "pending"}`,
+    start
+      ? `Xcode Cloud 빌드 트리거 완료: tag=${tag}, build=${buildNumber || "pending"}`
+      : `Xcode Cloud 배선 확인 완료(빌드 미시작): tag=${tag}, product=${productId}, workflow=${workflowId}`,
   );
 }
 

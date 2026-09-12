@@ -30,6 +30,11 @@ on:
         type: string
         required: false
         default: "app-store"
+      start:
+        description: "false면 제품·workflow·태그 해석까지만 하고 빌드를 시작하지 않는다."
+        type: boolean
+        required: false
+        default: true
     secrets:
       APP_STORE_CONNECT_API_KEY_ID:
         required: true
@@ -84,9 +89,10 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
           BUNDLE_ID: ${{ inputs.bundle_id }}
           XCODE_CLOUD_WORKFLOW: ${{ inputs.xcode_cloud_workflow }}
+          START: ${{ inputs.start }}
         run: |
           set -euo pipefail
-          args=(--tag "$RELEASE_TAG" --bundle-id "$BUNDLE_ID")
+          args=(--tag "$RELEASE_TAG" --bundle-id "$BUNDLE_ID" --start "$START")
           if [ -n "$XCODE_CLOUD_WORKFLOW" ]; then
             args+=(--workflow-name "$XCODE_CLOUD_WORKFLOW")
           fi
@@ -103,5 +109,5 @@ jobs:
             echo ""
             echo "- tag: ${RELEASE_TAG}"
             echo "- build: ${BUILD_NUMBER:-pending}"
-            echo "- run id: ${BUILD_RUN_ID}"
+            echo "- run id: ${BUILD_RUN_ID:-(시작 안 함)}"
           } >> "$GITHUB_STEP_SUMMARY"

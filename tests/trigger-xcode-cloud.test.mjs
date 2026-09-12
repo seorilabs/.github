@@ -8,6 +8,7 @@ import {
   makeAppStoreConnectToken,
   pickWorkflowId,
   resolveTagReferenceId,
+  parseArgs,
 } from "../scripts/trigger-xcode-cloud.mjs";
 
 test("bundle ID로 Xcode Cloud 제품을 찾는다", () => {
@@ -81,4 +82,18 @@ test("App Store Connect ES256 JWT를 생성한다", () => {
     "appstoreconnect-v1",
   );
   assert.equal(Buffer.from(signature, "base64url").length, 64);
+});
+
+test("--start=false는 빌드를 시작하지 않는 확인 전용 모드다", () => {
+  // 배선을 바꾼 뒤 진짜 빌드를 태우지 않고 제품·workflow·태그 해석까지만 확인할 수 있어야
+  // 한다. 기본값은 종전 동작 그대로 시작이다.
+  assert.equal(parseArgs(["--tag", "v1.2.3", "--bundle-id", "com.example.app"]).start, true);
+  assert.equal(
+    parseArgs(["--tag", "v1.2.3", "--bundle-id", "com.example.app", "--start", "false"]).start,
+    false,
+  );
+  assert.equal(
+    parseArgs(["--tag", "v1.2.3", "--bundle-id", "com.example.app", "--start", "true"]).start,
+    true,
+  );
 });
