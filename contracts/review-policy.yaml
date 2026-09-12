@@ -10,25 +10,8 @@ pullRequest:
   acceptanceCriteriaRequired: true
 
 stages:
-  - id: seori-acceptance-guide
-    order: 1
-    provider: seori-review
-    mode: first-turn
-    role: acceptance-criteria-guide
-    countsAsCodeReview: false
-    countsAsApproval: false
-    threadResolutionRequired: true
-  - id: code-review
-    order: 2
-    provider: jansoree
-    mode: advisory
-    trigger: automatic-first-turn
-    summaryCommentRequired: true
-    countsAsApproval: false
-    blocking: false
-    threadResolutionRequired: true
   - id: second-opinion
-    order: 3
+    order: 1
     provider: codex
     mode: advisory
     trigger: mention
@@ -39,12 +22,10 @@ stages:
       - author-request
     threadResolutionRequired: true
   - id: required-checks
-    order: 4
+    order: 2
     allRequired: true
 
 mergeGate:
-  seoriGuideThreadsResolved: true
-  jansoreeSummaryPresent: true
   codeReviewThreadsResolved: true
   requiredChecksPassed: true
   humanApproval: conditional

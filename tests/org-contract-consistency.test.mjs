@@ -139,26 +139,39 @@ test("모든 stack profile은 SDK git submodule 배포를 금지한다", () => {
   }
 });
 
-test("잔소리 advisory 리뷰는 자동 1턴 게시와 thread 처리로 계약된다", () => {
-  const codeReview = reviewPolicy.stages.find(
-    ({ id }) => id === "code-review",
+test("상시 자동 코드 리뷰 없이 조건부 2차 의견만 계약된다", () => {
+  assert.deepEqual(
+    reviewPolicy.stages.map(({ id }) => id),
+    ["second-opinion", "required-checks"],
   );
-  assert.equal(codeReview.provider, "jansoree");
-  assert.equal(codeReview.mode, "advisory");
-  assert.equal(codeReview.trigger, "automatic-first-turn");
-  assert.equal(codeReview.blocking, false);
-  assert.equal(codeReview.countsAsApproval, false);
-  assert.equal(codeReview.summaryCommentRequired, true);
-  assert.equal(codeReview.threadResolutionRequired, true);
+  assert.ok(
+    reviewPolicy.stages.every(
+      ({ trigger }) => trigger !== "automatic-first-turn",
+    ),
+  );
 
   const secondOpinion = reviewPolicy.stages.find(
     ({ id }) => id === "second-opinion",
   );
   assert.equal(secondOpinion.provider, "codex");
+  assert.equal(secondOpinion.mode, "advisory");
   assert.equal(secondOpinion.trigger, "mention");
   assert.equal(secondOpinion.optional, true);
+  assert.equal(secondOpinion.threadResolutionRequired, true);
   assert.deepEqual(
     [...secondOpinion.allowedWhen].sort(),
     ["author-request", "large-change", "security-sensitive-change"],
   );
+});
+
+test("머지 gate는 도착하지 않는 봇 산출물을 기다리지 않는다", () => {
+  assert.deepEqual(Object.keys(reviewPolicy.mergeGate).sort(), [
+    "codeReviewThreadsResolved",
+    "humanApproval",
+    "humanApprovalConditions",
+    "requiredChecksPassed",
+  ]);
+  assert.equal(reviewPolicy.mergeGate.codeReviewThreadsResolved, true);
+  assert.equal(reviewPolicy.mergeGate.requiredChecksPassed, true);
+  assert.equal(reviewPolicy.mergeGate.humanApproval, "conditional");
 });

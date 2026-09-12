@@ -57,7 +57,6 @@ const PROTECTION_POLICY = Object.freeze({
   approvalReceiptId: null,
   checkAppIds: Object.freeze({
     orgContract: "10101",
-    seoriReview: "20202",
   }),
   providerMode: "REPO_BRANCH_PROTECTION",
   rolloutMode: "SHADOW",
@@ -1034,7 +1033,6 @@ test("ACTIVE 보호 뒤 credential provisioning은 별도 1회용 승인 receipt
     approvalReceiptId: "approval-protection-0001",
     checkAppIds: {
       orgContract: "10101",
-      seoriReview: "20202",
     },
     providerMode: "REPO_BRANCH_PROTECTION",
     rolloutMode: "ACTIVE",

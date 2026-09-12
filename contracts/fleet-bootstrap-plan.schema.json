@@ -409,23 +409,11 @@
                         },
                         "context": { "const": "Org Contract / Org Contract" }
                       }
-                    },
-                    {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "required": ["appId", "context"],
-                      "properties": {
-                        "appId": {
-                          "type": "string",
-                          "pattern": "^[1-9][0-9]{0,31}$"
-                        },
-                        "context": { "const": "Seori Review" }
-                      }
                     }
                   ],
                   "items": false,
-                  "minItems": 2,
-                  "maxItems": 2
+                  "minItems": 1,
+                  "maxItems": 1
                 },
                 "strict": { "const": true }
               }
@@ -750,13 +738,10 @@
         },
         "requiredChecks": {
           "type": "array",
-          "prefixItems": [
-            { "const": "Org Contract" },
-            { "const": "Seori Review" }
-          ],
+          "prefixItems": [{ "const": "Org Contract" }],
           "items": false,
-          "minItems": 2,
-          "maxItems": 2
+          "minItems": 1,
+          "maxItems": 1
         },
         "rulesetEnforcement": { "const": "ACTIVE" },
         "rulesetId": {
@@ -798,13 +783,10 @@
         },
         "requiredChecks": {
           "type": "array",
-          "prefixItems": [
-            { "const": "Org Contract" },
-            { "const": "Seori Review" }
-          ],
+          "prefixItems": [{ "const": "Org Contract" }],
           "items": false,
-          "minItems": 2,
-          "maxItems": 2
+          "minItems": 1,
+          "maxItems": 1
         },
         "rulesetEnforcement": { "const": "ACTIVE" },
         "rulesetId": {
@@ -847,13 +829,10 @@
             "decision": { "const": "REQUIRED" },
             "requiredChecks": {
               "type": "array",
-              "prefixItems": [
-                { "const": "Org Contract" },
-                { "const": "Seori Review" }
-              ],
+              "prefixItems": [{ "const": "Org Contract" }],
               "items": false,
-              "minItems": 2,
-              "maxItems": 2
+              "minItems": 1,
+              "maxItems": 1
             }
           }
         }
