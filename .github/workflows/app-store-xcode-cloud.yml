@@ -17,9 +17,15 @@ on:
         required: false
         default: ""
       bundle_id:
-        description: "iOS bundle id. Xcode Cloud 제품을 이 값으로 찾는다."
+        description: "iOS bundle id. 비우면 저장소의 app_config_path에서 읽는다."
         type: string
-        required: true
+        required: false
+        default: ""
+      app_config_path:
+        description: "bundle id를 담은 저장소 설정 파일 경로."
+        type: string
+        required: false
+        default: "app-store/app-store.config.json"
       xcode_cloud_workflow:
         description: "Xcode Cloud workflow 이름. 비우면 활성 workflow 중 첫 번째."
         type: string
@@ -74,11 +80,37 @@ jobs:
           path: .org
           persist-credentials: false
 
+      # 앱 신원은 저장소의 설정 파일 한 곳에만 둔다. 워크플로에 bundle id를 다시 박으면
+      # 같은 값이 두 곳이 되고, 한쪽만 바뀌었을 때 어느 쪽이 맞는지 알 수 없게 된다.
+      - name: Checkout app config
+        if: ${{ inputs.bundle_id == '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: .app
+          fetch-depth: 1
+          sparse-checkout: ${{ inputs.app_config_path }}
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.16.0"
           check-latest: false
+
+      - name: Resolve bundle id
+        id: identity
+        env:
+          BUNDLE_ID: ${{ inputs.bundle_id }}
+          CONFIG_PATH: ${{ inputs.app_config_path }}
+        run: |
+          set -euo pipefail
+          if [ -n "$BUNDLE_ID" ]; then
+            echo "bundle_id=$BUNDLE_ID" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          resolved="$(node .org/scripts/read-app-bundle-id.mjs ".app/$CONFIG_PATH")"
+          echo "bundle_id=$resolved" >> "$GITHUB_OUTPUT"
 
       - name: Trigger Xcode Cloud build
         id: dispatch
@@ -87,7 +119,7 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
           RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
-          BUNDLE_ID: ${{ inputs.bundle_id }}
+          BUNDLE_ID: ${{ steps.identity.outputs.bundle_id }}
           XCODE_CLOUD_WORKFLOW: ${{ inputs.xcode_cloud_workflow }}
           START: ${{ inputs.start }}
         run: |
