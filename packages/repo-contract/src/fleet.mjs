@@ -45,7 +45,7 @@ const CLOUD_BUILD_CONFIG_BY_PROFILE = Object.freeze({
 });
 const V4_RUNTIME_AST_DIGEST_BY_PATH = Object.freeze({
   ".github/workflows/rn-static-checks-v2.yml":
-    "sha256:e725c646653cc6871c0faa0786a13077ecd753b8ed6a7c170ab42b39d7f30933",
+    "sha256:c005cf3e229083ea20ac45a43f6975e80a9186c57015a23923f0453039d46544",
   ".github/workflows/godot-checks-v2.yml":
     "sha256:53ca7b29a018780122f09bdd711f93580ac1640df09b95b20b4782c85055f077",
   ".github/workflows/rn-build-android-cloud-v1.yml":

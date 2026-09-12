@@ -33,8 +33,6 @@ const SOURCE_SHA = "a".repeat(40);
 const WORKFLOW_EXECUTION_SHA =
   "c328d9bf55f31ba11f53ef06071cc7b76d283617";
 const P3_PROVENANCE_SHA = "9583e0d21a4a2b23d0b93c4deedb74b6b467aadf";
-const PRE_EXECUTION_CONTRACT_SHA =
-  "6e18b189d112f23270426cd88b3f906969103b75";
 const STALE_SHA = "9".repeat(40);
 const DIGEST = `sha256:${"b".repeat(64)}`;
 const KEY_ID = "fleet-root-2026-01";
@@ -128,47 +126,6 @@ function trustedSourceReadbackFor(bundle, repoRoot = ".") {
       ),
     ),
   });
-}
-
-function exactGitSourceReadback(requests = []) {
-  return async ({ repository, sourceSha, contractPaths, runtimeAssetPaths }) => {
-    requests.push({
-      repository,
-      sourceSha,
-      contractPaths: [...contractPaths],
-      runtimeAssetPaths: [...runtimeAssetPaths],
-    });
-    const readExact = (path) =>
-      execFileSync("git", ["show", `${sourceSha}:${path}`], {
-        encoding: "utf8",
-        maxBuffer: 4 * 1024 * 1024,
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-    const contractAssetContents = Object.fromEntries(
-      contractPaths.map((path) => [path, readExact(path)]),
-    );
-    const runtimeAssetContents = Object.fromEntries(
-      runtimeAssetPaths.map((path) => [path, readExact(path)]),
-    );
-    const digestEntries = (contents) =>
-      Object.fromEntries(
-        Object.entries(contents).map(([path, content]) => [
-          path,
-          `sha256:${createHash("sha256").update(content).digest("hex")}`,
-        ]),
-      );
-    return {
-      repository,
-      sourceSha,
-      contractDigests: digestEntries(contractAssetContents),
-      runtimeAssetDigests: digestEntries(runtimeAssetContents),
-      workflowBundleSchemaText: readExact(
-        "contracts/workflow-bundle.schema.json",
-      ),
-      contractAssetContents,
-      runtimeAssetContents,
-    };
-  };
 }
 
 async function exactGitRoot(sourceSha) {
@@ -944,80 +901,15 @@ test("exact remote source의 runtime digest 또는 bytes가 다르면 load를 �
   );
 });
 
-test("P3 bundle은 최신 provenance와 execution c328을 두 exact source로 검증한다", async () => {
+test("현재 runtime은 GitHub Packages를 강제한 과거 P3 source 재사용을 거부한다", async () => {
   const provenanceRoot = await exactGitRoot(P3_PROVENANCE_SHA);
-  const candidate = await createWorkflowBundle({
-    repoRoot: provenanceRoot,
-    sourceSha: P3_PROVENANCE_SHA,
-    platformRelease: PLATFORM_RELEASE,
-  });
-  const requests = [];
-  const trustedWorkflowSourceReadback = exactGitSourceReadback(requests);
-  const validation = await validateWorkflowBundle(candidate, {
-    repoRoot: provenanceRoot,
-    trustedWorkflowSourceReadback,
-  });
-  assert.equal(validation.ok, true, validation.diagnostics.join(","));
-  assert.deepEqual(
-    requests.map(({ sourceSha }) => sourceSha),
-    [P3_PROVENANCE_SHA, WORKFLOW_EXECUTION_SHA],
-  );
-
-  const evidence = EVIDENCE.map((record) => ({
-    ...record,
-    workflowBundleSourceSha: P3_PROVENANCE_SHA,
-  }));
-  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
-  const registry = new Map();
-  const approved = await promoteWorkflowBundle(candidate, evidence, {
-    repoRoot: provenanceRoot,
-    trustedWorkflowSourceReadback,
-    evidenceVerifier: async (record, bundle) => verifiedEvidence(record, bundle),
-    trustedRunnerImageReadback,
-    ...trustedSignerOptions(privateKey, publicKey, "p3-two-source-test"),
-    registryPublisher: async (record) => {
-      registry.set(record.subject, structuredClone(record));
-      return record;
-    },
-  });
-  const binding = await loadApprovedWorkflowBundle(approved, {
-    trustedApprovalKeys: new Map([["p3-two-source-test", publicKey]]),
-    trustedRegistryReadback: async ({ subject }) => registry.get(subject),
-    trustedWorkflowSourceReadback,
-    trustedRunnerImageReadback,
-  });
-  assert.equal(binding.sourceSha, P3_PROVENANCE_SHA);
-
-  const legacyCandidate = await createWorkflowBundle({
-    sourceSha: PRE_EXECUTION_CONTRACT_SHA,
-    platformRelease: PLATFORM_RELEASE,
-  });
-  const legacyValidation = await validateWorkflowBundle(legacyCandidate, {
-    trustedWorkflowSourceReadback: exactGitSourceReadback(),
-  });
-  assert.equal(legacyValidation.ok, false);
-  assert.ok(
-    legacyValidation.diagnostics.includes("WORKFLOW_SOURCE_READBACK_FAILED"),
-  );
-
-  const tamperedExecutionReadback = async (request) => {
-    const snapshot = await exactGitSourceReadback()(request);
-    if (request.sourceSha === WORKFLOW_EXECUTION_SHA) {
-      snapshot.runtimeAssetContents[
-        ".github/workflows/rn-build-android-cloud-v1.yml"
-      ] += "\n# tampered execution source\n";
-    }
-    return snapshot;
-  };
-  const tamperedValidation = await validateWorkflowBundle(candidate, {
-    repoRoot: provenanceRoot,
-    trustedWorkflowSourceReadback: tamperedExecutionReadback,
-  });
-  assert.equal(tamperedValidation.ok, false);
-  assert.ok(
-    tamperedValidation.diagnostics.includes(
-      "WORKFLOW_EXECUTION_SOURCE_READBACK_MISMATCH",
-    ),
+  await assert.rejects(
+    createWorkflowBundle({
+      repoRoot: provenanceRoot,
+      sourceSha: P3_PROVENANCE_SHA,
+      platformRelease: PLATFORM_RELEASE,
+    }),
+    /WORKFLOW_BUNDLE_INVALID:RUNTIME_DECLARATION_MISMATCH/u,
   );
 });
 
