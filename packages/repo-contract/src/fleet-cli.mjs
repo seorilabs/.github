@@ -8,13 +8,6 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { createWorkflowBundle, validateWorkflowBundle } from "./fleet.mjs";
-import {
-  createFleetMigrationPlan,
-  loadTrustedFleetMigrationChainHeadBinding,
-  loadTrustedFleetMigrationHistoricalInventoryBinding,
-  loadTrustedFleetMigrationInventoryBinding,
-  validateFleetMigrationPlan,
-} from "./fleet-migration.mjs";
 
 function parseOptions(argv) {
   const options = Object.create(null);
@@ -56,105 +49,6 @@ async function loadEd25519PublicKey(path, errorPrefix) {
   return publicKey;
 }
 
-async function loadInventoryTrustRoots(options) {
-  if (
-    options["trusted-key-id"] === undefined ||
-    options["trusted-public-key"] === undefined
-  ) {
-    throw new Error("MIGRATION_TRUST_ROOT_REQUIRED");
-  }
-  const publicKey = await loadEd25519PublicKey(
-    options["trusted-public-key"],
-    "MIGRATION",
-  );
-  const trustedInventoryKeys = new Map([
-    [options["trusted-key-id"], publicKey],
-  ]);
-  return trustedInventoryKeys;
-}
-
-async function loadPriorMigrationInput(
-  inventory,
-  options,
-  trustedInventoryKeys,
-  trustedStateAuthorityReadback,
-  now,
-) {
-  if (inventory.lineage.mode === "BOOTSTRAP") {
-    if (
-      options["prior-inventory"] !== undefined ||
-      options["chain-head"] !== undefined ||
-      options["trusted-chain-head-key-id"] !== undefined ||
-      options["trusted-chain-head-public-key"] !== undefined
-    ) {
-      throw new Error("MIGRATION_WAVE_INPUT_NOT_ALLOWED");
-    }
-    return {};
-  }
-  if (options["prior-inventory"] === undefined) {
-    throw new Error("MIGRATION_PRIOR_INVENTORY_REQUIRED");
-  }
-  const priorInventory = JSON.parse(
-    await readFile(options["prior-inventory"], "utf8"),
-  );
-  const trustedPriorInventoryBinding =
-    loadTrustedFleetMigrationHistoricalInventoryBinding({
-      inventory: priorInventory,
-      trustedInventoryKeys,
-      now,
-    });
-  if (
-    options["chain-head"] === undefined ||
-    options["trusted-chain-head-key-id"] === undefined ||
-    options["trusted-chain-head-public-key"] === undefined
-  ) {
-    throw new Error("MIGRATION_CHAIN_HEAD_REQUIRED");
-  }
-  const chainHead = JSON.parse(await readFile(options["chain-head"], "utf8"));
-  const chainHeadPublicKey = await loadEd25519PublicKey(
-    options["trusted-chain-head-public-key"],
-    "MIGRATION_CHAIN_HEAD",
-  );
-  const trustedChainHeadKeys = new Map([
-    [options["trusted-chain-head-key-id"], chainHeadPublicKey],
-  ]);
-  const trustedChainHeadBinding =
-    await loadTrustedFleetMigrationChainHeadBinding({
-      chainHead,
-      trustedChainHeadKeys,
-      trustedInventoryKeys,
-      trustedStateAuthorityReadback,
-      now,
-    });
-  return {
-    priorInventory,
-    trustedPriorInventoryBinding,
-    chainHead,
-    trustedChainHeadBinding,
-  };
-}
-
-function migrationPlanOptions(trustedInventoryBinding, priorInput, now) {
-  return {
-    trustedInventoryBinding,
-    ...priorInput,
-    now,
-  };
-}
-
-function loadCurrentInventoryBinding(
-  inventory,
-  trustedInventoryKeys,
-  priorInput,
-  now,
-) {
-  return loadTrustedFleetMigrationInventoryBinding({
-    inventory,
-    trustedInventoryKeys,
-    ...priorInput,
-    now,
-  });
-}
 
 async function emit(content, outputPath, stdout) {
   if (outputPath) {
@@ -210,80 +104,6 @@ export async function runFleetCli({
       return 0;
     }
 
-    if (command === "plan-migration") {
-      if (options.output !== undefined) {
-        throw new Error("MIGRATION_STDOUT_ONLY");
-      }
-      const inventoryPath = requireOption(
-        options,
-        "inventory",
-        "MIGRATION_INVENTORY_REQUIRED",
-      );
-      const inventory = JSON.parse(await readFile(inventoryPath, "utf8"));
-      const now = clock();
-      const trustedInventoryKeys = await loadInventoryTrustRoots(options);
-      const priorInput = await loadPriorMigrationInput(
-        inventory,
-        options,
-        trustedInventoryKeys,
-        trustedStateAuthorityReadback,
-        now,
-      );
-      const trustedInventoryBinding = loadCurrentInventoryBinding(
-        inventory,
-        trustedInventoryKeys,
-        priorInput,
-        now,
-      );
-      const plan = createFleetMigrationPlan(
-        inventory,
-        migrationPlanOptions(trustedInventoryBinding, priorInput, now),
-      );
-      stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
-      return 0;
-    }
-
-    if (command === "validate-migration-plan") {
-      const planPath = requireOption(
-        options,
-        "plan",
-        "MIGRATION_PLAN_REQUIRED",
-      );
-      const inventoryPath = requireOption(
-        options,
-        "inventory",
-        "MIGRATION_INVENTORY_REQUIRED",
-      );
-      const plan = JSON.parse(await readFile(planPath, "utf8"));
-      const inventory = JSON.parse(await readFile(inventoryPath, "utf8"));
-      const now = clock();
-      const trustedInventoryKeys = await loadInventoryTrustRoots(options);
-      const priorInput = await loadPriorMigrationInput(
-        inventory,
-        options,
-        trustedInventoryKeys,
-        trustedStateAuthorityReadback,
-        now,
-      );
-      const trustedInventoryBinding = loadCurrentInventoryBinding(
-        inventory,
-        trustedInventoryKeys,
-        priorInput,
-        now,
-      );
-      const result = validateFleetMigrationPlan(plan, {
-        inventory,
-        ...migrationPlanOptions(trustedInventoryBinding, priorInput, now),
-      });
-      if (!result.ok) {
-        for (const diagnostic of result.diagnostics) {
-          stderr.write(`오류 [${diagnostic}] Fleet migration plan 검증 실패\n`);
-        }
-        return 1;
-      }
-      stdout.write("Fleet migration plan 검증 통과\n");
-      return 0;
-    }
   } catch (error) {
     const code = String(error?.message ?? "FLEET_CONTRACT_FAILED").split(
       ":",
@@ -293,7 +113,7 @@ export async function runFleetCli({
   }
 
   stderr.write(
-    "사용법: fleet-contract bundle|validate-bundle|plan-migration|validate-migration-plan [옵션]\n",
+    "사용법: fleet-contract bundle|validate-bundle [옵션]\n",
   );
   return 2;
 }

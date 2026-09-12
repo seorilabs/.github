@@ -8,41 +8,14 @@ import {
   githubProtectionReadback,
 } from "seorilabs-org-contracts/repo-contract/github-settings-readback";
 
-import {
-  fleetMigrationContract,
-  validateFleetMigrationInventory,
-} from "seorilabs-org-contracts/repo-contract/fleet-migration";
-import {
-  fleetMigrationCollectorContract,
-  validateFleetMigrationCollection,
-} from "seorilabs-org-contracts/repo-contract/fleet-migration-collector";
-import { validateFleetMigrationLegacyDocument } from "seorilabs-org-contracts/repo-contract/fleet-migration-legacy-validator";
-import {
-  createTrustedFleetCleanupExecutor,
-  trustedFleetCleanupExecutorContract,
-} from "seorilabs-org-contracts/repo-contract/trusted-cleanup-executor";
-import {
-  createFleetMigrationInventoryIssuer,
-  fleetMigrationInventoryIssuerContract,
-} from "seorilabs-org-contracts/repo-contract/trusted-inventory-issuer";
 
 test("조직 계약 root package는 Backoffice가 사용하는 안정 subpath만 export한다", () => {
   assert.equal(typeof createFleetWebhookHandler, "function");
   assert.equal(typeof validateFleetBootstrapPlan, "function");
   assert.equal(typeof createGitHubAppTrustedAdapter, "function");
   assert.equal(typeof createTrustedFleetExecutor, "function");
-  assert.equal(fleetMigrationContract.schemaVersion, 1);
-  assert.equal(
-    fleetMigrationCollectorContract.contract,
-    "seorilabs-fleet-migration-collection-v1",
-  );
-  assert.equal(typeof validateFleetMigrationInventory, "function");
-  assert.equal(typeof validateFleetMigrationCollection, "function");
-  assert.equal(typeof validateFleetMigrationLegacyDocument, "function");
-  assert.equal(typeof createTrustedFleetCleanupExecutor, "function");
-  assert.equal(typeof createFleetMigrationInventoryIssuer, "function");
-  assert.equal(typeof trustedFleetCleanupExecutorContract, "object");
-  assert.equal(typeof fleetMigrationInventoryIssuerContract, "object");
+  assert.equal(typeof githubProtectionPlanReadback, "function");
+  assert.equal(typeof githubProtectionReadback, "function");
 });
 
 test("Backoffice가 CLI와 같은 읽기 전용 보호 판정기를 배포 패키지에서 재사용한다", () => {

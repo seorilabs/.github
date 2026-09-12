@@ -12,15 +12,9 @@
     "./bootstrap": "./src/bootstrap.mjs",
     "./fleet": "./src/fleet.mjs",
     "./standard-labels": "./src/standard-labels.mjs",
-    "./fleet-migration-collector": "./src/fleet-migration-collector.mjs",
-    "./fleet-migration-legacy-validator": "./src/fleet-migration-legacy-validator.mjs",
-    "./fleet-migration": "./src/fleet-migration.mjs",
-    "./fleet-cleanup-reconciler": "./src/fleet-cleanup-reconciler.mjs",
-    "./trusted-cleanup-executor": "./src/trusted-cleanup-executor.mjs",
     "./trusted-candidate-canary": "./src/trusted-candidate-canary.mjs",
     "./trusted-executor": "./src/trusted-executor.mjs",
     "./workflow-bundle-v5": "./src/workflow-bundle-v5.mjs",
-    "./trusted-inventory-issuer": "./src/trusted-inventory-issuer.mjs",
     "./trusted-publisher": "./src/trusted-publisher.mjs"
   },
   "files": [

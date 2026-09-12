@@ -23,10 +23,6 @@ const requiredPackageFiles = [
   ".generated/contracts/credential-consumer.schema.json",
   ".generated/contracts/fleet-bootstrap-plan.schema.json",
   ".generated/contracts/fleet-standard-labels.json",
-  ".generated/contracts/fleet-cleanup-execution-receipt.schema.json",
-  ".generated/contracts/fleet-migration-chain-head.schema.json",
-  ".generated/contracts/fleet-migration-inventory.schema.json",
-  ".generated/contracts/fleet-migration-plan.schema.json",
   ".generated/contracts/legacy/backoffice-operations.v1.schema.json",
   ".generated/contracts/legacy/market-launch-state.v1.schema.json",
   ".generated/contracts/legacy/platform-registry-app.v1.schema.json",
@@ -64,12 +60,7 @@ const requiredPackageFiles = [
   "src/cli.mjs",
   "src/bootstrap.mjs",
   "src/standard-labels.mjs",
-  "src/fleet-migration-collector.mjs",
-  "src/fleet-migration-legacy-validator.mjs",
-  "src/fleet-migration.mjs",
-  "src/trusted-cleanup-executor.mjs",
   "src/workflow-bundle-v5.mjs",
-  "src/trusted-inventory-issuer.mjs",
 ];
 
 const cacheRoot = await mkdtemp(join(tmpdir(), "repo-contract-pack-cache-"));
@@ -327,161 +318,23 @@ try {
     throw new Error(
       "배포된 repo-contract에 Fleet trusted executor API가 없습니다.",
     );
-  }
-  const installedMigrationCheck = await execFileAsync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "--eval",
-      [
-        'const installed = await import("@seorilabs/repo-contract/fleet-migration");',
-        'if (typeof installed.createFleetMigrationPlan !== "function") process.exit(1);',
-        'if (typeof installed.validateFleetMigrationChainHead !== "function") process.exit(1);',
-        'if (typeof installed.validateFleetMigrationPlan !== "function") process.exit(1);',
-        'if (typeof installed.validateFleetMigrationPlanStructure !== "function") process.exit(1);',
-        'if (typeof installed.computeFleetRepositoryReadbackDigest !== "function") process.exit(1);',
-        'if (typeof installed.computeFleetFindingsDigest !== "function") process.exit(1);',
-        'if (typeof installed.computeFleetMigrationInventoryDigest !== "function") process.exit(1);',
-        'if (typeof installed.computeFleetMigrationShadowCohortDigest !== "function") process.exit(1);',
-        'if (typeof installed.isFleetMigrationBaselineRatificationBound !== "function") process.exit(1);',
-        'if (typeof installed.computeFleetMigrationChainHeadDigest !== "function") process.exit(1);',
-        'if (typeof installed.computeFleetMigrationLineageChainDigest !== "function") process.exit(1);',
-        'if (typeof installed.deriveFleetMigrationInventoryCheckpoint !== "function") process.exit(1);',
-        'if (typeof installed.createFleetMigrationAttestationPayload !== "function") process.exit(1);',
-        'if (typeof installed.createFleetMigrationChainHeadAttestationPayload !== "function") process.exit(1);',
-        'if (typeof installed.loadTrustedFleetMigrationChainHeadBinding !== "function") process.exit(1);',
-        'if (typeof installed.loadTrustedFleetMigrationInventoryBinding !== "function") process.exit(1);',
-        'if (typeof installed.loadTrustedFleetMigrationHistoricalInventoryBinding !== "function") process.exit(1);',
-        'if (typeof installed.computeFleetMigrationReplacementDigest !== "function") process.exit(1);',
-        'if (typeof installed.computeFleetMigrationOutageRecoveryDigest !== "function") process.exit(1);',
-        'if (typeof installed.computeFleetMigrationOwnerScopeDigest !== "function") process.exit(1);',
-        "if (installed.fleetMigrationContract?.executionAllowed !== false) process.exit(1);",
-        'if (installed.fleetMigrationContract?.mode !== "PLAN_ONLY") process.exit(1);',
-        'if (installed.fleetMigrationContract?.inventoryAttestation?.contract !== "seorilabs-fleet-migration-inventory-attestation-v2") process.exit(1);',
-        'if (installed.fleetMigrationContract?.chainHeadAttestation?.role !== "FLEET_MIGRATION_CHAIN_HEAD_AUTHORITY") process.exit(1);',
-        "if (installed.fleetMigrationContract?.initialBaseline?.expectedCounts?.legacyOperationJson !== 73) process.exit(1);",
-        "if (installed.fleetMigrationContract?.initialBaseline?.expectedCounts?.workflowSecretsInherit !== 107) process.exit(1);",
-        "if (installed.fleetMigrationContract?.initialBaseline?.expectedCounts?.workflowFloatingRef !== 86) process.exit(1);",
-        'if (installed.fleetMigrationContract?.initialBaseline?.ratification?.reason !== "PRE_AUTHORITATIVE_SECURITY_REMEDIATION") process.exit(1);',
-        'if (installed.fleetMigrationContract?.initialBaseline?.ratification?.detector?.repositoryId !== "1241442018") process.exit(1);',
-        'if (installed.fleetMigrationContract?.initialBaseline?.ratification?.detector?.sourceSha !== "cd13b325918cb10401e089074461ba11042c154e") process.exit(1);',
-        'process.stdout.write("Fleet migration planner public export 검증 통과\\n");',
-      ].join("\n"),
-    ],
-    {
-      cwd: consumerRoot,
-      encoding: "utf8",
-      maxBuffer: 2 * 1024 * 1024,
-    },
-  );
-  if (!installedMigrationCheck.stdout.includes("public export 검증 통과")) {
+  }  if (!installedMigrationCheck.stdout.includes("public export 검증 통과")) {
     throw new Error(
       "배포된 repo-contract에 Fleet migration planner API가 없습니다.",
     );
-  }
-  const installedCollectorCheck = await execFileAsync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "--eval",
-      [
-        'const installed = await import("@seorilabs/repo-contract/fleet-migration-collector");',
-        'if (typeof installed.createFleetMigrationReadOnlyCollector !== "function") process.exit(1);',
-        'if (typeof installed.validateFleetMigrationCollection !== "function") process.exit(1);',
-        'if (typeof installed.validateFleetGitHubAppCapability !== "function") process.exit(1);',
-        'if (typeof installed.isFleetGitHubAppCapabilityVerified !== "function") process.exit(1);',
-        'if (installed.fleetMigrationCollectorContract?.githubApp?.installationId !== "142120077") process.exit(1);',
-        'if (Object.hasOwn(installed.fleetMigrationCollectorContract ?? {}, "githubAppGateIssue")) process.exit(1);',
-        'process.stdout.write("Fleet migration collector public export 검증 통과\\n");',
-      ].join("\n"),
-    ],
-    {
-      cwd: consumerRoot,
-      encoding: "utf8",
-      maxBuffer: 2 * 1024 * 1024,
-    },
-  );
-  if (!installedCollectorCheck.stdout.includes("public export 검증 통과")) {
+  }  if (!installedCollectorCheck.stdout.includes("public export 검증 통과")) {
     throw new Error(
       "배포된 repo-contract에 Fleet migration collector API가 없습니다.",
     );
-  }
-  const installedLegacyValidatorCheck = await execFileAsync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "--eval",
-      [
-        'const installed = await import("@seorilabs/repo-contract/fleet-migration-legacy-validator");',
-        'if (typeof installed.validateFleetMigrationLegacyDocument !== "function") process.exit(1);',
-        'if (!/^fleet-legacy-schema-validator-v1-[0-9a-f]{16}$/.test(installed.fleetMigrationLegacyValidatorRevision ?? "")) process.exit(1);',
-        'process.stdout.write("Fleet migration legacy validator public export 검증 통과\\n");',
-      ].join("\n"),
-    ],
-    {
-      cwd: consumerRoot,
-      encoding: "utf8",
-      maxBuffer: 2 * 1024 * 1024,
-    },
-  );
-  if (!installedLegacyValidatorCheck.stdout.includes("public export 검증 통과")) {
+  }  if (!installedLegacyValidatorCheck.stdout.includes("public export 검증 통과")) {
     throw new Error(
       "배포된 repo-contract에 Fleet migration legacy validator API가 없습니다.",
     );
-  }
-  const installedIssuerCheck = await execFileAsync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "--eval",
-      [
-        'const installed = await import("@seorilabs/repo-contract/trusted-inventory-issuer");',
-        'if (typeof installed.createFleetMigrationInventoryIssuer !== "function") process.exit(1);',
-        'if (typeof installed.validateFleetMigrationAuthoritativeInventory !== "function") process.exit(1);',
-        'if (installed.fleetMigrationInventoryIssuerContract?.signingCredentialId !== "shared/platform/fleet-release-approval-signing") process.exit(1);',
-        'if (installed.fleetMigrationInventoryIssuerContract?.keyId !== "platform-fleet-release-20260829-5458c56b") process.exit(1);',
-        'if (installed.fleetMigrationInventoryIssuerContract?.authoritativeIssuanceEnabled !== true) process.exit(1);',
-        'if (installed.fleetMigrationInventoryIssuerContract?.privateKeyInputAllowed !== false) process.exit(1);',
-        'process.stdout.write("Fleet migration inventory issuer public export 검증 통과\\n");',
-      ].join("\n"),
-    ],
-    {
-      cwd: consumerRoot,
-      encoding: "utf8",
-      maxBuffer: 2 * 1024 * 1024,
-    },
-  );
-  if (!installedIssuerCheck.stdout.includes("public export 검증 통과")) {
+  }  if (!installedIssuerCheck.stdout.includes("public export 검증 통과")) {
     throw new Error(
       "배포된 repo-contract에 Fleet migration inventory issuer API가 없습니다.",
     );
-  }
-  const installedCleanupExecutorCheck = await execFileAsync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "--eval",
-      [
-        'const installed = await import("@seorilabs/repo-contract/trusted-cleanup-executor");',
-        'if (typeof installed.createTrustedFleetCleanupGitHubAdapter !== "function") process.exit(1);',
-        'if (typeof installed.createTrustedFleetCleanupStateStore !== "function") process.exit(1);',
-        'if (typeof installed.createTrustedFleetCleanupExecutor !== "function") process.exit(1);',
-        'if (typeof installed.computeFleetCleanupApprovalScopeDigest !== "function") process.exit(1);',
-        'if (typeof installed.validateFleetCleanupExecutionReceipt !== "function") process.exit(1);',
-        'if (installed.trustedFleetCleanupExecutorContract?.mode !== "READY_PR_ONLY") process.exit(1);',
-        'if (installed.trustedFleetCleanupExecutorContract?.repositoryReadyPullRequestLimit !== 1) process.exit(1);',
-        'if (installed.trustedFleetCleanupExecutorContract?.directDefaultBranchMutationAllowed !== false) process.exit(1);',
-        'if (installed.trustedFleetCleanupExecutorContract?.resultUnknownRetryAllowed !== false) process.exit(1);',
-        'process.stdout.write("Fleet cleanup executor public export 검증 통과\\n");',
-      ].join("\n"),
-    ],
-    {
-      cwd: consumerRoot,
-      encoding: "utf8",
-      maxBuffer: 2 * 1024 * 1024,
-    },
-  );
-  if (
+  }  if (
     !installedCleanupExecutorCheck.stdout.includes("public export 검증 통과")
   ) {
     throw new Error(
