@@ -189,29 +189,8 @@ test("Godot binary는 architecture별 공식 checksum으로 검증된다", () =>
   assert.doesNotMatch(godot, /grep -E 'SCRIPT ERROR\|ERROR:'/u);
 });
 
-test("candidate workflow는 테스트 뒤 불변 bundle을 만들고 3일만 보관한다", async () => {
-  const candidate = await readFile(
-    ".github/workflows/workflow-bundle-candidate.yml",
-    "utf8",
-  );
-  assert.ok(candidate.indexOf("npm test") < candidate.indexOf("fleet-cli.mjs bundle"));
-  assert.match(candidate, /--source-sha "\$GITHUB_SHA"/u);
-  assert.match(
-    candidate,
-    /--platform-release contracts\/platform-releases\/v0\.6\.6\/platform-release\.json/u,
-  );
-  assert.match(candidate, /retention-days: 3/u);
-  assert.doesNotMatch(candidate, /permissions:[\s\S]*?contents: write/u);
-  const parsed = parse(candidate);
-  const checkout = parsed.jobs.candidate.steps.find((step) =>
-    step.uses?.startsWith("actions/checkout@"),
-  );
-  assert.equal(checkout.with?.["persist-credentials"], false);
-});
-
 test("직접 실행되는 ESM entrypoint는 resolve와 realpath를 사용한다", async () => {
   const entrypoints = [
-    "packages/repo-contract/src/fleet-cli.mjs",
     "scripts/fleet/godot-diagnostic-gate.mjs",
     "scripts/fleet/static-preflight.mjs",
     "scripts/fleet/secret-scan.mjs",
@@ -229,7 +208,6 @@ test("직접 실행되는 ESM entrypoint는 resolve와 realpath를 사용한다"
 
 test("직접 실행되는 ESM entrypoint는 상대 경로 호출에서도 실행된다", () => {
   const entrypoints = [
-    "packages/repo-contract/src/fleet-cli.mjs",
     "scripts/fleet/godot-diagnostic-gate.mjs",
     "scripts/fleet/static-preflight.mjs",
     "scripts/fleet/secret-scan.mjs",

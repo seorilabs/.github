@@ -307,33 +307,6 @@ try {
       "배포된 repo-contract에 Fleet trusted executor API가 없습니다.",
     );
   }
-  const installedCandidateCanaryCheck = await execFileAsync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "--eval",
-      [
-        'const installed = await import("@seorilabs/repo-contract/trusted-candidate-canary");',
-        'if (typeof installed.loadTrustedCandidateBundle !== "function") process.exit(1);',
-        'if (typeof installed.createTrustedCandidateCanaryPlan !== "function") process.exit(1);',
-        'if (typeof installed.createTrustedCandidateCanaryExecutor !== "function") process.exit(1);',
-        'if (installed.trustedCandidateCanaryContract?.operationKind !== "github.candidate-canary-pull-request.ensure") process.exit(1);',
-        'if (installed.trustedCandidateCanaryContract?.wifApprovalPurpose !== "CANDIDATE_WIF_PREBIND") process.exit(1);',
-        'if (installed.trustedCandidateCanaryContract?.wifLogicalCredentialId !== "shared/gcp/cloud-build") process.exit(1);',
-        'process.stdout.write("WorkflowBundle candidate canary public export 검증 통과\\n");',
-      ].join("\n"),
-    ],
-    {
-      cwd: consumerRoot,
-      encoding: "utf8",
-      maxBuffer: 2 * 1024 * 1024,
-    },
-  );
-  if (
-    !installedCandidateCanaryCheck.stdout.includes("public export 검증 통과")
-  ) {
-    throw new Error("배포된 repo-contract에 candidate canary API가 없습니다.");
-  }
   const installedPublisherCheck = await execFileAsync(
     process.execPath,
     [

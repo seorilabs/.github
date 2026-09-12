@@ -26,7 +26,6 @@
 | `rn-static-checks-v2.yml` | Fleet RN 고정 품질 게이트와 provenance | private ARC, public ubuntu |
 | `godot-checks-v2.yml` | Fleet Godot 고정 품질·import 게이트와 provenance | private ARC, public ubuntu |
 | `godot-product-verification-v1.yml` | 고정된 기능·회귀·UI 계약을 실행하는 Godot EVALUATE gate | private ARC, public ubuntu |
-| `workflow-bundle-candidate.yml` | 불변 WorkflowBundle candidate 생성·검증 | private ARC, public ubuntu |
 | `ait-upload-v1.yml` | 공용 key 비노출 broker adapter가 준비될 때까지 `RUNTIME_NOT_OPERATIONAL` | public ubuntu, PR 비실행 |
 | `rn-build-android-cloud-v1.yml` | RN exact source를 Cloud Build에 제출하고 build-only AAB 회수 | private ARC submit + x64 Cloud Build |
 | `godot-build-android-cloud-v1.yml` | Godot exact source를 Cloud Build에 제출하고 build-only AAB 회수 | private ARC submit + x64 Cloud Build |

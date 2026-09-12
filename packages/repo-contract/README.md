@@ -20,8 +20,6 @@ repo-contract [저장소 경로]
 
 조직 secret selected-repository 목록, custom property map, shared WIF etag처럼 다른 repo의 additive 작업으로 변하는 provider superset은 stable satisfaction witness와 현재 `readbackDigest`로 분리합니다. target binding이 유지되면 완료 작업을 mutation 없이 replay하고, target 자체가 사라지면 실패합니다.
 
-`@seorilabs/repo-contract/trusted-candidate-canary`는 CANDIDATE bundle을 Happy Farm과 Lizard Tycoon 두 고정 repo에만 적용하는 전용 경계입니다. 중앙 source/integrity와 Backoffice exact-source manifest를 다시 읽고, exact candidate `job_workflow_ref`에 묶인 `CANDIDATE_WIF_PREBIND` 5분·1회 승인을 CAS로 소비한 뒤 shared WIF binding을 read-before/apply-CAS/read-after 합니다. 그 후에만 static 및 Android build-only caller 두 개를 idempotent PR로 생성합니다. 일반 fleet generator는 계속 APPROVED bundle만 받습니다.
-
 `@seorilabs/repo-contract/trusted-publisher`는 WorkflowBundle signer와 registry publish/readback을 GitHub executor에서 분리합니다. worker는 `shared/workflow-bundle/approval-signing` logical ID만 알고 private key를 받지 않습니다.
 
 Fleet migration의 legacy 범위에는 schema-validated `.seorilabs/app.yaml` manifest가 포함됩니다.

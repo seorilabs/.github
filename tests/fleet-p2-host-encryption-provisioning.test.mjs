@@ -535,7 +535,6 @@ test('central workflows gate Linux ARM64 host syscalls and Darwin child hardenin
   const [workflows, linuxHarness, linuxChild, linuxBuilder] = await Promise.all([
     Promise.all([
       '.github/workflows/contract-checks.yml',
-      '.github/workflows/workflow-bundle-candidate.yml',
     ].map(async (path) => parse(await readFile(path, 'utf8')))),
     readFile('scripts/fleet/verify-p2-host-fs-boundary-linux-arm64.mjs', 'utf8'),
     readFile('scripts/fleet/verify-p2-process-hardening-child.mjs', 'utf8'),
@@ -574,10 +573,6 @@ test('central workflows gate Linux ARM64 host syscalls and Darwin child hardenin
       /fleet-p2-process-hardening-darwin\.test\.mjs/u,
     );
   }
-  assert.deepEqual(
-    workflows[1].jobs.candidate.needs,
-    ['p2-host-boundary-arm64', 'p2-process-boundary-macos'],
-  );
 });
 
 test('Tang attestations exact-bind both host identities, port, advertisements and backup inventories', async (context) => {

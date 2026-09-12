@@ -1390,24 +1390,3 @@ test("Platform release gate는 release에서 signed manifest와 observation read
   );
 });
 
-test("Xcode schema와 non-promotable contract probe는 candidate CI에 연결된다", async () => {
-  const schema = JSON.parse(
-    await readFile("contracts/xcode-cloud-run.schema.json", "utf8"),
-  );
-  assert.doesNotThrow(() =>
-    new Ajv2020({ strict: true, validateFormats: false }).compile(schema),
-  );
-  const workflow = await readFile(
-    ".github/workflows/workflow-bundle-candidate.yml",
-    "utf8",
-  );
-  assert.ok(
-    workflow.indexOf("npm test") < workflow.indexOf("fixture-canary.mjs"),
-  );
-  assert.ok(
-    workflow.indexOf("fixture-canary.mjs") <
-      workflow.indexOf("fleet-cli.mjs bundle"),
-  );
-  assert.match(workflow, /workflow-bundle-contract-fixtures/u);
-  assert.match(workflow, /non-promotable/u);
-});
