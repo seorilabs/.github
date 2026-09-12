@@ -11,6 +11,29 @@ const paths = [
 ];
 const workflows = await Promise.all(paths.map((path) => readFile(path, "utf8")));
 
+test("RN profile은 공개 npm SDK 발행 레지스트리를 선언한다", async () => {
+  const profile = parse(await readFile("profiles/react-native.yaml", "utf8"));
+  assert.equal(profile.sharedSdk.registry, "npm");
+  assert.equal(profile.sharedSdk.packageResolution.registryHost, "registry.npmjs.org");
+});
+
+test("RN 정적 검사는 공개 npm SDK를 GitHub Packages로 돌려보내지 않는다", () => {
+  const workflow = parse(workflows[0]);
+  const nodeSteps = workflow.jobs.quality.steps.filter((step) =>
+    step.uses?.startsWith("actions/setup-node@"),
+  );
+  assert.ok(nodeSteps.length > 0);
+  for (const step of nodeSteps) {
+    assert.equal(step.with["registry-url"], undefined);
+    assert.equal(step.with.scope, undefined);
+  }
+  // 기본 registry를 바꾸지 않고 과거 GitHub Packages tarball의 인증도 지원한다.
+  const install = workflow.jobs.quality.steps.find(
+    (step) => step.name === "Fetch locked dependencies without lifecycle scripts",
+  );
+  assert.equal(install.env.NODE_AUTH_TOKEN, "${{ github.token }}");
+});
+
 test("v2 정적 workflow는 고정 품질 명령과 stable required check를 사용한다", () => {
   for (const workflow of workflows) {
     const parsed = parse(workflow);

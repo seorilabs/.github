@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+
+import { parse } from "yaml";
 
 import {
   findPrimaryRepositoryId,
@@ -10,6 +16,48 @@ import {
   resolveTagReferenceId,
   parseArgs,
 } from "../scripts/trigger-xcode-cloud.mjs";
+
+test("Xcode 트리거는 실제 중앙 workflow SHA를 검증한 뒤 같은 script를 checkout한다", (t) => {
+  const workflow = parse(readFileSync(".github/workflows/app-store-xcode-cloud.yml", "utf8"));
+  const steps = workflow.jobs.trigger.steps;
+  const identity = steps.find((step) => step.id === "workflow-identity");
+  const setup = steps.find((step) => step.uses?.startsWith("actions/setup-node@"));
+  const checkout = steps.find((step) => step.name === "Checkout org scripts");
+  assert.ok(steps.indexOf(setup) < steps.indexOf(identity));
+  assert.ok(steps.indexOf(identity) < steps.indexOf(checkout));
+  assert.equal(identity.env.JOB_CONTEXT_JSON, "${{ toJSON(job) }}");
+  assert.equal(checkout.with.repository, "${{ steps.workflow-identity.outputs.repository }}");
+  assert.equal(checkout.with.ref, "${{ steps.workflow-identity.outputs.sha }}");
+  assert.equal(checkout.with["persist-credentials"], false);
+
+  const root = mkdtempSync(join(tmpdir(), "xcode-workflow-identity-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const output = join(root, "output");
+  const sha = "a".repeat(40);
+  const exact = {
+    workflow_repository: "seorilabs/.github",
+    workflow_sha: sha,
+    workflow_ref: `seorilabs/.github/.github/workflows/app-store-xcode-cloud.yml@${sha}`,
+  };
+  const run = (context) => spawnSync("bash", ["-euo", "pipefail", "-c", identity.run], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, JOB_CONTEXT_JSON: JSON.stringify(context), GITHUB_OUTPUT: output },
+  });
+  const valid = run(exact);
+  assert.equal(valid.status, 0, valid.stderr);
+  const expectedOutput = `repository=seorilabs/.github\nsha=${sha}\n`;
+  assert.equal(readFileSync(output, "utf8"), expectedOutput);
+  for (const context of [
+    {},
+    { ...exact, workflow_repository: "attacker/fork" },
+    { ...exact, workflow_sha: "main" },
+    { ...exact, workflow_ref: `${exact.workflow_ref}-changed` },
+    { ...exact, workflow_sha: "b".repeat(40) },
+  ]) {
+    assert.notEqual(run(context).status, 0, JSON.stringify(context));
+    assert.equal(readFileSync(output, "utf8"), expectedOutput);
+  }
+});
 
 test("bundle ID로 Xcode Cloud 제품을 찾는다", () => {
   const document = {

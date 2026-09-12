@@ -500,6 +500,19 @@ test("v4 runtime asset 추가 뒤에도 buildWorkflows가 없던 signed v3 bundl
     await Promise.all(
       legacyRuntimePaths.map(async (path) => {
         let contents = await readFile(path, "utf8");
+        if (path.endsWith("rn-static-checks-v2.yml")) {
+          // 이 fixture의 과거 원문과 digest는 공개 npm 전환 전 설정을 보존한다.
+          contents = contents.replace(
+            "          check-latest: false\n",
+            '          check-latest: false\n          registry-url: https://npm.pkg.github.com\n          scope: "@seorilabs"\n',
+          ).replaceAll(
+            "          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/seorilabs-npm-auth.npmrc\n",
+            "",
+          ).replace(
+            "          umask 077\n          cat > \"$NPM_CONFIG_USERCONFIG\" <<'NPMRC'\n          //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n          NPMRC\n",
+            "",
+          );
+        }
         if (path.endsWith("-checks-v2.yml")) {
           contents = contents
             .replace("          path: .seorilabs-application\n", "")
