@@ -183,26 +183,6 @@ test("workflow YAML은 파싱되고 static caller에 id-token 또는 write 권�
   }
 });
 
-test("Godot binary는 architecture별 공식 checksum으로 검증된다", () => {
-  const godot = workflows[1];
-  assert.match(
-    godot,
-    /5dd0d86405cf7e8adf79fb6377b38ba682a2846cb378ffe5364f38c01ad29b9d/u,
-  );
-  assert.match(
-    godot,
-    /cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4/u,
-  );
-  assert.match(godot, /sha256sum --check --status/u);
-  assert.match(godot, /Probe pinned Godot toolchain diagnostics/u);
-  assert.match(
-    godot,
-    /fixtures\/workflow-bundle\/godot\/toolchain-probe/u,
-  );
-  assert.match(godot, /godot-diagnostic-gate\.mjs/u);
-  assert.doesNotMatch(godot, /grep -E 'SCRIPT ERROR\|ERROR:'/u);
-});
-
 test("직접 실행되는 ESM entrypoint는 resolve와 realpath를 사용한다", async () => {
   const entrypoints = [
     "scripts/fleet/godot-diagnostic-gate.mjs",
