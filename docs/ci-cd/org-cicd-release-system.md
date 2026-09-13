@@ -166,6 +166,7 @@ flowchart LR
 | `godot-deploy-ait.yml` | `release_tag`, `memo`, `wrapper_dir` | inherit | ARC | godot web export → wrapper build → deploy |
 | `rn-deploy-google-play.yml` | `release_tag`, `track`, `release_status`, `upload`(bool) | inherit + WIF vars | ubuntu | gradlew bundleRelease + WIF + python 업로드 |
 | `godot-deploy-google-play.yml` | `release_tag`, `track`, `release_status` | inherit + WIF | ubuntu | godot --export-release Android. 버전은 태그에서만 파생 |
+| `app-store-xcode-cloud.yml` | `release_tag`, `bundle_id`, `app_config_path`(기본 `app-store/app-store.config.json`), `xcode_cloud_workflow`, `environment`(기본 `app-store`), `start`(bool, 기본 true) | `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_PRIVATE_KEY_BASE64` | ARC | App Store 표준 경로. ASC `ciBuildRuns`로 Xcode Cloud 빌드를 태그 대상으로 시작한다. archive·upload는 Xcode Cloud가 하고 GitHub macOS 러너를 쓰지 않는다. `start: false`면 제품·workflow·태그 해석까지만 하고 빌드를 시작하지 않아 binding 확인에 쓴다 |
 | `release-tag.yml` | `target_ref`, `tag`, `bump`(major/minor/patch) | — | ARC | 지정 commit에 SemVer 태그 생성/push(contents:write). 마커 커밋·브랜치 push 없음 |
 | `cleanup-actions-storage.yml` | `delete_artifacts`, `delete_caches`, `dry_run` | — | ARC | gh api 기반 정리(검증됨) |
 
