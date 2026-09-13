@@ -1652,6 +1652,39 @@ test('AppsInToss 배포는 검증한 exact 파일 경로를 CLI에 넘기고 API
   }
 });
 
+test('AIT 업로드는 upload 입력으로만 막히고 기본값은 업로드한다', () => {
+  for (const name of ['rn-deploy-ait.yml', 'godot-deploy-ait.yml']) {
+    const definition = parse(workflowText(name));
+    const upload = definition.on.workflow_call.inputs.upload;
+    // 기본값이 true여야 입력을 넘기지 않는 기존 caller가 계속 업로드한다.
+    assert.equal(upload.type, 'boolean', name);
+    assert.equal(upload.required, false, name);
+    assert.equal(upload.default, true, name);
+
+    const job = Object.values(definition.jobs)[0];
+    const gated = job.steps.filter((step) => step.if === 'inputs.upload').map((step) => step.name);
+    // 업로드하지 않는 실행은 API key도 요구하지 않는다.
+    assert.deepEqual(gated, ['Validate AppsInToss secret', 'Deploy to AppsInToss'], name);
+
+    // 빌드와 검증은 게이트 밖에 남아야 upload=false 실행이 실제 배포 경로를 검증한다.
+    const ungated = new Set(
+      job.steps.filter((step) => step.if !== 'inputs.upload').map((step) => step.name),
+    );
+    for (const required of [
+      'Resolve exact release tag',
+      'Verify .ait artifact against the release tag',
+      'Bind the verified .ait as the only upload candidate',
+      'Upload .ait artifact',
+    ]) {
+      assert.equal(ungated.has(required), true, `${name}: ${required}`);
+    }
+
+    // 두 경로의 요약이 업로드 여부를 같은 기준으로 남긴다.
+    const summary = job.steps.find((step) => step.name === 'Summary');
+    assert.match(summary.run, /- upload: \$\{\{ inputs\.upload &&/u, name);
+  }
+});
+
 test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지한다', () => {
   // 권한 있는 job의 러너는 caller 입력을 그대로 쓰지 않는다. 승인된 라벨만 허용한다.
   const approvedRunners = new Set([

@@ -62,6 +62,11 @@ on:
         required: false
         default: "apps/ait/*.ait"
         type: string
+      upload:
+        description: "false면 .ait 를 만들고 artifact 로만 남긴다. AppsInToss 업로드는 하지 않는다."
+        required: false
+        default: true
+        type: boolean
       require_ad_group_id:
         description: "광고 사용 앱은 기존 VITE_AD_GROUP_ID가 없으면 빌드를 중단한다."
         required: false
@@ -112,6 +117,7 @@ jobs:
           fetch-tags: true
 
       - name: Validate AppsInToss secret
+        if: inputs.upload
         shell: bash
         env:
           APPS_IN_TOSS_API_KEY: ${{ secrets.APPS_IN_TOSS_API_KEY }}
@@ -350,7 +356,10 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      # 업로드는 외부 콘솔 상태를 바꾼다. caller 가 upload=false 로 부르면 빌드와 검증까지만
+      # 하고 멈춘다. 전환 작업이나 회귀 확인에서 실제 업로드 없이 경로를 검증할 수 있다.
       - name: Deploy to AppsInToss
+        if: inputs.upload
         shell: bash
         env:
           APPS_IN_TOSS_API_KEY: ${{ secrets.APPS_IN_TOSS_API_KEY }}
@@ -388,4 +397,5 @@ jobs:
             echo "- artifact: ${{ steps.provenance.outputs.ait_format }} ${{ steps.provenance.outputs.artifact_path }} sha256:${{ steps.provenance.outputs.artifact_digest }}"
             echo "- memo: ${{ steps.provenance.outputs.release_memo }}"
             echo "- runner: seorilabs-rpi-arm64"
+            echo "- upload: ${{ inputs.upload && 'AppsInToss 업로드함' || '빌드만 함(upload=false)' }}"
           } >> "$GITHUB_STEP_SUMMARY"
