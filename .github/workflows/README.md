@@ -42,8 +42,6 @@
 | `godot-deploy-ait.yml` | Godot web→wrapper→AppsInToss deploy | ARC |
 | `rn-deploy-google-play.yml` | RN 서명 AAB + Google Play 업로드 | private `seorilabs-x64-android`, public `ubuntu-latest` |
 | `godot-deploy-google-play.yml` | Godot 서명 AAB + Google Play 업로드 | `seorilabs-x64-android` |
-| `rn-deploy-app-store.yml` | RN GitHub-hosted App Store 경로 — legacy migration 대상 | macos-26 |
-| `godot-deploy-app-store.yml` | Godot GitHub-hosted App Store 경로 — legacy migration 대상 | macos-26 |
 | `cleanup-actions-storage.yml` | 아티팩트/캐시 정리 | ARC |
 
 ## @ref 핀 정책

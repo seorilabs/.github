@@ -63,11 +63,9 @@ const WORKFLOW_SHA = 'c'.repeat(40);
 /** 마켓 artifact를 만드는 워크플로우: 태그가 유일한 authority여야 하는 경로 전체. */
 const RELEASE_WORKFLOWS = Object.freeze([
   'rn-deploy-google-play.yml',
-  'rn-deploy-app-store.yml',
   'rn-deploy-ait.yml',
   'rn-build-android.yml',
   'godot-deploy-google-play.yml',
-  'godot-deploy-app-store.yml',
   'godot-deploy-ait.yml',
 ]);
 
@@ -435,7 +433,7 @@ test('AAB fixture는 Android migration epoch를 적용한 실제 ZIP/protobuf �
 });
 
 test('xcarchive Info.plist readback은 tag 파생값과 다르면 fail-closed한다', () => {
-  const rn = binding({ workflow: 'rn-deploy-app-store.yml' });
+  const rn = binding({ workflow: 'app-store-xcode-cloud.yml' });
   const matched = parseInfoPlistJson(
     readFileSync(join(FIXTURES, 'react-native/ios/info-plist.json'), 'utf8'),
   );
@@ -454,7 +452,7 @@ test('xcarchive Info.plist readback은 tag 파생값과 다르면 fail-closed한
     (error) => error.code === 'artifact-provenance-mismatch',
   );
 
-  const godot = binding({ tag: 'v2.0.5', workflow: 'godot-deploy-app-store.yml' });
+  const godot = binding({ tag: 'v2.0.5', workflow: 'app-store-xcode-cloud.yml' });
   assert.doesNotThrow(() =>
     assertArtifactVersion({
       kind: 'xcode-archive',
@@ -1419,8 +1417,6 @@ test('릴리즈 경로는 artifact metadata를 다시 읽어 태그와 대조한
     'rn-deploy-google-play.yml': 'android-app-bundle',
     'rn-build-android.yml': 'android-app-bundle',
     'godot-deploy-google-play.yml': 'android-app-bundle',
-    'rn-deploy-app-store.yml': 'xcode-archive',
-    'godot-deploy-app-store.yml': 'xcode-archive',
     'rn-deploy-ait.yml': 'ait',
     'godot-deploy-ait.yml': 'ait',
   };
@@ -1494,13 +1490,6 @@ test('Godot 릴리즈 경로는 명시된 preset 하나에만 태그 파생 버�
   assert.match(customBuildStep.run, /"\$GITHUB_WORKSPACE"\/\*/u);
   assert.doesNotMatch(customBuildStep.run, /eval|gcloud|googleapis|androidpublisher/u);
   assert.match(aabNameStep.run, /\^\[A-Za-z0-9\]\[A-Za-z0-9\._-\]\*\$/u);
-
-  const iosWorkflow = workflowText('godot-deploy-app-store.yml');
-  assert.match(
-    iosWorkflow,
-    /apply-godot-export-version\.mjs \\\n            --platform iOS \\\n            --preset "\$IOS_EXPORT_PRESET" \\\n            --presets "\$PROJECT_DIR\/export_presets\.cfg"/u,
-  );
-  assert.match(iosWorkflow, /--export-release "\$IOS_EXPORT_PRESET"/u);
 });
 
 test('릴리즈 업로드는 검증한 파일 하나만 올린다', () => {
@@ -1698,8 +1687,6 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   const marketPermissions = {
     'rn-deploy-google-play.yml': { contents: 'read', 'id-token': 'write', packages: 'read' },
     'godot-deploy-google-play.yml': { contents: 'read', 'id-token': 'write' },
-    'rn-deploy-app-store.yml': { contents: 'read', packages: 'read' },
-    'godot-deploy-app-store.yml': { contents: 'read' },
     'rn-deploy-ait.yml': { contents: 'read', packages: 'read' },
     'godot-deploy-ait.yml': { contents: 'read' },
     'rn-build-android.yml': { contents: 'read' },
