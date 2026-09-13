@@ -1678,6 +1678,10 @@ test('AIT 업로드는 upload 입력으로만 막히고 기본값은 업로드�
     ]) {
       assert.equal(ungated.has(required), true, `${name}: ${required}`);
     }
+
+    // 두 경로의 요약이 업로드 여부를 같은 기준으로 남긴다.
+    const summary = job.steps.find((step) => step.name === 'Summary');
+    assert.match(summary.run, /- upload: \$\{\{ inputs\.upload &&/u, name);
   }
 });
 
