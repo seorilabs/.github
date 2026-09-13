@@ -6,7 +6,6 @@
 > 적용 범위: `seorilabs` 조직의 active 앱·게임 저장소, `.github`, `platform`, Backoffice, 로컬 agent 설정
 > 비범위: 프로덕션 마켓 업로드, 심사 제출, 공개 배포, 자격증명 회전·폐기
 
-신규 정본과 P0-P7 전환 기준은 [Fleet Control Plane](../fleet-control-plane.md)을 따른다.
 이 문서의 `.seorilabs/app.yaml` 및 단방향 mirror 설계는 기존 consumer의 shadow parity와
 안전 삭제를 설명하기 위해서만 남아 있으며 신규 repository에 적용하지 않는다.
 

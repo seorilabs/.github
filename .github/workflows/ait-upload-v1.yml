@@ -1,4 +1,4 @@
-# WorkflowBundle v5 public AppsInToss upload boundary.
+# Public AppsInToss upload boundary.
 # 공용 credential을 app-owned package script, argv, environment에 넘기지 않는다. 현재는
 # broker 내부의 SHA-pinned trusted adapter가 없으므로 secret을 받지 않고 fail-closed한다.
 name: AIT Upload v1

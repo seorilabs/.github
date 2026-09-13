@@ -96,14 +96,6 @@ test("v2 정적 workflow는 고정 품질 명령과 stable required check를 사
   }
 });
 
-test("WorkflowBundle은 reusable workflow의 실제 final check 이름을 고정한다", async () => {
-  const source = await readFile("contracts/workflow-bundle-source.yaml", "utf8");
-  const parsed = parse(source);
-  for (const workflow of Object.values(parsed.reusableWorkflows)) {
-    assert.equal(workflow.requiredCheck, "Org Contract / Org Contract");
-  }
-});
-
 test("재사용 workflow는 caller가 아니라 각 중앙 job의 source SHA를 checkout한다", () => {
   for (const workflow of workflows) {
     assert.equal(

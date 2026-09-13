@@ -21,11 +21,7 @@ import { parse, stringify } from "yaml";
 import { githubAppReadback } from "../scripts/fleet/github-app-readback.mjs";
 import { recoverGithubAppCredentials } from "../scripts/fleet/github-credential-recovery.mjs";
 import { openGithubKeychainCredentialStore } from "../scripts/fleet/github-keychain-native-store.mjs";
-import {
-  createTrustedWifAdapter,
-  createTrustedWifProviderPolicy,
-  trustedFleetExecutorContract,
-} from "../packages/repo-contract/src/trusted-executor.mjs";
+import { createTrustedWifProviderPolicy } from "../packages/repo-contract/src/wif-provider-policy.mjs";
 
 const execFileAsync = promisify(execFile);
 const script = "scripts/fleet/render-p3-runtime.mjs";
@@ -79,10 +75,6 @@ test("P3 runtime public contract는 strict schema와 고정 pilot을 사용한�
   const legacyMajor = structuredClone(contract);
   legacyMajor.schemaVersion = 2;
   assert.equal(validate(legacyMajor), false);
-  assert.equal(
-    trustedFleetExecutorContract.githubApiVersion,
-    contract.github.apiVersion,
-  );
   assert.deepEqual(
     contract.github.pilotValues.map(({ repository }) => repository),
     ["happy-farm", "lizard-tycoon"],
@@ -896,67 +888,6 @@ test("GCP bootstrap 기본 실행은 exact source와 12개 keyless identity의 d
         .map((entry) => entry.split(/=(.*)/su).slice(0, 2)),
     ),
   );
-  const trustedWifAdapter = createTrustedWifAdapter({
-    organizationId: contract.cloudBuild.wif.organizationId,
-    bindings: contract.cloudBuild.githubActions.repositoryBindings.map(
-      (binding) => ({
-        bindingRevision: binding.bindingRevision,
-        capabilities,
-        logicalCredentialId: binding.logicalCredentialId,
-        providerResourceName: `//iam.googleapis.com/${contract.cloudBuild.provider}`,
-        serviceAccountEmail:
-          contract.cloudBuild.submitter.serviceAccountEmail,
-      }),
-    ),
-    provider: {
-      async applyBinding() {
-        throw new Error("unused");
-      },
-      async readBinding({ expected }) {
-        return {
-          ...structuredClone(expected),
-          providerEtag: "provider-etag-p3",
-          serviceAccountPolicyEtag: "policy-etag-p3",
-          state: "BOUND",
-        };
-      },
-    },
-  });
-  for (const [index, capability] of capabilities.entries()) {
-    const environmentBinding =
-      contract.cloudBuild.githubActions.repositoryBindings[index];
-    const observation = await trustedWifAdapter.readOperation(
-      {
-        kind: "gcp.wif-binding.ensure",
-        payload: {
-          approvedBundleDigest: `sha256:${"1".repeat(64)}`,
-          bindingRevision: environmentBinding.bindingRevision,
-          environment: capability.environment,
-          jobWorkflowRef: capability.jobWorkflowRef,
-          logicalCredentialId: environmentBinding.logicalCredentialId,
-          organizationId: contract.cloudBuild.wif.organizationId,
-          repositoryId: capability.repositoryId,
-        },
-      },
-      { id: capability.repositoryId },
-    );
-    assert.equal(
-      observation.providerAttributeCondition,
-      output.workloadIdentity.github.attributeCondition,
-    );
-    assert.deepEqual(
-      observation.providerAttributeMapping,
-      providerPolicy.attributeMapping,
-    );
-    assert.ok(
-      output.iamBindings.some(
-        ({ member, resource, role }) =>
-          member === observation.principalSetMember &&
-          resource === contract.cloudBuild.submitter.serviceAccountEmail &&
-          role === "roles/iam.workloadIdentityUser",
-      ),
-    );
-  }
   assert.match(
     output.workloadIdentity.kubernetes.attributeCondition,
     /namespace.*auth-broker/u,

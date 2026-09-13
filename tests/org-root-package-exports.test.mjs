@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
-import { createFleetWebhookHandler, validateFleetBootstrapPlan } from "seorilabs-org-contracts/repo-contract/bootstrap";
-import { createGitHubAppTrustedAdapter, createTrustedFleetExecutor } from "seorilabs-org-contracts/repo-contract/trusted-executor";
+import { createTrustedWifProviderPolicy } from "seorilabs-org-contracts/repo-contract/wif-provider-policy";
 import {
   githubProtectionPlanReadback,
   githubProtectionReadback,
@@ -10,10 +9,7 @@ import {
 
 
 test("조직 계약 root package는 Backoffice가 사용하는 안정 subpath만 export한다", () => {
-  assert.equal(typeof createFleetWebhookHandler, "function");
-  assert.equal(typeof validateFleetBootstrapPlan, "function");
-  assert.equal(typeof createGitHubAppTrustedAdapter, "function");
-  assert.equal(typeof createTrustedFleetExecutor, "function");
+  assert.equal(typeof createTrustedWifProviderPolicy, "function");
   assert.equal(typeof githubProtectionPlanReadback, "function");
   assert.equal(typeof githubProtectionReadback, "function");
 });

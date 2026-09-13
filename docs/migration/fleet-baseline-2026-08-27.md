@@ -25,9 +25,9 @@ script의 unsigned output 계약과 ReleaseCandidate attestation이 없으므로
 - RN: `sha256:d403dabbd03e97490b0f676bc65dc2f510119480c60815298e37fb1a12a6172f`
 - Godot: `sha256:b2a9d7a849f1193f42a40864d8487401abb6dc54472fe010b31b2e84e7be2940`
 
-GitHub action major ref는 각 공식 repository의 Git ref API로 full SHA를 확인해
-[`workflow-bundle-source.yaml`](../../contracts/workflow-bundle-source.yaml)에 고정했다. Godot
-Linux binary checksum은 공식 4.7.2 release asset digest로 확인했다.
+GitHub action major ref는 각 공식 repository의 Git ref API로 full SHA를 확인해 중앙
+워크플로에 고정했다. Godot Linux binary checksum은 공식 4.7.2 release asset digest로
+확인했다.
 
 ## 아직 닫히지 않은 기준선
 

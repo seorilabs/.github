@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
 
-import { createTrustedWifProviderPolicy } from "../../packages/repo-contract/src/trusted-executor.mjs";
+import { createTrustedWifProviderPolicy } from "../../packages/repo-contract/src/wif-provider-policy.mjs";
 
 const contractPath = fileURLToPath(
   new URL("../../contracts/fleet-p3-runtime.yaml", import.meta.url),

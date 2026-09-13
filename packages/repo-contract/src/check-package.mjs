@@ -21,7 +21,6 @@ const requiredPackageFiles = [
   ".generated/contracts/autonomous-issue-policy.schema.json",
   ".generated/contracts/autonomous-issue-policy.yaml",
   ".generated/contracts/credential-consumer.schema.json",
-  ".generated/contracts/fleet-bootstrap-plan.schema.json",
   ".generated/contracts/fleet-standard-labels.json",
   ".generated/contracts/legacy/backoffice-operations.v1.schema.json",
   ".generated/contracts/legacy/market-launch-state.v1.schema.json",
@@ -35,9 +34,6 @@ const requiredPackageFiles = [
   ".generated/contracts/release-version-authority-migration.schema.json",
   ".generated/contracts/review-policy.yaml",
   ".generated/contracts/test-policy.yaml",
-  ".generated/contracts/workflow-bundle.schema.json",
-  ".generated/contracts/workflow-bundle-source.yaml",
-  ".generated/contracts/xcode-cloud-run.schema.json",
   ".generated/release/tag-version-authority.mjs",
   ".generated/release/resolve-release-version.mjs",
   ".generated/release/upload-google-play-aab.py",
@@ -47,7 +43,6 @@ const requiredPackageFiles = [
   ".generated/profiles/react-native.yaml",
   "README.md",
   "src/cli.mjs",
-  "src/bootstrap.mjs",
   "src/standard-labels.mjs",
 ];
 
@@ -236,30 +231,6 @@ try {
       "설치된 repo-contract CLI가 fixture를 검증하지 못했습니다.",
     );
   }
-  const installedBootstrapCheck = await execFileAsync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "--eval",
-      [
-        'const installed = await import("@seorilabs/repo-contract/bootstrap");',
-        'if (typeof installed.createFleetStandardLabelsPlan !== "function") process.exit(1);',
-        'if (typeof installed.createFleetWebhookHandler !== "function") process.exit(1);',
-        'if (typeof installed.attachFleetProvisioningOperations !== "function") process.exit(1);',
-        'if (typeof installed.validateFleetBootstrapPlan !== "function") process.exit(1);',
-        'if (installed.fleetBootstrapContract?.webhookCredentialId !== "shared/github/backoffice-app-webhook") process.exit(1);',
-        'process.stdout.write("Fleet bootstrap public export 검증 통과\\n");',
-      ].join("\n"),
-    ],
-    {
-      cwd: consumerRoot,
-      encoding: "utf8",
-      maxBuffer: 2 * 1024 * 1024,
-    },
-  );
-  if (!installedBootstrapCheck.stdout.includes("public export 검증 통과")) {
-    throw new Error("배포된 repo-contract에 Fleet bootstrap API가 없습니다.");
-  }
   const installedLabelsCheck = await execFileAsync(
     process.execPath,
     [
@@ -282,53 +253,6 @@ try {
   );
   if (!installedLabelsCheck.stdout.includes("public export 검증 통과")) {
     throw new Error("배포된 repo-contract에 Fleet standard labels API가 없습니다.");
-  }
-  const installedExecutorCheck = await execFileAsync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "--eval",
-      [
-        'const installed = await import("@seorilabs/repo-contract/trusted-executor");',
-        'if (typeof installed.createGitHubAppTrustedAdapter !== "function") process.exit(1);',
-        'if (typeof installed.createTrustedFleetExecutor !== "function") process.exit(1);',
-        'if (installed.trustedFleetExecutorContract?.githubAppCredentialId !== "shared/github/backoffice-app-private-key") process.exit(1);',
-        'process.stdout.write("Fleet trusted executor public export 검증 통과\\n");',
-      ].join("\n"),
-    ],
-    {
-      cwd: consumerRoot,
-      encoding: "utf8",
-      maxBuffer: 2 * 1024 * 1024,
-    },
-  );
-  if (!installedExecutorCheck.stdout.includes("public export 검증 통과")) {
-    throw new Error(
-      "배포된 repo-contract에 Fleet trusted executor API가 없습니다.",
-    );
-  }
-  const installedPublisherCheck = await execFileAsync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "--eval",
-      [
-        'const installed = await import("@seorilabs/repo-contract/trusted-publisher");',
-        'if (typeof installed.createTrustedWorkflowBundlePublisher !== "function") process.exit(1);',
-        'if (installed.trustedWorkflowBundlePublisherContract?.signingCredentialId !== "shared/workflow-bundle/approval-signing") process.exit(1);',
-        'process.stdout.write("WorkflowBundle trusted publisher public export 검증 통과\\n");',
-      ].join("\n"),
-    ],
-    {
-      cwd: consumerRoot,
-      encoding: "utf8",
-      maxBuffer: 2 * 1024 * 1024,
-    },
-  );
-  if (!installedPublisherCheck.stdout.includes("public export 검증 통과")) {
-    throw new Error(
-      "배포된 repo-contract에 WorkflowBundle trusted publisher API가 없습니다.",
-    );
   }
 } catch (error) {
   checkError = error;

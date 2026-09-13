@@ -8,11 +8,8 @@
   },
   "exports": {
     ".": "./src/index.mjs",
-    "./bootstrap": "./src/bootstrap.mjs",
-    "./fleet": "./src/fleet.mjs",
     "./standard-labels": "./src/standard-labels.mjs",
-    "./trusted-executor": "./src/trusted-executor.mjs",
-    "./trusted-publisher": "./src/trusted-publisher.mjs"
+    "./wif-provider-policy": "./src/wif-provider-policy.mjs"
   },
   "files": [
     "src",

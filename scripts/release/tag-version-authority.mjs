@@ -176,7 +176,7 @@ export function selectLatestStableTag(tags) {
 }
 
 /**
- * WorkflowBundle v5 정본 경로는 `refs/tags/vX.Y.Z` push/dispatch 하나에서만 마켓 artifact를
+ * 마켓 artifact는 `refs/tags/vX.Y.Z` push/dispatch 하나에서만
  * 만든다. branch ref, 동명 ref, prerelease 태그 ref는 여기서 fail-closed한다.
  */
 export function parseReleaseTagRef(ref) {

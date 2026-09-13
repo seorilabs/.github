@@ -14,36 +14,9 @@ repo-contract [저장소 경로]
 
 진단은 문서명, JSON path, 고정 오류 코드만 표시하며 자격증명 값을 출력하지 않습니다.
 
-`@seorilabs/repo-contract/bootstrap`은 GitHub App의 repository·기본 브랜치 push webhook을 검증하고 zero-touch 등록 계획을 만듭니다. webhook secret은 재사용하는 Backoffice App 전용 `shared/github/backoffice-app-webhook` logical ID를 통해 trusted loader에만 요청하며 반환값에는 포함하지 않습니다. 생성 계획은 `contracts/fleet-bootstrap-plan.schema.json`을 따르고 durable delivery 저장이 성공한 뒤에만 완료됩니다. `createFleetStandardLabelsPlan`은 기존 public/private 전체 cohort의 독립 dry-run을 만들고, `@seorilabs/repo-contract/standard-labels`의 고정 catalog는 P1-P4, autopilot, Platform, 차단 및 사람 승인 label만 허용하며 custom label은 보존합니다.
+`@seorilabs/repo-contract/standard-labels`의 고정 catalog는 P1-P4, autopilot, Platform, 차단 및 사람 승인 label만 허용하며 custom label은 보존합니다.
 
-`@seorilabs/repo-contract/trusted-executor`는 durable queue에서 exact plan digest가 `EXECUTABLE`임을 다시 읽은 뒤 GitHub App token을 operation별 repository와 최소 permission으로 한정합니다. 표준 label, custom property, Environment, caller PR, 조직 secret visibility를 실행하고 exact identity/state readback 뒤 secret-free receipt를 저장합니다. 표준 label operation은 fixed catalog 전체만 허용하고 Issues read/write capability로 read-before/apply/read-after 하며 기존 custom label 삭제를 실패로 처리합니다. Android callee가 요구하는 공개 WIF provider와 Cloud Build submitter/executor identity는 중앙 catalog와 exact match하는 `internal` Environment variables로 WIF binding과 함께 reconcile합니다. WIF는 shared provider와 repo·중앙 workflow·environment를 묶은 compound principal을 사용하는 별도 GCP adapter가 담당합니다. Enterprise는 조직 ruleset, Team은 repo별 branch protection을 사용하며 SHADOW는 read-only, ACTIVE는 별도 승인 뒤 단조 강화만 허용합니다.
-
-조직 secret selected-repository 목록, custom property map, shared WIF etag처럼 다른 repo의 additive 작업으로 변하는 provider superset은 stable satisfaction witness와 현재 `readbackDigest`로 분리합니다. target binding이 유지되면 완료 작업을 mutation 없이 replay하고, target 자체가 사라지면 실패합니다.
-
-`@seorilabs/repo-contract/trusted-publisher`는 WorkflowBundle signer와 registry publish/readback을 GitHub executor에서 분리합니다. worker는 `shared/workflow-bundle/approval-signing` logical ID만 알고 private key를 받지 않습니다.
-
-Fleet migration의 legacy 범위에는 schema-validated `.seorilabs/app.yaml` manifest가 포함됩니다.
-tree/BLOB 증거는 non-truncated canonical 전체 tree digest와 detector 관련 content readback을
-분리합니다.
-
-`@seorilabs/repo-contract/fleet`의 WorkflowBundle v4 API는 static caller 외에 다음 shadow
-계약을 제공합니다.
-
-- `generateAndroidBuildCaller` / `validateAndroidBuildCaller`: full SHA reusable workflow,
-  최소 권한, Backoffice-bound source SHA concurrency, zero-secret Android build-only caller.
-  callee는 managed caller의 main ref를 Google WIF 전에 다시 검증
-- `generateXcodeCloudRunContract` / `validateXcodeCloudRunContract`: GitHub macOS 없이
-  trusted ExternalBinding readback의 App Store Connect `ciBuildRuns.create` 대상을 호출하는
-  exact-source Xcode Cloud envelope와 deep-frozen validated snapshot
-- `evaluateLegacyWorkflow`: `@main`, `secrets: inherit`, 임의 runner와 GitHub-hosted
-  Android/macOS 이탈을 차단하지 않고 `SHADOW/EVALUATE` observation으로 분류
-- `evaluatePlatformReleaseGate`: static은 shadow, release는 signed fleet-approved manifest와
-  Backoffice observation receipt가 없으면 fail-closed
-- `consumePlatformReleaseGateBinding`: release 직전 5분 TTL과 exact identity를 다시 확인하고
-  trusted Backoffice adapter의 receipt ID/generation durable CAS로 opaque gate binding을 한 번만 소비
-
-이 API는 APPROVED bundle registry와 Backoffice resolved manifest readback 없이는 caller를
-생성하지 않는다. 현재 v4 rollout은 shadow이며 기존 consumer를 자동 수정하지 않는다.
+`@seorilabs/repo-contract/wif-provider-policy`는 Cloud Build가 쓰는 Workload Identity Federation provider 조건을 만듭니다. 조직 소유자와 `(repository_id, job_workflow_ref)` 쌍만으로 조건을 고정하며, 값의 정본은 `contracts/fleet-p3-runtime.yaml`입니다.
 
 React Native monorepo는 `sdk.consumers`에 실제 SDK를 import하는 각 `package.json`과 대응하는 pnpm lockfile importer를 선언합니다. 검증기는 모든 consumer의 정확한 package 버전과 lockfile resolution, GitHub Packages tarball, SHA-512 integrity를 확인합니다.
 

@@ -4,8 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./repo-contract/bootstrap": "./packages/repo-contract/src/bootstrap.mjs",
-    "./repo-contract/trusted-executor": "./packages/repo-contract/src/trusted-executor.mjs",
+    "./repo-contract/wif-provider-policy": "./packages/repo-contract/src/wif-provider-policy.mjs",
     "./repo-contract/github-settings-readback": "./scripts/fleet/github-settings-readback.mjs"
   },
   "files": [
