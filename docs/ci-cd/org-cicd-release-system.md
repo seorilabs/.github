@@ -125,7 +125,7 @@ flowchart LR
 | `build-ait.yml` | dispatch | `rn-build-ait.yml` | ARC 또는 x64 Linux | .ait 후보 artifact만 생성 |
 | `build-android.yml` | dispatch | `rn-build-android.yml` | ubuntu | signed AAB 후보 artifact만 생성 |
 | `deploy-google-play.yml` | dispatch, `workflow_call` | `rn-deploy-google-play.yml` | ubuntu | 서명 AAB + Play 업로드 |
-| `deploy-app-store.yml` | dispatch, `workflow_call` | `rn-deploy-app-store.yml` | macos-26 | Xcode archive + App Store 업로드 |
+| `deploy-app-store.yml` | dispatch, `workflow_call` | `app-store-xcode-cloud.yml` | ARC | Xcode Cloud 빌드 트리거 |
 | `deploy-all.yml` | dispatch(+ backoffice/telegram) | (위 3개 `workflow_call`) | — | 한 번에 빌드·배포 |
 | `cleanup-actions-storage.yml` | dispatch, cron(선택) | `cleanup-actions-storage.yml` | ARC | 아티팩트/캐시 정리 |
 
@@ -138,7 +138,7 @@ flowchart LR
 | `release-tag.yml` | dispatch | `release-tag.yml` | ARC | 태그 생성 |
 | `deploy-apps-in-toss.yml` | dispatch, `workflow_call` | `godot-deploy-ait.yml` | ARC | web export → AIT deploy |
 | `deploy-google-play.yml` | dispatch, `workflow_call` | `godot-deploy-google-play.yml` | ubuntu | Godot Android AAB + Play |
-| `deploy-app-store.yml`(해당 시) | dispatch, `workflow_call` | `godot-deploy-app-store.yml` | macos-26 | Godot iOS + App Store |
+| `deploy-app-store.yml`(해당 시) | dispatch, `workflow_call` | `app-store-xcode-cloud.yml` | ARC | Xcode Cloud 빌드 트리거 |
 | `deploy-all.yml` | dispatch | (위 `workflow_call`) | — | 한 번에 |
 | `cleanup-actions-storage.yml` | dispatch | `cleanup-actions-storage.yml` | ARC | 정리 |
 
@@ -166,8 +166,6 @@ flowchart LR
 | `godot-deploy-ait.yml` | `release_tag`, `memo`, `wrapper_dir` | inherit | ARC | godot web export → wrapper build → deploy |
 | `rn-deploy-google-play.yml` | `release_tag`, `track`, `release_status`, `upload`(bool) | inherit + WIF vars | ubuntu | gradlew bundleRelease + WIF + python 업로드 |
 | `godot-deploy-google-play.yml` | `release_tag`, `track`, `release_status` | inherit + WIF | ubuntu | godot --export-release Android. 버전은 태그에서만 파생 |
-| `rn-deploy-app-store.yml` | `release_tag`, `ios_scheme`, `ios_workspace`, `ios_bundle_id`, `upload`(bool) | inherit(Apple/ASC) | macos-26 | archive + exportArchive(app-store-connect, upload) |
-| `godot-deploy-app-store.yml` | `release_tag`, scheme/bundle | inherit | macos-26 | (lizard-tycoon류) |
 | `release-tag.yml` | `target_ref`, `tag`, `bump`(major/minor/patch) | — | ARC | 지정 commit에 SemVer 태그 생성/push(contents:write). 마커 커밋·브랜치 push 없음 |
 | `cleanup-actions-storage.yml` | `delete_artifacts`, `delete_caches`, `dry_run` | — | ARC | gh api 기반 정리(검증됨) |
 

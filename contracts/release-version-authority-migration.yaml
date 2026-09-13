@@ -37,15 +37,6 @@ callerKinds:
         mustReadEnvironment: [SEORI_RELEASE_TAG, SEORI_RELEASE_VERSION_NAME, SEORI_RELEASE_VERSION_CODE]
         mustWriteOutput: SEORI_ANDROID_AAB_OUTPUT
     uploader: exact-central-workflow-sha
-  - id: rn-deploy-app-store
-    calledWorkflow: .github/workflows/rn-deploy-app-store.yml
-    removeInputs: [version_name, version_code, version_script]
-  - id: godot-deploy-app-store
-    calledWorkflow: .github/workflows/godot-deploy-app-store.yml
-    removeInputs: [version_name, version_code, version_script]
-    requiredInputs:
-      # 주입 대상 preset과 export 대상 preset이 같아야 한다.
-      - ios_export_preset
   - id: rn-deploy-ait
     calledWorkflow: .github/workflows/rn-deploy-ait.yml
     removeInputs: [version_name, version_code, version_script]

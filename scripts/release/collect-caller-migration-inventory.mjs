@@ -20,8 +20,6 @@ const REMOVED_INPUTS = Object.freeze(['version_name', 'version_code', 'version_s
 export const CALLER_KIND_BY_WORKFLOW = Object.freeze({
   '.github/workflows/rn-deploy-google-play.yml': 'rn-deploy-google-play',
   '.github/workflows/godot-deploy-google-play.yml': 'godot-deploy-google-play',
-  '.github/workflows/rn-deploy-app-store.yml': 'rn-deploy-app-store',
-  '.github/workflows/godot-deploy-app-store.yml': 'godot-deploy-app-store',
   '.github/workflows/rn-deploy-ait.yml': 'rn-deploy-ait',
   '.github/workflows/godot-deploy-ait.yml': 'godot-deploy-ait',
   '.github/workflows/rn-build-android.yml': 'rn-build-android',
