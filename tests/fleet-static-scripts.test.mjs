@@ -396,7 +396,7 @@ test("provenance는 허용된 공개 실행 identity만 기록한다", async () 
   const secret = ["never", "copy", "this"].join("-");
   const provenance = await writeProvenance({
     outputPath,
-    profile: "godot",
+    profile: "react-native",
     environment: {
       QUALITY_RESULT: "success",
       GITHUB_SHA: "a".repeat(40),
@@ -408,7 +408,7 @@ test("provenance는 허용된 공개 실행 identity만 기록한다", async () 
       GITHUB_RUN_ID: "456",
       GITHUB_RUN_ATTEMPT: "1",
       SEORI_WORKFLOW_REPOSITORY: "seorilabs/.github",
-      SEORI_WORKFLOW_REF: `seorilabs/.github/.github/workflows/godot-checks-v2.yml@${"b".repeat(40)}`,
+      SEORI_WORKFLOW_REF: `seorilabs/.github/.github/workflows/rn-static-checks-v2.yml@${"b".repeat(40)}`,
       SEORI_WORKFLOW_SHA: "b".repeat(40),
       RUNNER_ENVIRONMENT: "self-hosted",
       RUNNER_ARCH: "ARM64",
@@ -469,12 +469,13 @@ test("provenance profile은 exact reusable workflow path와 일치해야 한다"
   await assert.rejects(
     writeProvenance({
       outputPath: join(root, "provenance.json"),
-      profile: "godot",
+      // profile 이 선언한 경로와 다른 워크플로가 provenance 를 쓰려 하면 거절한다.
+      profile: "react-native",
       environment: {
         QUALITY_RESULT: "success",
         GITHUB_SHA: "a".repeat(40),
         SEORI_WORKFLOW_REPOSITORY: "seorilabs/.github",
-        SEORI_WORKFLOW_REF: `seorilabs/.github/.github/workflows/rn-static-checks-v2.yml@${"b".repeat(40)}`,
+        SEORI_WORKFLOW_REF: `seorilabs/.github/.github/workflows/godot-checks.yml@${"b".repeat(40)}`,
         SEORI_WORKFLOW_SHA: "b".repeat(40),
       },
     }),

@@ -7,7 +7,6 @@ import { parse } from "yaml";
 
 const paths = [
   ".github/workflows/rn-static-checks-v2.yml",
-  ".github/workflows/godot-checks-v2.yml",
 ];
 const workflows = await Promise.all(paths.map((path) => readFile(path, "utf8")));
 

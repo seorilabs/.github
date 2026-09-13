@@ -26,24 +26,6 @@ function read(path) {
 }
 
 
-test("AIT upload workflow은 raw secret 없이 RUNTIME_NOT_OPERATIONAL로 fail-closed한다", () => {
-  const text = read(".github/workflows/ait-upload-v1.yml");
-  const workflow = parse(text);
-  assert.deepEqual(workflow.on.workflow_call, {});
-  assert.deepEqual(workflow.permissions, {});
-  assert.deepEqual(Object.keys(workflow.jobs), ["runtime-gate"]);
-  assert.equal(workflow.jobs["runtime-gate"]["runs-on"], "ubuntu-latest");
-  assert.match(workflow.jobs["runtime-gate"].if, /github\.event_name != 'pull_request'/u);
-  assert.match(text, /test "\$REPOSITORY_PRIVATE" = false/u);
-  assert.match(text, /refs\/tags\/v\(0\|\[1-9\]\[0-9\]\*\)/u);
-  assert.match(text, /RUNTIME_NOT_OPERATIONAL/u);
-  assert.doesNotMatch(
-    text,
-    /APPS_IN_TOSS_API_KEY|secrets:|--api-key|package\.json|run deploy|seorilabs-rpi-arm64/u,
-  );
-});
-
-
 test("GitHub tag readback은 lightweight tag commit을 그대로 고정한다", async () => {
   const calls = [];
   const result = await resolveGitHubTagCommit({

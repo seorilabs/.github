@@ -433,7 +433,7 @@ test('AAB fixture는 Android migration epoch를 적용한 실제 ZIP/protobuf �
 });
 
 test('xcarchive Info.plist readback은 tag 파생값과 다르면 fail-closed한다', () => {
-  const rn = binding({ workflow: 'app-store-xcode-cloud.yml' });
+  const rn = binding({ workflow: 'rn-deploy-google-play.yml' });
   const matched = parseInfoPlistJson(
     readFileSync(join(FIXTURES, 'react-native/ios/info-plist.json'), 'utf8'),
   );
@@ -452,7 +452,7 @@ test('xcarchive Info.plist readback은 tag 파생값과 다르면 fail-closed한
     (error) => error.code === 'artifact-provenance-mismatch',
   );
 
-  const godot = binding({ tag: 'v2.0.5', workflow: 'app-store-xcode-cloud.yml' });
+  const godot = binding({ tag: 'v2.0.5', workflow: 'godot-deploy-google-play.yml' });
   assert.doesNotThrow(() =>
     assertArtifactVersion({
       kind: 'xcode-archive',

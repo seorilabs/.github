@@ -7,9 +7,10 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
+// godot 프로필은 godot-checks-v2.yml 이 유일한 사용처였고 그 워크플로는 호출자가
+// 없어 제거했다. 살아 있는 godot-checks.yml 은 provenance 를 쓰지 않는다.
 const WORKFLOW_PATH_BY_PROFILE = Object.freeze({
   "react-native": ".github/workflows/rn-static-checks-v2.yml",
-  godot: ".github/workflows/godot-checks-v2.yml",
 });
 
 export async function writeProvenance({

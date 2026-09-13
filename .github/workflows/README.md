@@ -27,11 +27,7 @@
 | 파일 | 용도 | 러너 |
 |---|---|---|
 | `rn-static-checks-v2.yml` | Fleet RN 고정 품질 게이트와 provenance | private ARC, public ubuntu |
-| `godot-checks-v2.yml` | Fleet Godot 고정 품질·import 게이트와 provenance | private ARC, public ubuntu |
 | `godot-product-verification-v1.yml` | 고정된 기능·회귀·UI 계약을 실행하는 Godot EVALUATE gate | private ARC, public ubuntu |
-| `ait-upload-v1.yml` | 공용 key 비노출 broker adapter가 준비될 때까지 `RUNTIME_NOT_OPERATIONAL` | public ubuntu, PR 비실행 |
-| `rn-build-android-cloud-v1.yml` | RN exact source를 Cloud Build에 제출하고 build-only AAB 회수 | private ARC submit + x64 Cloud Build |
-| `godot-build-android-cloud-v1.yml` | Godot exact source를 Cloud Build에 제출하고 build-only AAB 회수 | private ARC submit + x64 Cloud Build |
 | `rn-static-checks.yml` | RN/Node 정적 게이트(명령 주입) | ARC(또는 ubuntu) |
 | `rn-build-ait.yml` | RN `.ait` 후보 산출물 빌드(배포 없음) | ARC 또는 x64 Linux |
 | `rn-build-android.yml` | RN signed AAB 후보 산출물 빌드(배포 없음) | ubuntu |
@@ -64,7 +60,6 @@ public stable tag와 peeled commit을 exact match하는 GitHub-hosted build-only
 promotion scope와 public Backoffice runtime readback이 준비되기 전에는 caller를 만들지 않는다.
 AIT upload는 같은 parent run의 `ait-build` 성공, checksum provenance, `apps-in-toss` Environment
 bootstrap·approval, broker 내부 SHA-pinned trusted adapter가 모두 필요하다. 현재 adapter가 없어
-`ait-upload-v1.yml`은 secret을 받지 않고 `RUNTIME_NOT_OPERATIONAL`로 fail-closed한다.
 v2 workflow는 caller가 runner, install 명령, check 명령을 넘길 수 없고 public repository를
 ARC에서 중앙 차단한다. 기존 명령 주입형 workflow는 consumer shadow parity가 끝날 때까지만
 유지하며 신규 caller에서 사용하지 않는다.
