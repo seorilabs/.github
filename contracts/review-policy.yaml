@@ -25,21 +25,9 @@ stages:
     skipWhen:
       - docs-only-change
       - generated-file-only-change
-      - second-opinion-requested
-    threadResolutionRequired: true
-  - id: second-opinion
-    order: 2
-    provider: codex
-    mode: advisory
-    trigger: mention
-    optional: true
-    allowedWhen:
-      - security-sensitive-change
-      - large-change
-      - author-request
     threadResolutionRequired: true
   - id: required-checks
-    order: 3
+    order: 2
     allRequired: true
 
 mergeGate:
