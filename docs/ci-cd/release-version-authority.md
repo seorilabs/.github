@@ -106,12 +106,13 @@ AAB의 manifest는 protobuf(`aapt.pb.XmlNode`)이고 `aapt2 dump`는 AAB 컨테�
 그래서 AppsInToss 배포의 태그 식별자는
 
 ```
-<tag> <version> (<versionCode>) src:<source sha 12자> sha256:<artifact sha256>
+<tag> src:<source sha 12자> sha256:<artifact sha256>
 ```
 
 형태의 canonical memo이며, 워크플로우는 이 memo만 배포에 사용한다. memo에 artifact digest가 들어가
 있으므로 **같은 태그로 다른 파일을 올리면 대조에서 어긋난다**. 자유 형식 memo는 `memo` 입력으로
-canonical memo 뒤에 덧붙고, 길이 때문에 digest가 잘릴 상황이면 자르지 않고 실패한다.
+canonical memo 뒤에 덧붙인다. AppsInToss의 120자 제한을 넘으면 tag·source SHA·artifact digest는
+전체를 보존하고 선택 운영 메모만 줄임표로 안전하게 자른다.
 readback에서 컨테이너가 내부 version 기록을 갖고 있으면 `ait-internal-version-field-present`로
 fail-closed한다. 계약을 갱신하지 않은 채 새 형식을 배포하지 않기 위해서다.
 

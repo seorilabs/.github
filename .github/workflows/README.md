@@ -109,6 +109,8 @@ publisher 권한을 가져서는 안 된다. GitHub OIDC 조건은 숫자 reposi
 - AppsInToss 배포: 저장소 `deploy` 스크립트는 워크플로우가 준 `--memo`와 `--location`을 **그대로**
   전달한다. memo에는 태그 파생값과 artifact sha256이 들어 있어 다시 만들거나 자르면 대조가 깨지고,
   `--location`은 검증된 exact absolute 경로다.
+  중앙 authority는 AppsInToss의 120자 제한을 맞추며 tag·source SHA·artifact digest를 우선
+  보존하고, 선택 운영 메모만 줄임표로 자른다.
 - 러너: `release-tag.yml`은 `seorilabs-rpi-arm64`, Godot Play와 private RN Play은
   `seorilabs-x64-android`로 중앙에서 고정한다. public RN repo는 `ubuntu-latest`로만
   라우팅해 private ARC를 노출하지 않는다. caller가 러너를 선택하는 `runs_on` 입력은 없다.
