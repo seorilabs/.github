@@ -30,7 +30,6 @@
 | `godot-product-verification-v1.yml` | 고정된 기능·회귀·UI 계약을 실행하는 Godot EVALUATE gate | private ARC, public ubuntu |
 | `rn-static-checks.yml` | RN/Node 정적 게이트(명령 주입) | ARC(또는 ubuntu) |
 | `rn-build-ait.yml` | RN `.ait` 후보 산출물 빌드(배포 없음) | ARC 또는 x64 Linux |
-| `rn-build-android.yml` | RN signed AAB 후보 산출물 빌드(배포 없음) | ubuntu |
 | `godot-checks.yml` | Godot import→compile→smoke | ARC(또는 ubuntu) |
 | `godot-pages.yml` | Godot Web export + Pages 배포 | ARC(또는 ubuntu) |
 | `release-tag.yml` | 지정 commit에 명시적 SemVer 태그 생성/push(마커 커밋·브랜치 push 없음) | ARC |
@@ -144,10 +143,9 @@ jobs:
 이 경로는 `.ait` artifact만 만들며 AppsInToss API를 호출하지 않는다. 실제 업로드는
 아래 `rn-deploy-ait.yml` caller와 deployment 승인을 별도로 사용한다.
 
-Android 후보 빌드도 `rn-build-android.yml`을 사용한다. 이 경로는 서명 AAB artifact만
-생성하고 `google-play` environment, WIF, Google Play API를 사용하지 않는다. Gradle
-의존성은 GitHub Actions cache로 재사용하며, caller는 `react_native_architectures`로
-release AAB에 컴파일할 ABI를 명시할 수 있다. 입력을 비우면 프로젝트 기본값을 유지한다.
+Android 후보 빌드는 별도 워크플로를 두지 않는다. `rn-deploy-google-play.yml`을
+`upload: false`로 부르면 서명 AAB를 Actions artifact로만 남기고 Google Play API를
+호출하지 않는다.
 
 ### RN 정적 게이트 (`.github/workflows/org-contract.yml`)
 

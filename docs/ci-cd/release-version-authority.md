@@ -228,7 +228,7 @@ push하지 않으며, 다른 commit을 가리키는 같은 이름 태그는 생�
 이 계약을 쓰는 SHA로 caller를 올릴 때 다음 입력을 **제거**해야 한다. 남아 있으면 workflow_call이
 `Invalid input`으로 실패한다.
 
-- `rn-deploy-google-play.yml`, `rn-build-android.yml`: `version_script`
+- `rn-deploy-google-play.yml`: `version_script`
 - `godot-deploy-google-play.yml`: `version_name`, `version_code`
 
 저장소의 `scripts/resolve-release-version.mjs`는 org 경로에서 더 이상 호출되지 않는다. 저장소 자체

@@ -29,7 +29,6 @@ node scripts/release/collect-caller-migration-inventory.mjs <저장소 경로> \
 | `rn-deploy-ait` / `godot-deploy-ait` | 같음 | 저장소 `deploy` 스크립트가 `--memo`와 `--location`을 **그대로** 전달(memo에 artifact sha256이 들어감) |
 | `release-tag` | `runs_on` | 러너는 `seorilabs-rpi-arm64`로 중앙 고정 |
 | `promote-google-play` | — | 업로드 도구가 `--promote-version-code`를 수용하고 그 build만 승격 |
-| `rn-build-android` | 같음 | — |
 
 `uses:`는 모두 40자리 commit SHA로 고정한다. `@main`, `@v1` 같은 floating ref는 이관 대상이
 아니라 즉시 결함이다. config revision을 고정할 수 없기 때문이다.

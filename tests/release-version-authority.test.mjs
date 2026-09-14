@@ -64,7 +64,6 @@ const WORKFLOW_SHA = 'c'.repeat(40);
 const RELEASE_WORKFLOWS = Object.freeze([
   'rn-deploy-google-play.yml',
   'rn-deploy-ait.yml',
-  'rn-build-android.yml',
   'godot-deploy-google-play.yml',
   'godot-deploy-ait.yml',
 ]);
@@ -1415,7 +1414,6 @@ test('모든 릴리즈 경로가 org 정본 authority를 exact SHA로 호출한�
 test('릴리즈 경로는 artifact metadata를 다시 읽어 태그와 대조한다', () => {
   const readback = {
     'rn-deploy-google-play.yml': 'android-app-bundle',
-    'rn-build-android.yml': 'android-app-bundle',
     'godot-deploy-google-play.yml': 'android-app-bundle',
     'rn-deploy-ait.yml': 'ait',
     'godot-deploy-ait.yml': 'ait',
@@ -1689,7 +1687,6 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
     'godot-deploy-google-play.yml': { contents: 'read', 'id-token': 'write' },
     'rn-deploy-ait.yml': { contents: 'read', packages: 'read' },
     'godot-deploy-ait.yml': { contents: 'read' },
-    'rn-build-android.yml': { contents: 'read' },
   };
 
   for (const name of RELEASE_WORKFLOWS) {

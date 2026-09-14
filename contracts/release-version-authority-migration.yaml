@@ -52,9 +52,6 @@ callerKinds:
       - path: ait/apps-in-toss-web/package.json#scripts.deploy
         mustForwardArguments: [--memo, --location]
         mustNotRewriteMemo: true
-  - id: rn-build-android
-    calledWorkflow: .github/workflows/rn-build-android.yml
-    removeInputs: [version_name, version_code, version_script]
   - id: release-tag
     calledWorkflow: .github/workflows/release-tag.yml
     # runs_on은 제거됐다. 태그를 push하는 job은 seorilabs-rpi-arm64로 고정한다.

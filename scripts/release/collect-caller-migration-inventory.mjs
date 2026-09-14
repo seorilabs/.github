@@ -22,7 +22,6 @@ export const CALLER_KIND_BY_WORKFLOW = Object.freeze({
   '.github/workflows/godot-deploy-google-play.yml': 'godot-deploy-google-play',
   '.github/workflows/rn-deploy-ait.yml': 'rn-deploy-ait',
   '.github/workflows/godot-deploy-ait.yml': 'godot-deploy-ait',
-  '.github/workflows/rn-build-android.yml': 'rn-build-android',
   '.github/workflows/release-tag.yml': 'release-tag',
   '.github/workflows/promote-google-play.yml': 'promote-google-play',
 });
