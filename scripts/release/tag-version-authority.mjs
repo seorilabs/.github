@@ -483,28 +483,52 @@ export function assertSourceBinding({ binding, headSha, localTagSha }) {
   }
 }
 
-export const RELEASE_MEMO_MAX_LENGTH = 1000;
+export const RELEASE_MEMO_MAX_LENGTH = 120;
+
+function truncateMemoNote(note, maxLength) {
+  if (maxLength <= 0) {
+    return '';
+  }
+  if (note.length <= maxLength) {
+    return note;
+  }
+  if (maxLength === 1) {
+    return '…';
+  }
+
+  let truncated = '';
+  for (const character of note) {
+    if ((truncated + character).length > maxLength - 1) {
+      break;
+    }
+    truncated += character;
+  }
+  return `${truncated}…`;
+}
 
 /**
- * AppsInToss 배포 memo는 tag 파생값과 업로드 대상 artifact의 sha256만으로 만든다.
+ * AppsInToss 배포 memo는 tag·source SHA·업로드 대상 artifact의 sha256을 항상 보존한다.
  * .ait 컨테이너는 내부 version 필드를 갖지 않으므로, provider 기록에서 "이 태그의 이 파일"을
  * 가리키는 유일한 식별자가 memo다. digest를 넣어 같은 태그로 다른 파일을 올리면 어긋나게 한다.
+ * AppsInToss의 120자 제한 안에서 이 식별자를 먼저 보존하고 선택 운영 메모만 줄임표로 잘라낸다.
  */
 export function canonicalReleaseMemo(binding, { artifactDigest, note = '' } = {}) {
   requireArtifactDigest(artifactDigest, '.ait artifact digest');
   const trimmed = typeof note === 'string' ? note.trim().replace(/\s+/gu, ' ') : '';
-  const head =
-    `${binding.tag} ${binding.versionName} (${binding.androidVersionCode}) ` +
-    `src:${binding.sourceSha.slice(0, 12)} sha256:${artifactDigest}`;
-  const memo = trimmed.length > 0 ? `${head} · ${trimmed}` : head;
-  if (memo.length > RELEASE_MEMO_MAX_LENGTH) {
-    // 잘라내면 digest가 사라져 식별자가 무너진다. 운영 메모를 줄이도록 fail-closed한다.
+  const head = `${binding.tag} src:${binding.sourceSha.slice(0, 12)} sha256:${artifactDigest}`;
+  if (head.length > RELEASE_MEMO_MAX_LENGTH) {
     fail(
       'artifact-digest-mismatch',
-      `release memo가 ${RELEASE_MEMO_MAX_LENGTH}자를 넘는다. 운영 메모를 줄여야 한다: ${memo.length}자`,
+      `canonical release memo 식별자가 ${RELEASE_MEMO_MAX_LENGTH}자를 넘는다: ${head.length}자`,
     );
   }
-  return memo;
+  if (trimmed.length === 0) {
+    return head;
+  }
+
+  const separator = ' · ';
+  const fittedNote = truncateMemoNote(trimmed, RELEASE_MEMO_MAX_LENGTH - head.length - separator.length);
+  return fittedNote.length > 0 ? `${head}${separator}${fittedNote}` : head;
 }
 
 /**

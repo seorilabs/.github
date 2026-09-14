@@ -503,16 +503,22 @@ test('지원하는 .ait 형식에는 내부 version 필드가 없고 memo가 art
   const memo = canonicalReleaseMemo(current, { artifactDigest: digest });
   assert.equal(
     memo,
-    `v1.2.3 1.2.3 (1001002003) src:${SHA_A.slice(0, 12)} sha256:${digest}`,
+    `v1.2.3 src:${SHA_A.slice(0, 12)} sha256:${digest}`,
   );
   assert.equal(
     canonicalReleaseMemo(current, { artifactDigest: digest, note: ' hotfix  rollout ' }),
     `${memo} · hotfix rollout`,
   );
-  // digest가 사라지면 식별자가 무너지므로 자르지 않고 fail-closed한다.
-  assert.throws(
-    () => canonicalReleaseMemo(current, { artifactDigest: digest, note: 'x'.repeat(2000) }),
-    (error) => error.code === 'artifact-digest-mismatch',
+  const longMemo = canonicalReleaseMemo(current, {
+    artifactDigest: digest,
+    note: '배포 기록 '.repeat(100),
+  });
+  assert.equal(longMemo.length, 120);
+  assert.match(longMemo, new RegExp(`^v1\\.2\\.3 src:${SHA_A.slice(0, 12)} sha256:${digest} · `, 'u'));
+  assert.ok(longMemo.endsWith('…'));
+  assert.match(
+    longMemo,
+    new RegExp(`sha256:${digest}`, 'u'),
   );
   assert.throws(
     () => canonicalReleaseMemo(current, { artifactDigest: 'nope' }),
@@ -1145,7 +1151,7 @@ test('artifact 검증 CLI는 RN·Godot·AIT 경로 fixture를 그대로 readback
     assert.match(
       aitOutput,
       new RegExp(
-        `^release_memo=v1\\.2\\.3 1\\.2\\.3 \\(1001002003\\) src:a{12} sha256:${aitDigest} · internal rollout$`,
+        `^release_memo=v1\\.2\\.3 src:a{12} sha256:${aitDigest} · internal rollout$`,
         'mu',
       ),
     );
