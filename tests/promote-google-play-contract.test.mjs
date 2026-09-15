@@ -29,4 +29,13 @@ test("Google Play 트랙 승격은 RPI ARC에서 재빌드 없이 실행한다",
   assert.match(promoteStep, /--promote-from-track\b/);
   assert.match(promoteStep, /--promote-to-track\b/);
   assert.match(promoteStep, /--release-status\b/);
+  assert.match(promoteStep, /--release-name\b/);
+  // 중앙 스크립트가 기본값이다. 저장소 설정 파일을 읽지 않으므로 package name 을 넘긴다.
+  assert.match(
+    promoteStep,
+    /UPLOAD_SCRIPT: \$\{\{ inputs\.upload_script \|\| '\.seorilabs-release-authority\/scripts\/release\/upload-google-play-aab\.py' \}\}/,
+  );
+  assert.match(promoteStep, /--package-name "\$PACKAGE_NAME"/);
+  // repo-local 레거시 스크립트는 그 인자를 모른다. 비었을 때는 붙이지 않는다.
+  assert.match(promoteStep, /if \[ -n "\$PACKAGE_NAME" \]; then/);
 });

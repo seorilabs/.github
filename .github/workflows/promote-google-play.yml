@@ -4,9 +4,12 @@
 #       to_track 으로 복사 + 언어별 노트 반영 + commit(=심사 제출). AAB 재업로드 없음.
 # 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
 # 트랙의 "최신 versionCode"를 그대로 승격하지 않는다. 승격 대상은 태그가 정한 build 하나뿐이다.
-# 표준 contract(템플릿이 구현):
-#   - upload_script --promote --promote-from-track <t> --promote-to-track <t>
-#       --promote-version-code <n> --release-status <s> [--release-notes-json <path>] [--rollout <f>]
+# 표준 contract:
+#   - <script> --promote --promote-from-track <t> --promote-to-track <t>
+#       --promote-version-code <n> --release-status <s> --release-name <tag>
+#       [--package-name <pkg>] [--rollout <f>]  (노트는 RELEASE_NOTES_JSON env)
+# upload_script 를 비우면 중앙 scripts/release/upload-google-play-aab.py 를 쓴다. 그때는
+# package_name 을 반드시 준다 — 중앙 스크립트는 저장소 설정 파일을 읽지 않는다.
 name: Promote Google Play (reusable)
 
 on:
@@ -38,9 +41,16 @@ on:
         default: ""
         type: string
       upload_script:
-        description: "promote 를 지원하는 업로드 스크립트 경로(RN/Godot 상이)"
+        description: "promote 를 지원하는 스크립트 경로. 비우면 중앙 스크립트를 쓴다."
         required: false
-        default: "scripts/upload-google-play-internal.py"
+        default: ""
+        type: string
+      package_name:
+        description: >-
+          Android package name. 중앙 스크립트는 저장소 설정 파일을 읽지 않으므로 호출부가 준다.
+          repo-local 레거시 스크립트를 쓰는 caller 는 비워 둔다.
+        required: false
+        default: ""
         type: string
       timeout_minutes:
         required: false
@@ -209,6 +219,8 @@ jobs:
           # 승격 대상 build는 태그 파생 versionCode 하나뿐이다. 트랙 최신값을 쓰지 않는다.
           PROMOTE_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
           SEORI_EXPECTED_ANDROID_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
+          PACKAGE_NAME: ${{ inputs.package_name }}
+          UPLOAD_SCRIPT: ${{ inputs.upload_script || '.seorilabs-release-authority/scripts/release/upload-google-play-aab.py' }}
         run: |
           set -euo pipefail
           [[ "$PROMOTE_VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || {
@@ -226,7 +238,12 @@ jobs:
           if [ -n "${{ inputs.rollout }}" ]; then
             args+=(--rollout "${{ inputs.rollout }}")
           fi
-          python3 ${{ inputs.upload_script }} "${args[@]}"
+          # 중앙 스크립트는 저장소 설정 파일을 읽지 않아 package name 을 인자로 받는다.
+          # repo-local 레거시 스크립트는 그 인자를 모르므로 비었을 때만 생략한다.
+          if [ -n "$PACKAGE_NAME" ]; then
+            args+=(--package-name "$PACKAGE_NAME")
+          fi
+          python3 "$UPLOAD_SCRIPT" "${args[@]}"
 
       - name: Summary
         if: always()
