@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Upload one verified AAB without consulting repository-local version/config files."""
+"""Upload one verified AAB, or promote one already-uploaded build between tracks.
+
+Neither mode consults repository-local version/config files. The caller supplies the
+package name, and the build to act on is named explicitly — promotion never takes
+"whatever is newest" on the source track.
+"""
 
 from __future__ import annotations
 
@@ -53,6 +58,16 @@ def non_negative_int(value: str) -> int:
         raise argparse.ArgumentTypeError("must be an integer") from error
     if parsed < 0:
         raise argparse.ArgumentTypeError("must not be negative")
+    return parsed
+
+
+def rollout_fraction(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be a number") from error
+    if not 0.0 < parsed <= 1.0:
+        raise argparse.ArgumentTypeError("must be within (0, 1]")
     return parsed
 
 
@@ -137,6 +152,129 @@ def validate_upload(args: argparse.Namespace) -> dict[str, object]:
         "aabPath": aab_path,
         "releaseNotes": load_release_notes(args.release_notes_json),
     }
+
+
+def validate_promote(args: argparse.Namespace) -> dict[str, object]:
+    if not PACKAGE_NAME_PATTERN.fullmatch(args.package_name):
+        fail("PACKAGE_NAME_INVALID")
+    if not TRACK_PATTERN.fullmatch(args.promote_from_track):
+        fail("TRACK_INVALID")
+    if not TRACK_PATTERN.fullmatch(args.promote_to_track):
+        fail("TRACK_INVALID")
+    if args.promote_from_track == args.promote_to_track:
+        fail("PROMOTE_TRACKS_IDENTICAL")
+    if not args.release_name or len(args.release_name) > 50:
+        fail("RELEASE_NAME_INVALID")
+    if not 1 <= args.promote_version_code <= MAX_VERSION_CODE:
+        fail("VERSION_CODE_INVALID")
+
+    # rollout 을 주면 부분 공개다. Play 는 그 상태를 inProgress 로만 받는다.
+    status = "inProgress" if args.rollout is not None else args.release_status
+    return {
+        "packageName": args.package_name,
+        "fromTrack": args.promote_from_track,
+        "toTrack": args.promote_to_track,
+        "versionCode": args.promote_version_code,
+        "releaseName": args.release_name,
+        "releaseStatus": status,
+        "userFraction": args.rollout,
+        "releaseNotes": load_release_notes(args.release_notes_json),
+    }
+
+
+def source_track_contains(track: dict[str, object], version_code: int) -> bool:
+    """승격 대상이 원본 트랙에 실제로 있는지.
+
+    트랙의 최신 release 를 그대로 올리지 않는다. 태그가 정한 build 하나만 승격한다.
+    이 확인이 없으면 internal 에 더 새 build 가 있을 때 의도하지 않은 것이 심사로 나간다.
+    """
+    releases = track.get("releases") if isinstance(track, dict) else None
+    if not isinstance(releases, list):
+        return False
+    wanted = str(version_code)
+    for release in releases:
+        if not isinstance(release, dict):
+            continue
+        codes = release.get("versionCodes")
+        if isinstance(codes, list) and any(str(code) == wanted for code in codes):
+            return True
+    return False
+
+
+def promote(args: argparse.Namespace) -> dict[str, object]:
+    validated = validate_promote(args)
+    package_name = str(validated["packageName"])
+    version_code = int(validated["versionCode"])
+    publisher = make_publisher(args.api_timeout_seconds)
+    edit_id: str | None = None
+
+    try:
+        edit = execute(
+            publisher.edits().insert(packageName=package_name, body={}),
+            args.api_retries,
+            "GOOGLE_PLAY_EDIT_CREATE_FAILED",
+        )
+        edit_id = edit.get("id") if isinstance(edit, dict) else None
+        if not isinstance(edit_id, str) or not edit_id:
+            fail("GOOGLE_PLAY_EDIT_RESPONSE_INVALID")
+
+        source = execute(
+            publisher.edits().tracks().get(
+                packageName=package_name,
+                editId=edit_id,
+                track=validated["fromTrack"],
+            ),
+            args.api_retries,
+            "GOOGLE_PLAY_SOURCE_TRACK_READ_FAILED",
+        )
+        if not source_track_contains(source, version_code):
+            fail("GOOGLE_PLAY_SOURCE_TRACK_MISSING_VERSION_CODE")
+
+        release: dict[str, object] = {
+            "name": validated["releaseName"],
+            "versionCodes": [str(version_code)],
+            "status": validated["releaseStatus"],
+        }
+        if validated["releaseNotes"]:
+            release["releaseNotes"] = validated["releaseNotes"]
+        if validated["userFraction"] is not None:
+            release["userFraction"] = validated["userFraction"]
+        execute(
+            publisher.edits().tracks().update(
+                packageName=package_name,
+                editId=edit_id,
+                track=validated["toTrack"],
+                body={"track": validated["toTrack"], "releases": [release]},
+            ),
+            args.api_retries,
+            "GOOGLE_PLAY_TRACK_UPDATE_FAILED",
+        )
+        execute(
+            publisher.edits().commit(packageName=package_name, editId=edit_id),
+            args.api_retries,
+            "GOOGLE_PLAY_EDIT_COMMIT_FAILED",
+        )
+        edit_id = None
+        result: dict[str, object] = {
+            "packageName": package_name,
+            "fromTrack": validated["fromTrack"],
+            "toTrack": validated["toTrack"],
+            "releaseStatus": validated["releaseStatus"],
+            "versionCode": version_code,
+        }
+        if validated["userFraction"] is not None:
+            result["userFraction"] = validated["userFraction"]
+        return result
+    except Exception:
+        if edit_id is not None:
+            try:
+                publisher.edits().delete(
+                    packageName=package_name,
+                    editId=edit_id,
+                ).execute(num_retries=args.api_retries)
+            except Exception:
+                print("GOOGLE_PLAY_EDIT_CLEANUP_FAILED", file=sys.stderr)
+        raise
 
 
 def make_publisher(timeout_seconds: int):
@@ -279,12 +417,16 @@ def upload(args: argparse.Namespace) -> dict[str, object]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Upload one centrally verified AAB to a Google Play track."
+        description=(
+            "Upload one centrally verified AAB to a Google Play track, "
+            "or promote one already-uploaded build between tracks."
+        )
     )
     parser.add_argument("--package-name", required=True)
-    parser.add_argument("--aab-path", required=True)
-    parser.add_argument("--expected-aab-sha256", required=True)
-    parser.add_argument("--expected-version-code", required=True, type=positive_int)
+    # 업로드에만 필요한 셋이다. 승격은 이미 올라간 build 를 옮기므로 AAB 를 보지 않는다.
+    parser.add_argument("--aab-path", default="")
+    parser.add_argument("--expected-aab-sha256", default="")
+    parser.add_argument("--expected-version-code", default=None, type=positive_int)
     parser.add_argument("--track", default="internal")
     parser.add_argument("--release-name", required=True)
     parser.add_argument(
@@ -292,7 +434,24 @@ def parse_args() -> argparse.Namespace:
         choices=["draft", "completed"],
         default="draft",
     )
-    parser.add_argument("--release-notes-json", default="")
+    parser.add_argument(
+        "--release-notes-json",
+        default=os.environ.get("RELEASE_NOTES_JSON") or "",
+    )
+    parser.add_argument(
+        "--promote",
+        action="store_true",
+        help="Move an already-uploaded build from one track to another.",
+    )
+    parser.add_argument("--promote-from-track", default="internal")
+    parser.add_argument("--promote-to-track", default="production")
+    parser.add_argument("--promote-version-code", default=None, type=positive_int)
+    parser.add_argument(
+        "--rollout",
+        default=None,
+        type=rollout_fraction,
+        help="Staged rollout fraction in (0, 1]. Promotion only.",
+    )
     parser.add_argument("--changes-not-sent-for-review", action="store_true")
     parser.add_argument(
         "--api-timeout-seconds",
@@ -304,17 +463,40 @@ def parse_args() -> argparse.Namespace:
         type=non_negative_int,
         default=non_negative_int(os.environ.get("GOOGLE_PLAY_API_RETRIES", "5")),
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    # 모드마다 필수 인자가 다르다. argparse 의 required 로는 갈라낼 수 없어 여기서 본다.
+    if args.promote:
+        if args.promote_version_code is None:
+            parser.error("--promote requires --promote-version-code")
+        for name in ("aab_path", "expected_aab_sha256"):
+            if getattr(args, name):
+                parser.error(f"--{name.replace('_', '-')} is not valid with --promote")
+        if args.expected_version_code is not None:
+            parser.error("--expected-version-code is not valid with --promote")
+    else:
+        if args.rollout is not None:
+            parser.error("--rollout requires --promote")
+        for name in ("aab_path", "expected_aab_sha256"):
+            if not getattr(args, name):
+                parser.error(f"--{name.replace('_', '-')} is required without --promote")
+        if args.expected_version_code is None:
+            parser.error("--expected-version-code is required without --promote")
+    return args
 
 
 def main() -> int:
+    args = parse_args()
     try:
-        result = upload(parse_args())
+        result = promote(args) if args.promote else upload(args)
     except PublicFailure as error:
         print(error.code, file=sys.stderr)
         return 1
     except Exception:
-        print("GOOGLE_PLAY_UPLOAD_FAILED", file=sys.stderr)
+        print(
+            "GOOGLE_PLAY_PROMOTE_FAILED" if args.promote else "GOOGLE_PLAY_UPLOAD_FAILED",
+            file=sys.stderr,
+        )
         return 1
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0
