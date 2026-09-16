@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v1/release-version-ledger.schema.json",
+  "title": "Seorilabs release version ledger",
+  "description": "저장소별 release-version-ledger 브랜치 tip에 있는 릴리스 번호 원장. 태그와 표시 버전은 함께 두고 플랫폼 번호는 분리한다. 비밀값을 담지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "release", "android", "ios", "provenance"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lastTag", "lastSourceSha", "marketingVersion"],
+      "properties": {
+        "lastTag": { "$ref": "#/$defs/nullableTag" },
+        "lastSourceSha": { "$ref": "#/$defs/nullableSha" },
+        "marketingVersion": {
+          "anyOf": [{ "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" }, { "type": "null" }]
+        }
+      }
+    },
+    "android": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "lastVersionCode", "legacyFallbackSealed"],
+      "properties": {
+        "authority": { "const": "github-ledger" },
+        "lastVersionCode": { "type": "integer", "minimum": 0, "maximum": 2100000000 },
+        "legacyFallbackSealed": {
+          "type": "boolean",
+          "description": "true면 원장이 번호를 할당하기 시작했다는 뜻이다. 그 뒤에 만들어진 receipt 없는 태그를 구 파생식으로 배포하면 번호가 충돌하므로 fail-closed한다."
+        }
+      }
+    },
+    "ios": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "lastObservedBuildNumber", "lastObservedTag"],
+      "properties": {
+        "authority": { "const": "xcode-cloud" },
+        "lastObservedBuildNumber": {
+          "anyOf": [{ "type": "integer", "minimum": 1, "maximum": 2100000000 }, { "type": "null" }],
+          "description": "App Store Connect readback으로 확인한 CI_BUILD_NUMBER. null은 모름이 아니라 아직 관측하지 않음이다. 추측한 값을 넣지 않는다."
+        },
+        "lastObservedTag": { "$ref": "#/$defs/nullableTag" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["initializedAt", "initializedBy", "initializedFromWorkflowSha", "authorityRevision", "baseline"],
+      "properties": {
+        "initializedAt": { "$ref": "#/$defs/timestamp" },
+        "initializedBy": { "const": "release-version-ledger-init-v1" },
+        "initializedFromWorkflowSha": { "$ref": "#/$defs/sha" },
+        "authorityRevision": { "$ref": "#/$defs/digest" },
+        "baseline": { "$ref": "#/$defs/baseline" }
+      }
+    }
+  },
+  "$defs": {
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "nullableSha": { "anyOf": [{ "$ref": "#/$defs/sha" }, { "type": "null" }] },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "tag": { "type": "string", "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" },
+    "nullableTag": { "anyOf": [{ "$ref": "#/$defs/tag" }, { "type": "null" }] },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$" },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["androidVersionCode", "rule", "sources"],
+      "properties": {
+        "androidVersionCode": { "type": "integer", "minimum": 0, "maximum": 2100000000 },
+        "rule": { "const": "max-of-verified-sources" },
+        "sources": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/baselineSource" } }
+      }
+    },
+    "baselineSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "androidVersionCode"],
+      "properties": {
+        "kind": {
+          "enum": ["no-prior-release", "tag-receipt", "google-play-bundles-list", "google-play-apks-list", "human-attestation"]
+        },
+        "androidVersionCode": { "type": "integer", "minimum": 0, "maximum": 2100000000 },
+        "tag": { "$ref": "#/$defs/tag" },
+        "tagObject": { "$ref": "#/$defs/sha" },
+        "sourceSha": { "$ref": "#/$defs/sha" },
+        "receiptAuthorityRevision": { "$ref": "#/$defs/digest" },
+        "packageName": { "type": "string", "minLength": 1 },
+        "observedAt": { "$ref": "#/$defs/timestamp" },
+        "observedBy": { "type": "string", "minLength": 1 },
+        "evidenceDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "evidenceUrl": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

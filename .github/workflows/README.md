@@ -32,7 +32,11 @@
 | `rn-build-ait.yml` | RN `.ait` 후보 산출물 빌드(배포 없음) | ARC 또는 x64 Linux |
 | `godot-checks.yml` | Godot import→compile→smoke | ARC(또는 ubuntu) |
 | `godot-pages.yml` | Godot Web export + Pages 배포 | ARC(또는 ubuntu) |
-| `release-tag.yml` | 지정 commit에 명시적 SemVer 태그 생성/push(마커 커밋·브랜치 push 없음) | ARC |
+| `release-tag.yml` | 지정 commit에 명시적 SemVer 태그 생성 + 원장에서 Android versionCode 할당(atomic push) | ARC |
+| `init-release-version-ledger.yml` | 저장소별 `release-version-ledger` 브랜치 초기화(저장소당 한 번, 기본 dry_run) | ARC |
+| `record-ios-build-observation.yml` | Xcode Cloud build number 관측값을 원장 `ios` 구획에 기록 | ARC |
+| `resolve-release-version.yml` | 앱별 custom build 경로용 태그→binding 해석 | private ARC, public ubuntu |
+| `promote-google-play.yml` | 재빌드 없이 지정 versionCode 하나만 트랙 승격 | ARC |
 | `rn-deploy-ait.yml` | RN .ait build + AppsInToss deploy | ARC |
 | `godot-deploy-ait.yml` | Godot web→wrapper→AppsInToss deploy | ARC |
 | `rn-deploy-google-play.yml` | RN 서명 AAB + Google Play 업로드 | private `seorilabs-x64-android`, public `ubuntu-latest` |
@@ -111,6 +115,11 @@ publisher 권한을 가져서는 안 된다. GitHub OIDC 조건은 숫자 reposi
   `--location`은 검증된 exact absolute 경로다.
   중앙 authority는 AppsInToss의 120자 제한을 맞추며 tag·source SHA·artifact digest를 우선
   보존하고, 선택 운영 메모만 줄임표로 자른다.
+- 릴리스 번호: Android `versionCode`는 태그에서 파생하지 않는다. `release-tag.yml`이 저장소의
+  `release-version-ledger` 브랜치에서 `lastVersionCode + 1`로 할당하고, 원장 갱신과 태그 생성을
+  한 번의 atomic push로 묶는다. `release-tag.yml` caller가 있는 저장소는
+  `init-release-version-ledger.yml` caller도 있어야 한다.
+  ([릴리스 번호 원장](../../docs/ci-cd/release-version-ledger.md))
 - 러너: `release-tag.yml`은 `seorilabs-rpi-arm64`, Godot Play와 private RN Play은
   `seorilabs-x64-android`로 중앙에서 고정한다. public RN repo는 `ubuntu-latest`로만
   라우팅해 private ARC를 노출하지 않는다. caller가 러너를 선택하는 `runs_on` 입력은 없다.

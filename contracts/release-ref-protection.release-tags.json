@@ -1,0 +1,15 @@
+{
+  "name": "Immutable release tags",
+  "target": "tag",
+  "enforcement": "evaluate",
+  "bypass_actors": [],
+  "conditions": {
+    "repository_name": { "include": ["~ALL"], "exclude": [] },
+    "ref_name": { "include": ["refs/tags/v*"], "exclude": [] }
+  },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "update" },
+    { "type": "non_fast_forward" }
+  ]
+}

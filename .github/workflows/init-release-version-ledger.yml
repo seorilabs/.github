@@ -1,0 +1,186 @@
+# Seorilabs org 재사용 워크플로우: 릴리스 번호 원장 초기화
+# 호출: uses: seorilabs/.github/.github/workflows/init-release-version-ledger.yml@<FULL_COMMIT_SHA>
+# 원칙: 기준 번호를 추측하지 않는다. 검증된 근거(tag receipt, provider readback, 운영자 명시값)가
+# 없으면 NEEDS_INPUT으로 멈추고 무엇이 필요한지 남긴다. 잘못된 기준 번호는 이후 모든 릴리스
+# 번호를 오염시킨다.
+# 기본값은 dry_run이다. 원장 초기화는 저장소당 한 번뿐이고 되돌리기 어렵다.
+# Play readback은 이 워크플로우가 하지 않는다. 운영자가 read-only 조회 결과를
+# play_readback_base64로 넘긴다. 그래서 이 경로에는 마켓 자격증명이 전혀 필요하지 않다.
+# 계약: contracts/release-version-ledger.yaml
+name: Initialize Release Version Ledger (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      dry_run:
+        description: "판정만 하고 원장을 만들지 않는다. 기본값은 true."
+        required: false
+        default: true
+        type: boolean
+      play_readback_base64:
+        description: "read-google-play-version-codes.py 결과 JSON의 base64. legacy 앱에만 필요하다."
+        required: false
+        default: ""
+        type: string
+      attestation_base64:
+        description: "사람이 관측한 최대 versionCode 증명 JSON의 base64."
+        required: false
+        default: ""
+        type: string
+      accept_attestation:
+        description: "attestation을 기준 번호 근거로 받아들인다. 명시하지 않으면 무시한다."
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      status:
+        description: "READY | NEEDS_INPUT | ALREADY_INITIALIZED"
+        value: ${{ jobs.initialize.outputs.status }}
+      android_last_version_code:
+        description: "확정된 기준 Android versionCode"
+        value: ${{ jobs.initialize.outputs.android_last_version_code }}
+      ledger_commit:
+        description: "생성된 원장 커밋 SHA (실제로 만들었을 때만)"
+        value: ${{ jobs.initialize.outputs.ledger_commit }}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-version-ledger-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  initialize:
+    name: Initialize release version ledger
+    # 원장을 push하는 contents:write job은 caller가 러너를 고를 수 없다.
+    runs-on: seorilabs-rpi-arm64
+    timeout-minutes: 15
+    outputs:
+      status: ${{ steps.decide.outputs.status }}
+      android_last_version_code: ${{ steps.decide.outputs.android_last_version_code }}
+      ledger_commit: ${{ steps.create.outputs.ledger_commit }}
+
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          fetch-tags: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          check-latest: false
+
+      - name: Validate called reusable workflow identity
+        id: authority
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/init-release-version-ledger.yml
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
+          '
+
+      - name: Checkout exact release version authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.authority.outputs.repository }}
+          ref: ${{ steps.authority.outputs.sha }}
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
+      - name: Decide ledger baseline
+        id: decide
+        shell: bash
+        env:
+          JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
+          REPOSITORY_FULL_NAME: ${{ github.repository }}
+          PLAY_READBACK_BASE64: ${{ inputs.play_readback_base64 }}
+          ATTESTATION_BASE64: ${{ inputs.attestation_base64 }}
+          ACCEPT_ATTESTATION: ${{ inputs.accept_attestation }}
+        run: |
+          set -euo pipefail
+          init_args=(. --full-name "$REPOSITORY_FULL_NAME")
+          if [ -n "$PLAY_READBACK_BASE64" ]; then
+            printf '%s' "$PLAY_READBACK_BASE64" | base64 -d > "$RUNNER_TEMP/play-readback.json"
+            init_args+=(--play-readback "$RUNNER_TEMP/play-readback.json")
+          fi
+          if [ -n "$ATTESTATION_BASE64" ]; then
+            printf '%s' "$ATTESTATION_BASE64" | base64 -d > "$RUNNER_TEMP/attestation.json"
+            init_args+=(--attestation "$RUNNER_TEMP/attestation.json")
+          fi
+          if [ "$ACCEPT_ATTESTATION" = "true" ]; then
+            init_args+=(--accept-attestation)
+          fi
+          init_args+=(--out "$RUNNER_TEMP/ledger-init.json" --ledger-out "$RUNNER_TEMP/release-version-ledger.json")
+
+          status=0
+          node .seorilabs-release-authority/scripts/release/init-release-version-ledger.mjs "${init_args[@]}" > /dev/null || status=$?
+          node --input-type=module -e '
+            import { appendFileSync, readFileSync } from "node:fs";
+            const report = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/ledger-init.json", "utf8"));
+            const lines = ["status=" + report.status, "path=" + report.path];
+            if (report.baseline !== null) lines.push("android_last_version_code=" + report.baseline.androidVersionCode);
+            appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n") + "\n");
+            const summary = ["### Release Version Ledger", "", "- status: " + report.status, "- path: " + report.path];
+            for (const item of report.required) summary.push("- needs: " + item.id + " (" + item.reason + ")");
+            for (const finding of report.findings) summary.push("- " + finding.severity + ": " + finding.id + " — " + finding.detail);
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary.join("\n") + "\n");
+          '
+          exit "$status"
+
+      - name: Create ledger branch
+        id: create
+        if: steps.decide.outputs.status == 'READY' && inputs.dry_run == false
+        shell: bash
+        env:
+          ANDROID_LAST_VERSION_CODE: ${{ steps.decide.outputs.android_last_version_code }}
+          BASELINE_PATH: ${{ steps.decide.outputs.path }}
+          AUTHORITY_SHA: ${{ steps.authority.outputs.sha }}
+          REPOSITORY_FULL_NAME: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          export GIT_AUTHOR_NAME="github-actions[bot]"
+          export GIT_AUTHOR_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+
+          cat > "$RUNNER_TEMP/ledger-readme.md" <<'README'
+          # release-version-ledger
+
+          기계가 쓰는 릴리스 번호 원장이다. 직접 편집하거나 PR로 병합하지 않는다.
+
+          - 계약: seorilabs/.github `contracts/release-version-ledger.yaml`
+          - 감사: `node scripts/release/audit-release-tags.mjs <저장소> --full-name <owner/repo> --fetch`
+
+          이 브랜치의 이력이 곧 Android versionCode 할당 이력이다.
+          README
+
+          ledger_blob="$(git hash-object -w "$RUNNER_TEMP/release-version-ledger.json")"
+          readme_blob="$(git hash-object -w "$RUNNER_TEMP/ledger-readme.md")"
+          tree="$(printf '100644 blob %s\tREADME.md\n100644 blob %s\trelease-version-ledger.json\n' \
+            "$readme_blob" "$ledger_blob" | git mktree)"
+
+          { echo "release-version-ledger: initialize"
+            echo
+            echo "seori-release-ledger: 1"
+            echo "ledger-schema-version: 1"
+            echo "repository: $REPOSITORY_FULL_NAME"
+            echo "android-last-version-code: $ANDROID_LAST_VERSION_CODE"
+            echo "baseline-rule: max-of-verified-sources"
+            echo "baseline-path: $BASELINE_PATH"
+            echo "initialized-from: $AUTHORITY_SHA"; } > "$RUNNER_TEMP/ledger-init-message.txt"
+
+          # -p 없이 만들어 orphan root commit임을 명령 구조로 보장한다.
+          ledger_commit="$(git commit-tree "$tree" -F "$RUNNER_TEMP/ledger-init-message.txt")"
+          # --force를 쓰지 않는다. ref가 이미 있으면 거절되는 것이 곧 idempotency 가드다.
+          git push origin "$ledger_commit:refs/heads/release-version-ledger"
+          echo "ledger_commit=$ledger_commit" >> "$GITHUB_OUTPUT"

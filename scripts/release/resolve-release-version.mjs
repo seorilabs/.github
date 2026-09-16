@@ -10,15 +10,19 @@ import { dirname, resolve } from 'node:path';
 
 import {
   ReleaseAuthorityError,
+  assertLedgerReceiptConsistency,
   assertSourceBinding,
   assertTagReceipt,
   bindingDigest,
   computeAuthorityRevision,
   computeConfigRevision,
   createReleaseBinding,
+  extractSupersededRevisions,
   githubOutputLines,
+  parseLedger,
   parseTagReceipt,
   renderTagReceipt,
+  resolveDeploymentAndroidVersionCode,
   selectReleaseTagForEvent,
 } from './tag-version-authority.mjs';
 
@@ -59,14 +63,19 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
 
   const tagInput = pick(args, 'tag', 'RELEASE_TAG');
-  const tagListFile = pick(args, 'tag-list-file', 'RELEASE_TAG_LIST_FILE');
+  // 원장은 hot path에서 tip의 JSON 한 개만 읽는다. 없으면 빈 파일이고, 그때는 이 저장소가
+  // 아직 원장을 초기화하지 않았다는 뜻이다.
+  const ledgerFile = pick(args, 'ledger-file', 'RELEASE_LEDGER_FILE');
+  const ledgerText = ledgerFile.length > 0 ? readFileSync(ledgerFile, 'utf8').trim() : '';
+  const ledger = ledgerText.length > 0 ? parseLedger(ledgerText) : null;
+
   // 태그 선택은 실행 이벤트에 묶인다. refs/tags 이벤트는 그 태그가 곧 정본이고,
-  // 최신 태그 폴백은 운영자가 시작한 workflow_dispatch에서만 허용한다.
+  // 최신 태그 폴백은 운영자가 시작한 workflow_dispatch에서만, 원장의 lastTag 하나로 허용한다.
   const { tag, source } = selectReleaseTagForEvent({
     eventName: pick(args, 'event-name', 'RELEASE_EVENT_NAME'),
     eventRef: pick(args, 'event-ref', 'RELEASE_EVENT_REF'),
     requestedTag: tagInput,
-    tagList: tagListFile.length > 0 ? readFileSync(tagListFile, 'utf8') : '',
+    ledgerLastTag: ledger === null ? '' : ledger.release.lastTag ?? '',
   });
 
   if (args.get('print-tag') === true) {
@@ -95,7 +104,9 @@ function main() {
     DEFAULT_AUTHORITY_CONTRACT,
   );
 
-  const authorityRevision = computeAuthorityRevision(readFileSync(authorityContractPath, 'utf8'));
+  const authorityContract = readFileSync(authorityContractPath, 'utf8');
+  const authorityRevision = computeAuthorityRevision(authorityContract);
+  const supersededRevisions = extractSupersededRevisions(authorityContract);
   const configRevision = computeConfigRevision({
     calledWorkflowRepository: pick(args, 'called-workflow-repository', 'JOB_WORKFLOW_REPOSITORY'),
     calledWorkflowRef: pick(args, 'called-workflow-ref', 'JOB_WORKFLOW_REF'),
@@ -103,14 +114,39 @@ function main() {
     authorityRevision,
   });
 
-  const binding = createReleaseBinding({ tag, sourceSha, configRevision, authorityRevision });
+  const tagMessageFile = pick(args, 'tag-message-file', 'RELEASE_TAG_MESSAGE_FILE');
+  const receipt = tagMessageFile.length > 0 ? parseTagReceipt(readFileSync(tagMessageFile, 'utf8')) : null;
+
+  // Android versionCode의 정본은 셋 중 하나다.
+  //  1) 태그 생성 경로가 방금 원장에서 할당한 값(--android-version-code로 명시)
+  //  2) 이미 존재하는 태그의 receipt
+  //  3) receipt가 없고 원장이 아직 할당을 시작하지 않은 저장소의 legacy 공식 폴백
+  // 어느 경우에도 태그에서 새로 계산하지 않는다.
+  const allocatedCode = pick(args, 'android-version-code', 'RELEASE_ANDROID_VERSION_CODE');
+  const android =
+    allocatedCode.length > 0
+      ? {
+          androidVersionCode: allocatedCode,
+          androidVersionCodeSource: pick(
+            args,
+            'android-version-code-source',
+            'RELEASE_ANDROID_VERSION_CODE_SOURCE',
+            'github-ledger',
+          ),
+        }
+      : resolveDeploymentAndroidVersionCode({ tag, receipt, ledger });
+
+  const binding = createReleaseBinding({
+    tag,
+    sourceSha,
+    configRevision,
+    authorityRevision,
+    ...android,
+  });
 
   assertSourceBinding({ binding, headSha, localTagSha });
-
-  const tagMessageFile = pick(args, 'tag-message-file', 'RELEASE_TAG_MESSAGE_FILE');
-  if (tagMessageFile.length > 0) {
-    assertTagReceipt(binding, parseTagReceipt(readFileSync(tagMessageFile, 'utf8')));
-  }
+  assertTagReceipt(binding, receipt, { supersededRevisions });
+  assertLedgerReceiptConsistency({ ledger, receipt });
 
   const tagReceiptPath = pick(args, 'tag-receipt', 'RELEASE_TAG_RECEIPT_PATH');
   if (tagReceiptPath.length > 0) {
@@ -138,7 +174,8 @@ function main() {
     process.stdout.write(`${JSON.stringify(binding, null, 2)}\n`);
   } else {
     process.stdout.write(
-      `release binding ${binding.tag} -> ${binding.versionName} (${binding.androidVersionCode}) ` +
+      `release binding ${binding.tag} -> ${binding.versionName} ` +
+        `(${binding.androidVersionCode} via ${binding.androidVersionCodeSource}) ` +
         `source=${binding.sourceSha} config=${binding.configRevision} digest=${bindingDigest(binding)}\n`,
     );
   }

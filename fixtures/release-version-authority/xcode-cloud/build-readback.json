@@ -1,0 +1,10 @@
+{
+  "kind": "xcode-cloud-build-readback",
+  "action": "ciBuildRuns.get",
+  "tag": "v1.2.3",
+  "sourceSha": "dddddddddddddddddddddddddddddddddddddddd",
+  "marketingVersion": "1.2.3",
+  "buildNumber": 42,
+  "buildNumberAuthority": "xcode-cloud-ci-build-number",
+  "observedAt": "2026-09-16T04:00:00Z"
+}
