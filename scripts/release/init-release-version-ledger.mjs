@@ -172,7 +172,15 @@ function main() {
     throw new ReleaseAuthorityError('ledger-initialization-needs-input', `--full-name 이 owner/repo 형식이어야 한다: ${fullName || 'missing'}`);
   }
   const observedAt = pick(args, 'observed-at', 'RELEASE_OBSERVED_AT', new Date().toISOString().replace(/\.\d+Z$/u, 'Z'));
+  // provenance는 "어느 중앙 SHA가 이 원장을 만들었는가"를 남겨야 한다. 워크플로에서는
+  // JOB_WORKFLOW_SHA가 주고, 로컬 판정에서는 --workflow-sha 로 준다.
   const workflowSha = pick(args, 'workflow-sha', 'JOB_WORKFLOW_SHA');
+  if (!/^[0-9a-f]{40}$/u.test(workflowSha)) {
+    throw new ReleaseAuthorityError(
+      'ledger-initialization-needs-input',
+      `--workflow-sha(또는 JOB_WORKFLOW_SHA)로 중앙 워크플로의 40자리 commit SHA가 필요하다: ${workflowSha || 'missing'}`,
+    );
+  }
   const authorityContract = readFileSync(
     pick(args, 'authority-contract', 'RELEASE_AUTHORITY_CONTRACT', DEFAULT_AUTHORITY_CONTRACT),
     'utf8',

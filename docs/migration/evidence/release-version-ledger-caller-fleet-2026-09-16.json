@@ -1,0 +1,233 @@
+{
+  "schemaVersion": 1,
+  "authority": "release-version-authority-v1",
+  "migration": "release-version-authority-migration-v1",
+  "expectedCentralSha": "80182a04330cd8880fcf238fb26e178b36e55331",
+  "observedAt": "2026-09-16T11:09:24Z",
+  "repositories": [
+    {
+      "fullName": "seorilabs/alley-market-match",
+      "state": "PENDING",
+      "pullRequest": null,
+      "blocking": [
+        "caller-pinned-to-superseded-sha",
+        "ledger-branch-missing",
+        "ledger-caller-missing"
+      ]
+    },
+    {
+      "fullName": "seorilabs/animal-chess",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "no-central-caller"
+    },
+    {
+      "fullName": "seorilabs/babycare",
+      "state": "PENDING",
+      "pullRequest": null,
+      "blocking": [
+        "caller-pinned-to-superseded-sha",
+        "ledger-branch-missing",
+        "ledger-caller-missing"
+      ]
+    },
+    {
+      "fullName": "seorilabs/crossword-puzzle",
+      "state": "PENDING",
+      "pullRequest": null,
+      "blocking": [
+        "caller-pinned-to-superseded-sha",
+        "ledger-branch-missing",
+        "ledger-caller-missing"
+      ]
+    },
+    {
+      "fullName": "seorilabs/cycle-pair",
+      "state": "PENDING",
+      "pullRequest": null,
+      "blocking": [
+        "caller-pinned-to-superseded-sha",
+        "ledger-branch-missing",
+        "ledger-caller-missing"
+      ]
+    },
+    {
+      "fullName": "seorilabs/daoewo",
+      "state": "PENDING",
+      "pullRequest": null,
+      "blocking": [
+        "caller-pinned-to-superseded-sha",
+        "ledger-branch-missing",
+        "ledger-caller-missing"
+      ]
+    },
+    {
+      "fullName": "seorilabs/dpti-app",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "archived-repository"
+    },
+    {
+      "fullName": "seorilabs/foam-party",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "archived-repository"
+    },
+    {
+      "fullName": "seorilabs/happy-farm",
+      "state": "PENDING",
+      "pullRequest": null,
+      "blocking": [
+        "caller-pinned-to-superseded-sha",
+        "ledger-branch-missing",
+        "ledger-caller-missing"
+      ]
+    },
+    {
+      "fullName": "seorilabs/immunity-war",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "no-central-caller"
+    },
+    {
+      "fullName": "seorilabs/jomul",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "no-central-release-tag-caller",
+      "detail": "중앙 release-tag caller가 없어 원장을 채울 경로가 없다."
+    },
+    {
+      "fullName": "seorilabs/keeum",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "no-central-caller"
+    },
+    {
+      "fullName": "seorilabs/lizard-tycoon",
+      "state": "PENDING",
+      "pullRequest": null,
+      "blocking": [
+        "caller-pinned-to-superseded-sha",
+        "ledger-branch-missing",
+        "ledger-caller-missing"
+      ]
+    },
+    {
+      "fullName": "seorilabs/lord-ledger",
+      "state": "MIGRATED",
+      "pullRequest": null
+    },
+    {
+      "fullName": "seorilabs/lucid-chess",
+      "state": "PENDING",
+      "pullRequest": null,
+      "blocking": [
+        "caller-pinned-to-superseded-sha",
+        "ledger-branch-missing",
+        "ledger-caller-missing"
+      ]
+    },
+    {
+      "fullName": "seorilabs/lucid-reversi",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "archived-repository"
+    },
+    {
+      "fullName": "seorilabs/match-picture-app",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "archived-repository"
+    },
+    {
+      "fullName": "seorilabs/matgo",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "no-central-release-tag-caller",
+      "detail": "중앙 release-tag caller가 없어 원장을 채울 경로가 없다."
+    },
+    {
+      "fullName": "seorilabs/merge-battle",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "no-central-release-tag-caller",
+      "detail": "중앙 release-tag caller가 없어 원장을 채울 경로가 없다."
+    },
+    {
+      "fullName": "seorilabs/minimax-defense",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "no-central-caller"
+    },
+    {
+      "fullName": "seorilabs/periodic-table-app",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "archived-repository"
+    },
+    {
+      "fullName": "seorilabs/reascend",
+      "state": "PENDING",
+      "pullRequest": null,
+      "blocking": [
+        "caller-pinned-to-superseded-sha",
+        "ledger-branch-missing",
+        "ledger-caller-missing"
+      ]
+    },
+    {
+      "fullName": "seorilabs/saju-reader",
+      "state": "PENDING",
+      "pullRequest": null,
+      "blocking": [
+        "caller-pinned-to-superseded-sha",
+        "ledger-branch-missing",
+        "ledger-caller-missing"
+      ]
+    },
+    {
+      "fullName": "seorilabs/slotmachine-game",
+      "state": "PENDING",
+      "pullRequest": null,
+      "blocking": [
+        "caller-pinned-to-superseded-sha",
+        "ledger-branch-missing",
+        "ledger-caller-missing"
+      ]
+    },
+    {
+      "fullName": "seorilabs/spiritgate-defenders",
+      "state": "PENDING",
+      "pullRequest": null,
+      "blocking": [
+        "caller-pinned-to-superseded-sha",
+        "ledger-branch-missing",
+        "ledger-caller-missing"
+      ]
+    },
+    {
+      "fullName": "seorilabs/starlit-apprentice",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "no-central-caller"
+    },
+    {
+      "fullName": "seorilabs/trait-test-hub",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "no-central-caller"
+    },
+    {
+      "fullName": "seorilabs/vocab-swipe",
+      "state": "EXCLUDED",
+      "pullRequest": null,
+      "exclusionReason": "archived-repository"
+    }
+  ],
+  "summary": {
+    "migrated": 1,
+    "pending": 12,
+    "excluded": 15
+  },
+  "status": "NEEDS_CHANGE"
+}
