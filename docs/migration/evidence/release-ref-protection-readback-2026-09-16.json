@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "ledger": "release-version-ledger-v1",
   "organization": "seorilabs",
-  "observedAt": "2026-09-16T11:22:47Z",
+  "observedAt": "2026-09-16T11:44:02Z",
   "rulesets": [
     {
       "name": "Immutable release version ledger",
@@ -10,7 +10,7 @@
       "target": "branch",
       "ref": "refs/heads/release-version-ledger",
       "present": true,
-      "enforcement": "evaluate",
+      "enforcement": "active",
       "desiredEnforcement": "active",
       "exact": true,
       "bypassActorsEmpty": true,
@@ -22,7 +22,7 @@
       "missingRules": [],
       "forbiddenRulesPresent": [],
       "overlappingRulesets": [],
-      "snapshotDigest": "sha256:9ff8f56161df026017e74093a1f30bfe964fdf4c9fa73e91cc79cfbfba602cf5"
+      "snapshotDigest": "sha256:ce5c838bc8f7906ae1507ff266046022c035ac744b521f272deeacf4810b4b95"
     },
     {
       "name": "Immutable release tags",
@@ -30,7 +30,7 @@
       "target": "tag",
       "ref": "refs/tags/v*",
       "present": true,
-      "enforcement": "evaluate",
+      "enforcement": "active",
       "desiredEnforcement": "active",
       "exact": true,
       "bypassActorsEmpty": true,
@@ -48,33 +48,28 @@
           "enforcement": "active"
         }
       ],
-      "snapshotDigest": "sha256:9c2ac2cae89b08d823c2fbc07b7dae15c3da76a0afb07320c49f752c3c1d063f"
+      "snapshotDigest": "sha256:e3b2604499a132c29f40cef5437487c8d943c276439bb273f45cc5a2212939f0"
     }
   ],
   "repositories": [
     {
       "fullName": "seorilabs/lord-ledger",
-      "ledgerBranchCovered": null,
-      "releaseTagsCovered": null
+      "ledgerBranchCovered": true,
+      "releaseTagsCovered": true
+    },
+    {
+      "fullName": "seorilabs/happy-farm",
+      "ledgerBranchCovered": true,
+      "releaseTagsCovered": true
     }
   ],
-  "state": "SHADOW",
+  "state": "ACTIVE",
   "findings": [
-    {
-      "id": "enforcement-not-active",
-      "severity": "advisory",
-      "detail": "Immutable release tags: enforcement=evaluate. Active 승격은 사람이 한다."
-    },
-    {
-      "id": "enforcement-not-active",
-      "severity": "advisory",
-      "detail": "Immutable release version ledger: enforcement=evaluate. Active 승격은 사람이 한다."
-    },
     {
       "id": "overlapping-ruleset",
       "severity": "advisory",
       "detail": "Immutable release tags: 같은 ref를 덮는 ruleset이 또 있다 — Immutable Platform release tags(21819735, active). 중복 정리는 사람이 판단한다."
     }
   ],
-  "status": "NEEDS_CHANGE"
+  "status": "READY"
 }
