@@ -238,6 +238,20 @@ test('같은 원장 상태는 항상 같은 바이트로 직렬화된다', () =>
   assert.equal(JSON.parse(once).schemaVersion, 1);
 });
 
+test('태그 bump 규칙은 authority 계약이 아니라 원장 계약에 있다', () => {
+  // authority 본문의 sha256이 tag receipt에 박힌다. 운영 규칙을 그쪽에 두면 규칙을 고칠 때마다
+  // 이미 찍힌 receipt가 전부 미등록 revision이 된다. 원장 할당값은 공식으로 재계산할 수 없어
+  // superseded 검증으로도 구제되지 않는다.
+  const authority = readFileSync(new URL('../contracts/release-version-authority.yaml', import.meta.url), 'utf8');
+  const ledger = readFileSync(new URL('../contracts/release-version-ledger.yaml', import.meta.url), 'utf8');
+  assert.doesNotMatch(authority, /ledger-last-tag-unknown|tagBump/u);
+  assert.match(ledger, /^tagBump:$/mu);
+  assert.match(ledger, /^ {2}base: release\.lastTag$/mu);
+  assert.match(ledger, /^ {2}withoutLastTag: fail-closed$/mu);
+  assert.match(ledger, /^ {2}failClosed: ledger-last-tag-unknown$/mu);
+  assert.match(ledger, /^ {2}- id: ledger-last-tag-unknown$/mu);
+});
+
 test('원장 파일과 계약이 같은 경로·브랜치를 가리킨다', () => {
   const contract = readFileSync(new URL('../contracts/release-version-ledger.yaml', import.meta.url), 'utf8');
   assert.match(contract, new RegExp(`name: ${LEDGER_BRANCH}`, 'u'));
@@ -287,6 +301,34 @@ test('iOS 관측 CLI는 App Store Connect readback 파일이 있어야만 기록
     const rejected = run(['--readback', drifted]);
     assert.notEqual(rejected.status, 0);
     assert.match(rejected.stderr, /ios-observation-unverified/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('태그 이력이 없는 원장은 bump하지 않고 태그를 요구한다', () => {
+  // provider readback만으로 초기화한 원장은 번호 baseline은 있어도 태그 이력이 없다.
+  // 없는 값을 v0.0.0으로 대신하면 이미 v1.10.3까지 나간 앱에 v0.0.1을 만들어 버리고,
+  // 숫자는 원장이 올려주므로 성공한 것처럼 보인다. 실측으로 15개 중 11개가 이 상태였다.
+  const readbackOnly = initialLedger({
+    baseline: 1_010_003,
+    sources: [{ kind: 'google-play-bundles-list', androidVersionCode: 1_010_003 }],
+  });
+  assert.equal(readbackOnly.release.lastTag, null);
+
+  const { root, work, origin } = createRepository({ ledger: readbackOnly });
+  try {
+    const bumped = runCreateTag(work, { bump: 'patch' });
+    assert.notEqual(bumped.status, 0);
+    assert.match(bumped.stderr, /ledger-last-tag-unknown/u);
+    assert.equal(git(origin, 'for-each-ref', '--format=%(refname)', 'refs/tags/'), '', 'v0.0.1을 만들면 안 된다');
+    assert.equal(ledgerCommitCount(origin), 1, '원장이 움직이면 안 된다');
+
+    // 태그를 명시하면 그대로 진행하고 번호는 원장이 이어간다.
+    const explicit = runCreateTag(work, { tagInput: 'v1.10.4' });
+    assert.equal(explicit.status, 0, explicit.stderr);
+    assert.match(explicit.output, /^android_version_code=1010004$/mu);
+    assert.equal(remoteLedger(origin).release.lastTag, 'v1.10.4');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
