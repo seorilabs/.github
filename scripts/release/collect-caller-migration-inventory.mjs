@@ -40,6 +40,9 @@ export const CALLER_KIND_BY_WORKFLOW = Object.freeze({
   '.github/workflows/promote-google-play.yml': 'promote-google-play',
   '.github/workflows/init-release-version-ledger.yml': 'init-release-version-ledger',
   '.github/workflows/record-ios-build-observation.yml': 'record-ios-build-observation',
+  // 앱별 custom build 경로가 부르는 해석 전용 워크플로도 같은 계약에 묶인다.
+  // 빠뜨리면 그 caller의 pin이 재이관 대상에서 조용히 누락된다.
+  '.github/workflows/resolve-release-version.yml': 'resolve-release-version',
 });
 
 /** 고정 enum. 자유 서술 제외는 허용하지 않는다 — 미이관 목록이 기계 판독이어야 한다. */
@@ -308,7 +311,13 @@ export function collectCallerMigrationInventory(snapshot, fullName, { expectedCe
   }
 
   const kinds = new Set(callers.map(({ callerKind }) => callerKind));
-  const marketKinds = ['rn-deploy-google-play', 'godot-deploy-google-play', 'rn-deploy-ait', 'godot-deploy-ait'];
+  const marketKinds = [
+    'rn-deploy-google-play',
+    'godot-deploy-google-play',
+    'rn-deploy-ait',
+    'godot-deploy-ait',
+    'resolve-release-version',
+  ];
   if (marketKinds.some((kind) => kinds.has(kind)) && !kinds.has('release-tag')) {
     // 원장은 태그 생성 경로에서만 갱신된다. 그 caller가 없으면 이 저장소는 원장을 채울 수 없다.
     findings.push({

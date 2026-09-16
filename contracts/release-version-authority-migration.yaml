@@ -82,6 +82,11 @@ callerKinds:
     removeInputs: []
     # 관측만 기록한다. Android 번호를 소비하지 않는다.
     updatesLedgerScope: [ios]
+  - id: resolve-release-version
+    calledWorkflow: .github/workflows/resolve-release-version.yml
+    removeInputs: [version_name, version_code, version_script]
+    # 앱별 custom build 경로 전용 진입점이다. 같은 계약에 묶이므로 재이관 대상에서 빠지면 안 된다.
+    requiresCallerKind: release-tag
   - id: promote-google-play
     calledWorkflow: .github/workflows/promote-google-play.yml
     removeInputs: []
