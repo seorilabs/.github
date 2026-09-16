@@ -1,3 +1,4 @@
 node_modules/
 .build/
 packages/repo-contract/.generated/
+__pycache__/

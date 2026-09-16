@@ -52,13 +52,23 @@ function pick(args, key, envKey, fallback = '') {
 /**
  * 태그를 명시하지 않았을 때 다음 태그를 정한다. 기준은 전체 태그 목록이 아니라 원장의
  * release.lastTag 하나다. 원장이 릴리스 이력의 정본이므로 여기서도 그것만 읽는다.
+ *
+ * lastTag가 null이면 bump하지 않는다. provider readback만으로 초기화한 원장은 번호 baseline은
+ * 있어도 태그 이력이 없어서, 없는 값을 v0.0.0으로 대신하면 이미 v1.10.3까지 나간 앱에
+ * v0.0.1을 만들어 버린다. 숫자는 원장이 올려주므로 겉으로는 성공한 것처럼 보이고, 그 태그가
+ * 다시 lastTag가 되어 이후 bump까지 오염시킨다. 추측하지 않고 운영자에게 태그를 요구한다.
  */
 function nextTagFromLedger(ledger, bump) {
   if (!BUMPS.has(bump)) {
     throw new ReleaseAuthorityError('tag-pattern-mismatch', `지원하지 않는 bump 단위다: ${bump || 'missing'}`);
   }
-  const base = ledger.release.lastTag === null ? 'v0.0.0' : ledger.release.lastTag;
-  const { major, minor, patch } = base === 'v0.0.0' ? { major: 0, minor: 0, patch: 0 } : parseReleaseTag(base);
+  if (ledger.release.lastTag === null) {
+    throw new ReleaseAuthorityError(
+      'ledger-last-tag-unknown',
+      '원장에 release.lastTag가 없어 bump할 기준이 없다. 이 저장소의 첫 릴리스는 태그를 명시해야 한다.',
+    );
+  }
+  const { major, minor, patch } = parseReleaseTag(ledger.release.lastTag);
   if (bump === 'major') {
     return `v${major + 1}.0.0`;
   }

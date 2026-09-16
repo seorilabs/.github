@@ -217,3 +217,15 @@ test('Play readback 조회는 published 상태를 바꾸지 않고 비밀값을 
   );
   assert.equal(syntax.status, 0, syntax.stderr);
 });
+
+test('파이썬 바이트코드 산출물을 저장소에 커밋하지 않는다', () => {
+  // Play readback 스크립트를 실행하면 scripts/release/__pycache__ 가 생긴다.
+  // git add -A 로 쓸어 담으면 바이너리 산출물이 계약 패키지까지 따라 들어간다.
+  const tracked = execFileSync('git', ['-C', REPOSITORY_ROOT, 'ls-files'], { encoding: 'utf8' })
+    .split('\n')
+    .filter((path) => /__pycache__|\.pyc$/u.test(path));
+  assert.deepEqual(tracked, []);
+
+  const ignore = readFileSync(resolve(REPOSITORY_ROOT, '.gitignore'), 'utf8');
+  assert.match(ignore, /^__pycache__\/$/mu);
+});
