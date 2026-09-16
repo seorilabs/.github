@@ -105,19 +105,37 @@ node scripts/release/init-release-version-ledger.mjs ../<repo> \
 `--accept-attestation`을 명시하지 않으면 attestation은 무시된다. 사람이 적은 숫자를 근거로 삼는
 것은 의도적인 선택이어야 한다.
 
-## 저장소별 현황 (2026-09-16 실측)
+## 저장소별 현황 (2026-09-16 이관 실측)
 
-| 저장소 | 최신 태그 | receipt | 초기화 경로 |
-|---|---|---|---|
-| lord-ledger | v1.0.1 | 있음 (`android-version-code: 1001000001`) | 기존 receipt |
-| lucid-chess | v3.0.9 | 있음 (구 계약 revision) | 기존 receipt (등록된 superseded revision) |
-| happy-farm | v1.9.7 | 없음 (lightweight) | provider readback 필요 |
-| crossword-puzzle | v1.1.9 | 없음 (lightweight, 태그 171개) | provider readback 필요 |
-| lizard-tycoon | v1.4.5 | 없음 (lightweight) | provider readback 필요 |
-| saju-reader | v1.0.9 | 없음 (annotated, receipt 블록 없음) | provider readback 필요 |
-| jomul | v1.0.9 | 없음 (annotated, receipt 블록 없음) | 중앙 release-tag caller 부재 — 먼저 해결 |
-| 태그 0개 저장소 | — | — | packageName 선언 여부로 갈린다 |
+**최신 태그를 사전식으로 고르면 틀린다.** `v1.9.7 > v1.10.3`, `v1.0.9 > v1.0.32` 로 정렬되어 실제보다
+옛 태그를 최신으로 읽는다. 아래 표는 SemVer 수치 정렬로 다시 확인한 값이다.
 
-`jomul`은 `godot-deploy-google-play.yml`만 호출하고 `release-tag.yml` caller가 없다. 원장은 태그 생성
-경로에서만 갱신되므로 이 상태로는 원장을 채울 수 없다. 이관 대상이 아니라 결함으로 분류하고
-inventory가 `release-tag-caller-missing`으로 잡는다.
+| 저장소 | 최신 stable 태그 | receipt | 기준 번호 | baseline 소스 |
+|---|---|---|---|---|
+| lord-ledger | v1.0.3 | 있음 | 1001000001 | tag-receipt 2건 |
+| lucid-chess | v3.0.9 | 있음 (등록된 superseded revision) | 1003000009 | tag-receipt + Play readback |
+| saju-reader | v1.0.32 | 있음 | 1001000032 | tag-receipt 11건 + Play readback |
+| lizard-tycoon | v1.4.5 | 이전 태그에 있음 | 1001004005 | tag-receipt 4건 + Play readback |
+| crossword-puzzle | v1.1.9 (태그 154개) | 없음 (lightweight) | 1001001009 | Play readback |
+| jomul | v1.0.17 | 없음 (lightweight) | 1001000017 | Play readback |
+| matgo | v1.0.8 | 있음이지만 미등록 revision이라 불채택 | 1001000008 | Play readback |
+| happy-farm | v1.10.3 | 없음 (lightweight) | 1010003 | Play readback |
+| slotmachine-game | v1.2.1 | 없음 | 1002001 | Play readback |
+| babycare | v1.1.9 | 없음 | 1001009 | Play readback |
+| cycle-pair | v1.0.6 | 없음 | 1000103 | Play readback |
+| spiritgate-defenders | v1.0.14 | 없음 | 1000014 | Play readback |
+| reascend | v0.0.3 | 없음 | 4 | Play readback |
+| merge-battle | 태그 0개 | — | 3 | Play readback |
+| alley-market-match | v0.1.1 | 없음 | 0 | Play readback (업로드 이력 0건) |
+| daoewo | 태그 0개 | — | **미확정** | Play 미등록 — 아래 참조 |
+
+`matgo` 의 `v1.0.8` receipt는 `authority-revision: 7ab1a4a2…` 로 `supersededAuthorityRevisions` 에
+없다. 판정기가 `authority-revision-stale` advisory를 남기고 그 receipt를 baseline 근거에서 뺀다.
+같은 값이 Play readback으로 확인되어 결과는 같다.
+
+`alley-market-match` 는 Play에 앱은 있지만 bundle·APK가 하나도 없다. `maxVersionCode` 가 `null` 이고
+검증된 소스로 0이 기록된다. 첫 할당은 1이다.
+
+`daoewo` 는 Android Publisher가 `com.seorilabs.daoewo` 에 `404 Package not found` 를 돌려준다. Play
+Console에 앱 자체가 없어 readback이 성립하지 않는다. caller와 원장 caller는 들어가 있으나 원장은
+초기화하지 않았다. Play에 앱을 만든 뒤 readback으로 초기화한다. 기준 번호를 0으로 추정하지 않는다.

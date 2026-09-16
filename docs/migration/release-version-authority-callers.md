@@ -80,6 +80,25 @@ readback 대상 식별자다.
 `release-tag.yml`은 원장이 없으면 `ledger-missing`으로 멈춘다. caller PR을 머지하기 전이나 직후에
 [원장 초기화](release-version-ledger-initialization.md)를 끝내야 한다. 기준 번호는 추측하지 않는다.
 
+## 2026-09-16 이관 결과
+
+중앙 `53c0819ec0976a48c7e8302234bcfc408f0a1e0b` 기준으로 16개 저장소의 caller를 올리고 원장을
+초기화했다. 증거: [`evidence/release-version-ledger-caller-fleet-2026-09-16-post-migration.json`](evidence/release-version-ledger-caller-fleet-2026-09-16-post-migration.json)
+(migrated 15 / pending 1 / excluded 12).
+
+`jomul`, `matgo`, `merge-battle` 은 `no-central-release-tag-caller` 로 제외돼 있었다. 셋 다 마켓 배포
+caller는 있는데 태그 생성 경로가 없던 결함이므로 `release-tag` caller를 새로 넣어 이관 대상으로
+되돌렸다.
+
+`daoewo` 만 `PENDING` 이다. Android Publisher가 `com.seorilabs.daoewo` 에 `404 Package not found` 를
+돌려주어 provider readback이 성립하지 않는다. caller와 원장 caller는 들어가 있고 원장만 없다.
+기준 번호를 추정하지 않는다.
+
+**readback만으로 초기화한 원장은 `release.lastTag` 가 `null` 이다.** 태그 receipt가 없으면 원장이
+마지막 태그를 모른다. 그 상태에서 `release-tag` 를 태그 없이 실행하면 `v0.0.1` 로 떨어지고, 그 태그가
+이미 있으면 `tag-reuse-with-different-source` 로 fail-closed한다. 이관 후 첫 릴리스는 태그를 명시한다.
+번호는 태그와 무관하게 원장이 정하므로 영향은 태그 이름에만 있다.
+
 ## 완료 판정
 
 아래를 모두 만족해야 이관 완료로 본다. 하나라도 미충족이면 완료로 보고하지 않는다.
