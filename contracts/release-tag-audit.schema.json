@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v1/release-tag-audit.schema.json",
+  "title": "Seorilabs release tag and ledger drift audit",
+  "description": "저장소 하나의 모든 릴리스 태그와 원장을 대조한 진단 결과. 릴리스 hot path에서 실행하지 않는 별도 명령의 출력이다. 비밀값을 담지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "authority", "ledger", "repository", "observedAt", "currentAuthorityRevision", "ledgerTip", "tagCount", "tags", "duplicateAndroidVersionCodes", "tagsWithoutReceipt", "staleAuthorityRevisions", "ledgerDrift", "findings", "status"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "authority": { "const": "release-version-authority-v1" },
+    "ledger": { "const": "release-version-ledger-v1" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fullName"],
+      "properties": {
+        "fullName": { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
+        "root": { "type": "string", "minLength": 1 }
+      }
+    },
+    "observedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$" },
+    "currentAuthorityRevision": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "ledgerTip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present"],
+      "properties": {
+        "present": { "type": "boolean" },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "schemaValid": { "type": "boolean" },
+        "lastTag": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "lastSourceSha": { "anyOf": [{ "type": "string", "pattern": "^[0-9a-f]{40}$" }, { "type": "null" }] },
+        "androidLastVersionCode": { "type": "integer", "minimum": 0 },
+        "legacyFallbackSealed": { "type": "boolean" },
+        "iosLastObservedBuildNumber": { "anyOf": [{ "type": "integer" }, { "type": "null" }] }
+      }
+    },
+    "tagCount": { "type": "integer", "minimum": 0 },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tag", "refType", "commit", "receipt"],
+        "properties": {
+          "tag": { "type": "string", "minLength": 1 },
+          "refType": { "enum": ["lightweight", "annotated"] },
+          "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "receipt": { "enum": ["present", "absent", "malformed"] },
+          "authorityRevision": { "anyOf": [{ "type": "string", "pattern": "^[0-9a-f]{64}$" }, { "type": "null" }] },
+          "authorityRevisionKnown": { "anyOf": [{ "enum": ["current", "superseded", "unknown"] }, { "type": "null" }] },
+          "versionName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "androidVersionCode": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+          "androidVersionCodeSource": { "anyOf": [{ "enum": ["github-ledger", "legacy-tag-formula"] }, { "type": "null" }] },
+          "sourceShaMatchesTag": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] }
+        }
+      }
+    },
+    "duplicateAndroidVersionCodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["androidVersionCode", "tags"],
+        "properties": {
+          "androidVersionCode": { "type": "integer" },
+          "tags": { "type": "array", "minItems": 2, "items": { "type": "string" } }
+        }
+      }
+    },
+    "tagsWithoutReceipt": { "type": "array", "items": { "type": "string" } },
+    "staleAuthorityRevisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tag", "authorityRevision"],
+        "properties": {
+          "tag": { "type": "string" },
+          "authorityRevision": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "known": { "enum": ["superseded", "unknown"] }
+        }
+      }
+    },
+    "ledgerDrift": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "ledgerValue", "observedValue"],
+        "properties": {
+          "id": { "enum": ["ledger-behind-latest-tag", "ledger-ahead-of-tags", "tag-version-code-above-ledger"] },
+          "ledgerValue": { "anyOf": [{ "type": "string" }, { "type": "integer" }, { "type": "null" }] },
+          "observedValue": { "anyOf": [{ "type": "string" }, { "type": "integer" }, { "type": "null" }] },
+          "tag": { "type": "string" }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "severity", "detail"],
+        "properties": {
+          "id": {
+            "enum": [
+              "tag-lightweight",
+              "tag-receipt-absent",
+              "tag-receipt-malformed",
+              "tag-receipt-source-mismatch",
+              "duplicate-android-version-code",
+              "authority-revision-stale",
+              "ledger-missing",
+              "ledger-schema-invalid",
+              "ledger-behind-latest-tag",
+              "ledger-ahead-of-tags",
+              "tag-version-code-above-ledger"
+            ]
+          },
+          "severity": { "enum": ["blocking", "advisory"] },
+          "detail": { "type": "string", "minLength": 1 },
+          "ref": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "status": { "enum": ["READY", "NEEDS_CHANGE", "NEEDS_INPUT"] }
+  }
+}

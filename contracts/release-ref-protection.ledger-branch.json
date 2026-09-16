@@ -1,0 +1,15 @@
+{
+  "name": "Immutable release version ledger",
+  "target": "branch",
+  "enforcement": "evaluate",
+  "bypass_actors": [],
+  "conditions": {
+    "repository_name": { "include": ["~ALL"], "exclude": [] },
+    "ref_name": { "include": ["refs/heads/release-version-ledger"], "exclude": [] }
+  },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    { "type": "required_linear_history" }
+  ]
+}

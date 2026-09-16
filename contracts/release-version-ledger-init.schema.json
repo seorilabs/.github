@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v1/release-version-ledger-init.schema.json",
+  "title": "Seorilabs release version ledger initialization decision",
+  "description": "저장소 하나의 원장 초기화 가능 여부를 읽기 전용으로 판정한 결과. 기준 번호를 추측하지 않으며 증거가 없으면 NEEDS_INPUT으로 멈춘다. 비밀값을 담지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "authority", "ledger", "repository", "observedAt", "path", "ledgerBranch", "baseline", "proposedLedger", "required", "findings", "status"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "authority": { "const": "release-version-authority-v1" },
+    "ledger": { "const": "release-version-ledger-v1" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fullName", "source"],
+      "properties": {
+        "fullName": { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
+        "source": { "enum": ["filesystem", "github"] },
+        "root": { "type": "string", "minLength": 1 },
+        "defaultBranch": { "type": "string", "minLength": 1 },
+        "headSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "playStorePackageName": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "stableTagCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "observedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$" },
+    "path": { "enum": ["new-repository", "existing-repository-with-receipt", "legacy-repository", "already-initialized"] },
+    "ledgerBranch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present"],
+      "properties": {
+        "present": { "type": "boolean" },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "schemaValid": { "type": "boolean" },
+        "androidLastVersionCode": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "baseline": {
+      "anyOf": [{ "type": "object" }, { "type": "null" }],
+      "description": "release-version-ledger.schema.json#/$defs/baseline 과 같은 형태다. 원장 형태의 정본을 한 곳에 두려고 여기서 다시 선언하지 않고, 테스트가 그 스키마로 검증한다."
+    },
+    "proposedLedger": {
+      "anyOf": [{ "type": "object" }, { "type": "null" }],
+      "description": "READY일 때 커밋할 원장 문서. release-version-ledger.schema.json 으로 검증한다."
+    },
+    "required": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "platform", "reason", "acceptedEvidence"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "platform": { "enum": ["android", "ios"] },
+          "reason": {
+            "enum": [
+              "no-verified-tag-receipt",
+              "provider-client-unavailable",
+              "provider-auth-unavailable",
+              "provider-access-denied",
+              "provider-readback-failed",
+              "play-store-package-declared-without-readback",
+              "ledger-schema-invalid"
+            ]
+          },
+          "packageName": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+          "acceptedEvidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "how"],
+              "properties": {
+                "kind": { "enum": ["google-play-bundles-list", "human-attestation"] },
+                "how": { "type": "string", "minLength": 1 },
+                "command": { "type": "string", "minLength": 1 },
+                "then": { "type": "string", "minLength": 1 },
+                "fileShape": { "type": "object" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "severity", "detail"],
+        "properties": {
+          "id": {
+            "enum": [
+              "ledger-already-initialized",
+              "ledger-schema-invalid",
+              "authority-revision-stale",
+              "tag-receipt-absent",
+              "tag-receipt-source-mismatch",
+              "play-store-package-declared-without-readback",
+              "provider-readback-unavailable",
+              "attestation-not-accepted"
+            ]
+          },
+          "severity": { "enum": ["blocking", "advisory"] },
+          "detail": { "type": "string", "minLength": 1 },
+          "ref": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "status": { "enum": ["READY", "NEEDS_INPUT", "ALREADY_INITIALIZED"] }
+  }
+}

@@ -113,8 +113,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.release_tag || github.ref }}
-          fetch-depth: 0
-          fetch-tags: true
+          fetch-depth: 1
+          fetch-tags: false
 
       - name: Validate AppsInToss secret
         if: inputs.upload
@@ -186,8 +186,16 @@ jobs:
           RELEASE_EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          git tag --list > "$RUNNER_TEMP/git-tags.txt"
-          tag="$(node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --tag-list-file "$RUNNER_TEMP/git-tags.txt" --print-tag)"
+          # hot path는 원장 tip의 JSON 한 개와 대상 태그 ref 하나만 읽는다. 전체 태그를 나열하지 않는다.
+          LEDGER_BRANCH=release-version-ledger
+          LEDGER_JSON="$RUNNER_TEMP/release-version-ledger.json"
+          : > "$LEDGER_JSON"
+          if git ls-remote --exit-code --heads origin "$LEDGER_BRANCH" >/dev/null 2>&1; then
+            git fetch --no-tags --depth=1 --force origin "+refs/heads/$LEDGER_BRANCH:refs/remotes/origin/$LEDGER_BRANCH" >/dev/null
+            git show "refs/remotes/origin/$LEDGER_BRANCH:release-version-ledger.json" > "$LEDGER_JSON"
+          fi
+          tag="$(node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --ledger-file "$LEDGER_JSON" --print-tag)"
+          git fetch --no-tags --depth=1 --force origin "+refs/tags/$tag:refs/tags/$tag" >/dev/null
           git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null
           git -c advice.detachedHead=false checkout "refs/tags/$tag"
           tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
@@ -196,7 +204,6 @@ jobs:
             echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
             exit 1
           }
-          # refs/tags 이벤트는 그 이벤트가 가리키는 commit만 build한다.
           case "$RELEASE_EVENT_REF" in
             refs/tags/*)
               [ "$tag" = "${RELEASE_EVENT_REF#refs/tags/}" ] || {
@@ -232,7 +239,8 @@ jobs:
           fi
           RELEASE_HEAD_SHA="$(git rev-parse 'HEAD^{commit}')" \
           RELEASE_LOCAL_TAG_SHA="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" \
-            node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --github-output
+            node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs \
+              --ledger-file "$RUNNER_TEMP/release-version-ledger.json" --github-output
 
       # install/build: eval 제거(시크릿 보유 스텝의 명령 인젝션 표면 차단).
       # custom 입력은 run 본문에 직접 보간, 미지정 시 package_manager 기반 고정 명령.

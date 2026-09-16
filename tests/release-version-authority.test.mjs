@@ -31,8 +31,12 @@ import {
   canonicalReleaseMemo,
   computeAuthorityRevision,
   computeConfigRevision,
+  createInitialLedger,
   createReleaseBinding,
-  deriveReleaseVersion,
+  deriveEncodedVersion,
+  deriveMarketingVersion,
+  deriveTagEncodedVersionCode,
+  extractSupersededRevisions,
   githubOutputLines,
   parseAabManifest,
   parseArtifactReceipt,
@@ -43,8 +47,9 @@ import {
   readAitContainer,
   readZipEntryNames,
   renderArtifactReceipt,
+  renderLedger,
   renderTagReceipt,
-  selectLatestStableTag,
+  resolveDeploymentAndroidVersionCode,
   selectReleaseTagForEvent,
 } from '../scripts/release/tag-version-authority.mjs';
 
@@ -66,6 +71,15 @@ const RELEASE_WORKFLOWS = Object.freeze([
   'rn-deploy-ait.yml',
   'godot-deploy-google-play.yml',
   'godot-deploy-ait.yml',
+]);
+/**
+ * 같은 태그 해석 블록을 인라인으로 복제한 경로 전체. artifact를 만들지 않는 승격·해석 경로까지
+ * 포함해야 복제본이 조용히 갈라지지 않는다.
+ */
+const TAG_RESOLUTION_WORKFLOWS = Object.freeze([
+  ...RELEASE_WORKFLOWS,
+  'promote-google-play.yml',
+  'resolve-release-version.yml',
 ]);
 
 function workflowText(name) {
@@ -95,18 +109,43 @@ function extractRunBlock(text, stepName) {
   return body.join('\n').trimEnd();
 }
 
-function binding({ tag = 'v1.2.3', sourceSha = SHA_A, workflow = 'rn-deploy-google-play.yml' } = {}) {
+/**
+ * fixture는 schemaVersion 2 시절의 태그 파생 versionCode로 만들어졌다. 그 값은 이제 원장이
+ * 아니라 legacy 폴백의 결과이므로 출처를 legacy-tag-formula로 밝혀 binding을 만든다.
+ */
+function binding({
+  tag = 'v1.2.3',
+  sourceSha = SHA_A,
+  workflow = 'rn-deploy-google-play.yml',
+  androidVersionCode = null,
+  androidVersionCodeSource = null,
+} = {}) {
   const authorityRevision = computeAuthorityRevision(readFileSync(AUTHORITY_CONTRACT, 'utf8'));
   return createReleaseBinding({
     tag,
     sourceSha,
     authorityRevision,
+    androidVersionCode: androidVersionCode ?? deriveTagEncodedVersionCode(tag),
+    androidVersionCodeSource: androidVersionCodeSource ?? 'legacy-tag-formula',
     configRevision: computeConfigRevision({
       calledWorkflowRepository: 'seorilabs/.github',
       calledWorkflowRef: `seorilabs/.github/.github/workflows/${workflow}@${WORKFLOW_SHA}`,
       calledWorkflowSha: WORKFLOW_SHA,
       authorityRevision,
     }),
+  });
+}
+
+/** 초기화 워크플로가 만드는 첫 원장과 같은 문서. 태그 폴백 테스트의 입력으로 쓴다. */
+function ledgerFixture({ baseline = 0, lastTag = null, lastSourceSha = null } = {}) {
+  return createInitialLedger({
+    baselineAndroidVersionCode: baseline,
+    baselineSources: [{ kind: 'no-prior-release', androidVersionCode: baseline }],
+    authorityRevision: computeAuthorityRevision(readFileSync(AUTHORITY_CONTRACT, 'utf8')),
+    initializedFromWorkflowSha: WORKFLOW_SHA,
+    initializedAt: '2026-09-16T00:00:00Z',
+    lastTag,
+    lastSourceSha,
   });
 }
 
@@ -127,7 +166,7 @@ function authorityEnv(workflow = 'rn-deploy-google-play.yml') {
   };
 }
 
-test('태그에서 display version과 마켓별 deterministic build number를 파생한다', () => {
+test('태그는 표시 버전과 Apple build number의 정본이고 Android versionCode는 만들지 않는다', () => {
   const cases = [
     ['v0.1.0', '0.1.0', 1_000_001_000, 1000],
     ['v1.0.0', '1.0.0', 1_001_000_000, 1_000_000],
@@ -137,14 +176,17 @@ test('태그에서 display version과 마켓별 deterministic build number를 �
     ['v1.999.999', '1.999.999', 1_001_999_999, 1_999_999],
   ];
 
-  for (const [tag, versionName, androidVersionCode, appleBuildNumber] of cases) {
-    const version = deriveReleaseVersion(tag);
+  for (const [tag, versionName, legacyVersionCode, encodedVersion] of cases) {
+    const version = deriveMarketingVersion(tag);
     assert.equal(version.versionName, versionName, tag);
     assert.equal(version.displayVersion, versionName, tag);
     assert.equal(version.appleMarketingVersion, versionName, tag);
     assert.equal(version.releaseName, versionName, tag);
-    assert.equal(version.androidVersionCode, androidVersionCode, tag);
-    assert.equal(version.appleBuildNumber, appleBuildNumber, tag);
+    assert.equal(Object.hasOwn(version, 'androidVersionCode'), false, tag);
+    // encodedVersion은 비 Xcode Cloud Apple build number의 정본이다.
+    assert.equal(deriveEncodedVersion(tag), encodedVersion, tag);
+    // epoch를 더한 값은 이제 legacy 폴백과 런타임 비교값으로만 남는다.
+    assert.equal(deriveTagEncodedVersionCode(tag), legacyVersionCode, tag);
   }
 });
 
@@ -164,31 +206,30 @@ test('exact stable SemVer가 아니거나 세그먼트 범위를 넘는 태그�
     undefined,
   ]) {
     assert.throws(
-      () => deriveReleaseVersion(tag),
+      () => deriveMarketingVersion(tag),
       (error) => error instanceof ReleaseAuthorityError && error.code === 'tag-pattern-mismatch',
       String(tag),
     );
   }
 });
 
-test('빈 입력은 prerelease와 파생 불가 태그를 제외한 최신 stable 태그를 고른다', () => {
-  const tags = [
-    'v1.2.9',
-    'v1.2.10',
-    'v9.0.0-rc.1',
-    'v01.2.3',
-    'v10x.0y.0z',
-    'v9223372036854775808.0.0',
-    'v1.1000.0',
-    'main',
-    '',
-  ];
-  assert.equal(selectLatestStableTag(tags), 'v1.2.10');
-  assert.equal(selectLatestStableTag(tags.join('\n')), 'v1.2.10');
-  assert.throws(
-    () => selectLatestStableTag(['main', 'v9.0.0-rc.1']),
-    (error) => error.code === 'tag-pattern-mismatch',
+test('빈 입력의 최신 태그 폴백은 원장의 lastTag 하나만 읽는다', () => {
+  assert.deepEqual(
+    selectReleaseTagForEvent({
+      eventName: 'workflow_dispatch',
+      eventRef: 'refs/heads/main',
+      ledgerLastTag: 'v1.2.10',
+    }),
+    { tag: 'v1.2.10', source: 'ledger-last-tag' },
   );
+  // 원장이 없거나 아직 릴리스가 없으면 번호를 추측하지 않고 멈춘다.
+  for (const ledgerLastTag of ['', null, undefined]) {
+    assert.throws(
+      () => selectReleaseTagForEvent({ eventName: 'workflow_dispatch', eventRef: 'refs/heads/main', ledgerLastTag }),
+      (error) => error.code === 'tag-ref-mismatch',
+      String(ledgerLastTag),
+    );
+  }
 });
 
 test('config revision은 org 정본 workflow full SHA와 계약 revision에만 의존한다', () => {
@@ -815,12 +856,13 @@ test('Godot export preset 주입은 명시된 preset 하나만 바꾼다', () =>
   );
 });
 
-test('v0.0.0과 versionCode 0은 어떤 마켓 artifact도 만들 수 없다', () => {
+test('v0.0.0은 encoded version이 0이라 어떤 마켓 artifact도 만들 수 없다', () => {
   assert.throws(
-    () => deriveReleaseVersion('v0.0.0'),
+    () => deriveEncodedVersion('v0.0.0'),
     (error) => error.code === 'derived-version-code-out-of-range',
   );
   // 태그 생성 경로(release-tag.yml)도 같은 구현을 쓰므로 태그 자체가 만들어지지 않는다.
+  // 원장이 할당한 Android versionCode가 유효해도 Apple build number가 0이면 거부한다.
   assert.throws(
     () =>
       createReleaseBinding({
@@ -828,16 +870,128 @@ test('v0.0.0과 versionCode 0은 어떤 마켓 artifact도 만들 수 없다', (
         sourceSha: SHA_A,
         authorityRevision: 'a'.repeat(64),
         configRevision: 'b'.repeat(64),
+        androidVersionCode: 1,
+        androidVersionCodeSource: 'github-ledger',
       }),
     (error) => error.code === 'derived-version-code-out-of-range',
   );
-  // 최신 stable 태그 자동 선택에서도 후보가 아니다.
-  assert.equal(selectLatestStableTag(['v0.0.0', 'v0.0.1']), 'v0.0.1');
+  assert.equal(deriveEncodedVersion('v0.0.1'), 1);
+  assert.equal(deriveTagEncodedVersionCode('v0.0.1'), 1_000_000_001);
+});
+
+test('Android versionCode의 출처를 밝히지 않은 binding은 만들 수 없다', () => {
+  const base = {
+    tag: 'v1.2.3',
+    sourceSha: SHA_A,
+    authorityRevision: 'a'.repeat(64),
+    configRevision: 'b'.repeat(64),
+  };
+  for (const androidVersionCodeSource of ['', 'ledger', undefined, 'github_ledger']) {
+    assert.throws(
+      () => createReleaseBinding({ ...base, androidVersionCode: 7, androidVersionCodeSource }),
+      (error) => error.code === 'artifact-provenance-mismatch',
+      String(androidVersionCodeSource),
+    );
+  }
+  // legacy 폴백을 자칭하면서 공식과 다른 값을 넣을 수 없다.
   assert.throws(
-    () => selectLatestStableTag(['v0.0.0']),
-    (error) => error.code === 'tag-pattern-mismatch',
+    () => createReleaseBinding({ ...base, androidVersionCode: 7, androidVersionCodeSource: 'legacy-tag-formula' }),
+    (error) => error.code === 'artifact-provenance-mismatch',
   );
-  assert.equal(deriveReleaseVersion('v0.0.1').androidVersionCode, 1_000_000_001);
+  // 원장 할당값은 태그와 무관한 작은 수여도 그대로 받는다.
+  assert.equal(
+    createReleaseBinding({ ...base, androidVersionCode: 7, androidVersionCodeSource: 'github-ledger' }).androidVersionCode,
+    7,
+  );
+  for (const invalid of [0, -1, 2_100_000_001, 1.5, 'x']) {
+    assert.throws(
+      () => createReleaseBinding({ ...base, androidVersionCode: invalid, androidVersionCodeSource: 'github-ledger' }),
+      (error) => error.code === 'derived-version-code-out-of-range',
+      String(invalid),
+    );
+  }
+});
+
+test('배포 경로는 receipt를 판독하고 원장이 sealed면 legacy 폴백을 거부한다', () => {
+  const current = binding();
+  const receipt = parseTagReceipt(renderTagReceipt(current));
+  assert.deepEqual(resolveDeploymentAndroidVersionCode({ tag: current.tag, receipt, ledger: null }), {
+    androidVersionCode: current.androidVersionCode,
+    androidVersionCodeSource: 'legacy-tag-formula',
+  });
+
+  const ledgerBinding = binding({ androidVersionCode: 41, androidVersionCodeSource: 'github-ledger' });
+  const ledgerReceipt = parseTagReceipt(renderTagReceipt(ledgerBinding));
+  assert.deepEqual(resolveDeploymentAndroidVersionCode({ tag: 'v1.2.3', receipt: ledgerReceipt, ledger: null }), {
+    androidVersionCode: 41,
+    androidVersionCodeSource: 'github-ledger',
+  });
+});
+
+test('supersededAuthorityRevisions는 계약 본문에서 뽑히고 YAML 파싱 결과와 같다', () => {
+  const contract = readFileSync(AUTHORITY_CONTRACT, 'utf8');
+  const extracted = extractSupersededRevisions(contract);
+  const parsed = parse(contract).supersededAuthorityRevisions.map((entry) => ({
+    revision: entry.revision,
+    androidVersionCodeFormula: entry.androidVersionCodeFormula,
+  }));
+  assert.deepEqual(extracted, parsed, '줄 모양 추출과 YAML 파싱이 어긋나면 안 된다');
+  assert.ok(extracted.length > 0, '실제 살아 있는 receipt의 revision이 최소 하나는 등록돼야 한다');
+
+  // 중복 등록과 알 수 없는 공식은 거부한다.
+  const duplicate = `supersededAuthorityRevisions:\n  - revision: ${'1'.repeat(64)}\n    androidVersionCodeFormula: encoded-version\n  - revision: ${'1'.repeat(64)}\n    androidVersionCodeFormula: encoded-version\n`;
+  assert.throws(
+    () => extractSupersededRevisions(duplicate),
+    (error) => error.code === 'tag-reuse-with-different-config',
+  );
+  const unknownFormula = `supersededAuthorityRevisions:\n  - revision: ${'2'.repeat(64)}\n    androidVersionCodeFormula: made-up\n`;
+  assert.throws(
+    () => extractSupersededRevisions(unknownFormula),
+    (error) => error.code === 'tag-reuse-with-different-config',
+  );
+});
+
+test('등록된 구 revision receipt는 그 계약의 공식으로 재현될 때만 통과한다', () => {
+  // seorilabs/lord-ledger v1.0.1의 실제 receipt다. 계약 major 이후에도 재배포할 수 있어야 한다.
+  const supersededRevisions = extractSupersededRevisions(readFileSync(AUTHORITY_CONTRACT, 'utf8'));
+  const lordLedgerSha = '81db93800ce5ffee2986523aa6235fa59ccf50b2';
+  const legacyReceiptText = [
+    'Release v1.0.1 (81db938)',
+    '',
+    'seori-release-binding: 1',
+    'authority: release-version-authority-v1',
+    `authority-revision: ${supersededRevisions[0].revision}`,
+    'tag: v1.0.1',
+    `source-sha: ${lordLedgerSha}`,
+    'version-name: 1.0.1',
+    'android-version-code: 1001000001',
+    'apple-build-number: 1000001',
+  ].join('\n');
+  const receipt = parseTagReceipt(legacyReceiptText);
+  const resolved = resolveDeploymentAndroidVersionCode({ tag: 'v1.0.1', receipt, ledger: null });
+  const current = binding({ tag: 'v1.0.1', sourceSha: lordLedgerSha, ...resolved });
+  assert.doesNotThrow(() => assertTagReceipt(current, receipt, { supersededRevisions }));
+
+  // 같은 revision을 자칭하면서 숫자를 바꾼 receipt는 거부한다.
+  const forged = parseTagReceipt(legacyReceiptText.replace('1001000001', '1001000099'));
+  assert.throws(
+    () => assertTagReceipt(current, forged, { supersededRevisions }),
+    (error) => error.code === 'tag-reuse-with-different-config',
+  );
+  // 목록에 없는 revision은 그대로 거부한다.
+  const unknown = parseTagReceipt(legacyReceiptText.replace(supersededRevisions[0].revision, '9'.repeat(64)));
+  assert.throws(
+    () => assertTagReceipt(current, unknown, { supersededRevisions }),
+    (error) => error.code === 'tag-reuse-with-different-config',
+  );
+  // 구 계약은 android-version-code-source를 찍지 않았다. 있으면 위조다.
+  const mixed = parseTagReceipt(
+    legacyReceiptText.replace('apple-build-number: 1000001', 'android-version-code-source: github-ledger\napple-build-number: 1000001'),
+  );
+  assert.throws(
+    () => assertTagReceipt(current, mixed, { supersededRevisions }),
+    (error) => error.code === 'tag-reuse-with-different-config',
+  );
 });
 
 test('release ref는 exact stable tag ref 하나만 허용한다', () => {
@@ -885,11 +1039,11 @@ test('resolver CLI는 태그만으로 GitHub output과 binding 파일을 만든�
 });
 
 test('태그 이벤트는 그 태그만 build하고 latest 폴백은 workflow_dispatch에서만 허용한다', () => {
-  const tagList = ['v1.0.0', 'v1.2.3', 'v2.0.0'].join('\n');
+  const ledgerLastTag = 'v2.0.0';
 
   // refs/tags 이벤트는 저장소에 더 최신 태그가 있어도 그 태그가 정본이다.
   assert.deepEqual(
-    selectReleaseTagForEvent({ eventName: 'push', eventRef: 'refs/tags/v1.2.3', tagList }),
+    selectReleaseTagForEvent({ eventName: 'push', eventRef: 'refs/tags/v1.2.3', ledgerLastTag }),
     { tag: 'v1.2.3', source: 'event-tag-ref' },
   );
   // 같은 값을 명시해도 같고, 다른 태그를 요청하면 거부한다.
@@ -898,7 +1052,7 @@ test('태그 이벤트는 그 태그만 build하고 latest 폴백은 workflow_di
       eventName: 'push',
       eventRef: 'refs/tags/v1.2.3',
       requestedTag: 'v1.2.3',
-      tagList,
+      ledgerLastTag,
     }).tag,
     'v1.2.3',
   );
@@ -908,19 +1062,19 @@ test('태그 이벤트는 그 태그만 build하고 latest 폴백은 workflow_di
         eventName: 'push',
         eventRef: 'refs/tags/v1.2.3',
         requestedTag: 'v2.0.0',
-        tagList,
+        ledgerLastTag,
       }),
     (error) => error.code === 'tag-ref-mismatch',
   );
 
   // 운영자가 시작한 workflow_dispatch에서만 최신 태그 폴백을 허용한다.
   assert.deepEqual(
-    selectReleaseTagForEvent({ eventName: 'workflow_dispatch', eventRef: 'refs/heads/main', tagList }),
-    { tag: 'v2.0.0', source: 'latest-stable-dispatch' },
+    selectReleaseTagForEvent({ eventName: 'workflow_dispatch', eventRef: 'refs/heads/main', ledgerLastTag }),
+    { tag: 'v2.0.0', source: 'ledger-last-tag' },
   );
   for (const eventName of ['push', 'release', 'schedule', '']) {
     assert.throws(
-      () => selectReleaseTagForEvent({ eventName, eventRef: 'refs/heads/main', tagList }),
+      () => selectReleaseTagForEvent({ eventName, eventRef: 'refs/heads/main', ledgerLastTag }),
       (error) => error.code === 'tag-ref-mismatch',
       eventName,
     );
@@ -951,25 +1105,25 @@ test('태그 이벤트는 그 태그만 build하고 latest 폴백은 workflow_di
 test('resolver CLI는 태그 이벤트에서 latest 폴백과 다른 commit을 거부한다', () => {
   const root = mkdtempSync(join(tmpdir(), 'release-event-'));
   try {
-    const tagListPath = join(root, 'tags.txt');
-    writeFileSync(tagListPath, 'v1.2.3\nv2.0.0\n');
+    const ledgerPath = join(root, 'ledger.json');
+    writeFileSync(ledgerPath, renderLedger(ledgerFixture({ lastTag: 'v2.0.0', lastSourceSha: SHA_B })));
 
-    // 태그 push 이벤트: 저장소에 v2.0.0이 있어도 이벤트 태그만 고른다.
-    const pinned = runNode(RESOLVE_CLI, ['--tag-list-file', tagListPath, '--print-tag'], {
+    // 태그 push 이벤트: 원장의 lastTag가 더 최신이어도 이벤트 태그만 고른다.
+    const pinned = runNode(RESOLVE_CLI, ['--ledger-file', ledgerPath, '--print-tag'], {
       RELEASE_EVENT_NAME: 'push',
       RELEASE_EVENT_REF: 'refs/tags/v1.2.3',
     });
     assert.equal(pinned.status, 0, pinned.stderr);
     assert.equal(pinned.stdout.trim(), 'v1.2.3');
 
-    // workflow_dispatch에서만 최신 태그 폴백을 쓴다.
-    const dispatched = runNode(RESOLVE_CLI, ['--tag-list-file', tagListPath, '--print-tag'], {
+    // workflow_dispatch에서만 원장의 lastTag 폴백을 쓴다.
+    const dispatched = runNode(RESOLVE_CLI, ['--ledger-file', ledgerPath, '--print-tag'], {
       RELEASE_EVENT_NAME: 'workflow_dispatch',
       RELEASE_EVENT_REF: 'refs/heads/main',
     });
     assert.equal(dispatched.stdout.trim(), 'v2.0.0');
 
-    const pushed = runNode(RESOLVE_CLI, ['--tag-list-file', tagListPath, '--print-tag'], {
+    const pushed = runNode(RESOLVE_CLI, ['--ledger-file', ledgerPath, '--print-tag'], {
       RELEASE_EVENT_NAME: 'push',
       RELEASE_EVENT_REF: 'refs/heads/main',
     });
@@ -1240,24 +1394,24 @@ test('Godot 주입 CLI는 binding 파일 기준으로 export preset을 덮어쓴
 });
 
 test('워크플로우의 exact tag 해석 블록은 동명 branch와 비정상 태그를 거부한다', () => {
-  const blocks = RELEASE_WORKFLOWS.map((name) => extractRunBlock(workflowText(name), 'Resolve exact release tag'));
+  const blocks = TAG_RESOLUTION_WORKFLOWS.map((name) => extractRunBlock(workflowText(name), 'Resolve exact release tag'));
   for (const block of blocks) {
     assert.equal(block, blocks[0], '모든 릴리즈 경로가 같은 tag 해석 구현을 써야 한다');
   }
 
   const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 
-  const runTagBlock = (cwd, releaseTag, event = {}) => {
-    const output = join(cwd, 'github-output.txt');
+  const runTagBlock = (repository, releaseTag, event = {}) => {
+    const output = join(repository.work, 'github-output.txt');
     writeFileSync(output, '');
     return {
       ...spawnSync('bash', ['-c', `set -euo pipefail\n${blocks[0]}`], {
-        cwd,
+        cwd: repository.work,
         encoding: 'utf8',
         env: {
           ...process.env,
           RELEASE_TAG: releaseTag,
-          RUNNER_TEMP: cwd,
+          RUNNER_TEMP: repository.work,
           GITHUB_OUTPUT: output,
           // 기본은 운영자가 시작한 dispatch. 태그 이벤트는 호출부에서 명시한다.
           RELEASE_EVENT_NAME: event.name ?? 'workflow_dispatch',
@@ -1269,111 +1423,140 @@ test('워크플로우의 exact tag 해석 블록은 동명 branch와 비정상 �
     };
   };
 
+  // 블록은 원장 ref와 대상 태그 ref를 origin에서 직접 읽는다. 원격이 있는 복제본이 필요하다.
   const createRepository = () => {
     const root = mkdtempSync(join(tmpdir(), 'release-tag-block-'));
-    git(root, 'init', '-q');
-    git(root, 'config', 'user.name', 'Release Test');
-    git(root, 'config', 'user.email', 'release-test@example.invalid');
-    writeFileSync(join(root, 'source.txt'), 'tag source\n');
-    git(root, 'add', 'source.txt');
-    git(root, 'commit', '-q', '-m', 'tag source');
-    mkdirSync(join(root, '.seorilabs-release-authority'));
-    symlinkSync(
-      resolve(REPOSITORY_ROOT, 'scripts'),
-      join(root, '.seorilabs-release-authority', 'scripts'),
-    );
-    symlinkSync(
-      resolve(REPOSITORY_ROOT, 'contracts'),
-      join(root, '.seorilabs-release-authority', 'contracts'),
-    );
-    return root;
+    const origin = join(root, 'origin.git');
+    const work = join(root, 'work');
+    git(root, 'init', '-q', '--bare', origin);
+    git(root, 'clone', '-q', origin, work);
+    git(work, 'config', 'user.name', 'Release Test');
+    git(work, 'config', 'user.email', 'release-test@example.invalid');
+    writeFileSync(join(work, 'source.txt'), 'tag source\n');
+    git(work, 'add', 'source.txt');
+    git(work, 'commit', '-q', '-m', 'tag source');
+    git(work, 'branch', '-M', 'main');
+    git(work, 'push', '-q', 'origin', 'main');
+    mkdirSync(join(work, '.seorilabs-release-authority'));
+    for (const directory of ['scripts', 'contracts']) {
+      symlinkSync(resolve(REPOSITORY_ROOT, directory), join(work, '.seorilabs-release-authority', directory));
+    }
+    return { root, origin, work };
   };
 
-  let root = createRepository();
-  try {
-    const tagCommit = git(root, 'rev-parse', 'HEAD');
-    git(root, 'tag', '-a', 'v1.2.3', '-m', 'annotated stable');
-    writeFileSync(join(root, 'source.txt'), 'branch source\n');
-    git(root, 'add', 'source.txt');
-    git(root, 'commit', '-q', '-m', 'branch source');
-    git(root, 'branch', 'v1.2.3');
+  const seedLedger = (repository, ledger) => {
+    const path = join(repository.work, '.ledger-seed.json');
+    writeFileSync(path, renderLedger(ledger), 'utf8');
+    const blob = git(repository.work, 'hash-object', '-w', path);
+    rmSync(path, { force: true });
+    const tree = execFileSync('git', ['mktree'], {
+      cwd: repository.work,
+      encoding: 'utf8',
+      input: `100644 blob ${blob}\trelease-version-ledger.json\n`,
+    }).trim();
+    const commit = execFileSync('git', ['commit-tree', tree, '-m', 'ledger'], {
+      cwd: repository.work,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'Release Test',
+        GIT_AUTHOR_EMAIL: 'release-test@example.invalid',
+        GIT_COMMITTER_NAME: 'Release Test',
+        GIT_COMMITTER_EMAIL: 'release-test@example.invalid',
+      },
+    }).trim();
+    git(repository.work, 'push', '-q', 'origin', `${commit}:refs/heads/release-version-ledger`);
+  };
 
-    const result = runTagBlock(root, 'v1.2.3');
+  let repository = createRepository();
+  try {
+    const tagCommit = git(repository.work, 'rev-parse', 'HEAD');
+    git(repository.work, 'tag', '-a', 'v1.2.3', '-m', 'annotated stable');
+    git(repository.work, 'push', '-q', 'origin', 'refs/tags/v1.2.3');
+    writeFileSync(join(repository.work, 'source.txt'), 'branch source\n');
+    git(repository.work, 'add', 'source.txt');
+    git(repository.work, 'commit', '-q', '-m', 'branch source');
+    // 같은 이름의 branch가 있어도 태그 ref만 본다.
+    git(repository.work, 'branch', 'v1.2.3');
+
+    const result = runTagBlock(repository, 'v1.2.3');
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(git(root, 'rev-parse', 'HEAD^{commit}'), tagCommit);
+    assert.equal(git(repository.work, 'rev-parse', 'HEAD^{commit}'), tagCommit);
     assert.match(result.output, /^tag=v1\.2\.3$/mu);
     assert.match(result.output, new RegExp(`^sha=${tagCommit}$`, 'mu'));
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(repository.root, { recursive: true, force: true });
   }
 
-  root = createRepository();
+  // 최신 태그 폴백의 기준은 전체 태그 목록이 아니라 원장의 lastTag 하나다.
+  repository = createRepository();
   try {
-    for (const tag of ['v1.2.9', 'v1.2.10', 'v9.0.0-rc.1', 'v01.2.3', 'v9223372036854775808.0.0']) {
-      git(root, 'tag', tag);
+    const tagCommit = git(repository.work, 'rev-parse', 'HEAD');
+    for (const tag of ['v1.2.9', 'v1.2.10', 'v9.0.0-rc.1']) {
+      git(repository.work, 'tag', tag);
+      git(repository.work, 'push', '-q', 'origin', `refs/tags/${tag}`);
     }
-    const result = runTagBlock(root, '');
+    seedLedger(repository, ledgerFixture({ lastTag: 'v1.2.10', lastSourceSha: tagCommit }));
+    const result = runTagBlock(repository, '');
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.output, /^tag=v1\.2\.10$/mu);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(repository.root, { recursive: true, force: true });
   }
 
   for (const releaseTag of ['1.2.3', 'v1.2.3-rc.1', 'v01.2.3', 'v1.1000.0']) {
-    root = createRepository();
+    repository = createRepository();
     try {
-      const before = git(root, 'rev-parse', 'HEAD');
-      const result = runTagBlock(root, releaseTag);
+      const before = git(repository.work, 'rev-parse', 'HEAD');
+      const result = runTagBlock(repository, releaseTag);
       assert.notEqual(result.status, 0, releaseTag);
       assert.match(result.stderr, /tag-pattern-mismatch/u, releaseTag);
-      assert.equal(git(root, 'rev-parse', 'HEAD'), before, releaseTag);
+      assert.equal(git(repository.work, 'rev-parse', 'HEAD'), before, releaseTag);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(repository.root, { recursive: true, force: true });
     }
   }
 
-  // refs/tags 이벤트는 더 최신 태그가 있어도 그 태그의 commit만 build한다.
-  root = createRepository();
+  // refs/tags 이벤트는 원장에 더 최신 태그가 있어도 그 태그의 commit만 build한다.
+  repository = createRepository();
   try {
-    const tagCommit = git(root, 'rev-parse', 'HEAD');
-    git(root, 'tag', '-a', 'v1.2.3', '-m', 'annotated stable');
-    writeFileSync(join(root, 'source.txt'), 'newer\n');
-    git(root, 'add', 'source.txt');
-    git(root, 'commit', '-q', '-m', 'newer');
-    git(root, 'tag', '-a', 'v9.9.9', '-m', 'newer stable');
-    const newerCommit = git(root, 'rev-parse', 'HEAD^{commit}');
+    const tagCommit = git(repository.work, 'rev-parse', 'HEAD');
+    git(repository.work, 'tag', '-a', 'v1.2.3', '-m', 'annotated stable');
+    git(repository.work, 'push', '-q', 'origin', 'refs/tags/v1.2.3');
+    writeFileSync(join(repository.work, 'source.txt'), 'newer\n');
+    git(repository.work, 'add', 'source.txt');
+    git(repository.work, 'commit', '-q', '-m', 'newer');
+    git(repository.work, 'push', '-q', 'origin', 'main');
+    git(repository.work, 'tag', '-a', 'v9.9.9', '-m', 'newer stable');
+    git(repository.work, 'push', '-q', 'origin', 'refs/tags/v9.9.9');
+    const newerCommit = git(repository.work, 'rev-parse', 'HEAD^{commit}');
+    seedLedger(repository, ledgerFixture({ lastTag: 'v9.9.9', lastSourceSha: newerCommit }));
 
-    const pinned = runTagBlock(root, '', {
-      name: 'push',
-      ref: 'refs/tags/v1.2.3',
-      sha: tagCommit,
-    });
+    const pinned = runTagBlock(repository, '', { name: 'push', ref: 'refs/tags/v1.2.3', sha: tagCommit });
     assert.equal(pinned.status, 0, pinned.stderr);
     assert.match(pinned.output, /^tag=v1\.2\.3$/mu);
     assert.match(pinned.output, new RegExp(`^sha=${tagCommit}$`, 'mu'));
     assert.doesNotMatch(pinned.output, /v9\.9\.9/u);
 
     // 태그 이벤트 commit이 태그가 가리키는 commit과 다르면 build하지 않는다.
-    const drifted = runTagBlock(root, '', {
-      name: 'push',
-      ref: 'refs/tags/v1.2.3',
-      sha: newerCommit,
-    });
+    const drifted = runTagBlock(repository, '', { name: 'push', ref: 'refs/tags/v1.2.3', sha: newerCommit });
     assert.notEqual(drifted.status, 0);
     assert.match(drifted.stderr, /tag 이벤트 commit과 태그 commit이 다름/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(repository.root, { recursive: true, force: true });
   }
 
   // 태그도 없고 dispatch도 아닌 실행에서는 최신 태그 폴백을 쓰지 않는다.
-  root = createRepository();
+  repository = createRepository();
   try {
-    git(root, 'tag', '-a', 'v1.2.3', '-m', 'annotated stable');
-    const result = runTagBlock(root, '', { name: 'push', ref: 'refs/heads/main' });
+    git(repository.work, 'tag', '-a', 'v1.2.3', '-m', 'annotated stable');
+    git(repository.work, 'push', '-q', 'origin', 'refs/tags/v1.2.3');
+    seedLedger(repository, ledgerFixture({ lastTag: 'v1.2.3', lastSourceSha: git(repository.work, 'rev-parse', 'HEAD') }));
+    const result = runTagBlock(repository, '', { name: 'push', ref: 'refs/heads/main' });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /tag-ref-mismatch/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(repository.root, { recursive: true, force: true });
   }
 });
 
@@ -1393,14 +1576,18 @@ test('모든 릴리즈 경로가 org 정본 authority를 exact SHA로 호출한�
     assert.match(text, /persist-credentials: false/u, name);
     assert.match(
       text,
-      /node \.seorilabs-release-authority\/scripts\/release\/resolve-release-version\.mjs --tag-list-file "\$RUNNER_TEMP\/git-tags\.txt" --print-tag/u,
+      /node \.seorilabs-release-authority\/scripts\/release\/resolve-release-version\.mjs --ledger-file "\$LEDGER_JSON" --print-tag/u,
       name,
     );
     assert.match(
       text,
-      /node \.seorilabs-release-authority\/scripts\/release\/resolve-release-version\.mjs --github-output/u,
+      /node \.seorilabs-release-authority\/scripts\/release\/resolve-release-version\.mjs \\\n {14}--ledger-file "\$RUNNER_TEMP\/release-version-ledger\.json" --github-output/u,
       name,
     );
+    // hot path는 전체 태그를 나열하지 않는다.
+    assert.doesNotMatch(text, /git tag --list/u, name);
+    assert.doesNotMatch(text, /fetch-tags: true/u, name);
+    assert.match(text, /fetch-depth: 1/u, name);
     assert.match(text, /checkout "refs\/tags\/\$tag"/u, name);
     assert.match(text, /\[ "\$tag_commit" = "\$head_commit" \]/u, name);
 
@@ -1569,7 +1756,7 @@ test('마켓 업로드와 트랙 승격은 태그 파생 exact versionCode를 �
   );
   // 승격도 org 정본 authority를 exact SHA로 받아 태그에서 파생한다.
   assert.match(promote, /EXPECTED_WORKFLOW_PATH: seorilabs\/\.github\/\.github\/workflows\/promote-google-play\.yml/u);
-  assert.match(promote, /resolve-release-version\.mjs --github-output/u);
+  assert.match(promote, /resolve-release-version\.mjs \\\n {14}--ledger-file "\$RUNNER_TEMP\/release-version-ledger\.json" --github-output/u);
   assert.doesNotMatch(promote, /--sort=-v:refname/u);
 });
 
@@ -1712,7 +1899,7 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   assert.deepEqual(releaseTag.permissions, { contents: 'write' });
   assert.equal(releaseTag.jobs.create['runs-on'], 'seorilabs-rpi-arm64');
   const resolveTagStep = releaseTag.jobs.create.steps.find(
-    (step) => step.name === 'Resolve and create tag',
+    (step) => step.name === 'Allocate release version and create tag',
   );
   assert.equal(resolveTagStep.env.RELEASE_EVENT_NAME, '${{ github.event_name }}');
   assert.equal(resolveTagStep.env.RELEASE_EVENT_REF, '${{ github.ref }}');
@@ -1764,23 +1951,70 @@ test('RN Play public repo는 private ARC를 사용하지 않는다', () => {
 test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독으로 고정한다', () => {
   const contract = parse(readFileSync(AUTHORITY_CONTRACT, 'utf8'));
 
-  assert.equal(contract.schemaVersion, 2);
+  assert.equal(contract.schemaVersion, 3);
   assert.equal(contract.id, AUTHORITY_ID);
-  assert.equal(contract.authority.source, 'github-release-tag');
+  assert.equal(contract.ledgerContract, 'release-version-ledger-v1');
+  assert.equal(contract.authority.source, 'github-release-tag-and-repository-ledger');
   assert.equal(contract.authority.prereleaseAllowed, false);
   assert.equal(contract.authority.buildsExactTagCommit, true);
   assert.equal(contract.derivation.displayVersion, 'tag-without-v-prefix');
   assert.equal(contract.derivation.marketingVersion, 'tag-without-v-prefix');
-  assert.equal(contract.derivation.segmentBase, 1000);
-  assert.equal(contract.derivation.encodedVersionFormula, 'major * 1000000 + minor * 1000 + patch');
-  assert.equal(contract.derivation.androidVersionCodeEpoch, 1_000_000_000);
-  assert.equal(
-    contract.derivation.androidVersionCodeFormula,
-    'androidVersionCodeEpoch + encodedVersion',
-  );
+  assert.equal(contract.derivation.encodedVersion.segmentBase, 1000);
+  assert.equal(contract.derivation.encodedVersion.formula, 'major * 1000000 + minor * 1000 + patch');
   assert.equal(contract.derivation.appleBuildNumber, 'encoded-version');
-  assert.equal(contract.derivation.bounds.majorMax, 1099);
-  assert.equal(contract.derivation.bounds.versionCodeMax, 2_100_000_000);
+  assert.equal(contract.derivation.encodedVersion.bounds.majorMax, 1099);
+  assert.equal(contract.derivation.encodedVersion.bounds.max, 2_100_000_000);
+  // Android versionCode는 더 이상 태그에서 파생하지 않는다.
+  assert.equal(contract.derivation.androidVersionCode, 'repository-ledger-allocated');
+  assert.equal(contract.derivation.runtimeVersionCode, 'legacy-android-version-code-formula');
+  assert.equal(contract.derivation.androidVersionCodeEpoch, undefined);
+
+  // 할당 규칙: 저장소별 원장이 정확히 +1, 신규 저장소는 1부터.
+  assert.equal(contract.allocation.android.authority, 'repository-ledger-sequential');
+  assert.equal(contract.allocation.android.ledgerField, 'android.lastVersionCode');
+  assert.equal(contract.allocation.android.newTagRule, 'last-version-code-plus-one');
+  assert.equal(contract.allocation.android.step, 1);
+  assert.equal(contract.allocation.android.newRepositoryBaseline, 0);
+  assert.equal(contract.allocation.android.firstAllocatedVersionCode, 1);
+  assert.equal(contract.allocation.android.sharedCounterWithIos, false);
+  assert.equal(contract.allocation.android.bounds.max, 2_100_000_000);
+  assert.equal(contract.allocation.android.onExhaustion, 'fail-closed');
+  assert.equal(contract.allocation.android.failClosed, 'android-version-code-exhausted');
+  assert.equal(contract.allocation.ios.authority, 'xcode-cloud-ci-build-number');
+  assert.equal(contract.allocation.ios.ledgerAllocation, false);
+  assert.equal(contract.allocation.ios.observationOnly, true);
+  assert.equal(contract.allocation.performedBy, 'release-tag-workflow-only');
+  assert.equal(contract.allocation.deploymentPathRecomputation, 'forbidden');
+  assert.equal(contract.allocation.deploymentPathSource, 'tag-receipt-then-legacy-derivation');
+  assert.equal(contract.allocation.platformIsolation, 'required');
+  assert.deepEqual(contract.allocation.androidVersionCodeSources, ['github-ledger', 'legacy-tag-formula']);
+
+  // 태그 파생 공식은 authority에서 강등됐지만 이관 완료 전까지 남는다.
+  assert.equal(contract.legacyDerivation.wasAuthorityUntilSchemaVersion, 2);
+  assert.equal(contract.legacyDerivation.androidVersionCodeEpoch, 1_000_000_000);
+  assert.deepEqual(Object.keys(contract.legacyDerivation.variants).sort(), [
+    'encoded-version',
+    'epoch-plus-encoded-version',
+  ]);
+  assert.ok(contract.legacyDerivation.forbiddenFor.includes('new-tag-allocation'));
+  assert.ok(contract.legacyDerivation.forbiddenFor.includes('ledger-initialization-value-guessing'));
+  assert.equal(contract.legacyDerivation.failClosed, 'legacy-derivation-not-applicable');
+
+  // iOS는 관측만 기록하고 Android 번호를 소비하지 않는다.
+  assert.equal(contract.iosObservation.buildNumber.source, 'CI_BUILD_NUMBER');
+  assert.deepEqual(contract.iosObservation.record.writes, ['ios.lastObservedBuildNumber', 'ios.lastObservedTag']);
+  assert.deepEqual(contract.iosObservation.record.mayNotWrite, ['release', 'android', 'provenance']);
+  assert.equal(contract.iosObservation.record.unverifiedValue, 'forbidden');
+  assert.equal(contract.iosObservation.record.consumesAndroidNumber, false);
+
+  // 전체 태그 감사는 릴리스 경로에서 실행하지 않는다.
+  assert.equal(contract.diagnostics.fullTagAudit.command, 'scripts/release/audit-release-tags.mjs');
+  assert.deepEqual(contract.diagnostics.fullTagAudit.forbiddenIn, [
+    'release-tag',
+    'resolve-release-version',
+    'deploy',
+    'promote',
+  ]);
 
   const tagPattern = new RegExp(contract.authority.tagPattern, 'u');
   assert.equal(tagPattern.test('v1.2.3'), true);
@@ -1820,10 +2054,21 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
       'tag-reuse-with-different-config',
       'tag-reuse-with-different-source',
       'xcode-cloud-build-number-invalid',
-    ],
+    ].concat([
+      'android-version-code-exhausted',
+      'ios-observation-unverified',
+      'ledger-allocation-contention',
+      'ledger-atomic-push-partial',
+      'ledger-initialization-needs-input',
+      'ledger-malformed',
+      'ledger-missing',
+      'ledger-non-monotonic',
+      'ledger-receipt-mismatch',
+      'legacy-derivation-not-applicable',
+    ]).sort(),
   );
   // 마켓 최소 versionCode. v0.0.0은 어떤 artifact도 만들 수 없다.
-  assert.equal(contract.derivation.bounds.versionCodeMin, 1);
+  assert.equal(contract.derivation.encodedVersion.bounds.min, 1);
   // Xcode Cloud만 Apple build number 정본을 분리한다. 나머지 Apple 경로는 encoded-version 그대로다.
   assert.deepEqual(
     contract.appleBuildNumberExceptions.map(({ id }) => id),
@@ -1873,12 +2118,13 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
     'SEORI_EXPECTED_ANDROID_VERSION_CODE',
   ]);
   // 트랙 승격은 트랙 최신 build가 아니라 태그가 정한 versionCode만 올린다.
-  assert.equal(contract.trackPromotion.versionCodeSource, 'release-tag-derived');
+  assert.equal(contract.trackPromotion.versionCodeSource, 'release-binding-android-version-code');
   assert.equal(contract.trackPromotion.promotesLatestInTrack, false);
   assert.equal(contract.trackPromotion.requiredArgument, '--promote-version-code');
   // 태그 선택은 실행 이벤트에 묶인다.
   assert.equal(contract.authority.tagSelection.eventTagRef, 'pinned-to-event-ref-and-event-sha');
-  assert.equal(contract.authority.tagSelection.latestStableFallback, 'workflow-dispatch-only');
+  assert.equal(contract.authority.tagSelection.latestStableFallback, 'repository-ledger-last-tag');
+  assert.equal(contract.authority.tagSelection.fullTagEnumeration, 'forbidden-on-hot-path');
   assert.deepEqual(contract.authority.tagSelection.sources, RELEASE_TAG_SOURCES);
   // .ait framing은 exact length로 검증하고 zip entry는 central directory에서 읽는다.
   assert.equal(contract.artifactReadback.ait.framing.exactLengthRequired, true);
@@ -1909,10 +2155,16 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
   // 이미 있는 태그도 파생값 검증을 먼저 통과해야 idempotent success다.
   assert.equal(
     contract.tagCreation.existingTag.sameCommit,
-    'verify-derivation-then-idempotent-success',
+    'verify-binding-then-idempotent-success',
   );
+  // 이미 있는 태그는 번호를 새로 할당하지 않고 원장도 건드리지 않는다.
+  assert.equal(contract.tagCreation.existingTag.allocatesNewVersionCode, false);
+  assert.equal(contract.tagCreation.existingTag.mutatesLedger, false);
   assert.equal(contract.tagCreation.existingTag.receiptPresent, 'exact-match-required');
-  assert.equal(contract.tagCreation.existingTag.receiptAbsent, 'tag-and-commit-are-authority');
+  assert.equal(
+    contract.tagCreation.existingTag.receiptAbsent,
+    'tag-and-commit-are-authority-with-legacy-derivation',
+  );
   assert.equal(contract.tagCreation.existingTag.differentCommit, 'fail-closed');
   assert.equal(contract.binding.tagReceiptMarker, 'seori-release-binding: 1');
   assert.deepEqual(contract.binding.tagReceiptFields, [
@@ -1922,8 +2174,10 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
     'source-sha',
     'version-name',
     'android-version-code',
+    'android-version-code-source',
     'apple-build-number',
   ]);
+  assert.ok(contract.binding.fields.includes('androidVersionCodeSource'));
   assert.deepEqual(contract.binding.authorityRevision.inputs, ['authorityContractBody']);
   assert.deepEqual(contract.binding.configRevision.inputs, [
     'calledWorkflowRepository',
@@ -1936,7 +2190,8 @@ test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독�
   // 태그 생성 경계: 운영자가 고른 commit에만, 마커 커밋과 브랜치 push 없이.
   assert.equal(contract.tagCreation.target, 'exact-operator-selected-commit');
   assert.equal(contract.tagCreation.markerCommit, 'forbidden');
-  assert.equal(contract.tagCreation.branchPush, 'forbidden');
+  // 유일하게 허용되는 branch push는 원장 갱신뿐이다.
+  assert.equal(contract.tagCreation.branchPush, 'release-version-ledger-only');
   assert.equal(contract.tagCreation.tagMove, 'forbidden');
   assert.equal(contract.tagCreation.annotated, true);
 });

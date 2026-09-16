@@ -1,0 +1,212 @@
+# 저장소별 릴리스 번호 원장의 운영 계약. 값의 의미(무엇이 정본인가)는
+# contracts/release-version-authority.yaml이 정하고, 이 파일은 그 값을 어디에 어떻게 쓰고
+# 읽는지를 정한다.
+#
+# 이 파일이 authority 계약과 분리된 이유: authority 본문의 sha256이 annotated tag receipt에
+# 박히므로, 재시도 횟수 같은 운영 파라미터를 조정할 때마다 기존 receipt가 무효가 되면 안 된다.
+# 이 파일의 무결성은 binding.configRevision의 calledWorkflowSha가 덮는다.
+schemaVersion: 1
+id: release-version-ledger-v1
+authority: release-version-authority-v1
+
+branch:
+  name: release-version-ledger
+  # orphan이어야 한다. main 이력을 물면 원장 push마다 앱 저장소의 push 트리거 워크플로가
+  # 오발화하고 shallow fetch가 무거워진다.
+  kind: orphan
+  files:
+    - release-version-ledger.json
+    - README.md
+  humanEdit: forbidden
+  pullRequest: forbidden
+
+file:
+  path: release-version-ledger.json
+  schemaVersion: 1
+  schema: contracts/release-version-ledger.schema.json
+  # 같은 내용이 항상 같은 blob이 되도록 직렬화를 고정한다. 재시도에서 blob이 흔들리면
+  # 무엇이 바뀌었는지 판정할 수 없다.
+  serialization:
+    format: json
+    indent: 2
+    keyOrder: fixed
+    trailingNewline: true
+  fields:
+    release: [lastTag, lastSourceSha, marketingVersion]
+    android: [authority, lastVersionCode, legacyFallbackSealed]
+    ios: [authority, lastObservedBuildNumber, lastObservedTag]
+    provenance: [initializedAt, initializedBy, initializedFromWorkflowSha, authorityRevision, baseline]
+
+read:
+  # hot path는 ref 두 개만 읽는다. 전체 태그 나열은 진단 명령에만 있다.
+  hotPath: tip-blob-only
+  refsPerRun: 2
+  refs:
+    - refs/heads/release-version-ledger
+    - refs/tags/<target>
+  checkout:
+    fetchDepth: 1
+    fetchTags: false
+  fullHistory: diagnostics-only
+
+write:
+  method: atomic-compare-and-swap-push
+  refs:
+    - refs/heads/release-version-ledger
+    - refs/tags/<target>
+  atomic: required
+  partialApplication: forbidden
+  # 원장 lease는 실제로 읽은 tip 값에 고정한다. "조상 아무거나"가 아니라 "그 값"을 요구한다.
+  ledgerLease: expected-old-tip
+  # 태그 lease를 빈 값으로 주면 "그 ref가 없어야 한다"가 된다.
+  tagLease: must-not-exist
+  commitParent: exact-read-tip
+  # 러너의 작업 트리는 태그 대상 commit에 붙어 있다. 건드리지 않고 plumbing으로만 만든다.
+  commitCreation: plumbing-without-worktree
+  identity: environment-variables-not-repository-config
+  # 실측(git 2.54): 푸시하려는 태그 객체가 원격과 바이트 동일하면 태그 ref는 [up to date]
+  # no-op이 되고 lease가 평가되지 않는다. 그 상태로 원장만 전진하면 번호가 이중 증가한다.
+  # 그래서 push 성공 뒤 porcelain에서 태그 ref가 새로 만들어졌는지 반드시 확인한다.
+  postPushVerification:
+    tagRefMustBeCreated: true
+    porcelainMarker: '[new tag]'
+    failClosed: ledger-atomic-push-partial
+  retry:
+    maxAttempts: 5
+    retryOn: [ledger-tip-moved]
+    neverRetryOn:
+      - tag-ref-rejected
+      - partial-application
+      - malformed-ledger
+      - authentication-failure
+      - version-code-exhausted
+    reReadPerAttempt: [ledger-tip-blob, target-tag-ref]
+    # 재시도 사이에 태그 이름과 target commit은 바뀌지 않는다. 바뀌는 것은 할당 번호뿐이다.
+    invariantAcrossAttempts: [tag, targetCommit]
+    backoff: jittered-seconds
+  concurrency:
+    githubGroup: 'release-version-ledger-<repository>'
+    cancelInProgress: false
+    # GitHub concurrency는 수동 push나 취소된 job을 막지 못한다. 정확성은 CAS가 책임진다.
+    role: advisory-only
+    correctness: compare-and-swap-push
+
+# 어떤 실행이 원장의 어느 구획을 쓸 수 있는지. 플랫폼 격리의 기계 판독 형태다.
+scopedWrites:
+  android-allocation:
+    workflow: release-tag
+    mayWrite: [release, android]
+    mayNotWrite: [ios, provenance]
+  ios-observation:
+    workflow: record-ios-build-observation
+    mayWrite: [ios]
+    mayNotWrite: [release, android, provenance]
+  initialization:
+    workflow: init-release-version-ledger
+    mayWrite: [release, android, ios, provenance]
+    onlyWhenRefAbsent: true
+
+initialization:
+  performedBy: init-release-version-ledger-workflow
+  # 태그 생성 경로가 원장을 자동으로 만들면 기준 번호를 추측하게 된다.
+  autoCreateOnTagCreation: forbidden
+  defaultDryRun: true
+  guessing: forbidden
+  statuses: [READY, NEEDS_INPUT, ALREADY_INITIALIZED]
+  baselineRule: max-of-verified-sources
+  valueSource: [verified-tag-receipt, provider-readback, explicit-operator-input]
+  sourceKinds:
+    - no-prior-release
+    - tag-receipt
+    - google-play-bundles-list
+    - google-play-apks-list
+    - human-attestation
+  paths:
+    - id: new-repository
+      when: no-stable-tags-and-no-provider-release-history
+      baseline: 0
+      sourceKind: no-prior-release
+      # "태그 0개"만으로는 부족하다. packageName이 선언돼 있으면 Play에 수동 업로드 이력이
+      # 있을 수 있고, 1부터 시작한 AAB는 거부된다. 그때는 legacy-repository로 떨어진다.
+      requiresProviderReadbackWhen: play-store-package-name-declared
+    - id: existing-repository-with-receipt
+      when: latest-stable-tag-has-valid-receipt
+      baseline: receipt-android-version-code
+      sourceKind: tag-receipt
+      # receipt의 authority revision이 현재 계약과 달라도 baseline 추출을 막지 않는다.
+      # 막으면 계약 major 직후 모든 기존 앱이 영구 needs_input이 된다.
+      staleAuthorityRevision: advisory
+    - id: legacy-repository
+      when: no-valid-tag-receipt
+      baseline: provider-readback-or-operator-attestation
+      sourceKind: [google-play-bundles-list, google-play-apks-list, human-attestation]
+      withoutEvidence: needs-input
+  # iOS는 초기화의 blocking 조건이 아니다. lastObservedBuildNumber의 null은 "모름"이 아니라
+  # "아직 관측하지 않음"이고 Android 할당에 영향을 주지 않는다. 게이트로 만들면 Xcode Cloud를
+  # 쓰지 않는 Godot 앱이 영구 needs_input이 된다.
+  iosBlocking: false
+  commitMessageMarker: 'seori-release-ledger: 1'
+  failClosed: ledger-initialization-needs-input
+
+providerReadback:
+  google-play:
+    capability: build-and-status-read
+    # Android Publisher에는 edit 없이 build를 나열하는 엔드포인트가 없다. insert한 edit은
+    # commit하지 않으므로 published 상태를 바꾸지 않고, 항상 delete로 정리한다.
+    endpoints: [edits.insert, edits.bundles.list, edits.apks.list, edits.tracks.list, edits.delete]
+    mustNotCall: [edits.commit, edits.tracks.update, edits.bundles.upload]
+    secretsInOutput: forbidden
+    credentialResolution: application-default-credentials
+  app-store-connect:
+    capability: build-and-status-read
+    action: ciBuildRuns.get
+    initializationBlocking: false
+
+refProtection:
+  provider: github-organization-ruleset
+  approval: human-only
+  desiredState:
+    - contracts/release-ref-protection.ledger-branch.json
+    - contracts/release-ref-protection.release-tags.json
+  readback: scripts/release/readback-release-ref-protection.mjs
+  rolloutOrder: [initialize-ledger, create-ruleset-evaluate, shadow-readback, promote-active]
+  ledgerBranch:
+    requiredRules: [deletion, non_fast_forward, required_linear_history]
+    # update를 넣으면 원장 갱신 push가 곧 ref update라 모든 릴리스가 즉시 죽는다.
+    # required_signatures는 atomic push와 양립하지 않는다. REST 커밋 생성은 서명할 수 있지만
+    # ref 두 개의 atomic 갱신을 제공하지 않아 부분 성공 금지가 깨진다.
+    forbiddenRules: [update, creation, pull_request, required_signatures, required_status_checks]
+  releaseTags:
+    requiredRules: [deletion, update, non_fast_forward]
+    forbiddenRules: [creation]
+  bypassActors: none
+
+audit:
+  command: scripts/release/audit-release-tags.mjs
+  schema: contracts/release-tag-audit.schema.json
+  forbiddenIn: [release-tag, resolve-release-version, deploy, promote]
+  blockingFindings:
+    - tag-receipt-malformed
+    - tag-receipt-source-mismatch
+    - duplicate-android-version-code
+    - ledger-missing
+    - ledger-schema-invalid
+    - ledger-behind-latest-tag
+    - tag-version-code-above-ledger
+  # 조직 태그의 다수가 receipt 없는 lightweight다. blocking으로 두면 모든 앱이 영구
+  # NEEDS_CHANGE가 되어 status가 신호를 잃는다. 과거 태그 재작성은 명시적 비범위다.
+  advisoryFindings:
+    - tag-lightweight
+    - tag-receipt-absent
+    - authority-revision-stale
+    - ledger-ahead-of-tags
+
+failClosed:
+  - id: ledger-missing
+  - id: ledger-malformed
+  - id: ledger-non-monotonic
+  - id: ledger-receipt-mismatch
+  - id: ledger-atomic-push-partial
+  - id: ledger-allocation-contention
+  - id: ledger-initialization-needs-input
+  - id: ledger-scope-violation

@@ -26,6 +26,9 @@ const JSON_SCHEMAS = [
   "contracts/markets/apps-in-toss.schema.json",
   "contracts/markets/google-play.schema.json",
   "contracts/release-version-authority-migration.schema.json",
+  "contracts/release-version-ledger.schema.json",
+  "contracts/release-version-ledger-init.schema.json",
+  "contracts/release-tag-audit.schema.json",
 ];
 const YAML_CONTRACTS = [
   "contracts/agent-policy.yaml",
@@ -35,6 +38,7 @@ const YAML_CONTRACTS = [
   "contracts/release-policy.yaml",
   "contracts/release-version-authority.yaml",
   "contracts/release-version-authority-migration.yaml",
+  "contracts/release-version-ledger.yaml",
   "contracts/review-policy.yaml",
   "contracts/test-policy.yaml",
   "profiles/godot.yaml",
@@ -42,7 +46,7 @@ const YAML_CONTRACTS = [
 ];
 const YAML_SCHEMA_VERSIONS = new Map([
   ["contracts/autonomous-issue-policy.yaml", 3],
-  ["contracts/release-version-authority.yaml", 2],
+  ["contracts/release-version-authority.yaml", 3],
 ]);
 
 function localMarkdownTargets(markdown) {

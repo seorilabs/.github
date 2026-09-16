@@ -16,7 +16,11 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
-import { ReleaseAuthorityError, deriveReleaseVersion } from './tag-version-authority.mjs';
+import {
+  ReleaseAuthorityError,
+  deriveMarketingVersion,
+  deriveTagEncodedVersionCode,
+} from './tag-version-authority.mjs';
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const FLAGS = new Set(['dry-run', 'json']);
@@ -118,7 +122,7 @@ export function resolveXcodeCloudTagBinding({
   buildNumber,
   expectedSourceSha = '',
 }) {
-  const version = deriveReleaseVersion(tag);
+  const version = deriveMarketingVersion(tag);
   const appleBuildNumber = requireXcodeCloudBuildNumber(buildNumber);
   const repositoryRoot = realpathSync(resolve(repository));
   const { filePath, mode } = confinedRegularFile(repositoryRoot, resolve(infoPlist));
@@ -136,8 +140,10 @@ export function resolveXcodeCloudTagBinding({
     sourceSha: headSha,
     infoPlist: filePath,
     mode,
-    // 태그 파생 encodedVersion은 Apple build number가 아니라 런타임 최소지원버전 비교값이다.
-    runtimeVersionCode: version.androidVersionCode,
+    // 태그 파생 encodedVersion은 Apple build number도, 마켓 Android versionCode도 아니다.
+    // Android/iOS 런타임이 공유하는 최소지원버전 비교값이며, 이미 배포된 앱이 이 숫자로
+    // 비교하므로 원장 도입 뒤에도 값을 바꾸지 않는다.
+    runtimeVersionCode: deriveTagEncodedVersionCode(tag),
     appleMarketingVersion: version.appleMarketingVersion,
     appleBuildNumber,
     buildNumberAuthority: BUILD_NUMBER_AUTHORITY,
