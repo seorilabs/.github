@@ -2,15 +2,25 @@
 # 중앙 변경은 seorilabs/.github에 이미 들어가 있고, 이 파일은 각 caller 저장소에서 무엇을
 # 어떻게 바꿔야 하는지를 사람이 해석하지 않아도 되도록 고정한다.
 # 실제 fan-out(저장소별 PR)은 이 계약을 입력으로 쓰는 별도 단계다.
-schemaVersion: 1
+# schemaVersion 2: 릴리스 번호 원장 전환을 담는다. 이관 판별에 "기대 중앙 SHA"와 소스 신선도가
+# 들어가고, 원장 초기화 caller가 새로 생겼다.
+schemaVersion: 2
 id: release-version-authority-migration-v1
 authority: release-version-authority-v1
+ledger: release-version-ledger-v1
 
 # 이관 대상 판별: caller workflow가 org 정본 재사용 워크플로우를 부르는지로만 결정한다.
 discovery:
   callerUsesPattern: '^seorilabs/\.github/\.github/workflows/(?<workflow>[a-z0-9-]+\.yml)@(?<sha>[0-9a-f]{40})$'
   # floating ref는 이관 대상이 아니라 즉시 결함이다. 계약 revision을 고정할 수 없다.
   forbiddenCallerRef: '@(main|master|v[0-9]+|refs/heads/.+)$'
+  # 이관 후 기대 pin은 계약에 박지 않는다. 중앙 merge commit SHA는 이 파일을 담은 커밋 이후에만
+  # 확정되므로 계약 상수로 두면 순환한다. 실행 시 --expected-central-sha 로 주입한다.
+  expectedCallerShaSource: cli-argument
+  # 로컬 복제본은 stale일 수 있다(실측: lord-ledger 로컬 9afa357f vs 원격 main 565fba53).
+  # pin 판별은 원격 default branch tip 기준으로만 유효하다.
+  sourceFreshness: remote-default-branch-head-required
+  defaultSource: github
 
 # caller가 더 이상 넘길 수 없는 입력. 남아 있으면 재사용 워크플로우가 unknown input으로 실패한다.
 removedCallerInputs:
@@ -56,6 +66,22 @@ callerKinds:
     calledWorkflow: .github/workflows/release-tag.yml
     # runs_on은 제거됐다. 태그를 push하는 job은 seorilabs-rpi-arm64로 고정한다.
     removeInputs: [runs_on]
+    # 이 caller가 유일하게 원장을 갱신한다. 원장이 없으면 번호를 할당할 수 없다.
+    requiresCallerKind: init-release-version-ledger
+    updatesRef: refs/heads/release-version-ledger
+  - id: init-release-version-ledger
+    calledWorkflow: .github/workflows/init-release-version-ledger.yml
+    removeInputs: []
+    oneTime: true
+    # 원장은 태그 생성 경로에서만 갱신된다. release-tag caller가 없는 저장소는 원장을 채울 수
+    # 없으므로 이관 대상이 아니라 결함이다.
+    requiresCallerKind: release-tag
+    producesRef: refs/heads/release-version-ledger
+  - id: record-ios-build-observation
+    calledWorkflow: .github/workflows/record-ios-build-observation.yml
+    removeInputs: []
+    # 관측만 기록한다. Android 번호를 소비하지 않는다.
+    updatesLedgerScope: [ios]
   - id: promote-google-play
     calledWorkflow: .github/workflows/promote-google-play.yml
     removeInputs: []
@@ -70,6 +96,41 @@ removedRepositoryAuthorities:
   - play-store/google-play.config.json#release.versionName
   - play-store/google-play.config.json#release.versionCode
   - app-store/app-store.config.json#release.version
+  # packageName은 authority가 아니라 provider readback 대상 식별자다. 제거하지 않는다.
+
+# provider readback 경계. 초기화에 필요한 기준 번호를 확인하는 읽기 전용 경로다.
+providerReadback:
+  google-play:
+    capability: build-and-status-read
+    # edit 없이 build를 나열하는 엔드포인트가 없다. insert한 edit은 commit하지 않고 항상 delete한다.
+    endpoints: [edits.insert, edits.bundles.list, edits.apks.list, edits.tracks.list, edits.delete]
+    mustNotCall: [edits.commit, edits.tracks.update, edits.bundles.upload]
+    secretsInOutput: forbidden
+  app-store-connect:
+    capability: build-and-status-read
+    action: ciBuildRuns.get
+    # iOS 관측값은 초기화의 blocking 조건이 아니다. Xcode Cloud를 쓰지 않는 앱이 영구
+    # needs_input이 되면 이관 자체가 불가능해진다.
+    initializationBlocking: false
+
+# 원장 브랜치와 릴리스 태그 보호. 적용은 사람만 한다.
+refProtection:
+  provider: github-organization-ruleset
+  approval: human-only
+  desiredState:
+    - contracts/release-ref-protection.ledger-branch.json
+    - contracts/release-ref-protection.release-tags.json
+  readback: scripts/release/readback-release-ref-protection.mjs
+  rolloutOrder: [initialize-ledger, create-ruleset-evaluate, shadow-readback, promote-active]
+
+# 미이관 저장소의 사유는 고정 enum만 쓴다. 자유 서술은 기계 판독을 깨뜨린다.
+exclusionReasons:
+  - no-central-caller
+  - no-central-release-tag-caller
+  - archived-repository
+  - no-market-release-target
+  - blocked-awaiting-provider-readback
+  - human-hold
 
 # 이관 완료 판정. 하나라도 만족하지 않으면 완료로 보고하지 않는다.
 completionGates:
@@ -83,3 +144,13 @@ completionGates:
     check: build script가 SEORI_RELEASE_* 환경변수를 읽어 주입한다
   - id: release-run-artifact-readback-passes
     check: exact stable 태그 실행에서 artifact readback이 통과한다
+  - id: caller-pinned-to-current-central-sha
+    check: 모든 caller uses가 이관 후 확정된 중앙 merge commit SHA로 고정됐다
+  - id: release-version-ledger-initialized
+    check: refs/heads/release-version-ledger가 있고 tip JSON이 ledger schema를 통과한다
+  - id: legacy-baseline-evidenced
+    check: provenance.baseline.sources가 검증된 소스를 하나 이상 담고 추정값이 없다
+  - id: release-ref-protection-active
+    check: 원장 브랜치와 refs/tags/v*를 덮는 org ruleset이 active이고 bypass_actors가 비어 있다
+  - id: caller-fleet-accounted
+    check: fleet 요약의 모든 저장소가 MIGRATED이거나 고정 enum의 exclusionReason을 갖는다

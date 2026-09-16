@@ -1,0 +1,160 @@
+# Seorilabs org 재사용 워크플로우: Xcode Cloud iOS build number 관측값 기록
+# 호출: uses: seorilabs/.github/.github/workflows/record-ios-build-observation.yml@<FULL_COMMIT_SHA>
+# 원칙: 이 경로는 번호를 할당하지 않는다. CFBundleVersion의 정본은 Xcode Cloud의
+# CI_BUILD_NUMBER이고, 원장에는 App Store Connect readback으로 확인된 값만 관측으로 남긴다.
+# 그래서 iOS 재빌드나 실패가 Android versionCode를 소비하지 않는다.
+# 계약: contracts/release-version-authority.yaml (iosObservation), contracts/release-version-ledger.yaml
+name: Record iOS Build Observation (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      readback_base64:
+        description: "App Store Connect ciBuildRuns.get 결과를 담은 readback JSON의 base64."
+        required: true
+        type: string
+      dry_run:
+        description: "원장을 갱신하지 않고 검증만 한다."
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      build_number:
+        description: "기록된 CFBundleVersion"
+        value: ${{ jobs.record.outputs.build_number }}
+      ledger_commit:
+        description: "관측을 기록한 원장 커밋 SHA"
+        value: ${{ jobs.record.outputs.ledger_commit }}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-version-ledger-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  record:
+    name: Record iOS build observation
+    runs-on: seorilabs-rpi-arm64
+    timeout-minutes: 10
+    outputs:
+      build_number: ${{ steps.record.outputs.build_number }}
+      ledger_commit: ${{ steps.record.outputs.ledger_commit }}
+
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          fetch-tags: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          check-latest: false
+
+      - name: Validate called reusable workflow identity
+        id: authority
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/record-ios-build-observation.yml
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
+          '
+
+      - name: Checkout exact release version authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.authority.outputs.repository }}
+          ref: ${{ steps.authority.outputs.sha }}
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
+      - name: Record observation
+        id: record
+        shell: bash
+        env:
+          READBACK_BASE64: ${{ inputs.readback_base64 }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          LEDGER_BRANCH=release-version-ledger
+          LEDGER_FILE=release-version-ledger.json
+          LEDGER_TRACKING="refs/remotes/origin/$LEDGER_BRANCH"
+
+          export GIT_AUTHOR_NAME="github-actions[bot]"
+          export GIT_AUTHOR_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+
+          printf '%s' "$READBACK_BASE64" | base64 -d > "$RUNNER_TEMP/ios-readback.json"
+
+          if ! git ls-remote --exit-code --heads origin "$LEDGER_BRANCH" >/dev/null 2>&1; then
+            echo "ledger-missing: refs/heads/$LEDGER_BRANCH 가 없다. 관측을 기록할 원장이 없다." >&2
+            exit 1
+          fi
+
+          for attempt in 1 2 3 4 5; do
+            git fetch --no-tags --depth=1 --force origin "+refs/heads/$LEDGER_BRANCH:$LEDGER_TRACKING" >/dev/null
+            ledger_tip="$(git rev-parse "$LEDGER_TRACKING^{commit}")"
+            git show "$ledger_tip:$LEDGER_FILE" > "$RUNNER_TEMP/release-version-ledger.json"
+
+            node .seorilabs-release-authority/scripts/release/record-ios-build-observation.mjs \
+              --ledger-in "$RUNNER_TEMP/release-version-ledger.json" \
+              --ledger-out "$RUNNER_TEMP/release-version-ledger-next.json" \
+              --readback "$RUNNER_TEMP/ios-readback.json"
+
+            build_number="$(node --input-type=module -e '
+              import { readFileSync } from "node:fs";
+              const ledger = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/release-version-ledger-next.json", "utf8"));
+              process.stdout.write(String(ledger.ios.lastObservedBuildNumber));
+            ')"
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "[dry-run] would record CFBundleVersion $build_number"
+              { echo "build_number=$build_number"; } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            blob="$(git hash-object -w "$RUNNER_TEMP/release-version-ledger-next.json")"
+            # README.md는 원장 tip의 tree에서 그대로 가져와야 사라지지 않는다.
+            readme_blob="$(git rev-parse "$ledger_tip:README.md")"
+            tree="$(printf '100644 blob %s\tREADME.md\n100644 blob %s\t%s\n' \
+              "$readme_blob" "$blob" "$LEDGER_FILE" | git mktree)"
+            ledger_commit="$(git commit-tree "$tree" -p "$ledger_tip" \
+              -m "release-version-ledger: ios observation $build_number")"
+
+            if git push --porcelain \
+                 --force-with-lease="refs/heads/$LEDGER_BRANCH:$ledger_tip" \
+                 origin "$ledger_commit:refs/heads/$LEDGER_BRANCH" > "$RUNNER_TEMP/ios-push-$attempt.txt" 2>&1; then
+              { echo "build_number=$build_number"; echo "ledger_commit=$ledger_commit"; } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if ! grep -qE 'stale info|non-fast-forward|fetch first' "$RUNNER_TEMP/ios-push-$attempt.txt"; then
+              cat "$RUNNER_TEMP/ios-push-$attempt.txt" >&2
+              exit 1
+            fi
+            sleep "$(( (RANDOM % 3) + 1 ))"
+          done
+
+          echo "ledger-allocation-contention: 5회 재시도 후에도 원장 tip을 고정하지 못했다." >&2
+          exit 1
+
+      - name: Summary
+        shell: bash
+        env:
+          BUILD_NUMBER: ${{ steps.record.outputs.build_number }}
+          LEDGER_COMMIT: ${{ steps.record.outputs.ledger_commit }}
+        run: |
+          { echo "### iOS Build Observation"; echo ""
+            echo "- CFBundleVersion: ${BUILD_NUMBER:-unrecorded}"
+            echo "- ledger commit: ${LEDGER_COMMIT:-unchanged}"; } >> "$GITHUB_STEP_SUMMARY"

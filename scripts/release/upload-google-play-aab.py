@@ -16,49 +16,25 @@ import re
 import sys
 from pathlib import Path
 
+from google_play_client import (
+    MAX_VERSION_CODE,
+    PublicFailure,
+    execute,
+    fail,
+    make_publisher,
+    non_negative_int,
+    positive_int,
+)
 
-ANDROID_PUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
+
 PACKAGE_NAME_PATTERN = re.compile(
     r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$"
 )
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 TRACK_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$")
 LOCALE_PATTERN = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
-MAX_VERSION_CODE = 2_100_000_000
 MAX_NOTES_BYTES = 256 * 1024
 MAX_RELEASE_NOTE_LENGTH = 500
-
-
-class PublicFailure(RuntimeError):
-    """An allowlisted, secret-free failure suitable for CI output."""
-
-    def __init__(self, code: str):
-        super().__init__(code)
-        self.code = code
-
-
-def fail(code: str) -> None:
-    raise PublicFailure(code)
-
-
-def positive_int(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as error:
-        raise argparse.ArgumentTypeError("must be an integer") from error
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("must be greater than zero")
-    return parsed
-
-
-def non_negative_int(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as error:
-        raise argparse.ArgumentTypeError("must be an integer") from error
-    if parsed < 0:
-        raise argparse.ArgumentTypeError("must not be negative")
-    return parsed
 
 
 def rollout_fraction(value: str) -> float:
@@ -275,35 +251,6 @@ def promote(args: argparse.Namespace) -> dict[str, object]:
             except Exception:
                 print("GOOGLE_PLAY_EDIT_CLEANUP_FAILED", file=sys.stderr)
         raise
-
-
-def make_publisher(timeout_seconds: int):
-    try:
-        import google.auth
-        import google_auth_httplib2
-        import httplib2
-        from googleapiclient.discovery import build
-    except ImportError:
-        fail("GOOGLE_PLAY_CLIENT_UNAVAILABLE")
-
-    try:
-        credentials, _project_id = google.auth.default(scopes=[ANDROID_PUBLISHER_SCOPE])
-        base_http = httplib2.Http(timeout=timeout_seconds)
-        try:
-            base_http.redirect_codes = base_http.redirect_codes - {308}
-        except AttributeError:
-            pass
-        http = google_auth_httplib2.AuthorizedHttp(credentials, http=base_http)
-        return build("androidpublisher", "v3", http=http, cache_discovery=False)
-    except Exception:
-        fail("GOOGLE_PLAY_AUTH_FAILED")
-
-
-def execute(request, retries: int, failure_code: str):
-    try:
-        return request.execute(num_retries=retries)
-    except Exception as error:
-        raise PublicFailure(failure_code) from error
 
 
 def changes_not_sent_for_review_rejected(error: Exception) -> bool:

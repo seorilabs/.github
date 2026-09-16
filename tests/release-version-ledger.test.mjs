@@ -4,7 +4,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import {
@@ -243,4 +244,50 @@ test('원장 파일과 계약이 같은 경로·브랜치를 가리킨다', () =
   assert.match(contract, new RegExp(`path: ${LEDGER_FILE}`, 'u'));
   assert.match(WORKFLOW, new RegExp(`LEDGER_BRANCH=${LEDGER_BRANCH}`, 'u'));
   assert.match(WORKFLOW, new RegExp(`LEDGER_FILE=${LEDGER_FILE}`, 'u'));
+});
+
+test('iOS 관측 CLI는 App Store Connect readback 파일이 있어야만 기록한다', () => {
+  const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
+  const cli = resolve(repositoryRoot, 'scripts/release/record-ios-build-observation.mjs');
+  const fixture = resolve(repositoryRoot, 'fixtures/release-version-authority/xcode-cloud/build-readback.json');
+  const { root, work } = createRepository();
+  try {
+    const ledgerPath = join(work, 'ledger.json');
+    const nextPath = join(work, 'ledger-next.json');
+    writeFileSync(
+      ledgerPath,
+      renderLedger(
+        applyAndroidAllocation({
+          ledger: initialLedger(),
+          tag: 'v1.2.3',
+          sourceSha: 'a'.repeat(40),
+          androidVersionCode: 1,
+        }),
+      ),
+    );
+
+    const run = (args) =>
+      spawnSync(process.execPath, [cli, '--ledger-in', ledgerPath, ...args], { encoding: 'utf8' });
+
+    // 증거 파일 없이 값을 직접 넣을 수 없다.
+    const missing = run([]);
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /ios-observation-unverified/u);
+
+    const recorded = run(['--readback', fixture, '--ledger-out', nextPath]);
+    assert.equal(recorded.status, 0, recorded.stderr);
+    const next = parseLedger(readFileSync(nextPath, 'utf8'));
+    assert.equal(next.ios.lastObservedBuildNumber, 42);
+    assert.equal(next.ios.lastObservedTag, 'v1.2.3');
+    assert.equal(next.android.lastVersionCode, 1, 'Android 번호를 소비하면 안 된다');
+
+    // 태그가 여전히 marketing version의 정본이다. readback이 다른 값을 말하면 다른 build다.
+    const drifted = join(work, 'drifted.json');
+    writeFileSync(drifted, readFileSync(fixture, 'utf8').replace('"1.2.3"', '"9.9.9"'));
+    const rejected = run(['--readback', drifted]);
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /ios-observation-unverified/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

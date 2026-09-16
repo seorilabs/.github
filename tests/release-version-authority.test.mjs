@@ -58,6 +58,7 @@ const FIXTURES = resolve(REPOSITORY_ROOT, 'fixtures/release-version-authority');
 const RESOLVE_CLI = resolve(REPOSITORY_ROOT, 'scripts/release/resolve-release-version.mjs');
 const VERIFY_CLI = resolve(REPOSITORY_ROOT, 'scripts/release/verify-release-artifact.mjs');
 const PLAY_UPLOAD_CLI = resolve(REPOSITORY_ROOT, 'scripts/release/upload-google-play-aab.py');
+const PLAY_CLIENT_MODULE = resolve(REPOSITORY_ROOT, 'scripts/release/google_play_client.py');
 const GODOT_CLI = resolve(REPOSITORY_ROOT, 'scripts/release/apply-godot-export-version.mjs');
 const AUTHORITY_CONTRACT = resolve(REPOSITORY_ROOT, 'contracts/release-version-authority.yaml');
 
@@ -1765,7 +1766,13 @@ test('중앙 Google Play uploader는 repo config 없이 exact AAB digest와 공�
   assert.doesNotMatch(source, /google-play\.config\.json|package\.json|resolve-release-version/u);
   assert.match(source, /uploaded_version_code != validated\["expectedVersionCode"\]/u);
   assert.match(source, /GOOGLE_PLAY_VERSION_CODE_MISMATCH/u);
-  assert.match(source, /google\.auth\.default\(scopes=\[ANDROID_PUBLISHER_SCOPE\]\)/u);
+  // 자격증명 해석 경로는 중앙 client 하나뿐이다. 업로더가 따로 만들지 않는다.
+  assert.match(source, /from google_play_client import \(/u);
+  assert.doesNotMatch(source, /google\.auth\.default/u);
+  const client = readFileSync(PLAY_CLIENT_MODULE, 'utf8');
+  assert.match(client, /google\.auth\.default\(scopes=\[ANDROID_PUBLISHER_SCOPE\]\)/u);
+  assert.match(client, /GOOGLE_PLAY_CLIENT_UNAVAILABLE/u);
+  assert.match(client, /GOOGLE_PLAY_AUTH_FAILED/u);
 
   const syntax = spawnSync(
     'python3',
@@ -1781,7 +1788,9 @@ test('중앙 Google Play uploader는 repo config 없이 exact AAB digest와 공�
     writeFileSync(aab, bytes);
     const digest = createHash('sha256').update(bytes).digest('hex');
     const probe = [
-      'import argparse, importlib.util, json, sys',
+      'import argparse, importlib.util, json, os, sys',
+      // 업로더는 중앙 client 모듈을 형제로 import한다. 직접 실행할 때와 같은 경로를 준다.
+      'sys.path.insert(0, os.path.dirname(os.path.abspath(sys.argv[1])))',
       'spec = importlib.util.spec_from_file_location("central_uploader", sys.argv[1])',
       'module = importlib.util.module_from_spec(spec)',
       'spec.loader.exec_module(module)',
@@ -2210,8 +2219,13 @@ test('authority 구현은 org 번들만으로 실행 가능한 표준 라이브�
   const scripts = [
     'scripts/release/tag-version-authority.mjs',
     'scripts/release/resolve-release-version.mjs',
+    'scripts/release/allocate-release-version.mjs',
     'scripts/release/verify-release-artifact.mjs',
     'scripts/release/apply-godot-export-version.mjs',
+    'scripts/release/init-release-version-ledger.mjs',
+    'scripts/release/audit-release-tags.mjs',
+    'scripts/release/record-ios-build-observation.mjs',
+    'scripts/release/readback-release-ref-protection.mjs',
   ];
 
   for (const script of scripts) {
