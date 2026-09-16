@@ -137,3 +137,59 @@ test('readback은 읽기만 한다. ruleset을 만들거나 바꾸지 않는다'
   assert.doesNotMatch(source, /--method/u);
   assert.equal(LEDGER_CONTRACT.refProtection.approval, 'human-only');
 });
+
+test('같은 ref를 덮는 다른 ruleset을 desired의 관측값으로 오인하지 않는다', () => {
+  // 실측: 조직에 refs/tags/v* 를 덮는 ruleset이 둘이었다. 기존 platform 전용(active)과
+  // 새 org 전역(evaluate). ref와 target만으로 고르면 옛 것을 새 것으로 읽는다.
+  const legacyTagRuleset = {
+    id: 21819735,
+    name: 'Immutable Platform release tags',
+    target: 'tag',
+    enforcement: 'active',
+    bypass_actors: [],
+    conditions: { ref_name: { include: ['refs/tags/v*'], exclude: [] } },
+    rules: [{ type: 'deletion' }, { type: 'update' }],
+  };
+
+  const report = evaluateRefProtection({
+    desired: DESIRED,
+    rulesets: [legacyTagRuleset, ...observed({ tag: { enforcement: 'evaluate' }, branch: { enforcement: 'evaluate' } })],
+    observedAt: '2026-09-16T00:00:00Z',
+  });
+
+  const tagRow = report.rulesets.find(({ target }) => target === 'tag');
+  assert.equal(tagRow.name, 'Immutable release tags');
+  assert.equal(tagRow.id, 2, '옛 ruleset의 id를 읽으면 안 된다');
+  assert.deepEqual(tagRow.missingRules, [], '옛 ruleset의 규칙으로 판정하면 non_fast_forward가 빠진 것처럼 보인다');
+  assert.deepEqual(tagRow.overlappingRulesets, [
+    { id: 21819735, name: 'Immutable Platform release tags', enforcement: 'active' },
+  ]);
+  assert.ok(report.findings.some(({ id }) => id === 'overlapping-ruleset'));
+  // 중복은 사람이 판단할 일이지 배포를 막을 일이 아니다.
+  assert.equal(report.findings.find(({ id }) => id === 'overlapping-ruleset').severity, 'advisory');
+});
+
+test('evaluate 상태에서는 저장소 커버리지를 단정하지 않는다', () => {
+  // evaluate ruleset은 /repos/{full}/rulesets 에 나타나지 않는다(실측).
+  // 그 상태의 false는 "적용 안 됨"이 아니라 "아직 알 수 없음"이다.
+  const shadow = evaluateRefProtection({
+    desired: DESIRED,
+    rulesets: observed({ branch: { enforcement: 'evaluate' }, tag: { enforcement: 'evaluate' } }),
+    repositories: [{ fullName: 'seorilabs/lord-ledger', ledgerBranchCovered: false, releaseTagsCovered: false }],
+    observedAt: '2026-09-16T00:00:00Z',
+  });
+  assert.deepEqual(shadow.repositories, [
+    { fullName: 'seorilabs/lord-ledger', ledgerBranchCovered: null, releaseTagsCovered: null },
+  ]);
+  assert.ok(!shadow.findings.some(({ id }) => id === 'repository-not-covered'));
+
+  // Active 뒤에도 덮이지 않으면 그때는 blocking이다.
+  const active = evaluateRefProtection({
+    desired: DESIRED,
+    rulesets: observed(),
+    repositories: [{ fullName: 'seorilabs/lord-ledger', ledgerBranchCovered: false, releaseTagsCovered: true }],
+    observedAt: '2026-09-16T00:00:00Z',
+  });
+  assert.equal(active.findings.find(({ id }) => id === 'repository-not-covered').severity, 'blocking');
+  assert.equal(active.status, 'NEEDS_CHANGE');
+});

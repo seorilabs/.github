@@ -34,14 +34,25 @@ function refNames(ruleset) {
   return ruleset.conditions?.ref_name?.include ?? [];
 }
 
-/** desired state와 관측된 ruleset을 대조한다. 순수 함수라 fixture로 그대로 검증한다. */
+/**
+ * desired state와 관측된 ruleset을 대조한다. 순수 함수라 fixture로 그대로 검증한다.
+ *
+ * 같은 ref를 덮는 ruleset이 둘 이상 있을 수 있다(실측: 조직에 refs/tags/v* 를 덮는 ruleset이
+ * 기존 platform 전용 하나와 새 org 전역 하나로 둘이었다). ref와 target만으로 고르면 엉뚱한
+ * ruleset을 desired의 관측값으로 오인하므로 이름을 먼저 맞춘다.
+ */
 export function evaluateRefProtection({ desired, rulesets, repositories = [], observedAt }) {
   const findings = [];
   const rows = [];
 
   for (const want of desired) {
     const targetRef = refNames(want)[0];
-    const actual = rulesets.find((ruleset) => refNames(ruleset).includes(targetRef) && ruleset.target === want.target) ?? null;
+    const actual =
+      rulesets.find((ruleset) => ruleset.name === want.name && ruleset.target === want.target) ?? null;
+    const overlapping = rulesets.filter(
+      (ruleset) =>
+        ruleset.name !== want.name && ruleset.target === want.target && refNames(ruleset).includes(targetRef),
+    );
     const forbidden = targetRef === LEDGER_BRANCH_REF ? FORBIDDEN_LEDGER_RULES : FORBIDDEN_TAG_RULES;
     const observedRules = actual === null ? [] : ruleTypes(actual);
     const forbiddenRulesPresent = observedRules.filter((type) => forbidden.includes(type));
@@ -61,8 +72,21 @@ export function evaluateRefProtection({ desired, rulesets, repositories = [], ob
       ruleTypes: observedRules,
       missingRules,
       forbiddenRulesPresent,
+      overlappingRulesets: overlapping.map((ruleset) => ({
+        id: ruleset.id,
+        name: ruleset.name,
+        enforcement: ruleset.enforcement,
+      })),
       snapshotDigest: digest(actual ?? null),
     });
+
+    for (const ruleset of overlapping) {
+      findings.push({
+        id: 'overlapping-ruleset',
+        severity: 'advisory',
+        detail: `${want.name}: 같은 ref를 덮는 ruleset이 또 있다 — ${ruleset.name}(${ruleset.id}, ${ruleset.enforcement}). 중복 정리는 사람이 판단한다.`,
+      });
+    }
 
     if (actual === null) {
       findings.push({ id: 'ruleset-absent', severity: 'blocking', detail: `${want.name}: ${targetRef} 를 덮는 ruleset이 없다` });
@@ -98,9 +122,24 @@ export function evaluateRefProtection({ desired, rulesets, repositories = [], ob
     }
   }
 
+  // evaluate 상태 ruleset은 /repos/{full}/rulesets 에 나타나지 않는다(실측). 그 상태에서
+  // 커버리지를 false로 단정하면 "적용 안 됨"으로 오인한다. Active 승격 뒤에만 판정한다.
+  const allActive = rows.length > 0 && rows.every(({ enforcement }) => enforcement === 'active');
+  const observedRepositories = repositories.map((row) =>
+    allActive ? row : { ...row, ledgerBranchCovered: null, releaseTagsCovered: null },
+  );
+  for (const row of observedRepositories) {
+    if (allActive && (row.ledgerBranchCovered === false || row.releaseTagsCovered === false)) {
+      findings.push({
+        id: 'repository-not-covered',
+        severity: 'blocking',
+        detail: `${row.fullName}: active ruleset이 이 저장소를 덮지 않는다`,
+      });
+    }
+  }
+
   findings.sort((left, right) => `${left.id}${left.detail}`.localeCompare(`${right.id}${right.detail}`));
   const hasBlocking = findings.some(({ severity }) => severity === 'blocking');
-  const allActive = rows.length > 0 && rows.every(({ enforcement }) => enforcement === 'active');
 
   return {
     schemaVersion: 1,
@@ -108,7 +147,7 @@ export function evaluateRefProtection({ desired, rulesets, repositories = [], ob
     organization: 'seorilabs',
     observedAt,
     rulesets: rows,
-    repositories,
+    repositories: observedRepositories,
     state: rows.every(({ present }) => present) ? (allActive ? 'ACTIVE' : 'SHADOW') : 'ABSENT',
     findings,
     status: hasBlocking ? 'NEEDS_CHANGE' : allActive ? 'READY' : 'NEEDS_CHANGE',
