@@ -1,0 +1,68 @@
+schemaVersion: 1
+id: seorilabs-analytics-event-policy-v1
+
+customEvents:
+  requiredParameters:
+    app_market:
+      enum:
+        - google_play
+        - app_store
+        - apps_in_toss
+    runtime_platform:
+      enum:
+        - android
+        - ios
+        - web
+    release_version:
+      source: release-version-authority
+
+normalization:
+  unknownValue: unknown
+  dimensionSources:
+    - observed
+    - legacy
+    - inferred
+    - unknown
+  legacyParameters:
+    app_market:
+      - market
+    runtime_platform:
+      - platform
+    release_version:
+      - app_version
+  inferredSources:
+    app_market:
+      - install_source
+      - exact_stream_market
+    runtime_platform:
+      - top_level_platform
+    release_version:
+      - app_info_version
+  country:
+    source: geo_country
+    missingValue: null
+    inference: forbidden
+  prohibitions:
+    - infer_apps_in_toss_from_web
+    - synthesize_country
+
+eligibility:
+  excludedLifecycle:
+    - archived
+    - unknown
+
+managementPlan:
+  readOnly: true
+  statuses:
+    - planned
+    - present
+    - unknown
+    - mismatch
+  checks:
+    - firebase_ga4_link
+    - bigquery_export
+    - custom_dimension_app_market
+    - custom_dimension_runtime_platform
+    - custom_dimension_release_version
+    - admob_firebase_link
+    - impression_level_revenue

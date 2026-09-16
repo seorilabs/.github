@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./repo-contract/analytics-event-contract": "./packages/repo-contract/src/analytics-event-contract.mjs",
     "./repo-contract/wif-provider-policy": "./packages/repo-contract/src/wif-provider-policy.mjs",
     "./repo-contract/github-settings-readback": "./scripts/fleet/github-settings-readback.mjs"
   },
