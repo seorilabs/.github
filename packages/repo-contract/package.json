@@ -8,6 +8,7 @@
   },
   "exports": {
     ".": "./src/index.mjs",
+    "./analytics-event-contract": "./src/analytics-event-contract.mjs",
     "./standard-labels": "./src/standard-labels.mjs",
     "./wif-provider-policy": "./src/wif-provider-policy.mjs"
   },
