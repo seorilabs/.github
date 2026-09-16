@@ -76,5 +76,17 @@ GET만 한다. `forbiddenRulesPresent`가 비어 있고 `bypassActorsEmpty`가 �
 완료다. Active 상태에서 실제 릴리스를 한 번 성공시키는 것이 "봇의 fast-forward push가 막히지
 않는다"는 유일한 실증이다.
 
-기존 `Immutable Platform release tags`(org ruleset, `seorilabs/platform` 전용)와 범위가 겹친다.
-중복 처리 여부는 readback 결과를 보고 결정한다.
+readback이 실측으로 확인한 두 가지 성질을 알고 봐야 한다.
+
+- **같은 ref를 덮는 ruleset이 둘 이상일 수 있다.** 기존 `Immutable Platform release tags`
+  (id 21819735, `seorilabs/platform` 전용, active)가 `refs/tags/v*` 를 덮는다. 그래서 desired와
+  관측값을 ref가 아니라 **이름으로** 맞춘다. ref로 맞추면 옛 ruleset을 새 것으로 읽어
+  "`non_fast_forward` 규칙이 없다"는 엉뚱한 blocking이 나온다. 중복은 `overlapping-ruleset`
+  advisory로 보고하고 정리 여부는 사람이 판단한다.
+- **`evaluate` ruleset은 `/repos/{full}/rulesets?includes_parents=true` 에 나타나지 않는다.**
+  `active` 인 것만 나온다. 그래서 evaluate 동안 저장소 커버리지는 `false` 가 아니라 `null`
+  (아직 알 수 없음)로 보고한다. Active 승격 뒤에만 커버리지를 판정한다.
+
+2026-09-16 관측 결과는
+[`docs/migration/evidence/release-ref-protection-readback-2026-09-16.json`](../migration/evidence/release-ref-protection-readback-2026-09-16.json)
+에 있다.

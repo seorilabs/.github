@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "ledger": "release-version-ledger-v1",
+  "organization": "seorilabs",
+  "observedAt": "2026-09-16T11:22:47Z",
+  "rulesets": [
+    {
+      "name": "Immutable release version ledger",
+      "id": 23540737,
+      "target": "branch",
+      "ref": "refs/heads/release-version-ledger",
+      "present": true,
+      "enforcement": "evaluate",
+      "desiredEnforcement": "active",
+      "exact": true,
+      "bypassActorsEmpty": true,
+      "ruleTypes": [
+        "deletion",
+        "non_fast_forward",
+        "required_linear_history"
+      ],
+      "missingRules": [],
+      "forbiddenRulesPresent": [],
+      "overlappingRulesets": [],
+      "snapshotDigest": "sha256:9ff8f56161df026017e74093a1f30bfe964fdf4c9fa73e91cc79cfbfba602cf5"
+    },
+    {
+      "name": "Immutable release tags",
+      "id": 23540743,
+      "target": "tag",
+      "ref": "refs/tags/v*",
+      "present": true,
+      "enforcement": "evaluate",
+      "desiredEnforcement": "active",
+      "exact": true,
+      "bypassActorsEmpty": true,
+      "ruleTypes": [
+        "deletion",
+        "non_fast_forward",
+        "update"
+      ],
+      "missingRules": [],
+      "forbiddenRulesPresent": [],
+      "overlappingRulesets": [
+        {
+          "id": 21819735,
+          "name": "Immutable Platform release tags",
+          "enforcement": "active"
+        }
+      ],
+      "snapshotDigest": "sha256:9c2ac2cae89b08d823c2fbc07b7dae15c3da76a0afb07320c49f752c3c1d063f"
+    }
+  ],
+  "repositories": [
+    {
+      "fullName": "seorilabs/lord-ledger",
+      "ledgerBranchCovered": null,
+      "releaseTagsCovered": null
+    }
+  ],
+  "state": "SHADOW",
+  "findings": [
+    {
+      "id": "enforcement-not-active",
+      "severity": "advisory",
+      "detail": "Immutable release tags: enforcement=evaluate. Active 승격은 사람이 한다."
+    },
+    {
+      "id": "enforcement-not-active",
+      "severity": "advisory",
+      "detail": "Immutable release version ledger: enforcement=evaluate. Active 승격은 사람이 한다."
+    },
+    {
+      "id": "overlapping-ruleset",
+      "severity": "advisory",
+      "detail": "Immutable release tags: 같은 ref를 덮는 ruleset이 또 있다 — Immutable Platform release tags(21819735, active). 중복 정리는 사람이 판단한다."
+    }
+  ],
+  "status": "NEEDS_CHANGE"
+}
