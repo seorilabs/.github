@@ -436,28 +436,21 @@ jobs:
 
       # Backoffice 가 Release 에 첨부한 정형 출시노트(release-notes.json)를 받아 Play 트랙에 반영.
       # 전체 언어 맵을 업로드 스크립트에 그대로 넘기고, 스크립트가 앱에 등록된 언어와 교집합만
-      # 언어별 노트로 채운다. 에셋이 없으면 found=false → config 기본값으로 폴백(기존 동작 유지).
+      # 언어별 노트로 채운다. 자산이 없으면 found=false 로 노트 없이 업로드한다.
+      # config 기본값 같은 폴백은 없다. 자산이 붙어 있는데 못 읽으면 해석기가 멈춘다.
       - name: Resolve store release notes
         id: notes
         if: ${{ inputs.upload }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_NOTES_OUTPUT: ${{ runner.temp }}/release-notes.json
         run: |
           set -euo pipefail
-          out="$RUNNER_TEMP/release-notes.json"
-          if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern release-notes.json --output "$out" --clobber 2>/dev/null \
-            && [ "$(jq -r '(.notes // {}) | length' "$out")" -gt 0 ]; then
-            {
-              echo "found=true"
-              echo "path=$out"
-            } >> "$GITHUB_OUTPUT"
-            echo "release-notes.json 로드: $(jq -r '.notes | keys_unsorted | join(", ")' "$out")"
-          else
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "release-notes.json 없음/비어있음 → config 기본값 사용" >&2
-          fi
+          # gh CLI는 ARC 러너 이미지에 없다. 중앙 해석기가 REST로 받고, 실패 사유를
+          # 버리지 않는다. 자산이 붙어 있는데 읽지 못하면 그 자리에서 멈춘다.
+          node .seorilabs-release-authority/scripts/release/resolve-release-notes.mjs --github-output
 
       - name: Upload AAB to Google Play
         if: ${{ inputs.upload }}
