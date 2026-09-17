@@ -38,7 +38,7 @@
 | `resolve-release-version.yml` | 앱별 custom build 경로용 태그→binding 해석 | private ARC, public ubuntu |
 | `promote-google-play.yml` | 재빌드 없이 지정 versionCode 하나만 트랙 승격 | ARC |
 | `rn-deploy-ait.yml` | RN .ait build + AppsInToss deploy | ARC |
-| `godot-deploy-ait.yml` | Godot web→wrapper→AppsInToss deploy | ARC |
+| `godot-deploy-ait.yml` | Godot web→wrapper→AppsInToss deploy | private ARC, public ubuntu |
 | `rn-deploy-google-play.yml` | RN 서명 AAB + Google Play 업로드 | `ubuntu-latest` |
 | `godot-deploy-google-play.yml` | Godot 서명 AAB + Google Play 업로드 | `ubuntu-latest` |
 | `cleanup-actions-storage.yml` | 아티팩트/캐시 정리 | ARC |
