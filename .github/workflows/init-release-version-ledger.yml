@@ -1,5 +1,5 @@
 # Seorilabs org 재사용 워크플로우: 릴리스 번호 원장 초기화
-# 호출: uses: seorilabs/.github/.github/workflows/init-release-version-ledger.yml@<FULL_COMMIT_SHA>
+# 호출: uses: seorilabs/.github/.github/workflows/init-release-version-ledger.yml@main
 # 원칙: 기준 번호를 추측하지 않는다. 검증된 근거(tag receipt, provider readback, 운영자 명시값)가
 # 없으면 NEEDS_INPUT으로 멈추고 무엇이 필요한지 남긴다. 잘못된 기준 번호는 이후 모든 릴리스
 # 번호를 오염시킨다.
@@ -74,26 +74,11 @@ jobs:
           node-version: "24"
           check-latest: false
 
-      - name: Validate called reusable workflow identity
-        id: authority
-        shell: bash
-        env:
-          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
-          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/init-release-version-ledger.yml
-        run: |
-          node --input-type=module -e '
-            import { appendFileSync } from "node:fs";
-            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
-            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
-            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
-            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
-          '
-
-      - name: Checkout exact release version authority
+      - name: Checkout release version authority
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ steps.authority.outputs.repository }}
-          ref: ${{ steps.authority.outputs.sha }}
+          repository: seorilabs/.github
+          ref: main
           path: .seorilabs-release-authority
           persist-credentials: false
 
@@ -101,13 +86,15 @@ jobs:
         id: decide
         shell: bash
         env:
-          JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
           REPOSITORY_FULL_NAME: ${{ github.repository }}
           PLAY_READBACK_BASE64: ${{ inputs.play_readback_base64 }}
           ATTESTATION_BASE64: ${{ inputs.attestation_base64 }}
           ACCEPT_ATTESTATION: ${{ inputs.accept_attestation }}
         run: |
           set -euo pipefail
+          # 원장 provenance는 "이 원장을 만든 중앙 정본 commit"이다. 방금 받아온 정본에서 그대로 읽는다.
+          JOB_WORKFLOW_SHA="$(git -C .seorilabs-release-authority rev-parse HEAD)"
+          export JOB_WORKFLOW_SHA
           init_args=(. --full-name "$REPOSITORY_FULL_NAME")
           if [ -n "$PLAY_READBACK_BASE64" ]; then
             printf '%s' "$PLAY_READBACK_BASE64" | base64 -d > "$RUNNER_TEMP/play-readback.json"
@@ -144,10 +131,10 @@ jobs:
         env:
           ANDROID_LAST_VERSION_CODE: ${{ steps.decide.outputs.android_last_version_code }}
           BASELINE_PATH: ${{ steps.decide.outputs.path }}
-          AUTHORITY_SHA: ${{ steps.authority.outputs.sha }}
           REPOSITORY_FULL_NAME: ${{ github.repository }}
         run: |
           set -euo pipefail
+          AUTHORITY_SHA="$(git -C .seorilabs-release-authority rev-parse HEAD)"
           export GIT_AUTHOR_NAME="github-actions[bot]"
           export GIT_AUTHOR_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
           export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"

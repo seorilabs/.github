@@ -71,8 +71,9 @@ test('cleanup-actions-storage는 중앙 REST 스크립트로 정리한다', asyn
     (step) => step.with?.path === '.seorilabs-actions-storage',
   );
   assert.ok(checkoutIndex >= 0, '중앙 스크립트 체크아웃이 필요하다.');
-  // 삭제 권한이 있는 job이므로 mutable ref가 아니라 exact SHA를 받아야 한다.
-  assert.equal(steps[checkoutIndex].with.ref, '${{ steps.authority.outputs.sha }}');
+  // 삭제 권한이 있는 job도 중앙 정본 main에서 스크립트를 받는다.
+  assert.equal(steps[checkoutIndex].with.repository, 'seorilabs/.github');
+  assert.equal(steps[checkoutIndex].with.ref, 'main');
 
   for (const [kind, name] of [
     ['artifacts', 'Delete workflow artifacts'],

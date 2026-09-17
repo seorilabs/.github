@@ -16,8 +16,6 @@ repo-contract [저장소 경로]
 
 `@seorilabs/repo-contract/standard-labels`의 고정 catalog는 P1-P4, autopilot, Platform, 차단 및 사람 승인 label만 허용하며 custom label은 보존합니다.
 
-`@seorilabs/repo-contract/wif-provider-policy`는 Cloud Build가 쓰는 Workload Identity Federation provider 조건을 만듭니다. 조직 소유자와 `(repository_id, job_workflow_ref)` 쌍만으로 조건을 고정하며, 값의 정본은 `contracts/fleet-p3-runtime.yaml`입니다.
-
 React Native monorepo는 `sdk.consumers`에 실제 SDK를 import하는 각 `package.json`과 대응하는 pnpm lockfile importer를 선언합니다. 검증기는 모든 consumer의 정확한 package 버전과 lockfile resolution, GitHub Packages tarball, SHA-512 integrity를 확인합니다.
 
 Godot `SOURCE`는 `VERSION`과 같은 tag의 `seorilabs/platform` GitHub release URL이어야 합니다. `CHECKSUM`은 `profiles/godot.yaml`의 `vendored-tree-v1` 규칙으로 계산합니다. SDK 루트의 `CHECKSUM`만 제외하고 `SOURCE`, `VERSION`, 일반 파일의 상대 경로와 내용을 순서대로 해시하며 symlink는 허용하지 않습니다.

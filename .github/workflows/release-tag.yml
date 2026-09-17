@@ -1,5 +1,5 @@
 # Seorilabs org 재사용 워크플로우: 명시적 SemVer 릴리즈 태그 생성과 릴리스 번호 할당
-# 호출: uses: seorilabs/.github/.github/workflows/release-tag.yml@<FULL_COMMIT_SHA>
+# 호출: uses: seorilabs/.github/.github/workflows/release-tag.yml@main
 # 원칙: 태그는 사람이 의도적으로 찍는다(merge마다 자동 태깅 금지).
 # 태그는 운영자가 고른 exact source commit에만 단다. 빈 마커 커밋을 만들지 않는다.
 # Android versionCode는 저장소의 release-version-ledger 브랜치가 lastVersionCode + 1로 할당하고,
@@ -91,27 +91,12 @@ jobs:
           check-latest: false
 
       # 태그 파생값과 receipt는 org 정본 구현 하나만 만든다. caller 저장소 스크립트를 신뢰하지
-      # 않기 위해 called workflow identity를 확인하고 그 exact commit SHA로 정본을 받는다.
-      - name: Validate called reusable workflow identity
-        id: authority
-        shell: bash
-        env:
-          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
-          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/release-tag.yml
-        run: |
-          node --input-type=module -e '
-            import { appendFileSync } from "node:fs";
-            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
-            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
-            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
-            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
-          '
-
-      - name: Checkout exact release version authority
+      # 않기 위해 중앙 저장소 main에서 정본을 받는다.
+      - name: Checkout release version authority
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ steps.authority.outputs.repository }}
-          ref: ${{ steps.authority.outputs.sha }}
+          repository: seorilabs/.github
+          ref: main
           path: .seorilabs-release-authority
           persist-credentials: false
 
@@ -122,9 +107,6 @@ jobs:
           RELEASE_EVENT_NAME: ${{ github.event_name }}
           RELEASE_EVENT_REF: ${{ github.ref }}
           RELEASE_EVENT_SHA: ${{ github.sha }}
-          JOB_WORKFLOW_REPOSITORY: ${{ steps.authority.outputs.repository }}
-          JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
-          JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
         run: |
           set -euo pipefail
 

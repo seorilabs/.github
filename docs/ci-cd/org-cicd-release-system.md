@@ -5,12 +5,9 @@
 > [`contracts/release-policy.yaml`](../../contracts/release-policy.yaml),
 > [`contracts/test-policy.yaml`](../../contracts/test-policy.yaml),
 > [`contracts/review-policy.yaml`](../../contracts/review-policy.yaml)이다.
-> 이 문서에 남은 `@main`, `secrets: inherit`, GitHub-hosted macOS App Store 예시는
-> 신규 caller에 복사하지 않는다. reusable workflow는 full commit SHA와 named secret
+> 이 문서에 남은 `secrets: inherit`, GitHub-hosted macOS App Store 예시는
+> 신규 caller에 복사하지 않는다. reusable workflow는 `@main`과 named secret
 > mapping을 사용하고 Apple archive·App Store 업로드는 Xcode Cloud를 표준으로 한다.
-> 단계별 전환과 삭제 조건은
-> [`org-contract-v1-rollout.md`](../migration/org-contract-v1-rollout.md)와
-> [`p5-cleanup-inventory.md`](../migration/p5-cleanup-inventory.md)를 따른다.
 
 > 상태: legacy 기준선(v1), Org Contract v1 이관 참고. 기존 적용 대상: `seorilabs` org 전체.
 > 작성 근거: 2026-06-30 org 전수 점검(23개 활성 repo) + 성숙 repo(happy-farm/crossword-puzzle/lucid-chess) 실제 워크플로우 분석 + `global-versions.yaml` + org Actions secrets/variables 실측.
@@ -74,7 +71,7 @@
 
 ## 2. 러너 라우팅 매트릭스 (확정)
 
-`global-versions.yaml` 기준. general `seorilabs-rpi-arm64`(ARM64, min1/max3, Node 24.16.0 사전설치), dind `seorilabs-rpi-arm64-dind`(min0/max1). RPI4 격리와 exact RPI5 placement는 [RPI4 capacity 정책](rpi4-capacity-policy.md)을 따른다.
+`global-versions.yaml` 기준. general `seorilabs-rpi-arm64`(ARM64, min1/max3, Node 24.16.0 사전설치), dind `seorilabs-rpi-arm64-dind`(min0/max1).
 
 | 작업 | 러너 | 근거 |
 |---|---|---|

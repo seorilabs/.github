@@ -30,8 +30,6 @@ const requiredPackageFiles = [
   ".generated/contracts/markets/google-play.schema.json",
   ".generated/contracts/release-policy.yaml",
   ".generated/contracts/release-version-authority.yaml",
-  ".generated/contracts/release-version-authority-migration.yaml",
-  ".generated/contracts/release-version-authority-migration.schema.json",
   ".generated/contracts/release-version-ledger.yaml",
   ".generated/contracts/release-version-ledger.schema.json",
   ".generated/contracts/release-version-ledger-init.schema.json",

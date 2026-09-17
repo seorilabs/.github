@@ -12,9 +12,6 @@ const CONTRACT_ENTRYPOINTS = [
   "README.md",
   ".github/workflows/README.md",
   "docs/ci-cd/product-verification.md",
-  "docs/migration/fleet-baseline-2026-08-27.md",
-  "docs/migration/org-contract-v1-rollout.md",
-  "docs/migration/p5-cleanup-inventory.md",
 ];
 const JSON_SCHEMAS = [
   "contracts/app.schema.json",
@@ -25,7 +22,6 @@ const JSON_SCHEMAS = [
   "contracts/markets/app-store.schema.json",
   "contracts/markets/apps-in-toss.schema.json",
   "contracts/markets/google-play.schema.json",
-  "contracts/release-version-authority-migration.schema.json",
   "contracts/release-version-ledger.schema.json",
   "contracts/release-version-ledger-init.schema.json",
   "contracts/release-tag-audit.schema.json",
@@ -37,7 +33,6 @@ const YAML_CONTRACTS = [
   "contracts/product-verification.yaml",
   "contracts/release-policy.yaml",
   "contracts/release-version-authority.yaml",
-  "contracts/release-version-authority-migration.yaml",
   "contracts/release-version-ledger.yaml",
   "contracts/review-policy.yaml",
   "contracts/test-policy.yaml",
@@ -47,7 +42,6 @@ const YAML_CONTRACTS = [
 const YAML_SCHEMA_VERSIONS = new Map([
   ["contracts/autonomous-issue-policy.yaml", 3],
   ["contracts/release-version-authority.yaml", 3],
-  ["contracts/release-version-authority-migration.yaml", 2],
 ]);
 
 function localMarkdownTargets(markdown) {
@@ -105,39 +99,6 @@ test("Org Contract 정책과 프로필 YAML이 중복 key 없이 파싱된다", 
     assert.equal(typeof value.id, "string", contractPath);
   }
 });
-
-test("P0-P5 이관 단계와 P5 안전 삭제 gate를 문서 계약으로 고정한다", async () => {
-  const rollout = await readFile(
-    resolve(REPOSITORY_ROOT, "docs/migration/org-contract-v1-rollout.md"),
-    "utf8",
-  );
-  const cleanup = await readFile(
-    resolve(REPOSITORY_ROOT, "docs/migration/p5-cleanup-inventory.md"),
-    "utf8",
-  );
-
-  assert.deepEqual(
-    [...rollout.matchAll(/^### (P[0-5]) —/gmu)].map((match) => match[1]),
-    ["P0", "P1", "P2", "P3", "P4", "P5"],
-  );
-  for (const gate of [
-    "Owner",
-    "Consumer",
-    "Replacement",
-    "Required checks",
-    "Live readback",
-    "Backup/restore",
-    "Approval",
-    "Rollback",
-    "Observation",
-  ]) {
-    assert.match(cleanup, new RegExp(`\\| ${gate} \\|`, "u"), gate);
-  }
-  assert.match(cleanup, /이 문서는 삭제 승인이 아니며/u);
-  assert.match(cleanup, /사용자 명시 승인/u);
-  assert.match(cleanup, /확인되지 않은 consumer/u);
-});
-
 
 test("Contract Checks는 읽기 전용 중앙 정적 검증만 수행한다", async () => {
   const workflowPath = resolve(

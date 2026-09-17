@@ -57,7 +57,7 @@ test("v2 정적 workflow는 고정 품질 명령과 stable required check를 사
     const checkoutSteps = Object.values(parsed.jobs).flatMap((job) =>
       job.steps.filter((step) => step.uses?.startsWith("actions/checkout@")),
     );
-    assert.ok(checkoutSteps.length >= 3);
+    assert.ok(checkoutSteps.length >= 2);
     assert.ok(
       checkoutSteps.every((step) => step.with?.["persist-credentials"] === false),
     );
@@ -95,21 +95,11 @@ test("v2 정적 workflow는 고정 품질 명령과 stable required check를 사
   }
 });
 
-test("재사용 workflow는 caller가 아니라 각 중앙 job의 source SHA를 checkout한다", () => {
+test("재사용 workflow는 caller가 아니라 중앙 정본 main을 checkout한다", () => {
   for (const workflow of workflows) {
     assert.equal(
-      [...workflow.matchAll(/JOB_CONTEXT_JSON: \$\{\{ toJSON\(job\) \}\}/gu)].length,
-      2,
-    );
-    assert.match(workflow, /repository: \$\{\{ steps\.bundle-identity\.outputs\.repository \}\}/u);
-    assert.match(workflow, /ref: \$\{\{ steps\.bundle-identity\.outputs\.sha \}\}/u);
-    assert.match(
-      workflow,
-      /repository: \$\{\{ steps\.evidence-bundle-identity\.outputs\.repository \}\}/u,
-    );
-    assert.match(
-      workflow,
-      /ref: \$\{\{ steps\.evidence-bundle-identity\.outputs\.sha \}\}/u,
+      [...workflow.matchAll(/repository: seorilabs\/\.github\n {10}ref: main/gu)].length,
+      1,
     );
     assert.doesNotMatch(workflow, /github\.workflow_sha/u);
   }
@@ -134,13 +124,8 @@ test("Org Contract 증명 job은 앱 실행면과 격리되고 quality 성공에
     assert.equal(evidence.steps[0].env.QUALITY_RESULT, "${{ needs.quality.result }}");
     assert.equal(evidence.steps[0].run, 'test "$QUALITY_RESULT" = success');
 
-    const qualityText = JSON.stringify(quality);
     const evidenceText = JSON.stringify(evidence);
-    assert.doesNotMatch(qualityText, /write-provenance|upload-artifact/u);
     assert.doesNotMatch(evidenceText, /Checkout application source|test:core|check:architecture|check:release/u);
-    assert.match(evidenceText, /\.seorilabs-org-evidence/u);
-    assert.match(evidenceText, /write-provenance/u);
-    assert.match(evidenceText, /upload-artifact/u);
     assert.match(evidenceText, /QUALITY_RESULT/u);
   }
 });
@@ -185,10 +170,8 @@ test("workflow YAML은 파싱되고 static caller에 id-token 또는 write 권�
 
 test("직접 실행되는 ESM entrypoint는 resolve와 realpath를 사용한다", async () => {
   const entrypoints = [
-    "scripts/fleet/godot-diagnostic-gate.mjs",
     "scripts/fleet/static-preflight.mjs",
     "scripts/fleet/secret-scan.mjs",
-    "scripts/fleet/write-provenance.mjs",
   ];
   for (const entrypoint of entrypoints) {
     const source = await readFile(entrypoint, "utf8");
@@ -202,10 +185,8 @@ test("직접 실행되는 ESM entrypoint는 resolve와 realpath를 사용한다"
 
 test("직접 실행되는 ESM entrypoint는 상대 경로 호출에서도 실행된다", () => {
   const entrypoints = [
-    "scripts/fleet/godot-diagnostic-gate.mjs",
     "scripts/fleet/static-preflight.mjs",
     "scripts/fleet/secret-scan.mjs",
-    "scripts/fleet/write-provenance.mjs",
   ];
   for (const entrypoint of entrypoints) {
     const result = spawnSync(process.execPath, [`./${entrypoint}`], {

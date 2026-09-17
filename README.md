@@ -12,14 +12,11 @@ Seorilabs organization-wide GitHub defaults, profile content, and operating cont
 - [Review policy](contracts/review-policy.yaml)
 - [Release policy](contracts/release-policy.yaml)
 - [Release version authority](contracts/release-version-authority.yaml)
-- [Release version authority caller migration](contracts/release-version-authority-migration.yaml)
 - [Agent policy](contracts/agent-policy.yaml)
 - [Autonomous issue policy](contracts/autonomous-issue-policy.yaml)
 - [React Native profile](profiles/react-native.yaml)
 - [Godot profile](profiles/godot.yaml)
 - [Repository contract CLI](packages/repo-contract/)
-- [Org Contract v1 rollout](docs/migration/org-contract-v1-rollout.md)
-- [P5 cleanup inventory](docs/migration/p5-cleanup-inventory.md)
 
 이 저장소의 계약 검증은 `npm test`로 실행한다. `repo-contract [저장소 경로]`는 앱 저장소의
 계약 준수를 로컬에서 확인한다.
@@ -39,4 +36,3 @@ Seorilabs organization-wide GitHub defaults, profile content, and operating cont
 - [Org CI/CD & release system — legacy migration reference](docs/ci-cd/org-cicd-release-system.md)
 - [Build toolchain contract](docs/ci-cd/build-toolchain-contract.md)
 - [Release version authority](docs/ci-cd/release-version-authority.md)
-- [Release version authority caller migration](docs/migration/release-version-authority-callers.md)

@@ -270,36 +270,15 @@ export function computeConfigRevision({
   calledWorkflowSha,
   authorityRevision,
 }) {
-  if (calledWorkflowRepository !== 'seorilabs/.github') {
-    fail(
-      'config-revision-mismatch',
-      `called workflow repository는 seorilabs/.github여야 한다: ${calledWorkflowRepository ?? 'missing'}`,
-    );
-  }
-  if (typeof calledWorkflowSha !== 'string' || !/^[0-9a-f]{40}$/u.test(calledWorkflowSha)) {
-    fail(
-      'config-revision-mismatch',
-      `called workflow SHA는 floating ref 없이 40자리 hex여야 한다: ${calledWorkflowSha ?? 'missing'}`,
-    );
-  }
-
-  const expectedRef = `${calledWorkflowRepository}/`;
-  if (typeof calledWorkflowRef !== 'string' || !calledWorkflowRef.startsWith(expectedRef)) {
-    fail('config-revision-mismatch', `called workflow ref가 org 번들 경로가 아니다: ${calledWorkflowRef ?? 'missing'}`);
-  }
-  if (!calledWorkflowRef.endsWith(`@${calledWorkflowSha}`)) {
-    fail(
-      'config-revision-mismatch',
-      `called workflow ref는 floating ref 없이 full commit SHA로 고정되어야 한다: ${calledWorkflowRef}`,
-    );
-  }
+  // caller는 중앙 정본의 main을 참조한다. 어느 ref로 불렸는지는 실행 provenance로만 남기고
+  // 값이 비어 있어도 해석을 막지 않는다. 릴리즈를 세우는 것은 태그이지 ref 형태가 아니다.
   requireDigest(authorityRevision, 'authority revision');
 
   const canonical = [
     `authority=${AUTHORITY_ID}`,
-    `calledWorkflowRepository=${calledWorkflowRepository}`,
-    `calledWorkflowRef=${calledWorkflowRef}`,
-    `calledWorkflowSha=${calledWorkflowSha}`,
+    `calledWorkflowRepository=${calledWorkflowRepository ?? ''}`,
+    `calledWorkflowRef=${calledWorkflowRef ?? ''}`,
+    `calledWorkflowSha=${calledWorkflowSha ?? ''}`,
     `authorityRevision=${authorityRevision}`,
     '',
   ].join('\n');

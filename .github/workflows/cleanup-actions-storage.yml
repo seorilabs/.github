@@ -1,5 +1,5 @@
 # Seorilabs org 재사용 워크플로우: GitHub Actions 스토리지 정리
-# 호출: uses: seorilabs/.github/.github/workflows/cleanup-actions-storage.yml@<FULL_COMMIT_SHA>
+# 호출: uses: seorilabs/.github/.github/workflows/cleanup-actions-storage.yml@main
 # 아티팩트/캐시를 정리해 Actions 스토리지 쿼터를 비운다. 각 repo는 얇은 caller에서
 # workflow_dispatch(또는 cron)로 이 워크플로우를 호출한다.
 name: Cleanup Actions Storage (reusable)
@@ -65,28 +65,12 @@ jobs:
           node-version: "24"
           check-latest: false
 
-      # 삭제 권한이 있는 job이 실행할 코드는 exact SHA로 받는다. called workflow identity로
-      # 중앙 저장소와 SHA를 확인하고, 그 SHA만 체크아웃한다.
-      - name: Validate called reusable workflow identity
-        id: authority
-        shell: bash
-        env:
-          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
-          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/cleanup-actions-storage.yml
-        run: |
-          node --input-type=module -e '
-            import { appendFileSync } from "node:fs";
-            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
-            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
-            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
-            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha].join("\n") + "\n");
-          '
-
-      - name: Checkout exact cleanup scripts
+      # 삭제 권한이 있는 job이 실행할 코드는 중앙 저장소 main에서 받는다.
+      - name: Checkout cleanup scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ steps.authority.outputs.repository }}
-          ref: ${{ steps.authority.outputs.sha }}
+          repository: seorilabs/.github
+          ref: main
           path: .seorilabs-actions-storage
           persist-credentials: false
 
