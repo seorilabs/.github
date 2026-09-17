@@ -59,96 +59,48 @@ jobs:
             *) echo "승인되지 않은 러너 라벨: $REQUESTED_RUNNER" >&2; exit 1 ;;
           esac
 
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          check-latest: false
+
+      # 삭제 권한이 있는 job이 실행할 코드는 exact SHA로 받는다. called workflow identity로
+      # 중앙 저장소와 SHA를 확인하고, 그 SHA만 체크아웃한다.
+      - name: Validate called reusable workflow identity
+        id: authority
+        shell: bash
+        env:
+          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
+          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/cleanup-actions-storage.yml
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
+            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
+            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
+            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha].join("\n") + "\n");
+          '
+
+      - name: Checkout exact cleanup scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.authority.outputs.repository }}
+          ref: ${{ steps.authority.outputs.sha }}
+          path: .seorilabs-actions-storage
+          persist-credentials: false
+
       - name: Delete workflow artifacts
         if: env.DELETE_ARTIFACTS == 'true'
         shell: bash
         run: |
           set -euo pipefail
-
-          human_bytes() {
-            awk -v bytes="${1:-0}" '
-              BEGIN {
-                split("B KiB MiB GiB TiB", units)
-                value = bytes; unit = 1
-                while (value >= 1024 && unit < 5) { value /= 1024; unit += 1 }
-                printf "%.2f %s", value, units[unit]
-              }'
-          }
-
-          rows="$(gh api --paginate "repos/$GH_REPO/actions/artifacts?per_page=100" --jq '.artifacts[] | [.id, .name, .size_in_bytes] | @tsv')"
-          if [ -z "$rows" ]; then
-            echo "No workflow artifacts found."
-            { echo "### Workflow artifacts"; echo ""; echo "- candidates: 0"; echo "- deleted: 0"; } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          count="$(printf '%s\n' "$rows" | awk 'NF { c += 1 } END { print c + 0 }')"
-          bytes="$(printf '%s\n' "$rows" | awk -F '\t' '{ s += $3 } END { print s + 0 }')"
-          echo "Found $count workflow artifacts using $(human_bytes "$bytes")."
-
-          deleted=0
-          while IFS=$'\t' read -r id name size; do
-            [ -n "${id:-}" ] || continue
-            if [ "$DRY_RUN" = "true" ]; then
-              echo "[dry-run] artifact #$id $name ($size bytes)"
-            else
-              echo "Deleting artifact #$id $name ($size bytes)"
-              gh api --method DELETE "repos/$GH_REPO/actions/artifacts/$id" >/dev/null
-            fi
-            deleted=$((deleted + 1))
-          done <<< "$rows"
-
-          {
-            echo "### Workflow artifacts"; echo ""
-            echo "- candidates: $count"
-            echo "- size: $(human_bytes "$bytes") ($bytes bytes)"
-            echo "- processed: $deleted"
-            echo "- dry_run: $DRY_RUN"
-          } >> "$GITHUB_STEP_SUMMARY"
+          # gh CLI는 ARC 러너 이미지에 없다. 목록·삭제 모두 REST로 한다.
+          node .seorilabs-actions-storage/scripts/cleanup-actions-storage.mjs --kind artifacts
 
       - name: Delete Actions caches
         if: env.DELETE_CACHES == 'true'
         shell: bash
         run: |
           set -euo pipefail
-
-          human_bytes() {
-            awk -v bytes="${1:-0}" '
-              BEGIN {
-                split("B KiB MiB GiB TiB", units)
-                value = bytes; unit = 1
-                while (value >= 1024 && unit < 5) { value /= 1024; unit += 1 }
-                printf "%.2f %s", value, units[unit]
-              }'
-          }
-
-          rows="$(gh api --paginate "repos/$GH_REPO/actions/caches?per_page=100" --jq '.actions_caches[] | [.id, .key, .size_in_bytes] | @tsv')"
-          if [ -z "$rows" ]; then
-            echo "No Actions caches found."
-            { echo "### Actions caches"; echo ""; echo "- candidates: 0"; echo "- deleted: 0"; } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          count="$(printf '%s\n' "$rows" | awk 'NF { c += 1 } END { print c + 0 }')"
-          bytes="$(printf '%s\n' "$rows" | awk -F '\t' '{ s += $3 } END { print s + 0 }')"
-          echo "Found $count Actions caches using $(human_bytes "$bytes")."
-
-          deleted=0
-          while IFS=$'\t' read -r id key size; do
-            [ -n "${id:-}" ] || continue
-            if [ "$DRY_RUN" = "true" ]; then
-              echo "[dry-run] cache #$id $key ($size bytes)"
-            else
-              echo "Deleting cache #$id $key ($size bytes)"
-              gh api --method DELETE "repos/$GH_REPO/actions/caches/$id" >/dev/null
-            fi
-            deleted=$((deleted + 1))
-          done <<< "$rows"
-
-          {
-            echo "### Actions caches"; echo ""
-            echo "- candidates: $count"
-            echo "- size: $(human_bytes "$bytes") ($bytes bytes)"
-            echo "- processed: $deleted"
-            echo "- dry_run: $DRY_RUN"
-          } >> "$GITHUB_STEP_SUMMARY"
+          node .seorilabs-actions-storage/scripts/cleanup-actions-storage.mjs --kind caches
