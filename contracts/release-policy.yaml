@@ -21,7 +21,7 @@ releaseTrigger:
     - approved-telegram-automation
 
 reusableWorkflows:
-  referencePin: full-commit-sha
+  referencePin: central-main
   thinCallerRequired: true
 
 credentials:
