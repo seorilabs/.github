@@ -80,8 +80,7 @@ Xcode Cloud는 build마다 자기 카운터를 발급하고 App Store Connect는
 flowchart TD
     T["GitHub release tag - vX.Y.Z"] --> R["release-tag.yml - annotated tag + binding receipt"]
     R --> D["재사용 deploy workflow"]
-    D --> A["called workflow identity 검증 - full commit SHA"]
-    A --> B["org 정본 checkout - .seorilabs-release-authority"]
+    D --> B["org 정본 checkout - .seorilabs-release-authority, main"]
     B --> C["refs/tags exact commit checkout - HEAD 일치 확인"]
     C --> E["release binding 생성 - tag, source SHA, config revision, 파생 version"]
     E --> F["build 입력 주입 - Gradle 인자, Xcode 설정, Godot preset, AIT env"]
@@ -89,20 +88,19 @@ flowchart TD
     G --> H["마켓 업로드"]
 ```
 
-1. **called workflow identity**: `job.workflow_repository`가 `seorilabs/.github`이고
-   `job.workflow_ref`가 full commit SHA로 끝나야 한다. floating ref는 거부한다.
-2. **org 정본 checkout**: 확인된 exact SHA로 `.seorilabs-release-authority`에 받는다. caller 저장소의
-   스크립트는 버전 결정에 쓰지 않는다.
-3. **exact tag commit**: `refs/tags/<tag>`로만 checkout한다. 동명 branch를 잡지 않고, checkout HEAD가
+1. **org 정본 checkout**: `seorilabs/.github`의 `main`을 `.seorilabs-release-authority`에 받는다.
+   caller 저장소의 스크립트는 버전 결정에 쓰지 않는다. 실제 실행된 중앙 커밋은
+   `job.workflow_sha`로 release binding에 기록된다.
+2. **exact tag commit**: `refs/tags/<tag>`로만 checkout한다. 동명 branch를 잡지 않고, checkout HEAD가
    태그 commit과 다르면 실패한다.
-4. **release binding**: `tag`, `sourceSha`, `configRevision`, 파생 version을 하나의 JSON으로 고정한다.
+3. **release binding**: `tag`, `sourceSha`, `configRevision`, 파생 version을 하나의 JSON으로 고정한다.
    `authorityRevision`은 이 계약 본문의 sha256이고, `configRevision`은 여기에 called workflow
    repository/ref/SHA를 더한 값이다. 전자는 tag receipt로 대조하고 후자는 실행 provenance로 남긴다.
-5. **주입**: Gradle `-PversionNameOverride`/`-PversionCodeOverride`, xcodebuild
+4. **주입**: Gradle `-PversionNameOverride`/`-PversionCodeOverride`, xcodebuild
    `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`, Godot export preset, AIT 빌드 env
    (`SEORI_RELEASE_TAG`, `SEORI_RELEASE_VERSION`, `SEORI_RELEASE_VERSION_CODE`,
    `SEORI_RELEASE_SOURCE_SHA`).
-6. **readback**: build된 artifact에서 metadata를 다시 읽어 binding과 대조한다.
+5. **readback**: build된 artifact에서 metadata를 다시 읽어 binding과 대조한다.
 
 ## artifact readback
 

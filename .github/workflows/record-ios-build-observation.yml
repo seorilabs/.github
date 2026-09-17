@@ -1,5 +1,5 @@
 # Seorilabs org 재사용 워크플로우: Xcode Cloud iOS build number 관측값 기록
-# 호출: uses: seorilabs/.github/.github/workflows/record-ios-build-observation.yml@<FULL_COMMIT_SHA>
+# 호출: uses: seorilabs/.github/.github/workflows/record-ios-build-observation.yml@main
 # 원칙: 이 경로는 번호를 할당하지 않는다. CFBundleVersion의 정본은 Xcode Cloud의
 # CI_BUILD_NUMBER이고, 원장에는 App Store Connect readback으로 확인된 값만 관측으로 남긴다.
 # 그래서 iOS 재빌드나 실패가 Android versionCode를 소비하지 않는다.
@@ -55,26 +55,11 @@ jobs:
           node-version: "24"
           check-latest: false
 
-      - name: Validate called reusable workflow identity
-        id: authority
-        shell: bash
-        env:
-          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
-          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/record-ios-build-observation.yml
-        run: |
-          node --input-type=module -e '
-            import { appendFileSync } from "node:fs";
-            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
-            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
-            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
-            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
-          '
-
-      - name: Checkout exact release version authority
+      - name: Checkout release version authority
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ steps.authority.outputs.repository }}
-          ref: ${{ steps.authority.outputs.sha }}
+          repository: seorilabs/.github
+          ref: main
           path: .seorilabs-release-authority
           persist-credentials: false
 

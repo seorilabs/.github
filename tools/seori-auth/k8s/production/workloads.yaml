@@ -1,4 +1,0 @@
-# LEGACY PATH - intentionally contains no Kubernetes object.
-# Production Service and workload resources are generated together by
-# ../../scripts/render-production-k8s.mjs. Keeping this path as a comment-only
-# compatibility marker prevents stale placeholder deployment.

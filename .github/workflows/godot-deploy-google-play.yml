@@ -1,6 +1,6 @@
 # Seorilabs org 재사용 워크플로우: Godot 게임 Google Play (서명 AAB + 업로드)
-# 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-google-play.yml@<FULL_COMMIT_SHA>
-# 러너: seorilabs-x64-android 고정(x64 필수). godot --export-release → 서명 AAB → WIF 업로드.
+# 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-google-play.yml@main
+# 러너: ubuntu-latest 고정(x64 필수). godot --export-release → 서명 AAB → WIF 업로드.
 # 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
 # export_presets.cfg와 play-store config JSON은 authority가 아니라 주입 대상이고, AAB manifest
 # readback이 태그 파생값과 다르면 업로드 전에 fail-closed한다.
@@ -98,8 +98,8 @@ permissions:
 jobs:
   build-aab:
     name: Godot signed Android App Bundle
-    # 마켓 자격증명을 쓰는 job은 caller가 러너를 고를 수 없다. x64 ARC로 고정한다.
-    runs-on: seorilabs-x64-android
+    # 마켓 자격증명을 쓰는 job은 caller가 러너를 고를 수 없다. GitHub-hosted x64로 고정한다.
+    runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: google-play
 
@@ -141,27 +141,12 @@ jobs:
           check-latest: false
 
       # 버전 authority 구현은 org 정본에만 둔다. caller 저장소 스크립트를 신뢰하지 않기 위해
-      # called workflow identity를 확인하고 그 exact commit SHA로 정본을 받아 실행한다.
-      - name: Validate called reusable workflow identity
-        id: authority
-        shell: bash
-        env:
-          JOB_CONTEXT_JSON: ${{ toJSON(job) }}
-          EXPECTED_WORKFLOW_PATH: seorilabs/.github/.github/workflows/godot-deploy-google-play.yml
-        run: |
-          node --input-type=module -e '
-            import { appendFileSync } from "node:fs";
-            const identity = JSON.parse(process.env.JOB_CONTEXT_JSON ?? "{}");
-            const expected = process.env.EXPECTED_WORKFLOW_PATH + "@" + identity.workflow_sha;
-            if (identity.workflow_repository !== "seorilabs/.github" || !/^[0-9a-f]{40}$/.test(identity.workflow_sha ?? "") || identity.workflow_ref !== expected) process.exit(1);
-            appendFileSync(process.env.GITHUB_OUTPUT, ["repository=" + identity.workflow_repository, "sha=" + identity.workflow_sha, "ref=" + identity.workflow_ref].join("\n") + "\n");
-          '
-
-      - name: Checkout exact release version authority
+      # 중앙 저장소 main에서 정본을 받아 실행한다.
+      - name: Checkout release version authority
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ steps.authority.outputs.repository }}
-          ref: ${{ steps.authority.outputs.sha }}
+          repository: seorilabs/.github
+          ref: main
           path: .seorilabs-release-authority
           persist-credentials: false
 
@@ -215,9 +200,6 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
           RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
-          JOB_WORKFLOW_REPOSITORY: ${{ steps.authority.outputs.repository }}
-          JOB_WORKFLOW_REF: ${{ steps.authority.outputs.ref }}
-          JOB_WORKFLOW_SHA: ${{ steps.authority.outputs.sha }}
           RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
           RELEASE_EVENT_NAME: ${{ github.event_name }}
           RELEASE_EVENT_REF: ${{ github.ref }}

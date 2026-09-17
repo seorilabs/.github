@@ -178,7 +178,7 @@ function main() {
   if (!/^[0-9a-f]{40}$/u.test(workflowSha)) {
     throw new ReleaseAuthorityError(
       'ledger-initialization-needs-input',
-      `--workflow-sha(또는 JOB_WORKFLOW_SHA)로 중앙 워크플로의 40자리 commit SHA가 필요하다: ${workflowSha || 'missing'}`,
+      `--workflow-sha(또는 JOB_WORKFLOW_SHA)로 원장을 만든 중앙 정본 commit SHA가 필요하다: ${workflowSha || 'missing'}`,
     );
   }
   const authorityContract = readFileSync(

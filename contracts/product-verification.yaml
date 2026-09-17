@@ -20,7 +20,7 @@ profiles:
   godot:
     workflow: .github/workflows/godot-product-verification-v1.yml
     baseWorkflow: .github/workflows/godot-checks.yml
-    baseWorkflowSha: 565fba53aa5053785c63c9b732b93a3fbd7be847
+    baseWorkflowRef: main
     runner: seorilabs-rpi-arm64
     godotVersion: 4.7.2
     requiredScripts:

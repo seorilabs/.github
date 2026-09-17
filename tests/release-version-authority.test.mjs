@@ -233,7 +233,7 @@ test('빈 입력의 최신 태그 폴백은 원장의 lastTag 하나만 읽는�
   }
 });
 
-test('config revision은 org 정본 workflow full SHA와 계약 revision에만 의존한다', () => {
+test('config revision은 실행된 중앙 workflow와 계약 revision에만 의존한다', () => {
   const contract = readFileSync(AUTHORITY_CONTRACT, 'utf8');
   const base = {
     calledWorkflowRepository: 'seorilabs/.github',
@@ -259,18 +259,23 @@ test('config revision은 org 정본 workflow full SHA와 계약 revision에만 �
     revision,
   );
 
+  // caller는 main을 참조한다. floating ref도, provenance 값이 비어 있어도 해석을 막지 않는다.
+  for (const tolerated of [
+    { ...base, calledWorkflowRef: 'seorilabs/.github/.github/workflows/rn-deploy-ait.yml@refs/heads/main' },
+    { calledWorkflowRepository: undefined, calledWorkflowRef: undefined, calledWorkflowSha: undefined, authorityRevision: base.authorityRevision },
+  ]) {
+    assert.match(computeConfigRevision(tolerated), /^[0-9a-f]{64}$/u);
+  }
+
+  // 릴리즈를 세우는 것은 계약 revision이다. 이것만 fail-closed한다.
   for (const invalid of [
-    { ...base, calledWorkflowRepository: 'attacker/.github' },
-    { ...base, calledWorkflowSha: 'main' },
-    { ...base, calledWorkflowRef: 'seorilabs/.github/.github/workflows/rn-deploy-ait.yml@main' },
-    { ...base, calledWorkflowRef: `other/repo/.github/workflows/x.yml@${WORKFLOW_SHA}` },
     { ...base, authorityRevision: '' },
     { ...base, authorityRevision: 'not-a-digest' },
   ]) {
     assert.throws(
       () => computeConfigRevision(invalid),
       (error) => error.code === 'config-revision-mismatch',
-      JSON.stringify(invalid.calledWorkflowRef),
+      JSON.stringify(invalid.authorityRevision),
     );
   }
 });
@@ -1186,15 +1191,15 @@ test('resolver CLI는 tag/source/receipt 불일치를 종료 코드로 fail-clos
     assert.notEqual(badHead.status, 0);
     assert.match(badHead.stderr, /source-sha-mismatch/u);
 
+    // caller가 main을 참조해도 해석은 진행된다. 실패 사유는 태그 계약이지 ref 형태가 아니다.
     const floating = runNode(RESOLVE_CLI, ['--tag', 'v1.2.3', '--source-sha', SHA_A], {
       JOB_WORKFLOW_REPOSITORY: 'seorilabs/.github',
       JOB_WORKFLOW_SHA: WORKFLOW_SHA,
-      JOB_WORKFLOW_REF: 'seorilabs/.github/.github/workflows/rn-deploy-ait.yml@main',
+      JOB_WORKFLOW_REF: 'seorilabs/.github/.github/workflows/rn-deploy-ait.yml@refs/heads/main',
       RELEASE_EVENT_NAME: 'workflow_dispatch',
       RELEASE_EVENT_REF: 'refs/heads/main',
     });
-    assert.notEqual(floating.status, 0);
-    assert.match(floating.stderr, /config-revision-mismatch/u);
+    assert.doesNotMatch(floating.stderr, /config-revision-mismatch/u);
 
     const badTag = runNode(RESOLVE_CLI, ['--tag', 'v1.2.3-rc.1', '--source-sha', SHA_A], authorityEnv());
     assert.notEqual(badTag.status, 0);
@@ -1561,18 +1566,12 @@ test('워크플로우의 exact tag 해석 블록은 동명 branch와 비정상 �
   }
 });
 
-test('모든 릴리즈 경로가 org 정본 authority를 exact SHA로 호출한다', () => {
+test('모든 릴리즈 경로가 org 정본 authority를 main에서 호출한다', () => {
   for (const name of RELEASE_WORKFLOWS) {
     const text = workflowText(name);
 
-    assert.match(
-      text,
-      new RegExp(`EXPECTED_WORKFLOW_PATH: seorilabs/\\.github/\\.github/workflows/${name.replace('.', '\\.')}`, 'u'),
-      name,
-    );
-    assert.match(text, /identity\.workflow_repository !== "seorilabs\/\.github"/u, name);
-    assert.match(text, /\/\^\[0-9a-f\]\{40\}\$\/\.test\(identity\.workflow_sha/u, name);
-    assert.match(text, /ref: \$\{\{ steps\.authority\.outputs\.sha \}\}/u, name);
+    assert.match(text, /repository: seorilabs\/\.github/u, name);
+    assert.match(text, /ref: main/u, name);
     assert.match(text, /path: \.seorilabs-release-authority/u, name);
     assert.match(text, /persist-credentials: false/u, name);
     assert.match(
@@ -1755,8 +1754,8 @@ test('마켓 업로드와 트랙 승격은 태그 파생 exact versionCode를 �
     promote,
     /PROMOTE_VERSION_CODE: \$\{\{ steps\.release\.outputs\.android_version_code \}\}/u,
   );
-  // 승격도 org 정본 authority를 exact SHA로 받아 태그에서 파생한다.
-  assert.match(promote, /EXPECTED_WORKFLOW_PATH: seorilabs\/\.github\/\.github\/workflows\/promote-google-play\.yml/u);
+  // 승격도 org 정본 authority를 main에서 받아 태그에서 파생한다.
+  assert.match(promote, /repository: seorilabs\/\.github\n {10}ref: main/u);
   assert.match(promote, /resolve-release-version\.mjs \\\n {14}--ledger-file "\$RUNNER_TEMP\/release-version-ledger\.json" --github-output/u);
   assert.doesNotMatch(promote, /--sort=-v:refname/u);
 });
@@ -1878,10 +1877,8 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   // 권한 있는 job의 러너는 caller 입력을 그대로 쓰지 않는다. 승인된 라벨만 허용한다.
   const approvedRunners = new Set([
     'seorilabs-rpi-arm64',
-    'seorilabs-x64-android',
     'ubuntu-latest',
     'macos-26',
-    "${{ github.event.repository.private && 'seorilabs-x64-android' || 'ubuntu-latest' }}",
     "${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}",
   ]);
   const marketPermissions = {
@@ -1915,11 +1912,8 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   assert.equal(resolveTagStep.env.RELEASE_EVENT_SHA, '${{ github.sha }}');
   const godotPlay = parse(workflowText('godot-deploy-google-play.yml'));
   const rnPlay = parse(workflowText('rn-deploy-google-play.yml'));
-  assert.equal(godotPlay.jobs['build-aab']['runs-on'], 'seorilabs-x64-android');
-  assert.equal(
-    rnPlay.jobs['build-aab']['runs-on'],
-    "${{ github.event.repository.private && 'seorilabs-x64-android' || 'ubuntu-latest' }}",
-  );
+  assert.equal(godotPlay.jobs['build-aab']['runs-on'], 'ubuntu-latest');
+  assert.equal(rnPlay.jobs['build-aab']['runs-on'], 'ubuntu-latest');
   for (const [name, definition] of [
     ['release-tag.yml', releaseTag],
     ['godot-deploy-google-play.yml', godotPlay],
@@ -1942,19 +1936,13 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   }
 });
 
-test('RN Play public repo는 private ARC를 사용하지 않는다', () => {
-  const workflow = parse(workflowText('rn-deploy-google-play.yml'));
-  const runner = workflow.jobs['build-aab']['runs-on'];
-  assert.equal(
-    runner,
-    "${{ github.event.repository.private && 'seorilabs-x64-android' || 'ubuntu-latest' }}",
-  );
-
-  const selectRunner = (isPrivate) =>
-    isPrivate ? 'seorilabs-x64-android' : 'ubuntu-latest';
-  assert.equal(selectRunner(true), 'seorilabs-x64-android');
-  assert.equal(selectRunner(false), 'ubuntu-latest');
-  assert.notEqual(selectRunner(false), 'seorilabs-x64-android');
+test('Android 빌드는 public/private 구분 없이 GitHub-hosted x64를 쓴다', () => {
+  for (const name of ['rn-deploy-google-play.yml', 'godot-deploy-google-play.yml']) {
+    const workflow = parse(workflowText(name));
+    assert.equal(workflow.jobs['build-aab']['runs-on'], 'ubuntu-latest', name);
+    // ARC는 arm64라 aapt2를 돌릴 수 없다. 라우팅이 되살아나지 않게 막는다.
+    assert.doesNotMatch(workflowText(name), /seorilabs-x64-android|seorilabs-rpi-arm64/u, name);
+  }
 });
 
 test('authority 계약이 파생 규칙과 금지된 authority를 기계 판독으로 고정한다', () => {

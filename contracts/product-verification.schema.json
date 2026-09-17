@@ -61,7 +61,7 @@
           "required": [
             "workflow",
             "baseWorkflow",
-            "baseWorkflowSha",
+            "baseWorkflowRef",
             "runner",
             "godotVersion",
             "requiredScripts",
@@ -70,7 +70,7 @@
           "properties": {
             "workflow": { "const": ".github/workflows/godot-product-verification-v1.yml" },
             "baseWorkflow": { "const": ".github/workflows/godot-checks.yml" },
-            "baseWorkflowSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "baseWorkflowRef": { "const": "main" },
             "runner": { "const": "seorilabs-rpi-arm64" },
             "godotVersion": { "const": "4.7.2" },
             "requiredScripts": {

@@ -16,7 +16,7 @@
 - `schemaVersion` 호환 범위에서는 필드를 비파괴적으로 추가한다. 기존 의미를 깨는 변경은 새 major 계약으로 분리한다.
 - `main`과 PR은 정적 게이트만 실행한다. 마켓 업로드는 명시적 Release 또는 Tag와 별도 승인 경로로만 수행한다.
 - Apple archive와 App Store 업로드의 표준 실행 환경은 Xcode Cloud다.
-- 공통 workflow caller는 immutable commit SHA로 고정하고 필요한 Secret만 명시적으로 전달한다.
+- 공통 workflow caller는 `@main`으로 호출하고 필요한 Secret만 명시적으로 전달한다.
 - 구현, artifact, upload, device QA, review, approval, deployment, public availability를 서로 다른 상태로 표현한다.
 
 ## 검증

@@ -11,7 +11,7 @@ permissions:
 jobs:
   suite:
     name: Product contract suite
-    uses: seorilabs/.github/.github/workflows/godot-checks.yml@565fba53aa5053785c63c9b732b93a3fbd7be847
+    uses: seorilabs/.github/.github/workflows/godot-checks.yml@main
     with:
       runs_on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
       godot_version: "4.7.2"

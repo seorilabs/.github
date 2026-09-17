@@ -30,7 +30,7 @@ test("Godot workflow는 caller 입력 없이 세 제품 검증 명령을 고정�
   }
   assert.match(
     workflow,
-    new RegExp(`godot-checks\\.yml@${contract.profiles.godot.baseWorkflowSha}`, "u"),
+    new RegExp(`godot-checks\\.yml@${contract.profiles.godot.baseWorkflowRef}`, "u"),
   );
   assert.match(workflow, /name: Product Verification/u);
   assert.match(workflow, /if: \$\{\{ always\(\) \}\}/u);
