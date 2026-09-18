@@ -36,3 +36,4 @@ Seorilabs organization-wide GitHub defaults, profile content, and operating cont
 - [Org CI/CD & release system — legacy migration reference](docs/ci-cd/org-cicd-release-system.md)
 - [Build toolchain contract](docs/ci-cd/build-toolchain-contract.md)
 - [Release version authority](docs/ci-cd/release-version-authority.md)
+- [Repository visibility transition — private에서 public으로](docs/ci-cd/repository-visibility-transition.md)
