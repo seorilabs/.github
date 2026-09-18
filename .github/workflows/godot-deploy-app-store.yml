@@ -44,13 +44,16 @@ on:
         required: false
         default: "iOS"
         type: string
-      xcode_project_dir:
-        description: "Godot iOS export가 xcodeproj를 내보낼 디렉터리(workspace 기준)."
+      xcode_project_path:
+        description: >-
+          Godot iOS export가 만들 .xcodeproj의 workspace 기준 경로.
+          export_presets.cfg iOS preset의 export_path와 같은 파일을 가리켜야 한다.
+          파일명이 scheme 이름을 결정하므로 디렉터리가 아니라 전체 경로를 받는다.
         required: false
-        default: "release-artifacts/ios/xcode"
+        default: "release-artifacts/ios/xcode/app.xcodeproj"
         type: string
       scheme:
-        description: "xcodebuild scheme. 비우면 xcodeproj basename을 쓴다."
+        description: "xcodebuild scheme. 비우면 .xcodeproj basename을 쓴다."
         required: false
         default: ""
         type: string
@@ -111,7 +114,7 @@ jobs:
       GODOT_STATUS: ${{ inputs.godot_status }}
       PROJECT_DIR: ${{ inputs.project_dir }}
       IOS_EXPORT_PRESET: ${{ inputs.ios_export_preset }}
-      XCODE_PROJECT_DIR: ${{ inputs.xcode_project_dir }}
+      XCODE_PROJECT_PATH: ${{ inputs.xcode_project_path }}
       EXPORT_OPTIONS_PLIST: ${{ inputs.export_options_plist }}
       SCRIPTS_DIR: ${{ inputs.scripts_dir }}
       PREPARE_PROJECT_SCRIPT: ${{ inputs.prepare_project_script }}
@@ -208,18 +211,28 @@ jobs:
             node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs \
               --ledger-file "$RUNNER_TEMP/release-version-ledger.json" --github-output
 
+      # export 이전이라 디스크를 탐색할 수 없다. 이름은 입력 경로가 결정한다.
+      # scheme은 Godot이 만드는 xcodeproj 파일명과 같아야 xcodebuild가 찾는다.
       - name: Resolve archive identity
         id: meta
         shell: bash
+        env:
+          INPUT_SCHEME: ${{ inputs.scheme }}
         run: |
           set -euo pipefail
-          project="$(find "$XCODE_PROJECT_DIR" -maxdepth 1 -name '*.xcodeproj' | head -n 1)"
-          [ -n "$project" ] || { echo "xcodeproj를 찾지 못했다: $XCODE_PROJECT_DIR" >&2; exit 1; }
-          base="$(basename "$project" .xcodeproj)"
-          scheme="${{ inputs.scheme }}"
+          case "$XCODE_PROJECT_PATH" in
+            *.xcodeproj) ;;
+            *) echo "xcode_project_path는 .xcodeproj로 끝나야 한다: $XCODE_PROJECT_PATH" >&2; exit 1 ;;
+          esac
+          base="$(basename "$XCODE_PROJECT_PATH" .xcodeproj)"
+          [[ "$base" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+            echo "xcodeproj basename이 안전한 이름이 아니다: $base" >&2
+            exit 1
+          }
+          scheme="$INPUT_SCHEME"
           [ -n "$scheme" ] || scheme="$base"
           {
-            echo "project=$project"
+            echo "project=$GITHUB_WORKSPACE/$XCODE_PROJECT_PATH"
             echo "scheme=$scheme"
             echo "archive_path=$RUNNER_TEMP/archives/$base.xcarchive"
             echo "export_dir=$RUNNER_TEMP/export"
@@ -307,12 +320,19 @@ jobs:
 
       - name: Export Xcode project
         shell: bash
+        env:
+          XCODE_PROJECT: ${{ steps.meta.outputs.project }}
         run: |
           set -euo pipefail
-          output_path="$GITHUB_WORKSPACE/$XCODE_PROJECT_DIR"
-          mkdir -p "$output_path"
+          mkdir -p "$(dirname "$XCODE_PROJECT")"
           # iOS preset은 export_project_only=true라 서명 없는 Xcode 프로젝트만 나온다.
-          godot --headless --path "$PROJECT_DIR" --export-release "$IOS_EXPORT_PRESET" "$output_path/$(basename "$XCODE_PROJECT_DIR").xcodeproj"
+          # Godot은 상대 출력 경로를 --path 기준으로 해석하므로 절대 경로를 넘긴다.
+          godot --headless --path "$PROJECT_DIR" --export-release "$IOS_EXPORT_PRESET" "$XCODE_PROJECT"
+          [ -d "$XCODE_PROJECT" ] || {
+            echo "xcodeproj가 생성되지 않았다: $XCODE_PROJECT" >&2
+            echo "export_presets.cfg의 iOS preset export_path와 xcode_project_path가 같은 파일인지 확인하라." >&2
+            exit 1
+          }
 
       - name: Install signing assets
         id: signing
