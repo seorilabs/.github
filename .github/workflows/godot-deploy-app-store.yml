@@ -1,0 +1,514 @@
+# Seorilabs org 재사용 워크플로우: Godot 게임 App Store (xcarchive + .ipa 업로드)
+# 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-app-store.yml@main
+# 러너: macos-26 고정. Xcode archive/서명/업로드는 macOS에서만 성립한다.
+# 한 job으로 유지하는 이유: release binding과 artifact digest가 job 경계를 넘으면
+# "검증한 그 artifact만 올린다"가 artifact 전달 신뢰로 약해진다. public 저장소는
+# GitHub-hosted 표준 러너가 무료라 Linux로 export만 분리할 비용 이점도 없다.
+# 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
+# CFBundleVersion은 Xcode Cloud 예외 경로가 아니므로 derivation.appleBuildNumber
+# (encoded-version)를 쓴다. archive Info.plist readback이 태그 파생값과 다르면
+# 업로드 전에 fail-closed한다.
+name: Godot Deploy App Store (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: false
+        default: ""
+        type: string
+      bundle_id:
+        description: "App Store Connect bundle identifier. 검증된 archive identity와 같아야 한다."
+        required: false
+        default: ""
+        type: string
+      upload:
+        description: "false면 xcarchive/.ipa artifact만 만들고 업로드하지 않는다."
+        required: false
+        default: true
+        type: boolean
+      godot_version:
+        required: false
+        default: "4.6.3"
+        type: string
+      godot_status:
+        required: false
+        default: "stable"
+        type: string
+      project_dir:
+        required: false
+        default: "."
+        type: string
+      ios_export_preset:
+        description: "Godot iOS export preset 이름. 버전 주입과 export 대상이 같아야 한다."
+        required: false
+        default: "iOS"
+        type: string
+      xcode_project_dir:
+        description: "Godot iOS export가 xcodeproj를 내보낼 디렉터리(workspace 기준)."
+        required: false
+        default: "release-artifacts/ios/xcode"
+        type: string
+      scheme:
+        description: "xcodebuild scheme. 비우면 xcodeproj basename을 쓴다."
+        required: false
+        default: ""
+        type: string
+      export_options_plist:
+        description: "exportArchive용 exportOptions.plist 경로(workspace 기준)."
+        required: false
+        default: "app-store/exportOptions.plist"
+        type: string
+      scripts_dir:
+        required: false
+        default: "tools"
+        type: string
+      prepare_project_script:
+        description: "Godot import 전에 실행할 repo-local 준비 스크립트. iOS 네이티브 플러그인 설치 등."
+        required: false
+        default: ""
+        type: string
+      post_export_validation_script:
+        description: "archive 직후·업로드 전에 실행할 repo-local 검증 스크립트"
+        required: false
+        default: ""
+        type: string
+      timeout_minutes:
+        required: false
+        default: 60
+        type: number
+    secrets:
+      APPLE_DISTRIBUTION_CERTIFICATE_BASE64:
+        required: false
+      APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_KEYCHAIN_PASSWORD:
+        required: false
+      APPLE_PROVISIONING_PROFILE_BASE64:
+        required: false
+      APP_STORE_CONNECT_API_KEY_ID:
+        required: false
+      APP_STORE_CONNECT_ISSUER_ID:
+        required: false
+      APP_STORE_CONNECT_PRIVATE_KEY_BASE64:
+        required: false
+      GODOT_ANALYTICS_CONFIG_JSON_BASE64:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-archive:
+    name: Godot signed iOS archive
+    # 마켓 자격증명을 쓰는 job은 caller가 러너를 고를 수 없다. GitHub-hosted macOS로 고정한다.
+    runs-on: macos-26
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment: app-store
+
+    env:
+      GODOT_VERSION: ${{ inputs.godot_version }}
+      GODOT_STATUS: ${{ inputs.godot_status }}
+      PROJECT_DIR: ${{ inputs.project_dir }}
+      IOS_EXPORT_PRESET: ${{ inputs.ios_export_preset }}
+      XCODE_PROJECT_DIR: ${{ inputs.xcode_project_dir }}
+      EXPORT_OPTIONS_PLIST: ${{ inputs.export_options_plist }}
+      SCRIPTS_DIR: ${{ inputs.scripts_dir }}
+      PREPARE_PROJECT_SCRIPT: ${{ inputs.prepare_project_script }}
+      POST_EXPORT_VALIDATION_SCRIPT: ${{ inputs.post_export_validation_script }}
+      SHOULD_UPLOAD: ${{ inputs.upload }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 1
+          fetch-tags: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          check-latest: false
+
+      # 버전 authority 구현은 org 정본에만 둔다. caller 저장소 스크립트를 신뢰하지 않기 위해
+      # 중앙 저장소 main에서 정본을 받아 실행한다.
+      - name: Checkout release version authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: seorilabs/.github
+          ref: main
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
+      - name: Resolve exact release tag
+        id: tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          # 태그 선택은 실행 이벤트에 묶인다. refs/tags 실행은 그 태그가 곧 정본이고,
+          # 최신 태그 폴백은 운영자가 시작한 workflow_dispatch에서만 허용한다.
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # hot path는 원장 tip의 JSON 한 개와 대상 태그 ref 하나만 읽는다. 전체 태그를 나열하지 않는다.
+          LEDGER_BRANCH=release-version-ledger
+          LEDGER_JSON="$RUNNER_TEMP/release-version-ledger.json"
+          : > "$LEDGER_JSON"
+          if git ls-remote --exit-code --heads origin "$LEDGER_BRANCH" >/dev/null 2>&1; then
+            git fetch --no-tags --depth=1 --force origin "+refs/heads/$LEDGER_BRANCH:refs/remotes/origin/$LEDGER_BRANCH" >/dev/null
+            git show "refs/remotes/origin/$LEDGER_BRANCH:release-version-ledger.json" > "$LEDGER_JSON"
+          fi
+          tag="$(node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --ledger-file "$LEDGER_JSON" --print-tag)"
+          git fetch --no-tags --depth=1 --force origin "+refs/tags/$tag:refs/tags/$tag" >/dev/null
+          git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null
+          git -c advice.detachedHead=false checkout "refs/tags/$tag"
+          tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          head_commit="$(git rev-parse 'HEAD^{commit}')"
+          [ "$tag_commit" = "$head_commit" ] || {
+            echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
+            exit 1
+          }
+          case "$RELEASE_EVENT_REF" in
+            refs/tags/*)
+              [ "$tag" = "${RELEASE_EVENT_REF#refs/tags/}" ] || {
+                echo "tag 이벤트 ref와 해석된 태그가 다름: $RELEASE_EVENT_REF != $tag" >&2
+                exit 1
+              }
+              [ "$tag_commit" = "$RELEASE_EVENT_SHA" ] || {
+                echo "tag 이벤트 commit과 태그 commit이 다름: $RELEASE_EVENT_SHA != $tag_commit" >&2
+                exit 1
+              }
+              ;;
+          esac
+          { echo "tag=$tag"; echo "sha=$tag_commit"; } >> "$GITHUB_OUTPUT"
+
+      - name: Bind release version to the tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then
+            git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release-tag-message.txt"
+            export RELEASE_TAG_MESSAGE_FILE="$RUNNER_TEMP/release-tag-message.txt"
+          fi
+          RELEASE_HEAD_SHA="$(git rev-parse 'HEAD^{commit}')" \
+          RELEASE_LOCAL_TAG_SHA="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" \
+            node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs \
+              --ledger-file "$RUNNER_TEMP/release-version-ledger.json" --github-output
+
+      - name: Resolve archive identity
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          project="$(find "$XCODE_PROJECT_DIR" -maxdepth 1 -name '*.xcodeproj' | head -n 1)"
+          [ -n "$project" ] || { echo "xcodeproj를 찾지 못했다: $XCODE_PROJECT_DIR" >&2; exit 1; }
+          base="$(basename "$project" .xcodeproj)"
+          scheme="${{ inputs.scheme }}"
+          [ -n "$scheme" ] || scheme="$base"
+          {
+            echo "project=$project"
+            echo "scheme=$scheme"
+            echo "archive_path=$RUNNER_TEMP/archives/$base.xcarchive"
+            echo "export_dir=$RUNNER_TEMP/export"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install Godot
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_macos.universal.zip"
+          unzip -q godot.zip
+          install_dir="$RUNNER_TEMP/godot-bin"
+          mkdir -p "$install_dir"
+          mv Godot.app "$install_dir/Godot.app"
+          printf '#!/bin/sh\nexec "%s/Godot.app/Contents/MacOS/Godot" "$@"\n' "$install_dir" > "$install_dir/godot"
+          chmod +x "$install_dir/godot"
+          echo "$install_dir" >> "$GITHUB_PATH"
+          curl -fL -o export_templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_export_templates.tpz"
+          unzip -q export_templates.tpz
+          template_dir="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
+          mkdir -p "$template_dir"
+          mv templates/* "$template_dir/"
+          "$install_dir/godot" --version
+
+      # analytics.config.json을 직접 소비하는 앱만 secret에서 복원한다.
+      - name: Restore GA4 analytics config
+        shell: bash
+        env:
+          GODOT_ANALYTICS_CONFIG_JSON_BASE64: ${{ secrets.GODOT_ANALYTICS_CONFIG_JSON_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GODOT_ANALYTICS_CONFIG_JSON_BASE64:-}" ]; then
+            echo "GODOT_ANALYTICS_CONFIG_JSON_BASE64 미설정 — analytics.config.json 주입을 생략합니다."
+            exit 0
+          fi
+          if [ -z "${PROJECT_DIR:-}" ] || [ ! -d "$PROJECT_DIR" ]; then
+            echo "::error::PROJECT_DIR('${PROJECT_DIR:-}')가 유효한 디렉터리가 아닙니다."
+            exit 1
+          fi
+          dest="$PROJECT_DIR/analytics.config.json"
+          tmp="$(mktemp)"
+          if printf '%s' "$GODOT_ANALYTICS_CONFIG_JSON_BASE64" | base64 --decode > "$tmp" 2>/dev/null; then
+            :
+          elif printf '%s' "$GODOT_ANALYTICS_CONFIG_JSON_BASE64" | base64 -D > "$tmp" 2>/dev/null; then
+            :
+          else
+            rm -f "$tmp"
+            echo "::error::GODOT_ANALYTICS_CONFIG_JSON_BASE64 base64 디코드 실패 — secret 값 확인 필요."
+            exit 1
+          fi
+          if [ ! -s "$tmp" ] || [ "$(head -c1 "$tmp")" != "{" ]; then
+            rm -f "$tmp"
+            echo "::error::복원된 analytics.config.json 이 비었거나 JSON 형태가 아닙니다."
+            exit 1
+          fi
+          mv "$tmp" "$dest"
+          echo "analytics.config.json 복원 완료 → $dest"
+
+      # iOS 네이티브 플러그인(xcframework 등)은 repo가 자기 스크립트로 받는다.
+      - name: Run caller project preparation
+        if: ${{ inputs.prepare_project_script != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f "$PREPARE_PROJECT_SCRIPT" ] || {
+            echo "project preparation script not found: $PREPARE_PROJECT_SCRIPT" >&2
+            exit 1
+          }
+          bash "$PREPARE_PROJECT_SCRIPT"
+
+      - name: Import Godot project
+        run: godot --headless --path "$PROJECT_DIR" --import --quit-after 1
+
+      # 주입 대상 preset과 export 대상 preset이 같은 변수여야 다른 preset을 덮어쓰지 않는다.
+      - name: Apply release version to the Godot iOS export preset
+        shell: bash
+        env:
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+        run: |
+          set -euo pipefail
+          node .seorilabs-release-authority/scripts/release/apply-godot-export-version.mjs \
+            --platform iOS \
+            --preset "$IOS_EXPORT_PRESET" \
+            --presets "$PROJECT_DIR/export_presets.cfg"
+
+      - name: Export Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_path="$GITHUB_WORKSPACE/$XCODE_PROJECT_DIR"
+          mkdir -p "$output_path"
+          # iOS preset은 export_project_only=true라 서명 없는 Xcode 프로젝트만 나온다.
+          godot --headless --path "$PROJECT_DIR" --export-release "$IOS_EXPORT_PRESET" "$output_path/$(basename "$XCODE_PROJECT_DIR").xcodeproj"
+
+      - name: Install signing assets
+        id: signing
+        shell: bash
+        env:
+          APPLE_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          for required in APPLE_DISTRIBUTION_CERTIFICATE_BASE64 APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD APPLE_KEYCHAIN_PASSWORD; do
+            eval "value=\${$required:-}"
+            [ -n "$value" ] || { echo "::error::$required secret이 필요하다." >&2; exit 1; }
+          done
+          keychain="$RUNNER_TEMP/seori-signing.keychain-db"
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain"
+          cert="$RUNNER_TEMP/distribution.p12"
+          printf '%s' "$APPLE_DISTRIBUTION_CERTIFICATE_BASE64" | base64 -D > "$cert"
+          security import "$cert" -k "$keychain" -P "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$cert"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$APPLE_KEYCHAIN_PASSWORD" "$keychain" >/dev/null
+          # 기존 user keychain 목록을 보존한 채 서명 keychain만 앞에 붙인다.
+          existing=()
+          while IFS= read -r line; do
+            entry="$(printf '%s' "$line" | tr -d '"' | sed -e 's/^ *//' -e 's/ *$//')"
+            [ -n "$entry" ] && existing+=("$entry")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$keychain" "${existing[@]}"
+          if [ -n "${APPLE_PROVISIONING_PROFILE_BASE64:-}" ]; then
+            profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+            mkdir -p "$profile_dir"
+            printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$profile_dir/seori-release.mobileprovision"
+            echo "provisioning profile 설치 완료"
+          fi
+          echo "keychain=$keychain" >> "$GITHUB_OUTPUT"
+
+      - name: Write App Store Connect API key
+        id: asc
+        shell: bash
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          for required in APP_STORE_CONNECT_API_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_PRIVATE_KEY_BASE64; do
+            eval "value=\${$required:-}"
+            [ -n "$value" ] || { echo "::error::$required secret이 필요하다." >&2; exit 1; }
+          done
+          key_dir="$RUNNER_TEMP/asc-keys"
+          mkdir -p "$key_dir"
+          key_path="$key_dir/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY_BASE64" | base64 -D > "$key_path"
+          [ -s "$key_path" ] || { echo "::error::ASC private key 디코드 결과가 비었다." >&2; exit 1; }
+          chmod 600 "$key_path"
+          echo "key_path=$key_path" >> "$GITHUB_OUTPUT"
+
+      - name: Archive with Xcode
+        shell: bash
+        env:
+          XCODE_PROJECT: ${{ steps.meta.outputs.project }}
+          XCODE_SCHEME: ${{ steps.meta.outputs.scheme }}
+          ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
+          ASC_KEY_PATH: ${{ steps.asc.outputs.key_path }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$ARCHIVE_PATH")"
+          xcodebuild archive \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID"
+          [ -d "$ARCHIVE_PATH" ] || { echo "xcarchive가 생성되지 않았다: $ARCHIVE_PATH" >&2; exit 1; }
+
+      # Godot이 preset 값을 무시하거나 오래된 export template이 남아 있으면 여기서 fail-closed한다.
+      - name: Verify archive version against the release tag
+        id: provenance
+        shell: bash
+        env:
+          ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+        run: |
+          set -euo pipefail
+          # xcarchive의 최상위 Info.plist는 버전이 ApplicationProperties 아래에 중첩돼 있다.
+          # 실제 제출되는 값은 .app 번들의 평면 Info.plist이므로 그쪽을 readback한다.
+          app_plist="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 2 -name 'Info.plist' | head -n 1)"
+          [ -n "$app_plist" ] || { echo "archive에서 앱 Info.plist를 찾지 못했다." >&2; exit 1; }
+          plutil -convert json -o "$RUNNER_TEMP/archive-info.json" "$app_plist"
+          [ -s "$RUNNER_TEMP/archive-info.json" ] || { echo "Info.plist JSON 변환 결과가 비었다." >&2; exit 1; }
+          # xcarchive는 디렉터리 번들이라 --artifact 파일 digest를 쓰지 않는다.
+          node .seorilabs-release-authority/scripts/release/verify-release-artifact.mjs \
+            --kind xcode-archive \
+            --metadata "$RUNNER_TEMP/archive-info.json" \
+            --receipt "$RUNNER_TEMP/release-artifact-receipt.txt" \
+            --github-output
+
+      - name: Verify bundle identifier
+        if: ${{ inputs.bundle_id != '' }}
+        shell: bash
+        env:
+          EXPECTED_BUNDLE_ID: ${{ inputs.bundle_id }}
+        run: |
+          set -euo pipefail
+          observed="$(node -e 'const d=require("fs").readFileSync(process.env.RUNNER_TEMP+"/archive-info.json","utf8");process.stdout.write(String(JSON.parse(d).CFBundleIdentifier??""))')"
+          [ "$observed" = "$EXPECTED_BUNDLE_ID" ] || {
+            echo "archive bundle id가 caller 선언과 다르다: $observed != $EXPECTED_BUNDLE_ID" >&2
+            exit 1
+          }
+
+      - name: Run caller post-export validation
+        if: ${{ inputs.post_export_validation_script != '' }}
+        shell: bash
+        env:
+          ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
+          IOS_MARKETING_VERSION: ${{ steps.release.outputs.apple_marketing_version }}
+        run: |
+          set -euo pipefail
+          [ -f "$POST_EXPORT_VALIDATION_SCRIPT" ] || {
+            echo "post-export validation script not found: $POST_EXPORT_VALIDATION_SCRIPT" >&2
+            exit 1
+          }
+          bash "$POST_EXPORT_VALIDATION_SCRIPT"
+
+      - name: Export and upload to App Store Connect
+        if: ${{ inputs.upload }}
+        shell: bash
+        env:
+          ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
+          EXPORT_DIR: ${{ steps.meta.outputs.export_dir }}
+          ASC_KEY_PATH: ${{ steps.asc.outputs.key_path }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          SEORI_EXPECTED_ARCHIVE_SHA256: ${{ steps.provenance.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          [ -f "$EXPORT_OPTIONS_PLIST" ] || { echo "exportOptions.plist가 없다: $EXPORT_OPTIONS_PLIST" >&2; exit 1; }
+          # 업로드 직전에 검증한 그 archive 그대로인지 다시 본다.
+          app_plist="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 2 -name 'Info.plist' | head -n 1)"
+          plutil -convert json -o "$RUNNER_TEMP/archive-info-recheck.json" "$app_plist"
+          observed="$(shasum -a 256 "$RUNNER_TEMP/archive-info-recheck.json" | cut -d ' ' -f 1)"
+          [ "$observed" = "$SEORI_EXPECTED_ARCHIVE_SHA256" ] || {
+            echo "업로드 직전 archive digest가 검증값과 다르다: $observed != $SEORI_EXPECTED_ARCHIVE_SHA256" >&2
+            exit 1
+          }
+          mkdir -p "$EXPORT_DIR"
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_DIR" \
+            -exportOptionsPlist "$EXPORT_OPTIONS_PLIST" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Upload archive artifact
+        if: ${{ !inputs.upload }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: godot-app-store-archive-${{ steps.release.outputs.apple_marketing_version }}-${{ steps.release.outputs.apple_build_number }}
+          path: ${{ steps.meta.outputs.archive_path }}
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Remove signing keychain
+        if: ${{ always() && steps.signing.outputs.keychain != '' }}
+        shell: bash
+        env:
+          KEYCHAIN_PATH: ${{ steps.signing.outputs.keychain }}
+        run: security delete-keychain "$KEYCHAIN_PATH" || true
+
+      - name: Summary
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          MARKETING_VERSION: ${{ steps.release.outputs.apple_marketing_version }}
+          BUILD_NUMBER: ${{ steps.release.outputs.apple_build_number }}
+          ARCHIVE_DIGEST: ${{ steps.provenance.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Godot App Store"
+            echo
+            echo "- tag: \`$RELEASE_TAG\`"
+            echo "- CFBundleShortVersionString: \`$MARKETING_VERSION\`"
+            echo "- CFBundleVersion: \`$BUILD_NUMBER\`"
+            echo "- archive Info.plist digest: \`$ARCHIVE_DIGEST\`"
+            echo "- upload: \`$SHOULD_UPLOAD\`"
+          } >> "$GITHUB_STEP_SUMMARY"
