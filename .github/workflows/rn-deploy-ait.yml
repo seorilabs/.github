@@ -389,6 +389,6 @@ jobs:
             echo "- version: ${{ steps.release.outputs.version_name }} (${{ steps.release.outputs.android_version_code }})"
             echo "- artifact: ${{ steps.provenance.outputs.ait_format }} ${{ steps.provenance.outputs.artifact_path }} sha256:${{ steps.provenance.outputs.artifact_digest }}"
             echo "- memo: ${{ steps.provenance.outputs.release_memo }}"
-            echo "- runner: seorilabs-rpi-arm64"
+            echo "- runner: ${{ runner.name }} (${{ github.event.repository.visibility }} repo)"
             echo "- upload: ${{ inputs.upload && 'AppsInToss 업로드함' || '빌드만 함(upload=false)' }}"
           } >> "$GITHUB_STEP_SUMMARY"
