@@ -405,6 +405,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$(dirname "$ARCHIVE_PATH")"
+          # Godot의 iOS export는 export_method_release=0(App Store) 때문에 생성된 xcodeproj에
+          # CODE_SIGN_IDENTITY="Apple Distribution"을 박아 둔다. 그대로 automatic 서명으로
+          # archive하면 xcodebuild가 충돌로 거부한다:
+          #   "automatically signed for development, but a conflicting code signing identity
+          #    Apple Distribution has been manually specified"
+          #
+          # 그래서 archive는 automatic + Apple Development로 하고, 배포 서명은 exportArchive가
+          # exportOptions.plist(method=app-store-connect, signingStyle=automatic)로 다시 한다.
+          # -allowProvisioningUpdates + ASC API key가 필요한 프로파일을 그때 발급한다.
           xcodebuild archive \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
@@ -415,7 +424,10 @@ jobs:
             -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID"
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="Apple Development" \
+            PROVISIONING_PROFILE_SPECIFIER=""
           [ -d "$ARCHIVE_PATH" ] || { echo "xcarchive가 생성되지 않았다: $ARCHIVE_PATH" >&2; exit 1; }
 
       # Godot이 preset 값을 무시하거나 오래된 export template이 남아 있으면 여기서 fail-closed한다.
