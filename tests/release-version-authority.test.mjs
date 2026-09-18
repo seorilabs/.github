@@ -1875,11 +1875,16 @@ test('AIT 업로드는 upload 입력으로만 막히고 기본값은 업로드�
 
 test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지한다', () => {
   // 권한 있는 job의 러너는 caller 입력을 그대로 쓰지 않는다. 승인된 라벨만 허용한다.
+  // caller 입력이 아니라 저장소 공개 여부로 중앙이 결정하는 라우팅.
+  // public 저장소는 ARC(allows_public_repositories=false)를 잡지 못해 job이 영구 pending 된다.
+  const visibilityRoutedRunner =
+    "${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || 'seorilabs-rpi-arm64' }}";
   const approvedRunners = new Set([
     'seorilabs-rpi-arm64',
     'ubuntu-latest',
     'macos-26',
     "${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}",
+    visibilityRoutedRunner,
   ]);
   const marketPermissions = {
     'rn-deploy-google-play.yml': { contents: 'read', 'id-token': 'write', packages: 'read' },
@@ -1900,10 +1905,14 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   }
 
   // 태그 생성만 contents:write를 갖는다.
-  // 태그를 push하는 job과 마켓 자격증명을 쓰는 job은 러너를 중앙에서 고정한다.
+  // 태그를 push하는 job과 마켓 자격증명을 쓰는 job은 러너를 중앙에서 결정한다.
+  // caller가 고를 수 없다는 불변식은 그대로고, 결정 근거만 저장소 공개 여부다.
   const releaseTag = parse(workflowText('release-tag.yml'));
   assert.deepEqual(releaseTag.permissions, { contents: 'write' });
-  assert.equal(releaseTag.jobs.create['runs-on'], 'seorilabs-rpi-arm64');
+  assert.equal(releaseTag.jobs.create['runs-on'], visibilityRoutedRunner);
+  const ledgerInit = parse(workflowText('init-release-version-ledger.yml'));
+  assert.deepEqual(ledgerInit.permissions, { contents: 'write' });
+  assert.equal(ledgerInit.jobs.initialize['runs-on'], visibilityRoutedRunner);
   const resolveTagStep = releaseTag.jobs.create.steps.find(
     (step) => step.name === 'Allocate release version and create tag',
   );
@@ -1916,6 +1925,7 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   assert.equal(rnPlay.jobs['build-aab']['runs-on'], 'ubuntu-latest');
   for (const [name, definition] of [
     ['release-tag.yml', releaseTag],
+    ['init-release-version-ledger.yml', ledgerInit],
     ['godot-deploy-google-play.yml', godotPlay],
     ['rn-deploy-google-play.yml', rnPlay],
   ]) {
@@ -1927,6 +1937,10 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
     );
     assert.doesNotMatch(workflowText(name), /inputs\.runs_on/u, name);
   }
+
+  // 공개여부 라우팅은 caller가 건드릴 수 없는 컨텍스트만 참조해야 한다.
+  // inputs.* 가 섞이면 "caller가 러너를 고를 수 없다"가 무너진다.
+  assert.doesNotMatch(visibilityRoutedRunner, /inputs\./u);
 
   // runs_on을 남긴 나머지 권한 workflow는 승인된 라벨로만 라우팅한다.
   for (const name of ['cleanup-actions-storage.yml', 'godot-pages.yml']) {
