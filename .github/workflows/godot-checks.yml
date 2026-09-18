@@ -73,16 +73,31 @@ jobs:
           ${sudo_cmd} apt-get update
           ${sudo_cmd} apt-get install -y libfontconfig1 fontconfig
 
-      - name: Cache Godot binary
+      - name: Cache Godot editor
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/godot-bin
           key: godot-bin-${{ inputs.godot_version }}-${{ inputs.godot_status }}-${{ runner.arch }}
 
+      # export template(.tpz 약 1.2GB)은 아키텍처와 무관한 동일 산출물이라 캐시 키에 arch를 넣지 않는다.
+      # 이 캐시가 없으면 with_export_templates 잡이 매 실행마다 tpz 전체를 다시 내려받는다.
+      - name: Cache Godot export templates
+        if: inputs.with_export_templates
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.local/share/godot/export_templates/${{ inputs.godot_version }}.${{ inputs.godot_status }}
+          key: godot-templates-${{ inputs.godot_version }}-${{ inputs.godot_status }}
+
       - name: Install Godot
         shell: bash
         run: |
           set -euo pipefail
+          # 러너 이미지에 같은 버전이 프리인스톨돼 있으면 내려받지도, PATH를 덮지도 않는다.
+          if command -v godot >/dev/null 2>&1 && godot --version | grep -q "^${GODOT_VERSION}.${GODOT_STATUS}"; then
+            echo "Using preinstalled Godot: $(command -v godot)"
+            godot --version
+            exit 0
+          fi
           install_dir="$RUNNER_TEMP/godot-bin"
           if [ ! -x "$install_dir/godot" ]; then
             case "${RUNNER_ARCH:-}" in
