@@ -91,7 +91,10 @@ permissions:
 jobs:
   deploy:
     name: Build and deploy .ait
-    runs-on: seorilabs-rpi-arm64
+    # 러너는 caller 입력이 아니라 저장소 공개 여부로 중앙이 결정한다.
+    # ARC 는 allows_public_repositories=false 라 public 저장소의 job 을 잡지 못하고,
+    # 그대로 두면 배포가 실패하지 않고 영구 pending 된다.
+    runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || 'seorilabs-rpi-arm64' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: apps-in-toss
 
