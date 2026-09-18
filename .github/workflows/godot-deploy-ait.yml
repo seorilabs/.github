@@ -1,6 +1,6 @@
 # Seorilabs org 재사용 워크플로우: Godot 게임 AIT(.ait) 빌드 + AppsInToss 배포
 # 호출: uses: seorilabs/.github/.github/workflows/godot-deploy-ait.yml@main
-# 러너: seorilabs-rpi-arm64 (ARC). Godot Web export → wrapper build → ait deploy.
+# 러너: seorilabs-x64 (ARC). Godot Web export → wrapper build → ait deploy.
 # 인증: org secret APPS_IN_TOSS_API_KEY.
 # 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
 # project.godot/wrapper package.json은 authority가 아니다. .ait 컨테이너는 version 필드를 갖지
@@ -58,9 +58,9 @@ on:
         default: true
         type: boolean
       runs_on:
-        description: "실행 러너. seorilabs-rpi-arm64 또는 ubuntu-latest만 허용한다. public repo caller는 'ubuntu-latest'를 넘긴다."
+        description: "실행 러너. seorilabs-x64 또는 ubuntu-latest만 허용한다. public repo caller는 'ubuntu-latest'를 넘긴다."
         required: false
-        default: "seorilabs-rpi-arm64"
+        default: "seorilabs-x64"
         type: string
       timeout_minutes:
         required: false
@@ -90,7 +90,7 @@ permissions:
 jobs:
   deploy:
     name: Godot web export and AIT deploy
-    runs-on: ${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}
+    runs-on: ${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-x64' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: apps-in-toss
 
@@ -122,7 +122,10 @@ jobs:
         run: |
           set -euo pipefail
           case "$REQUESTED_RUNNER" in
-            "seorilabs-rpi-arm64" | "ubuntu-latest") ;;
+            # seorilabs-rpi-arm64 은 이전 중인 호출부를 깨지 않으려고 남겨 둔 레거시 값이다.
+            # 값은 받아들이되 라우팅은 위에서 seorilabs-x64 로 간다.
+            # 호출부 이전이 끝나면 이 값을 제거한다.
+            "seorilabs-x64" | "seorilabs-rpi-arm64" | "ubuntu-latest") ;;
             *) echo "승인되지 않은 러너 라벨: $REQUESTED_RUNNER" >&2; exit 1 ;;
           esac
 
@@ -455,6 +458,6 @@ jobs:
             echo "- version: ${{ steps.release.outputs.version_name }} (${{ steps.release.outputs.android_version_code }})"
             echo "- artifact: ${{ steps.provenance.outputs.ait_format }} ${{ steps.provenance.outputs.artifact_path }} sha256:${{ steps.provenance.outputs.artifact_digest }}"
             echo "- memo: ${{ steps.provenance.outputs.release_memo }}"
-            echo "- runner: seorilabs-rpi-arm64"
+            echo "- runner: seorilabs-x64"
             echo "- upload: ${{ inputs.upload && 'AppsInToss 업로드함' || '빌드만 함(upload=false)' }}"
           } >> "$GITHUB_STEP_SUMMARY"

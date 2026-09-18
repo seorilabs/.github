@@ -71,22 +71,27 @@
 
 ## 2. 러너 라우팅 매트릭스 (확정)
 
-`global-versions.yaml` 기준. general `seorilabs-rpi-arm64`(ARM64, min1/max3, Node 24.16.0 사전설치), dind `seorilabs-rpi-arm64-dind`(min0/max1).
+`global-versions.yaml` 기준. general `seorilabs-x64`(전용 CI 노드 `seori-m6-01`, amd64, min1/max2, memory limit 2560Mi, Node 24.16.0 사전설치), ARM64 Docker 전용 dind `seorilabs-rpi-arm64-dind`(min0/max1).
+
+> 2026-09-19 이전까지 일반 CI는 `seorilabs-rpi-arm64`(rpi5)에서 돌았다. rpi5는 백오피스와 MySQL을 함께 이고 있는 8GB 보드인데,
+> 러너 3개 x limit 4Gi = 12Gi가 물리 RAM을 넘어 cgroup limit이 걸리기 전에 커널 전역 OOM이 났다.
+> 2026-09-17~18 23시간 동안 노드가 6번 `NotReady`로 떨어지며 백오피스가 함께 내려갔다.
+> **CI 러너를 프로덕션 워크로드와 같은 노드에 두지 마라.** 이것이 `seori-m6-01`로 옮긴 이유다.
 
 | 작업 | 러너 | 근거 |
 |---|---|---|
-| JS/TS lint·test·typecheck·style | `seorilabs-rpi-arm64` | ARC 우선 |
-| 웹 빌드 | `seorilabs-rpi-arm64` | ARC 우선 |
-| **AIT(.ait) build + deploy** | `seorilabs-rpi-arm64` | ARC 가능(원칙 #4·#9) |
-| Godot compile/quality gate, Godot Web export | `seorilabs-rpi-arm64` | ARC 가능(Godot 4.6.3 ARM64) |
+| JS/TS lint·test·typecheck·style | `seorilabs-x64` | ARC 우선 |
+| 웹 빌드 | `seorilabs-x64` | ARC 우선 |
+| **AIT(.ait) build + deploy** | `seorilabs-x64` | ARC 가능(원칙 #4·#9) |
+| Godot compile/quality gate, Godot Web export | `seorilabs-x64` | ARC 가능(Godot 바이너리는 `RUNNER_ARCH`로 받는다) |
 | **Android AAB release + Google Play 업로드** | `ubuntu-latest`(x64) | `aapt2`가 x86-64. ARC 금지 |
 | **iOS archive + App Store 업로드** | `macos-26` | Xcode 필요. ARC 금지 |
 | ARM64/RPI Docker 빌드 | `seorilabs-rpi-arm64-dind` | dind 전용 |
-| k8s 배포(kubectl) | `seorilabs-rpi-arm64` | ARC |
+| k8s 배포(kubectl) | `seorilabs-x64` | ARC |
 | **public repo의 PR job** | `ubuntu-latest` | ARC는 private 전용(보안). public PR은 ARC 노출 금지 |
 
 > public/private 분기 패턴(템플릿에서 사용):
-> `runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}`
+> `runs-on: ${{ github.event.repository.private && 'seorilabs-x64' || 'ubuntu-latest' }}`
 > 단, **마켓 배포 워크플로우는 private 전용**이며 항상 정책 러너(ubuntu/macos)를 명시.
 
 ```mermaid

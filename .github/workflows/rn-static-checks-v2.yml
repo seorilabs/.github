@@ -23,7 +23,7 @@ jobs:
   quality:
     name: Fleet Quality
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-x64' || 'ubuntu-latest' }}
     timeout-minutes: 25
 
     steps:
@@ -155,7 +155,7 @@ jobs:
     if: ${{ always() }}
     permissions:
       contents: read
-    runs-on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+    runs-on: ${{ github.event.repository.private && 'seorilabs-x64' || 'ubuntu-latest' }}
     timeout-minutes: 10
 
     steps:

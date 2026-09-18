@@ -23,7 +23,7 @@ PR에서 구현한 기능과 기존 핵심 흐름이 실제 입력 연결을 통
 
 - 대상: `seorilabs/lizard-tycoon`
 - 프로필: Godot 4.7.2
-- 러너: private repo는 `seorilabs-rpi-arm64`, public repo는 `ubuntu-latest`
+- 러너: private repo는 `seorilabs-x64`, public repo는 `ubuntu-latest`
 - 배포·마켓 업로드·서명 빌드: 실행하지 않음
 
 EVALUATE 동안에는 조직 ruleset이 병합을 막지 않는다. 대상 저장소의 caller와 세 명령이 main에

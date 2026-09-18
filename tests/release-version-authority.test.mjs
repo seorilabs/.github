@@ -1880,12 +1880,12 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   // caller 입력이 아니라 저장소 공개 여부로 중앙이 결정하는 라우팅.
   // public 저장소는 ARC(allows_public_repositories=false)를 잡지 못해 job이 영구 pending 된다.
   const visibilityRoutedRunner =
-    "${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || 'seorilabs-rpi-arm64' }}";
+    "${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || 'seorilabs-x64' }}";
   const approvedRunners = new Set([
-    'seorilabs-rpi-arm64',
+    'seorilabs-x64',
     'ubuntu-latest',
     'macos-26',
-    "${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}",
+    "${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-x64' }}",
     visibilityRoutedRunner,
   ]);
   const marketPermissions = {
@@ -1958,8 +1958,9 @@ test('Android 빌드는 public/private 구분 없이 GitHub-hosted x64를 쓴다
   for (const name of ['rn-deploy-google-play.yml', 'godot-deploy-google-play.yml']) {
     const workflow = parse(workflowText(name));
     assert.equal(workflow.jobs['build-aab']['runs-on'], 'ubuntu-latest', name);
-    // ARC는 arm64라 aapt2를 돌릴 수 없다. 라우팅이 되살아나지 않게 막는다.
-    assert.doesNotMatch(workflowText(name), /seorilabs-x64-android|seorilabs-rpi-arm64/u, name);
+    // Android AAB는 GitHub-hosted x64에서만 만든다. ARC 라우팅이 되살아나지 않게 막는다.
+    // 라벨 이름이 바뀌어도 걸리도록 두 ARC 스케일셋 계열을 모두 금지한다.
+    assert.doesNotMatch(workflowText(name), /seorilabs-x64|seorilabs-rpi-arm64/u, name);
   }
 });
 

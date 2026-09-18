@@ -49,7 +49,7 @@ on:
       runs_on:
         description: "Runner label. Use ubuntu-latest for x64-only Hermes toolchains."
         required: false
-        default: "seorilabs-rpi-arm64"
+        default: "seorilabs-x64"
         type: string
       timeout_minutes:
         required: false
@@ -62,7 +62,7 @@ permissions:
 jobs:
   build:
     name: Build .ait artifact
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-x64' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
 
     env:

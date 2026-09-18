@@ -135,7 +135,7 @@ test("public fork PR은 credential job 전에 fail-closed되고 external action�
     const parsed = parse(workflow);
     assert.match(
       workflow,
-      /github\.event\.repository\.private && 'seorilabs-rpi-arm64' \|\| 'ubuntu-latest'/u,
+      /github\.event\.repository\.private && 'seorilabs-x64' \|\| 'ubuntu-latest'/u,
     );
     assert.equal(
       parsed.jobs.quality.if,

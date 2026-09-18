@@ -23,9 +23,9 @@ on:
         default: false
         type: boolean
       runs_on:
-        description: "실행 러너. seorilabs-rpi-arm64 또는 ubuntu-latest만 허용한다."
+        description: "실행 러너. seorilabs-x64 또는 ubuntu-latest만 허용한다."
         required: false
-        default: "seorilabs-rpi-arm64"
+        default: "seorilabs-x64"
         type: string
 
 permissions:
@@ -35,7 +35,7 @@ permissions:
 jobs:
   cleanup:
     name: Delete artifacts and caches
-    runs-on: ${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-rpi-arm64' }}
+    runs-on: ${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-x64' }}
     timeout-minutes: 15
 
     env:
@@ -55,7 +55,10 @@ jobs:
         run: |
           set -euo pipefail
           case "$REQUESTED_RUNNER" in
-            "seorilabs-rpi-arm64" | "ubuntu-latest") ;;
+            # seorilabs-rpi-arm64 은 이전 중인 호출부를 깨지 않으려고 남겨 둔 레거시 값이다.
+            # 값은 받아들이되 라우팅은 위에서 seorilabs-x64 로 간다.
+            # 호출부 이전이 끝나면 이 값을 제거한다.
+            "seorilabs-x64" | "seorilabs-rpi-arm64" | "ubuntu-latest") ;;
             *) echo "승인되지 않은 러너 라벨: $REQUESTED_RUNNER" >&2; exit 1 ;;
           esac
 

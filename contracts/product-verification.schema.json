@@ -71,7 +71,7 @@
             "workflow": { "const": ".github/workflows/godot-product-verification-v1.yml" },
             "baseWorkflow": { "const": ".github/workflows/godot-checks.yml" },
             "baseWorkflowRef": { "const": "main" },
-            "runner": { "const": "seorilabs-rpi-arm64" },
+            "runner": { "const": "seorilabs-x64" },
             "godotVersion": { "const": "4.7.2" },
             "requiredScripts": {
               "const": ["test:feature", "test:regression", "test:ui-contract"]
