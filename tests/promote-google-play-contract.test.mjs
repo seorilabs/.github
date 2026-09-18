@@ -11,7 +11,7 @@ test("Google Play 트랙 승격은 RPI ARC에서 재빌드 없이 실행한다",
   )?.[0];
   const promoteStep = workflow.match(/- name: Promote track[\s\S]*?(?=\n      - name: Summary)/)?.[0];
 
-  assert.match(workflow, /runs-on: seorilabs-rpi-arm64/);
+  assert.match(workflow, /runs-on: seorilabs-x64/);
   assert.doesNotMatch(workflow, /runs-on: ubuntu-latest/);
   assert.match(workflow, /environment: google-play/);
   // 외부 action은 공식 최신 stable의 immutable SHA로 고정한다.

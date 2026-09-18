@@ -21,7 +21,7 @@ profiles:
     workflow: .github/workflows/godot-product-verification-v1.yml
     baseWorkflow: .github/workflows/godot-checks.yml
     baseWorkflowRef: main
-    runner: seorilabs-rpi-arm64
+    runner: seorilabs-x64
     godotVersion: 4.7.2
     requiredScripts:
       - test:feature

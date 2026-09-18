@@ -1,6 +1,10 @@
 # actionlint 설정: Seorilabs 커스텀/신규 러너 라벨을 known으로 등록(false positive 방지)
 self-hosted-runner:
   labels:
-    - seorilabs-rpi-arm64
+    # 일반 CI 러너. 전용 CI 노드 seori-m6-01(amd64)에서 돈다.
+    - seorilabs-x64
+    # ARM64 Docker 전용. rpi5 에 남는다.
     - seorilabs-rpi-arm64-dind
+    # 이전 중인 호출부가 아직 넘기는 레거시 라벨. 호출부 이전이 끝나면 제거한다.
+    - seorilabs-rpi-arm64
     - macos-26

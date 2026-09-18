@@ -1,6 +1,6 @@
 # Seorilabs org 재사용 워크플로우: Google Play 트랙 승격(재빌드 없이)
 # 호출: uses: seorilabs/.github/.github/workflows/promote-google-play.yml@main
-# 러너: seorilabs-rpi-arm64 (WIF keyless, gradle 빌드 없음). 태그에서 파생한 exact versionCode 를
+# 러너: seorilabs-x64 (WIF keyless, gradle 빌드 없음). 태그에서 파생한 exact versionCode 를
 #       to_track 으로 복사 + 언어별 노트 반영 + commit(=심사 제출). AAB 재업로드 없음.
 # 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
 # 트랙의 "최신 versionCode"를 그대로 승격하지 않는다. 승격 대상은 태그가 정한 build 하나뿐이다.
@@ -64,7 +64,7 @@ permissions:
 jobs:
   promote:
     name: Promote to ${{ inputs.to_track }}
-    runs-on: seorilabs-rpi-arm64
+    runs-on: seorilabs-x64
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: google-play
 

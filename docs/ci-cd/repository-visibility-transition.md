@@ -73,14 +73,14 @@ grep -n "uses:\|runs_on\|runs-on" .github/workflows/*.yml
 caller가 전달하는 조건식:
 
 ```yaml
-runs_on: ${{ github.event.repository.private && 'seorilabs-rpi-arm64' || 'ubuntu-latest' }}
+runs_on: ${{ github.event.repository.private && 'seorilabs-x64' || 'ubuntu-latest' }}
 ```
 
 `contents: write` job은 caller에게 러너 선택권을 주지 않는다는 것이 계약이다
 (`tests/release-version-authority.test.mjs`가 강제한다). 그런 job은 중앙이 스스로 정한다.
 
 ```yaml
-runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || 'seorilabs-rpi-arm64' }}
+runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || 'seorilabs-x64' }}
 ```
 
 > `private == false` 형태를 쓰지 않는다. GitHub 표현식의 느슨한 비교에서 `null`은 0으로

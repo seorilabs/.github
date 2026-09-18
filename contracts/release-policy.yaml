@@ -39,7 +39,7 @@ execution:
   appleAppStore:
     executor: xcode-cloud
   appsInToss:
-    preferredRunner: seorilabs-rpi-arm64
+    preferredRunner: seorilabs-x64
 
 lifecycle:
   portfolioField: app.lifecycle
