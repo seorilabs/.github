@@ -71,6 +71,16 @@ on:
         required: false
         default: ""
         type: string
+      post_export_project_script:
+        description: >-
+          Godot iOS export 직후·archive 직전에 실행할 repo-local 스크립트.
+          export가 만든 .xcodeproj를 archive 가능한 상태로 만드는 용도다.
+          Godot 네이티브 플러그인의 pbxproj 패치나 SwiftPM lockfile 생성처럼
+          headless export가 끝내지 못하는 작업이 여기 들어간다.
+          XCODE_PROJECT 환경 변수로 export된 .xcodeproj 경로를 받는다.
+        required: false
+        default: ""
+        type: string
       post_export_validation_script:
         description: "archive 직후·업로드 전에 실행할 repo-local 검증 스크립트"
         required: false
@@ -118,6 +128,7 @@ jobs:
       EXPORT_OPTIONS_PLIST: ${{ inputs.export_options_plist }}
       SCRIPTS_DIR: ${{ inputs.scripts_dir }}
       PREPARE_PROJECT_SCRIPT: ${{ inputs.prepare_project_script }}
+      POST_EXPORT_PROJECT_SCRIPT: ${{ inputs.post_export_project_script }}
       POST_EXPORT_VALIDATION_SCRIPT: ${{ inputs.post_export_validation_script }}
       SHOULD_UPLOAD: ${{ inputs.upload }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
@@ -331,6 +342,27 @@ jobs:
           [ -d "$XCODE_PROJECT" ] || {
             echo "xcodeproj가 생성되지 않았다: $XCODE_PROJECT" >&2
             echo "export_presets.cfg의 iOS preset export_path와 xcode_project_path가 같은 파일인지 확인하라." >&2
+            exit 1
+          }
+
+      # export가 만든 .xcodeproj는 아직 archive할 수 없는 경우가 있다. Godot 네이티브
+      # 플러그인은 pbxproj 패치를 call_deferred로 예약하는데 headless export는 그 전에
+      # 종료한다. 그 보정을 caller가 여기서 끝낸다. 서명 자산을 설치하기 전에 돌려서
+      # 프로젝트 구조 변경이 서명·archive 단계와 섞이지 않게 한다.
+      - name: Run caller post-export project preparation
+        if: ${{ inputs.post_export_project_script != '' }}
+        shell: bash
+        env:
+          XCODE_PROJECT: ${{ steps.meta.outputs.project }}
+        run: |
+          set -euo pipefail
+          [ -f "$POST_EXPORT_PROJECT_SCRIPT" ] || {
+            echo "post_export_project_script를 찾을 수 없다: $POST_EXPORT_PROJECT_SCRIPT" >&2
+            exit 1
+          }
+          bash "$POST_EXPORT_PROJECT_SCRIPT"
+          [ -d "$XCODE_PROJECT" ] || {
+            echo "post_export_project_script 실행 후 .xcodeproj가 사라졌다: $XCODE_PROJECT" >&2
             exit 1
           }
 
