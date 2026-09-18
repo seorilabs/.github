@@ -60,7 +60,10 @@ jobs:
   create:
     name: Allocate release version and create tag
     # 태그를 push하는 contents:write job은 caller가 러너를 고를 수 없다.
-    runs-on: seorilabs-rpi-arm64
+    # 러너는 caller 입력이 아니라 저장소 공개 여부로 중앙에서 결정한다. public 저장소는
+    # ARC(allows_public_repositories=false)를 잡지 못해 job이 실패가 아니라 영구 pending 된다.
+    # visibility 비교는 페이로드가 비어도 ARC로 수렴한다(null == 'public' 은 거짓).
+    runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || 'seorilabs-rpi-arm64' }}
     timeout-minutes: 10
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
