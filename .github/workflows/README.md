@@ -38,7 +38,7 @@
 | `init-release-version-ledger.yml` | 저장소별 `release-version-ledger` 브랜치 초기화(저장소당 한 번, 기본 dry_run) | ARC |
 | `record-ios-build-observation.yml` | Xcode Cloud build number 관측값을 원장 `ios` 구획에 기록 | ARC |
 | `resolve-release-version.yml` | 앱별 custom build 경로용 태그→binding 해석 | private ARC, public ubuntu |
-| `promote-google-play.yml` | 재빌드 없이 지정 versionCode 하나만 트랙 승격 | ARC |
+| `promote-google-play.yml` | 재빌드 없이 지정 versionCode 하나만 트랙 승격. 원본과 대상 트랙이 같으면 그 트랙의 릴리스 상태만 변경 | ARC |
 | `rn-deploy-ait.yml` | RN .ait build + AppsInToss deploy | ARC |
 | `godot-deploy-ait.yml` | Godot web→wrapper→AppsInToss deploy | private ARC, public ubuntu |
 | `rn-deploy-google-play.yml` | RN 서명 AAB + Google Play 업로드 | `ubuntu-latest` |
@@ -114,6 +114,12 @@ publisher 권한을 가져서는 안 된다. GitHub OIDC 조건은 숫자 reposi
   BuildTarget package와 다르면 provider 호출 전에 차단한다.
 - 트랙 승격: `promote-google-play.yml`은 태그에서 파생한 versionCode를 `--promote-version-code`로
   넘긴다. 트랙의 "최신 build"를 승격하지 않는다.
+- 트랙 상태 변경: `from_track`과 `to_track`이 같으면 업로더의 `--set-track-status` 모드로 간다.
+  이미 그 트랙에 있는 build의 릴리스 상태만 바꾸고 AAB를 다시 올리지 않는다. versionCode는
+  한 번 쓰면 재사용할 수 없어서, `draft`로 올라가 테스터에게 닿지 않는 build는 재업로드로 풀 수
+  없고 이 경로가 유일한 복구 수단이다. 트랙에 있던 릴리스 이름과 출시노트는 보존한다.
+- `release_status` 기본값은 `completed`다. `draft`는 트랙에 올라가고도 테스터에게 가지 않아,
+  올려둔 것을 잊으면 테스터가 옛 build에 묶인다. `draft`가 필요하면 caller가 명시한다.
 - AppsInToss 배포: 저장소 `deploy` 스크립트는 워크플로우가 준 `--memo`와 `--location`을 **그대로**
   전달한다. memo에는 태그 파생값과 artifact sha256이 들어 있어 다시 만들거나 자르면 대조가 깨지고,
   `--location`은 검증된 exact absolute 경로다.
