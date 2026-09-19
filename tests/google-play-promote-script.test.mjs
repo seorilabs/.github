@@ -16,6 +16,7 @@ const DISCOVERY_STUB = `import json, os
 
 LOG = os.environ["STUB_LOG"]
 SOURCE_CODES = json.loads(os.environ.get("STUB_SOURCE_VERSION_CODES", "[]"))
+SOURCE_RELEASE = json.loads(os.environ.get("STUB_SOURCE_RELEASE", "{}"))
 
 
 def _record(entry):
@@ -34,7 +35,9 @@ class _Request:
 class _Tracks:
     def get(self, packageName, editId, track):
         _record({"call": "tracks.get", "track": track})
-        return _Request({"track": track, "releases": [{"versionCodes": SOURCE_CODES}]})
+        release = {"versionCodes": SOURCE_CODES}
+        release.update(SOURCE_RELEASE)
+        return _Request({"track": track, "releases": [release]})
 
     def update(self, packageName, editId, track, body):
         _record({"call": "tracks.update", "track": track, "body": body})
@@ -89,7 +92,7 @@ async function makeStubRoot() {
   return root;
 }
 
-async function runPromote(args, { sourceVersionCodes = [] } = {}) {
+async function runPromote(args, { sourceVersionCodes = [], sourceRelease = {} } = {}) {
   const root = await makeStubRoot();
   const log = join(root, "calls.log");
   const result = spawnSync("python3", [script, ...args], {
@@ -99,6 +102,7 @@ async function runPromote(args, { sourceVersionCodes = [] } = {}) {
       PYTHONPATH: root,
       STUB_LOG: log,
       STUB_SOURCE_VERSION_CODES: JSON.stringify(sourceVersionCodes),
+      STUB_SOURCE_RELEASE: JSON.stringify(sourceRelease),
     },
   });
   let calls = [];
@@ -196,4 +200,99 @@ test("모드가 섞인 인자는 거부한다", async () => {
   ]);
   assert.equal(rolloutWithoutPromote.status, 2);
   assert.match(rolloutWithoutPromote.stderr, /--rollout requires --promote/);
+});
+
+const SET_STATUS_BASE = [
+  "--set-track-status",
+  "--package-name",
+  "com.seorilabs.example",
+  "--track",
+  "internal",
+  "--version-code",
+  "1001000017",
+  "--release-status",
+  "completed",
+];
+
+// draft 로 올라간 build 는 트랙에 있어도 테스터에게 가지 않는다. versionCode 는
+// 재사용할 수 없어 다시 업로드할 수도 없다. 이 모드가 유일한 복구 경로다.
+test("상태 변경은 AAB 없이 트랙 릴리스 상태만 올린다", async () => {
+  const { status, stdout, calls } = await runPromote(SET_STATUS_BASE, {
+    sourceVersionCodes: ["1001000017"],
+    sourceRelease: { name: "lucid-chess 1.0.17", status: "draft" },
+  });
+  assert.equal(status, 0, stdout);
+  assert.deepEqual(JSON.parse(stdout), {
+    packageName: "com.seorilabs.example",
+    releaseStatus: "completed",
+    track: "internal",
+    versionCode: 1001000017,
+  });
+  assert.deepEqual(
+    calls.map(({ call }) => call),
+    ["edits.insert", "tracks.get", "tracks.update", "edits.commit"],
+  );
+  const update = calls.find(({ call }) => call === "tracks.update");
+  assert.equal(update.track, "internal");
+  assert.equal(update.body.releases[0].status, "completed");
+  assert.deepEqual(update.body.releases[0].versionCodes, ["1001000017"]);
+});
+
+test("상태 변경은 트랙에 있던 이름과 출시노트를 지우지 않는다", async () => {
+  // tracks.update 는 트랙의 releases 를 통째로 교체한다. 빠뜨리면 조용히 사라진다.
+  const notes = [{ language: "ko-KR", text: "버그를 고쳤습니다." }];
+  const { status, calls } = await runPromote(SET_STATUS_BASE, {
+    sourceVersionCodes: ["1001000017"],
+    sourceRelease: { name: "lucid-chess 1.0.17", status: "draft", releaseNotes: notes },
+  });
+  assert.equal(status, 0);
+  const release = calls.find(({ call }) => call === "tracks.update").body.releases[0];
+  assert.equal(release.name, "lucid-chess 1.0.17");
+  assert.deepEqual(release.releaseNotes, notes);
+});
+
+test("트랙에 없는 versionCode 는 상태를 바꾸지 않고 edit 를 정리한다", async () => {
+  const { status, stderr, calls } = await runPromote(SET_STATUS_BASE, {
+    sourceVersionCodes: ["1001000099"],
+  });
+  assert.equal(status, 1);
+  assert.match(stderr, /GOOGLE_PLAY_TRACK_MISSING_VERSION_CODE/);
+  assert.ok(!calls.some(({ call }) => call === "tracks.update"));
+  assert.ok(calls.some(({ call }) => call === "edits.delete"));
+});
+
+test("상태 변경 모드는 업로드·승격 인자와 섞이지 않는다", async () => {
+  const withPromote = await runPromote([...SET_STATUS_BASE, "--promote"]);
+  assert.equal(withPromote.status, 2);
+  assert.match(
+    withPromote.stderr,
+    /--promote and --set-track-status are mutually exclusive/,
+  );
+
+  const withAab = await runPromote([...SET_STATUS_BASE, "--aab-path", "/tmp/none.aab"]);
+  assert.equal(withAab.status, 2);
+  assert.match(withAab.stderr, /--aab-path is not valid with --set-track-status/);
+
+  const withoutVersionCode = await runPromote([
+    "--set-track-status",
+    "--package-name",
+    "com.seorilabs.example",
+    "--track",
+    "internal",
+  ]);
+  assert.equal(withoutVersionCode.status, 2);
+  assert.match(withoutVersionCode.stderr, /--set-track-status requires --version-code/);
+});
+
+// draft 는 올려두고 잊으면 테스터가 옛 빌드에 묶인다. 실제로 그렇게 묶인 적이 있어
+// 기본값을 completed 로 두고, draft 가 필요하면 호출자가 명시하게 한다.
+test("release-status 기본값은 completed 다", async () => {
+  const args = [...SET_STATUS_BASE];
+  args.splice(args.indexOf("--release-status"), 2);
+  const { status, stdout } = await runPromote(args, {
+    sourceVersionCodes: ["1001000017"],
+    sourceRelease: { name: "lucid-chess 1.0.17", status: "draft" },
+  });
+  assert.equal(status, 0, stdout);
+  assert.equal(JSON.parse(stdout).releaseStatus, "completed");
 });

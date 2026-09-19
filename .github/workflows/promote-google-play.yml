@@ -211,14 +211,27 @@ jobs:
             echo "태그 파생 versionCode가 없다: ${PROMOTE_VERSION_CODE:-missing}" >&2
             exit 1
           }
-          args=(
-            --promote
-            --promote-from-track "${{ inputs.from_track }}"
-            --promote-to-track "${{ inputs.to_track }}"
-            --promote-version-code "$PROMOTE_VERSION_CODE"
-            --release-status "${{ inputs.release_status }}"
-            --release-name "$TAG"
-          )
+          # 같은 트랙이면 옮길 곳이 없다. 이미 올라간 build 의 상태만 바꾼다.
+          # draft 로 올라가 테스터에게 닿지 않는 build 를 되살리는 경로이고,
+          # versionCode 는 재사용할 수 없어 다시 업로드로는 풀 수 없다.
+          if [ "${{ inputs.from_track }}" = "${{ inputs.to_track }}" ]; then
+            args=(
+              --set-track-status
+              --track "${{ inputs.to_track }}"
+              --version-code "$PROMOTE_VERSION_CODE"
+              --release-status "${{ inputs.release_status }}"
+              --release-name "$TAG"
+            )
+          else
+            args=(
+              --promote
+              --promote-from-track "${{ inputs.from_track }}"
+              --promote-to-track "${{ inputs.to_track }}"
+              --promote-version-code "$PROMOTE_VERSION_CODE"
+              --release-status "${{ inputs.release_status }}"
+              --release-name "$TAG"
+            )
+          fi
           if [ -n "${{ inputs.rollout }}" ]; then
             args+=(--rollout "${{ inputs.rollout }}")
           fi
@@ -237,6 +250,10 @@ jobs:
             echo "### Promote Google Play"; echo ""
             echo "- tag: ${{ steps.tag.outputs.tag }} @ ${{ steps.tag.outputs.sha }}"
             echo "- promoted versionCode: ${{ steps.release.outputs.android_version_code }}"
-            echo "- ${{ inputs.from_track }} → ${{ inputs.to_track }} / status: ${{ inputs.release_status }}"
+            if [ "${{ inputs.from_track }}" = "${{ inputs.to_track }}" ]; then
+              echo "- ${{ inputs.to_track }} 상태 변경 / status: ${{ inputs.release_status }}"
+            else
+              echo "- ${{ inputs.from_track }} → ${{ inputs.to_track }} / status: ${{ inputs.release_status }}"
+            fi
             echo "- rollout: ${{ inputs.rollout || '(full)' }}"
           } >> "$GITHUB_STEP_SUMMARY"

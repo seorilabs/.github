@@ -25,8 +25,10 @@ on:
         default: "internal"
         type: string
       release_status:
+        # RN 경로와 같게 completed 가 기본이다. draft 는 트랙에 올라가고도 테스터에게
+        # 가지 않아, 올려둔 걸 잊으면 테스터가 옛 빌드에 묶인다. 필요하면 caller 가 명시한다.
         required: false
-        default: "draft"
+        default: "completed"
         type: string
       upload:
         required: false

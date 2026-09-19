@@ -177,6 +177,21 @@ def source_track_contains(track: dict[str, object], version_code: int) -> bool:
     return False
 
 
+def find_track_release(track: dict[str, object], version_code: int) -> dict[str, object]:
+    """트랙 안에서 그 versionCode 를 담은 release 를 돌려준다. 없으면 빈 dict."""
+    releases = track.get("releases") if isinstance(track, dict) else None
+    if not isinstance(releases, list):
+        return {}
+    wanted = str(version_code)
+    for release in releases:
+        if not isinstance(release, dict):
+            continue
+        codes = release.get("versionCodes")
+        if isinstance(codes, list) and any(str(code) == wanted for code in codes):
+            return release
+    return {}
+
+
 def promote(args: argparse.Namespace) -> dict[str, object]:
     validated = validate_promote(args)
     package_name = str(validated["packageName"])
@@ -235,6 +250,110 @@ def promote(args: argparse.Namespace) -> dict[str, object]:
             "packageName": package_name,
             "fromTrack": validated["fromTrack"],
             "toTrack": validated["toTrack"],
+            "releaseStatus": validated["releaseStatus"],
+            "versionCode": version_code,
+        }
+        if validated["userFraction"] is not None:
+            result["userFraction"] = validated["userFraction"]
+        return result
+    except Exception:
+        if edit_id is not None:
+            try:
+                publisher.edits().delete(
+                    packageName=package_name,
+                    editId=edit_id,
+                ).execute(num_retries=args.api_retries)
+            except Exception:
+                print("GOOGLE_PLAY_EDIT_CLEANUP_FAILED", file=sys.stderr)
+        raise
+
+
+def validate_set_track_status(args: argparse.Namespace) -> dict[str, object]:
+    if not PACKAGE_NAME_PATTERN.fullmatch(args.package_name):
+        fail("PACKAGE_NAME_INVALID")
+    if not TRACK_PATTERN.fullmatch(args.track):
+        fail("TRACK_INVALID")
+    if not 1 <= args.version_code <= MAX_VERSION_CODE:
+        fail("VERSION_CODE_INVALID")
+    status = "inProgress" if args.rollout is not None else args.release_status
+    return {
+        "packageName": args.package_name,
+        "track": args.track,
+        "versionCode": args.version_code,
+        "releaseStatus": status,
+        "userFraction": args.rollout,
+        "releaseNotes": load_release_notes(args.release_notes_json),
+    }
+
+
+def set_track_status(args: argparse.Namespace) -> dict[str, object]:
+    """이미 트랙에 있는 build 의 릴리스 상태만 바꾼다.
+
+    AAB 를 다시 올리지 않는다. versionCode 는 한 번 쓰면 재사용할 수 없어서,
+    draft 로 올라간 build 를 되살리려면 업로드가 아니라 이 경로가 필요하다.
+    승격과 달리 트랙 사이를 옮기지 않으므로 대상 트랙 하나만 읽고 쓴다.
+    """
+    validated = validate_set_track_status(args)
+    package_name = str(validated["packageName"])
+    track = str(validated["track"])
+    version_code = int(validated["versionCode"])
+    publisher = make_publisher(args.api_timeout_seconds)
+    edit_id: str | None = None
+
+    try:
+        edit = execute(
+            publisher.edits().insert(packageName=package_name, body={}),
+            args.api_retries,
+            "GOOGLE_PLAY_EDIT_CREATE_FAILED",
+        )
+        edit_id = edit.get("id") if isinstance(edit, dict) else None
+        if not isinstance(edit_id, str) or not edit_id:
+            fail("GOOGLE_PLAY_EDIT_RESPONSE_INVALID")
+
+        current = execute(
+            publisher.edits().tracks().get(
+                packageName=package_name,
+                editId=edit_id,
+                track=track,
+            ),
+            args.api_retries,
+            "GOOGLE_PLAY_SOURCE_TRACK_READ_FAILED",
+        )
+        if not source_track_contains(current, version_code):
+            fail("GOOGLE_PLAY_TRACK_MISSING_VERSION_CODE")
+
+        existing = find_track_release(current, version_code)
+        # 이름과 기존 노트는 그대로 둔다. 이 모드는 상태만 바꾸는 것이 목적이고,
+        # tracks.update 는 트랙의 releases 를 통째로 교체하므로 빠뜨리면 지워진다.
+        release: dict[str, object] = {
+            "name": args.release_name or existing.get("name"),
+            "versionCodes": [str(version_code)],
+            "status": validated["releaseStatus"],
+        }
+        notes = validated["releaseNotes"] or existing.get("releaseNotes")
+        if notes:
+            release["releaseNotes"] = notes
+        if validated["userFraction"] is not None:
+            release["userFraction"] = validated["userFraction"]
+        execute(
+            publisher.edits().tracks().update(
+                packageName=package_name,
+                editId=edit_id,
+                track=track,
+                body={"track": track, "releases": [release]},
+            ),
+            args.api_retries,
+            "GOOGLE_PLAY_TRACK_UPDATE_FAILED",
+        )
+        execute(
+            publisher.edits().commit(packageName=package_name, editId=edit_id),
+            args.api_retries,
+            "GOOGLE_PLAY_EDIT_COMMIT_FAILED",
+        )
+        edit_id = None
+        result: dict[str, object] = {
+            "packageName": package_name,
+            "track": track,
             "releaseStatus": validated["releaseStatus"],
             "versionCode": version_code,
         }
@@ -375,11 +494,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-aab-sha256", default="")
     parser.add_argument("--expected-version-code", default=None, type=positive_int)
     parser.add_argument("--track", default="internal")
-    parser.add_argument("--release-name", required=True)
+    # 상태 변경 모드는 트랙에 있는 이름을 그대로 쓴다. 나머지 모드는 아래에서 요구한다.
+    parser.add_argument("--release-name", default="")
     parser.add_argument(
+        # 기본은 completed 다. draft 는 트랙에 올려두고도 테스터에게 가지 않아,
+        # 올려둔 걸 잊으면 테스터가 옛 빌드에 묶인다. 실제로 그렇게 묶인 적이 있다.
+        # draft 가 필요하면 호출자가 명시한다.
         "--release-status",
         choices=["draft", "completed"],
-        default="draft",
+        default="completed",
     )
     parser.add_argument(
         "--release-notes-json",
@@ -393,6 +516,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--promote-from-track", default="internal")
     parser.add_argument("--promote-to-track", default="production")
     parser.add_argument("--promote-version-code", default=None, type=positive_int)
+    parser.add_argument(
+        "--set-track-status",
+        action="store_true",
+        help="Change the release status of a build already present in a track.",
+    )
+    parser.add_argument("--version-code", default=None, type=positive_int)
     parser.add_argument(
         "--rollout",
         default=None,
@@ -413,9 +542,28 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
 
     # 모드마다 필수 인자가 다르다. argparse 의 required 로는 갈라낼 수 없어 여기서 본다.
-    if args.promote:
+    if args.promote and args.set_track_status:
+        parser.error("--promote and --set-track-status are mutually exclusive")
+    if args.set_track_status:
+        if args.version_code is None:
+            parser.error("--set-track-status requires --version-code")
+        for name in ("aab_path", "expected_aab_sha256"):
+            if getattr(args, name):
+                parser.error(
+                    f"--{name.replace('_', '-')} is not valid with --set-track-status"
+                )
+        for name in ("expected_version_code", "promote_version_code"):
+            if getattr(args, name) is not None:
+                parser.error(
+                    f"--{name.replace('_', '-')} is not valid with --set-track-status"
+                )
+    elif args.promote:
         if args.promote_version_code is None:
             parser.error("--promote requires --promote-version-code")
+        if not args.release_name:
+            parser.error("--promote requires --release-name")
+        if args.version_code is not None:
+            parser.error("--version-code requires --set-track-status")
         for name in ("aab_path", "expected_aab_sha256"):
             if getattr(args, name):
                 parser.error(f"--{name.replace('_', '-')} is not valid with --promote")
@@ -423,7 +571,11 @@ def parse_args() -> argparse.Namespace:
             parser.error("--expected-version-code is not valid with --promote")
     else:
         if args.rollout is not None:
-            parser.error("--rollout requires --promote")
+            parser.error("--rollout requires --promote or --set-track-status")
+        if not args.release_name:
+            parser.error("--release-name is required without --promote")
+        if args.version_code is not None:
+            parser.error("--version-code requires --set-track-status")
         for name in ("aab_path", "expected_aab_sha256"):
             if not getattr(args, name):
                 parser.error(f"--{name.replace('_', '-')} is required without --promote")
@@ -435,7 +587,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        result = promote(args) if args.promote else upload(args)
+        if args.set_track_status:
+            result = set_track_status(args)
+        elif args.promote:
+            result = promote(args)
+        else:
+            result = upload(args)
     except PublicFailure as error:
         print(error.code, file=sys.stderr)
         return 1
