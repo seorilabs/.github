@@ -36,7 +36,7 @@ concurrency:
 jobs:
   record:
     name: Record iOS build observation
-    runs-on: seorilabs-x64
+    runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || 'seorilabs-x64' }}
     timeout-minutes: 10
     outputs:
       build_number: ${{ steps.record.outputs.build_number }}

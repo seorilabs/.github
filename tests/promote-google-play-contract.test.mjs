@@ -4,15 +4,21 @@ import test from "node:test";
 
 const workflowPath = new URL("../.github/workflows/promote-google-play.yml", import.meta.url);
 
-test("Google Play 트랙 승격은 RPI ARC에서 재빌드 없이 실행한다", async () => {
+test("Google Play 트랙 승격은 공개 여부로 라우팅한 러너에서 재빌드 없이 실행한다", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   const installStep = workflow.match(
     /- name: Install Google Play API client[\s\S]*?(?=\n      # 태그 Release)/,
   )?.[0];
   const promoteStep = workflow.match(/- name: Promote track[\s\S]*?(?=\n      - name: Summary)/)?.[0];
 
-  assert.match(workflow, /runs-on: seorilabs-x64/);
-  assert.doesNotMatch(workflow, /runs-on: ubuntu-latest/);
+  // public 저장소는 ARC(allows_public_repositories=false)를 잡지 못해 job이 영구 pending 된다.
+  // caller가 고르는 게 아니라 중앙이 저장소 공개 여부로 결정한다.
+  assert.match(
+    workflow,
+    /runs-on: \$\{\{ github\.event\.repository\.visibility == 'public' && 'ubuntu-latest' \|\| 'seorilabs-x64' \}\}/,
+  );
+  assert.doesNotMatch(workflow, /runs-on: seorilabs-x64$/m);
+  assert.doesNotMatch(workflow, /runs-on: \$\{\{ inputs\.runs_on \}\}/);
   assert.match(workflow, /environment: google-play/);
   // 외부 action은 공식 최신 stable의 immutable SHA로 고정한다.
   assert.match(workflow, /google-github-actions\/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3\.0\.0/);

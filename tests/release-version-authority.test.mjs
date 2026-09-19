@@ -1917,6 +1917,9 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   const ledgerInit = parse(workflowText('init-release-version-ledger.yml'));
   assert.deepEqual(ledgerInit.permissions, { contents: 'write' });
   assert.equal(ledgerInit.jobs.initialize['runs-on'], visibilityRoutedRunner);
+  // 승격은 WIF로 프로덕션 트랙을 건드린다. 러너 라우팅이 빠지면 public 저장소에서 영구 pending 된다.
+  const promotePlay = parse(workflowText('promote-google-play.yml'));
+  assert.equal(promotePlay.jobs.promote['runs-on'], visibilityRoutedRunner);
   const resolveTagStep = releaseTag.jobs.create.steps.find(
     (step) => step.name === 'Allocate release version and create tag',
   );
