@@ -82,6 +82,18 @@ on:
         required: false
         default: ""
         type: string
+      pod_install_args:
+        description: >-
+          pod install 에 붙일 인자. 기본은 없음(평범한 pod install).
+          RN 은 hermes-engine, React-Core-prebuilt, ReactNativeDependencies 처럼 설치 시점에
+          생성되는 podspec 을 쓴다. 이 podspec 의 checksum 은 CocoaPods 판본과 머신에 따라
+          달라져 Podfile.lock 과 재현적으로 일치하지 않는다. 그래서 --deployment 를 기본으로
+          두지 않는다. Pod 해석의 고정은 pnpm/npm lockfile 이 담당하고, 빌드 결과의 고정은
+          archive Info.plist readback 이 담당한다.
+          podspec 이 전부 정적인 저장소는 "--deployment" 를 넘겨 lockfile 을 강제할 수 있다.
+        required: false
+        default: ""
+        type: string
       post_archive_validation_script:
         description: "archive 직후·업로드 전에 실행할 repo-local 검증 스크립트."
         required: false
@@ -307,12 +319,15 @@ jobs:
 
       - name: Install CocoaPods dependencies
         shell: bash
+        env:
+          POD_INSTALL_ARGS: ${{ inputs.pod_install_args }}
         run: |
           set -euo pipefail
           cd "$IOS_DIR"
-          [ -f Podfile.lock ] || { echo "Podfile.lock이 없다. 잠긴 Pod만 설치한다." >&2; exit 1; }
-          # --deployment: Podfile.lock과 어긋나면 해석을 바꾸지 않고 실패한다.
-          pod install --deployment
+          [ -f Podfile ] || { echo "Podfile이 없다: $IOS_DIR/Podfile" >&2; exit 1; }
+          pod --version
+          # shellcheck disable=SC2086
+          pod install $POD_INSTALL_ARGS
 
       - name: Install signing assets
         id: signing
