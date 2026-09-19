@@ -43,6 +43,8 @@
 | `godot-deploy-ait.yml` | Godot web→wrapper→AppsInToss deploy | private ARC, public ubuntu |
 | `rn-deploy-google-play.yml` | RN 서명 AAB + Google Play 업로드 | `ubuntu-latest` |
 | `godot-deploy-google-play.yml` | Godot 서명 AAB + Google Play 업로드 | `ubuntu-latest` |
+| `rn-deploy-app-store.yml` | RN xcarchive + App Store Connect 업로드 | `macos-26` |
+| `godot-deploy-app-store.yml` | Godot xcarchive + App Store Connect 업로드 | `macos-26` |
 | `cleanup-actions-storage.yml` | 아티팩트/캐시 정리 | ARC |
 
 ## @ref 정책

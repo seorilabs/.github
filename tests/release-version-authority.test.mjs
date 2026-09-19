@@ -73,6 +73,7 @@ const RELEASE_WORKFLOWS = Object.freeze([
   'godot-deploy-google-play.yml',
   'godot-deploy-ait.yml',
   'godot-deploy-app-store.yml',
+  'rn-deploy-app-store.yml',
 ]);
 /**
  * 같은 태그 해석 블록을 인라인으로 복제한 경로 전체. artifact를 만들지 않는 승격·해석 경로까지
@@ -1612,6 +1613,7 @@ test('릴리즈 경로는 artifact metadata를 다시 읽어 태그와 대조한
     'rn-deploy-ait.yml': 'ait',
     'godot-deploy-ait.yml': 'ait',
     'godot-deploy-app-store.yml': 'xcode-archive',
+    'rn-deploy-app-store.yml': 'xcode-archive',
   };
 
   for (const [name, kind] of Object.entries(readback)) {
@@ -1895,6 +1897,8 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
     'godot-deploy-ait.yml': { contents: 'read' },
     // App Store 업로드는 ASC API key secret을 쓴다. WIF가 없으므로 id-token이 필요 없다.
     'godot-deploy-app-store.yml': { contents: 'read' },
+    // App Store 업로드는 ASC API key secret을 쓴다. WIF가 없으므로 id-token이 필요 없다.
+    'rn-deploy-app-store.yml': { contents: 'read' },
   };
 
   for (const name of RELEASE_WORKFLOWS) {

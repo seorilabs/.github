@@ -1,0 +1,532 @@
+# Seorilabs org 재사용 워크플로우: React Native 앱 App Store (xcarchive + .ipa 업로드)
+# 호출: uses: seorilabs/.github/.github/workflows/rn-deploy-app-store.yml@main
+# 러너: macos-26 고정. Xcode archive/서명/업로드는 macOS에서만 성립한다.
+# 한 job으로 유지하는 이유: release binding과 archive digest가 job 경계를 넘으면
+# "검증한 그 archive만 올린다"가 artifact 전달 신뢰로 약해진다.
+# 버전 정본: GitHub 릴리즈 태그 vX.Y.Z 하나뿐이다(contracts/release-version-authority.yaml).
+# package.json, Info.plist, pbxproj, 마켓 config JSON은 authority가 아니다. MARKETING_VERSION 과
+# CURRENT_PROJECT_VERSION 을 xcodebuild build setting 으로 주입하고, archive Info.plist readback 이
+# 태그 파생값과 다르면 업로드 전에 fail-closed 한다.
+#
+# 서명: archive 는 automatic + Apple Development 로 하고 배포 서명은 exportArchive 가
+# exportOptions.plist(method=app-store-connect, signingStyle=automatic)로 다시 한다.
+# ASC API key + -allowProvisioningUpdates 가 필요한 프로파일을 그때 발급한다. caller 저장소의
+# Xcode 프로젝트를 manual signing 으로 개조하지 않아도 되고, 앱별 프로파일 secret 은 선택이다.
+name: RN Deploy App Store (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "빌드/업로드할 릴리즈 태그. 비우면 최신 vX.Y.Z."
+        required: false
+        default: ""
+        type: string
+      bundle_id:
+        description: "App Store Connect bundle identifier. 검증된 archive identity와 같아야 한다."
+        required: false
+        default: ""
+        type: string
+      upload:
+        description: "false면 xcarchive artifact만 만들고 업로드하지 않는다."
+        required: false
+        default: true
+        type: boolean
+      ios_dir:
+        description: "CocoaPods/Xcode 프로젝트 디렉터리(workspace 기준)."
+        required: false
+        default: "apps/mobile/ios"
+        type: string
+      xcode_workspace:
+        description: >-
+          .xcworkspace 의 ios_dir 기준 상대 경로. CocoaPods 프로젝트는 workspace 로 archive 해야
+          Pods 타깃이 함께 빌드된다. 파일명이 기본 scheme 이름을 결정한다.
+        required: false
+        default: ""
+        type: string
+      scheme:
+        description: "xcodebuild scheme. 비우면 .xcworkspace basename을 쓴다."
+        required: false
+        default: ""
+        type: string
+      export_options_plist:
+        description: "exportArchive용 exportOptions.plist 경로(workspace 기준)."
+        required: false
+        default: "app-store/exportOptions.plist"
+        type: string
+      package_manager:
+        description: "npm | pnpm"
+        required: false
+        default: "npm"
+        type: string
+      pnpm_version:
+        required: false
+        default: "11.3.0"
+        type: string
+      node_version:
+        required: false
+        default: "24"
+        type: string
+      install_command:
+        description: "JS 의존성 설치 명령. 비우면 package_manager 기본값."
+        required: false
+        default: ""
+        type: string
+      firebase_restore_script:
+        description: "iOS Firebase config 복원 스크립트. 비우면 복원하지 않는다."
+        required: false
+        default: "scripts/restore-mobile-firebase-config.mjs"
+        type: string
+      prepare_script:
+        description: "pod install 전에 실행할 repo-local Node 준비 스크립트(선택, --ios 전달)."
+        required: false
+        default: ""
+        type: string
+      post_archive_validation_script:
+        description: "archive 직후·업로드 전에 실행할 repo-local 검증 스크립트."
+        required: false
+        default: ""
+        type: string
+      timeout_minutes:
+        required: false
+        default: 60
+        type: number
+    secrets:
+      APPLE_DISTRIBUTION_CERTIFICATE_BASE64:
+        required: false
+      APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_KEYCHAIN_PASSWORD:
+        required: false
+      APPLE_PROVISIONING_PROFILE_BASE64:
+        required: false
+      APP_STORE_CONNECT_API_KEY_ID:
+        required: false
+      APP_STORE_CONNECT_ISSUER_ID:
+        required: false
+      APP_STORE_CONNECT_PRIVATE_KEY_BASE64:
+        required: false
+      FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-archive:
+    name: RN signed iOS archive
+    # 마켓 자격증명을 쓰는 job은 caller가 러너를 고를 수 없다. GitHub-hosted macOS로 고정한다.
+    runs-on: macos-26
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment: app-store
+
+    env:
+      IOS_DIR: ${{ inputs.ios_dir }}
+      XCODE_WORKSPACE: ${{ inputs.xcode_workspace }}
+      EXPORT_OPTIONS_PLIST: ${{ inputs.export_options_plist }}
+      FIREBASE_RESTORE_SCRIPT: ${{ inputs.firebase_restore_script }}
+      PREPARE_SCRIPT: ${{ inputs.prepare_script }}
+      POST_ARCHIVE_VALIDATION_SCRIPT: ${{ inputs.post_archive_validation_script }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 1
+          fetch-tags: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node_version }}
+          check-latest: false
+
+      # 버전 authority 구현은 org 정본에만 둔다. caller 저장소 스크립트를 신뢰하지 않기 위해
+      # 중앙 저장소 main에서 정본을 받아 실행한다.
+      - name: Checkout release version authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: seorilabs/.github
+          ref: main
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
+      - name: Resolve exact release tag
+        id: tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          # 태그 선택은 실행 이벤트에 묶인다. refs/tags 실행은 그 태그가 곧 정본이고,
+          # 최신 태그 폴백은 운영자가 시작한 workflow_dispatch에서만 허용한다.
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # hot path는 원장 tip의 JSON 한 개와 대상 태그 ref 하나만 읽는다. 전체 태그를 나열하지 않는다.
+          LEDGER_BRANCH=release-version-ledger
+          LEDGER_JSON="$RUNNER_TEMP/release-version-ledger.json"
+          : > "$LEDGER_JSON"
+          if git ls-remote --exit-code --heads origin "$LEDGER_BRANCH" >/dev/null 2>&1; then
+            git fetch --no-tags --depth=1 --force origin "+refs/heads/$LEDGER_BRANCH:refs/remotes/origin/$LEDGER_BRANCH" >/dev/null
+            git show "refs/remotes/origin/$LEDGER_BRANCH:release-version-ledger.json" > "$LEDGER_JSON"
+          fi
+          tag="$(node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs --ledger-file "$LEDGER_JSON" --print-tag)"
+          git fetch --no-tags --depth=1 --force origin "+refs/tags/$tag:refs/tags/$tag" >/dev/null
+          git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null
+          git -c advice.detachedHead=false checkout "refs/tags/$tag"
+          tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          head_commit="$(git rev-parse 'HEAD^{commit}')"
+          [ "$tag_commit" = "$head_commit" ] || {
+            echo "checkout HEAD가 exact tag commit과 다름: tag=$tag_commit HEAD=$head_commit" >&2
+            exit 1
+          }
+          case "$RELEASE_EVENT_REF" in
+            refs/tags/*)
+              [ "$tag" = "${RELEASE_EVENT_REF#refs/tags/}" ] || {
+                echo "tag 이벤트 ref와 해석된 태그가 다름: $RELEASE_EVENT_REF != $tag" >&2
+                exit 1
+              }
+              [ "$tag_commit" = "$RELEASE_EVENT_SHA" ] || {
+                echo "tag 이벤트 commit과 태그 commit이 다름: $RELEASE_EVENT_SHA != $tag_commit" >&2
+                exit 1
+              }
+              ;;
+          esac
+          { echo "tag=$tag"; echo "sha=$tag_commit"; } >> "$GITHUB_OUTPUT"
+
+      - name: Bind release version to the tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_EVENT_REF: ${{ github.ref }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag ]; then
+            git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release-tag-message.txt"
+            export RELEASE_TAG_MESSAGE_FILE="$RUNNER_TEMP/release-tag-message.txt"
+          fi
+          RELEASE_HEAD_SHA="$(git rev-parse 'HEAD^{commit}')" \
+          RELEASE_LOCAL_TAG_SHA="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" \
+            node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs \
+              --ledger-file "$RUNNER_TEMP/release-version-ledger.json" --github-output
+
+      # CocoaPods workspace는 pod install 이후에 생기기도 한다. 경로는 입력이 결정하고
+      # 존재 확인은 archive 직전에 한다.
+      - name: Resolve archive identity
+        id: meta
+        shell: bash
+        env:
+          INPUT_SCHEME: ${{ inputs.scheme }}
+        run: |
+          set -euo pipefail
+          [ -d "$IOS_DIR" ] || { echo "ios_dir이 없다: $IOS_DIR" >&2; exit 1; }
+          workspace="$XCODE_WORKSPACE"
+          if [ -z "$workspace" ]; then
+            # 입력이 비면 ios_dir 최상위의 .xcworkspace 하나만 허용한다. 둘 이상이면 모호하다.
+            found="$(find "$IOS_DIR" -maxdepth 1 -name '*.xcworkspace' | sort)"
+            count="$(printf '%s\n' "$found" | grep -c . || true)"
+            [ "$count" = "1" ] || {
+              echo "xcode_workspace를 특정하지 못했다(발견 $count개). 입력으로 지정하라." >&2
+              exit 1
+            }
+            workspace="$(basename "$found")"
+          fi
+          case "$workspace" in
+            *.xcworkspace) ;;
+            *) echo "xcode_workspace는 .xcworkspace로 끝나야 한다: $workspace" >&2; exit 1 ;;
+          esac
+          base="$(basename "$workspace" .xcworkspace)"
+          [[ "$base" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+            echo "xcworkspace basename이 안전한 이름이 아니다: $base" >&2
+            exit 1
+          }
+          scheme="$INPUT_SCHEME"
+          [ -n "$scheme" ] || scheme="$base"
+          {
+            echo "workspace=$GITHUB_WORKSPACE/$IOS_DIR/$workspace"
+            echo "scheme=$scheme"
+            echo "archive_path=$RUNNER_TEMP/archives/$base.xcarchive"
+            echo "export_dir=$RUNNER_TEMP/export"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Enable pnpm
+        if: ${{ inputs.package_manager == 'pnpm' }}
+        shell: bash
+        env:
+          PNPM_VERSION: ${{ inputs.pnpm_version }}
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare "pnpm@$PNPM_VERSION" --activate
+
+      - name: Install JS dependencies
+        shell: bash
+        env:
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+          INSTALL_COMMAND: ${{ inputs.install_command }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INSTALL_COMMAND" ]; then
+            eval "$INSTALL_COMMAND"
+          elif [ "$PACKAGE_MANAGER" = pnpm ]; then
+            pnpm install --frozen-lockfile
+          else
+            npm ci
+          fi
+
+      # GoogleService-Info.plist는 저장소에 커밋하지 않는다. 없으면 archive가 런타임에
+      # Firebase를 못 붙이므로 --require로 fail-closed 한다.
+      - name: Restore iOS Firebase config
+        if: ${{ inputs.firebase_restore_script != '' }}
+        shell: bash
+        env:
+          FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64: ${{ secrets.FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64 }}
+        run: |
+          set -euo pipefail
+          [ -f "$FIREBASE_RESTORE_SCRIPT" ] || {
+            echo "firebase restore script가 없다: $FIREBASE_RESTORE_SCRIPT" >&2
+            exit 1
+          }
+          node "$FIREBASE_RESTORE_SCRIPT" --ios --require
+
+      - name: Run caller preparation
+        if: ${{ inputs.prepare_script != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f "$PREPARE_SCRIPT" ] || { echo "prepare script가 없다: $PREPARE_SCRIPT" >&2; exit 1; }
+          node "$PREPARE_SCRIPT" --ios
+
+      - name: Install CocoaPods dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$IOS_DIR"
+          [ -f Podfile.lock ] || { echo "Podfile.lock이 없다. 잠긴 Pod만 설치한다." >&2; exit 1; }
+          # --deployment: Podfile.lock과 어긋나면 해석을 바꾸지 않고 실패한다.
+          pod install --deployment
+
+      - name: Install signing assets
+        id: signing
+        shell: bash
+        env:
+          APPLE_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          for required in APPLE_DISTRIBUTION_CERTIFICATE_BASE64 APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD APPLE_KEYCHAIN_PASSWORD; do
+            eval "value=\${$required:-}"
+            [ -n "$value" ] || { echo "::error::$required secret이 필요하다." >&2; exit 1; }
+          done
+          keychain="$RUNNER_TEMP/seori-signing.keychain-db"
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain"
+          cert="$RUNNER_TEMP/distribution.p12"
+          printf '%s' "$APPLE_DISTRIBUTION_CERTIFICATE_BASE64" | base64 -D > "$cert"
+          security import "$cert" -k "$keychain" -P "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$cert"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$APPLE_KEYCHAIN_PASSWORD" "$keychain" >/dev/null
+          # 기존 user keychain 목록을 보존한 채 서명 keychain만 앞에 붙인다.
+          existing=()
+          while IFS= read -r line; do
+            entry="$(printf '%s' "$line" | tr -d '"' | sed -e 's/^ *//' -e 's/ *$//')"
+            [ -n "$entry" ] && existing+=("$entry")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$keychain" "${existing[@]}"
+          if [ -n "${APPLE_PROVISIONING_PROFILE_BASE64:-}" ]; then
+            profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+            mkdir -p "$profile_dir"
+            printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$profile_dir/seori-release.mobileprovision"
+            echo "provisioning profile 설치 완료"
+          fi
+          echo "keychain=$keychain" >> "$GITHUB_OUTPUT"
+
+      - name: Write App Store Connect API key
+        id: asc
+        shell: bash
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          for required in APP_STORE_CONNECT_API_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_PRIVATE_KEY_BASE64; do
+            eval "value=\${$required:-}"
+            [ -n "$value" ] || { echo "::error::$required secret이 필요하다." >&2; exit 1; }
+          done
+          key_dir="$RUNNER_TEMP/asc-keys"
+          mkdir -p "$key_dir"
+          key_path="$key_dir/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY_BASE64" | base64 -D > "$key_path"
+          [ -s "$key_path" ] || { echo "::error::ASC private key 디코드 결과가 비었다." >&2; exit 1; }
+          chmod 600 "$key_path"
+          echo "key_path=$key_path" >> "$GITHUB_OUTPUT"
+
+      - name: Archive with Xcode
+        shell: bash
+        env:
+          XCODE_WORKSPACE_PATH: ${{ steps.meta.outputs.workspace }}
+          XCODE_SCHEME: ${{ steps.meta.outputs.scheme }}
+          ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
+          ASC_KEY_PATH: ${{ steps.asc.outputs.key_path }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          MARKETING_VERSION: ${{ steps.release.outputs.apple_marketing_version }}
+          BUILD_NUMBER: ${{ steps.release.outputs.apple_build_number }}
+        run: |
+          set -euo pipefail
+          [ -d "$XCODE_WORKSPACE_PATH" ] || { echo "xcworkspace가 없다: $XCODE_WORKSPACE_PATH" >&2; exit 1; }
+          [ -n "$APPLE_TEAM_ID" ] || { echo "::error::APPLE_TEAM_ID 변수가 필요하다." >&2; exit 1; }
+          mkdir -p "$(dirname "$ARCHIVE_PATH")"
+          # 버전 정본은 태그다. Info.plist가 $(MARKETING_VERSION)/$(CURRENT_PROJECT_VERSION)를
+          # 참조하므로 build setting 주입만으로 태그 파생값이 번들에 들어간다. pbxproj는 고치지 않는다.
+          #
+          # 배포 서명은 여기서 하지 않는다. archive는 automatic + Apple Development로 끝내고
+          # exportArchive가 exportOptions.plist(method=app-store-connect)로 다시 서명한다.
+          # 그래야 caller 저장소의 CODE_SIGN_STYLE=Automatic 프로젝트를 개조하지 않아도 된다.
+          xcodebuild archive \
+            -workspace "$XCODE_WORKSPACE_PATH" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            MARKETING_VERSION="$MARKETING_VERSION" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="Apple Development" \
+            PROVISIONING_PROFILE_SPECIFIER=""
+          [ -d "$ARCHIVE_PATH" ] || { echo "xcarchive가 생성되지 않았다: $ARCHIVE_PATH" >&2; exit 1; }
+
+      # build setting 주입이 무시되거나 Info.plist가 리터럴 버전을 박아 두면 여기서 fail-closed한다.
+      - name: Verify archive version against the release tag
+        id: provenance
+        shell: bash
+        env:
+          ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
+          RELEASE_BINDING_PATH: ${{ runner.temp }}/release-binding.json
+        run: |
+          set -euo pipefail
+          # xcarchive의 최상위 Info.plist는 버전이 ApplicationProperties 아래에 중첩돼 있다.
+          # 실제 제출되는 값은 .app 번들의 평면 Info.plist이므로 그쪽을 readback한다.
+          app_plist="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 2 -name 'Info.plist' | head -n 1)"
+          [ -n "$app_plist" ] || { echo "archive에서 앱 Info.plist를 찾지 못했다." >&2; exit 1; }
+          plutil -convert json -o "$RUNNER_TEMP/archive-info.json" "$app_plist"
+          [ -s "$RUNNER_TEMP/archive-info.json" ] || { echo "Info.plist JSON 변환 결과가 비었다." >&2; exit 1; }
+          # xcarchive는 디렉터리 번들이라 --artifact 파일 digest를 쓰지 않는다.
+          node .seorilabs-release-authority/scripts/release/verify-release-artifact.mjs \
+            --kind xcode-archive \
+            --metadata "$RUNNER_TEMP/archive-info.json" \
+            --receipt "$RUNNER_TEMP/release-artifact-receipt.txt" \
+            --github-output
+
+      - name: Verify bundle identifier
+        if: ${{ inputs.bundle_id != '' }}
+        shell: bash
+        env:
+          EXPECTED_BUNDLE_ID: ${{ inputs.bundle_id }}
+        run: |
+          set -euo pipefail
+          observed="$(node -e 'const d=require("fs").readFileSync(process.env.RUNNER_TEMP+"/archive-info.json","utf8");process.stdout.write(String(JSON.parse(d).CFBundleIdentifier??""))')"
+          [ "$observed" = "$EXPECTED_BUNDLE_ID" ] || {
+            echo "archive bundle id가 caller 선언과 다르다: $observed != $EXPECTED_BUNDLE_ID" >&2
+            exit 1
+          }
+
+      - name: Run caller post-archive validation
+        if: ${{ inputs.post_archive_validation_script != '' }}
+        shell: bash
+        env:
+          ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
+          IOS_MARKETING_VERSION: ${{ steps.release.outputs.apple_marketing_version }}
+          IOS_BUILD_NUMBER: ${{ steps.release.outputs.apple_build_number }}
+        run: |
+          set -euo pipefail
+          [ -f "$POST_ARCHIVE_VALIDATION_SCRIPT" ] || {
+            echo "post-archive validation script not found: $POST_ARCHIVE_VALIDATION_SCRIPT" >&2
+            exit 1
+          }
+          bash "$POST_ARCHIVE_VALIDATION_SCRIPT"
+
+      - name: Export and upload to App Store Connect
+        if: ${{ inputs.upload }}
+        shell: bash
+        env:
+          ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
+          EXPORT_DIR: ${{ steps.meta.outputs.export_dir }}
+          ASC_KEY_PATH: ${{ steps.asc.outputs.key_path }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          SEORI_EXPECTED_ARCHIVE_SHA256: ${{ steps.provenance.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          [ -f "$EXPORT_OPTIONS_PLIST" ] || { echo "exportOptions.plist가 없다: $EXPORT_OPTIONS_PLIST" >&2; exit 1; }
+          # 업로드 직전에 검증한 그 archive 그대로인지 다시 본다.
+          app_plist="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 2 -name 'Info.plist' | head -n 1)"
+          plutil -convert json -o "$RUNNER_TEMP/archive-info-recheck.json" "$app_plist"
+          observed="$(shasum -a 256 "$RUNNER_TEMP/archive-info-recheck.json" | cut -d ' ' -f 1)"
+          [ "$observed" = "$SEORI_EXPECTED_ARCHIVE_SHA256" ] || {
+            echo "업로드 직전 archive digest가 검증값과 다르다: $observed != $SEORI_EXPECTED_ARCHIVE_SHA256" >&2
+            exit 1
+          }
+          mkdir -p "$EXPORT_DIR"
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_DIR" \
+            -exportOptionsPlist "$EXPORT_OPTIONS_PLIST" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Upload archive artifact
+        if: ${{ !inputs.upload }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rn-app-store-archive-${{ steps.release.outputs.apple_marketing_version }}-${{ steps.release.outputs.apple_build_number }}
+          path: ${{ steps.meta.outputs.archive_path }}
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Remove signing keychain
+        if: ${{ always() && steps.signing.outputs.keychain != '' }}
+        shell: bash
+        env:
+          KEYCHAIN_PATH: ${{ steps.signing.outputs.keychain }}
+        run: security delete-keychain "$KEYCHAIN_PATH" || true
+
+      - name: Summary
+        if: ${{ always() }}
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          MARKETING_VERSION: ${{ steps.release.outputs.apple_marketing_version }}
+          BUILD_NUMBER: ${{ steps.release.outputs.apple_build_number }}
+          ARCHIVE_DIGEST: ${{ steps.provenance.outputs.artifact_digest }}
+          SHOULD_UPLOAD: ${{ inputs.upload }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### RN App Store"
+            echo
+            echo "- tag: \`$RELEASE_TAG\`"
+            echo "- CFBundleShortVersionString: \`$MARKETING_VERSION\`"
+            echo "- CFBundleVersion: \`$BUILD_NUMBER\`"
+            echo "- archive Info.plist digest: \`$ARCHIVE_DIGEST\`"
+            echo "- upload: \`$SHOULD_UPLOAD\`"
+          } >> "$GITHUB_STEP_SUMMARY"
