@@ -94,6 +94,19 @@ on:
         required: false
         default: ""
         type: string
+      upload_rn_dsyms:
+        description: >-
+          RN prebuilt framework 의 dSYM 을 Maven Central 에서 받아 archive 에 넣는다.
+          React Native 는 React / ReactNativeDependencies / hermesvm 을 미리 컴파일한
+          xcframework 로 배포하는데 그 안에 dSYM 이 없다. 그대로 올리면
+          "Upload Symbols Failed" 경고와 함께 그 세 프레임워크의 크래시가 심볼화되지 않는다.
+          버전은 Podfile.lock 에서 읽고, 복사한 dSYM 의 UUID 가 archive 안 바이너리와
+          일치하는지 확인한 뒤에만 통과시킨다.
+          내려받는 양이 약 550MB(core 159 + dependencies 38 + hermes 356)라 job 이 몇 분
+          길어진다. 심볼화가 필요 없으면 false 로 끈다.
+        required: false
+        default: true
+        type: boolean
       post_archive_validation_script:
         description: "archive 직후·업로드 전에 실행할 repo-local 검증 스크립트."
         required: false
@@ -462,6 +475,109 @@ jobs:
             echo "archive bundle id가 caller 선언과 다르다: $observed != $EXPECTED_BUNDLE_ID" >&2
             exit 1
           }
+
+      # RN prebuilt xcframework 에는 dSYM 이 없다. Maven Central 이 같은 버전의 dSYM 을 따로
+      # 배포하므로 archive 의 dSYMs/ 에 넣어 준다. exportArchive 의 uploadSymbols 가 그걸 올린다.
+      - name: Add React Native prebuilt dSYMs
+        if: ${{ inputs.upload_rn_dsyms }}
+        shell: bash
+        env:
+          ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
+        run: |
+          set -euo pipefail
+          lock="$IOS_DIR/Podfile.lock"
+          [ -f "$lock" ] || { echo "::error::Podfile.lock이 없다: $lock" >&2; exit 1; }
+
+          # 실제로 빌드에 쓰인 판본을 Podfile.lock 에서 읽는다. package.json 이 아니라
+          # lock 을 보는 이유는 archive 에 들어간 바이너리와 같은 판본을 받아야 하기 때문이다.
+          read_pod_version() {
+            sed -n -E "s/^  - $1 \(([^)]+)\).*/\1/p" "$lock" | head -n 1
+          }
+          rn_version="$(read_pod_version 'React-Core')"
+          hermes_version="$(read_pod_version 'hermes-engine')"
+          [ -n "$rn_version" ] || { echo "::error::Podfile.lock에서 React-Core 판본을 읽지 못했다." >&2; exit 1; }
+          [ -n "$hermes_version" ] || { echo "::error::Podfile.lock에서 hermes-engine 판본을 읽지 못했다." >&2; exit 1; }
+          echo "React Native $rn_version / hermes $hermes_version"
+
+          maven=https://repo1.maven.org/maven2
+          rn_base="$maven/com/facebook/react/react-native-artifacts/$rn_version/react-native-artifacts-$rn_version"
+          hermes_base="$maven/com/facebook/hermes/hermes-ios/$hermes_version/hermes-ios-$hermes_version"
+
+          work="$RUNNER_TEMP/rn-dsyms"
+          mkdir -p "$work" "$ARCHIVE_PATH/dSYMs"
+
+          fetch_dsyms() {
+            local name="$1" url="$2"
+            local dest="$work/$name"
+            mkdir -p "$dest"
+            echo "▸ $name"
+            # 일시적 네트워크 실패와 진짜 404 를 구분한다. 404 면 판본 해석이 틀린 것이라 즉시 멈춘다.
+            curl --fail --silent --show-error --location --retry 3 --retry-delay 5 \
+              --proto '=https' --tlsv1.2 -o "$dest/dsym.tar.gz" "$url"
+            tar -xzf "$dest/dsym.tar.gz" -C "$dest"
+            rm -f "$dest/dsym.tar.gz"
+          }
+
+          fetch_dsyms core "$rn_base-reactnative-core-dSYM-release.tar.gz"
+          fetch_dsyms dependencies "$rn_base-reactnative-dependencies-dSYM-release.tar.gz"
+          fetch_dsyms hermes "$hermes_base-hermes-framework-dSYM-release.tar.gz"
+
+          # device 슬라이스만 쓴다. simulator / maccatalyst / tvos / xros / macos 는 제출물과 무관하다.
+          copied=0
+          while IFS= read -r dsym; do
+            case "$dsym" in
+              *simulator*|*maccatalyst*|*tvos*|*xros*|*macos*) continue ;;
+            esac
+            case "$dsym" in
+              *ios-arm64*) ;;
+              *) continue ;;
+            esac
+            cp -R "$dsym" "$ARCHIVE_PATH/dSYMs/"
+            copied=$((copied + 1))
+          done < <(find "$work" -type d -name '*.dSYM' | sort)
+          [ "$copied" -gt 0 ] || { echo "::error::복사할 device dSYM을 찾지 못했다." >&2; exit 1; }
+          echo "device dSYM $copied개 복사"
+
+      # 복사한 dSYM 이 실제로 쓸모 있는지는 UUID 가 말해 준다. 다만 이건 릴리스 게이트가
+      # 아니다. 심볼 업로드가 안 돼도 앱은 정상 출시되므로 보고만 하고 막지 않는다.
+      # archive 레이아웃(정적 링키지 여부)에 따라 프레임워크가 별도 바이너리로 없을 수도 있어
+      # .app 아래 Mach-O 를 전부 훑는다.
+      - name: Report dSYM UUID coverage
+        if: ${{ inputs.upload_rn_dsyms }}
+        shell: bash
+        env:
+          ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
+        run: |
+          set -uo pipefail
+          app="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -name '*.app' | head -n 1)"
+          [ -n "$app" ] || { echo "::warning::archive에서 .app을 찾지 못해 UUID 대조를 건너뛴다."; exit 0; }
+
+          archive_uuids="$RUNNER_TEMP/archive-uuids.txt"
+          : > "$archive_uuids"
+          while IFS= read -r bin; do
+            file "$bin" 2>/dev/null | grep -q 'Mach-O' || continue
+            dwarfdump --uuid "$bin" 2>/dev/null | awk '{print $2}' >> "$archive_uuids"
+          done < <(find "$app" -type f -perm -u+x)
+          sort -u -o "$archive_uuids" "$archive_uuids"
+
+          matched=0 unmatched=0
+          for dsym in "$ARCHIVE_PATH"/dSYMs/*.dSYM; do
+            [ -d "$dsym" ] || continue
+            name="$(basename "$dsym" .dSYM)"
+            uuid="$(dwarfdump --uuid "$dsym" 2>/dev/null | awk '{print $2}' | head -n 1)"
+            if [ -n "$uuid" ] && grep -qxF "$uuid" "$archive_uuids"; then
+              matched=$((matched + 1))
+              echo "  ✓ $name $uuid"
+            else
+              unmatched=$((unmatched + 1))
+              echo "  · $name ${uuid:-unknown} (archive 바이너리에서 못 찾음)"
+            fi
+          done
+
+          echo "archive 바이너리 UUID $(wc -l < "$archive_uuids")개 / dSYM 일치 $matched개, 불일치 $unmatched개"
+          if [ "$matched" -eq 0 ]; then
+            echo "::warning::archive 바이너리와 UUID가 일치하는 dSYM이 없다. 심볼 업로드가 실패할 수 있다."
+          fi
 
       - name: Run caller post-archive validation
         if: ${{ inputs.post_archive_validation_script != '' }}
