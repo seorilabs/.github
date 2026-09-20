@@ -98,7 +98,7 @@ on:
       APPLE_KEYCHAIN_PASSWORD:
         required: false
       APPLE_PROVISIONING_PROFILE_BASE64:
-        required: false
+        required: true
       APP_STORE_CONNECT_API_KEY_ID:
         required: false
       APP_STORE_CONNECT_ISSUER_ID:
@@ -396,13 +396,24 @@ jobs:
             [ -n "$entry" ] && existing+=("$entry")
           done < <(security list-keychains -d user)
           security list-keychains -d user -s "$keychain" "${existing[@]}"
-          if [ -n "${APPLE_PROVISIONING_PROFILE_BASE64:-}" ]; then
-            profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
-            mkdir -p "$profile_dir"
-            printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$profile_dir/seori-release.mobileprovision"
-            echo "provisioning profile 설치 완료"
-          fi
-          echo "keychain=$keychain" >> "$GITHUB_OUTPUT"
+          [ -n "${APPLE_PROVISIONING_PROFILE_BASE64:-}" ] || {
+            echo "::error::APPLE_PROVISIONING_PROFILE_BASE64 secret이 필요하다. manual 서명에 쓴다." >&2
+            exit 1
+          }
+          profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$profile_dir"
+          profile="$profile_dir/seori-release.mobileprovision"
+          printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$profile"
+          # PROVISIONING_PROFILE_SPECIFIER 는 UUID 가 아니라 프로파일 Name 을 받는다.
+          profile_name="$(security cms -D -i "$profile" 2>/dev/null | plutil -extract Name raw - 2>/dev/null)"
+          profile_appid="$(security cms -D -i "$profile" 2>/dev/null | plutil -extract Entitlements.application-identifier raw - 2>/dev/null)"
+          [ -n "$profile_name" ] || { echo "::error::provisioning profile에서 Name을 읽지 못했다." >&2; exit 1; }
+          echo "provisioning profile 설치 완료: $profile_name ($profile_appid)"
+          {
+            echo "keychain=$keychain"
+            echo "profile_name=$profile_name"
+            echo "profile_bundle_id=${profile_appid#*.}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Write App Store Connect API key
         id: asc
@@ -431,35 +442,28 @@ jobs:
           XCODE_PROJECT: ${{ steps.meta.outputs.project }}
           XCODE_SCHEME: ${{ steps.meta.outputs.scheme }}
           ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
-          ASC_KEY_PATH: ${{ steps.asc.outputs.key_path }}
-          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          PROFILE_NAME: ${{ steps.signing.outputs.profile_name }}
         run: |
           set -euo pipefail
           mkdir -p "$(dirname "$ARCHIVE_PATH")"
-          # Godot의 iOS export는 export_method_release=0(App Store) 때문에 생성된 xcodeproj에
-          # CODE_SIGN_IDENTITY="Apple Distribution"을 박아 둔다. 그대로 automatic 서명으로
-          # archive하면 xcodebuild가 충돌로 거부한다:
-          #   "automatically signed for development, but a conflicting code signing identity
-          #    Apple Distribution has been manually specified"
+          [ -n "$PROFILE_NAME" ] || { echo "::error::설치된 provisioning profile 이름을 받지 못했다." >&2; exit 1; }
+          # Godot 의 iOS export 는 export_method_release=0(App Store) 때문에 생성된 xcodeproj 에
+          # CODE_SIGN_IDENTITY="Apple Distribution" 을 박아 둔다. 예전에는 이것과 automatic 서명이
+          # 충돌해서 archive 를 Apple Development 로 돌렸는데, 그 우회가 러너마다 개발 인증서를
+          # 새로 발급하게 만들어 Apple 계정 인증서 한도를 소진시켰다.
           #
-          # 그래서 archive는 automatic + Apple Development로 하고, 배포 서명은 exportArchive가
-          # exportOptions.plist(method=app-store-connect, signingStyle=automatic)로 다시 한다.
-          # -allowProvisioningUpdates + ASC API key가 필요한 프로파일을 그때 발급한다.
+          # 이제 Godot 이 박아 둔 것과 같은 Apple Distribution 으로 manual 서명한다. 충돌할 것이
+          # 없고 새로 만들 인증서도 없다. -allowProvisioningUpdates 를 쓰지 않는다.
           xcodebuild archive \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$ARCHIVE_PATH" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$ASC_KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
-            CODE_SIGN_IDENTITY="Apple Development" \
-            PROVISIONING_PROFILE_SPECIFIER=""
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME"
           [ -d "$ARCHIVE_PATH" ] || { echo "xcarchive가 생성되지 않았다: $ARCHIVE_PATH" >&2; exit 1; }
 
       # Godot이 preset 값을 무시하거나 오래된 export template이 남아 있으면 여기서 fail-closed한다.
@@ -521,6 +525,9 @@ jobs:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           SEORI_EXPECTED_ARCHIVE_SHA256: ${{ steps.provenance.outputs.artifact_digest }}
+          PROFILE_NAME: ${{ steps.signing.outputs.profile_name }}
+          PROFILE_BUNDLE_ID: ${{ steps.signing.outputs.profile_bundle_id }}
+          INPUT_BUNDLE_ID: ${{ inputs.bundle_id }}
         run: |
           set -euo pipefail
           [ -f "$EXPORT_OPTIONS_PLIST" ] || { echo "exportOptions.plist가 없다: $EXPORT_OPTIONS_PLIST" >&2; exit 1; }
@@ -533,11 +540,31 @@ jobs:
             exit 1
           }
           mkdir -p "$EXPORT_DIR"
+
+          # export 서명 방식은 중앙이 정한다. caller 의 exportOptions.plist 가 automatic 이면
+          # exportArchive 가 프로파일을 새로 받으려 하고 결국 Apple 계정 인증서 한도를 갉아먹는다.
+          # 저장소 파일은 건드리지 않고 사본을 고친다.
+          effective="$RUNNER_TEMP/exportOptions.effective.plist"
+          cp "$EXPORT_OPTIONS_PLIST" "$effective"
+          bundle="${INPUT_BUNDLE_ID:-$PROFILE_BUNDLE_ID}"
+          plutil -replace signingStyle -string manual "$effective"
+          plutil -replace signingCertificate -string "Apple Distribution" "$effective"
+          case "$bundle" in
+            *"*"*|"")
+              echo "::warning::bundle id를 특정하지 못해 provisioningProfiles 매핑을 넣지 않는다: ${bundle:-empty}"
+              ;;
+            *)
+              plutil -replace provisioningProfiles -json "{\"$bundle\": \"$PROFILE_NAME\"}" "$effective"
+              ;;
+          esac
+          echo "적용되는 export 옵션:"
+          plutil -p "$effective" | sed 's/^/  /'
+
+          # -allowProvisioningUpdates 를 쓰지 않는다. ASC 인증은 업로드에만 쓴다.
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_DIR" \
-            -exportOptionsPlist "$EXPORT_OPTIONS_PLIST" \
-            -allowProvisioningUpdates \
+            -exportOptionsPlist "$effective" \
             -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"

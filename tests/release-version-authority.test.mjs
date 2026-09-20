@@ -1877,6 +1877,41 @@ test('AIT 업로드는 upload 입력으로만 막히고 기본값은 업로드�
   }
 });
 
+// -allowProvisioningUpdates 는 일회용 러너마다 Apple Development 인증서를 새로 발급한다.
+// 릴리스마다 하나씩 쌓여 Apple 계정 인증서 한도("maximum number of certificates")에 걸리고,
+// 그 뒤로는 모든 타깃의 서명이 실패한다. 실제로 babycare v1.1.11 빌드가 이렇게 죽었고
+// 고아 인증서 10개를 폐기해야 했다. 배포 인증서 manual 서명은 새로 만들 것이 없다.
+test('App Store 워크플로는 인증서를 새로 발급하지 않는다', () => {
+  const appStoreWorkflows = ['rn-deploy-app-store.yml', 'godot-deploy-app-store.yml'];
+
+  for (const name of appStoreWorkflows) {
+    const text = workflowText(name);
+
+    // 주석 설명은 남겨도 되지만 실제 플래그 사용은 없어야 한다.
+    assert.doesNotMatch(
+      text,
+      /^\s+-allowProvisioningUpdates/mu,
+      `${name}: -allowProvisioningUpdates 는 러너마다 개발 인증서를 발급한다`,
+    );
+
+    assert.match(text, /CODE_SIGN_STYLE=Manual/u, name);
+    assert.match(text, /CODE_SIGN_IDENTITY="Apple Distribution"/u, name);
+    assert.match(text, /PROVISIONING_PROFILE_SPECIFIER="\$PROFILE_NAME"/u, name);
+    assert.doesNotMatch(text, /CODE_SIGN_IDENTITY="Apple Development"/u, name);
+
+    // export 도 automatic 으로 새 프로파일을 받으면 안 된다. 중앙이 manual 로 덮는다.
+    assert.match(text, /plutil -replace signingStyle -string manual/u, name);
+    assert.match(text, /plutil -replace signingCertificate -string "Apple Distribution"/u, name);
+
+    // manual 서명은 프로파일 없이 성립하지 않는다.
+    const profileSecret = text.match(
+      /APPLE_PROVISIONING_PROFILE_BASE64:\n\s+required: (true|false)/u,
+    );
+    assert.ok(profileSecret, `${name}: APPLE_PROVISIONING_PROFILE_BASE64 선언이 필요하다`);
+    assert.equal(profileSecret[1], 'true', `${name}: 프로파일 secret 은 필수다`);
+  }
+});
+
 test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지한다', () => {
   // 권한 있는 job의 러너는 caller 입력을 그대로 쓰지 않는다. 승인된 라벨만 허용한다.
   // caller 입력이 아니라 저장소 공개 여부로 중앙이 결정하는 라우팅.
