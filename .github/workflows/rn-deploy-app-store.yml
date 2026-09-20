@@ -259,7 +259,7 @@ jobs:
             found="$(find "$IOS_DIR" -maxdepth 1 -name '*.xcworkspace' | sort)"
             count="$(printf '%s\n' "$found" | grep -c . || true)"
             [ "$count" = "1" ] || {
-              echo "xcode_workspace를 특정하지 못했다(발견 $count개). 입력으로 지정하라." >&2
+              echo "xcode_workspace를 특정하지 못했다(발견 ${count}개). 입력으로 지정하라." >&2
               exit 1
             }
             workspace="$(basename "$found")"
@@ -536,7 +536,7 @@ jobs:
             copied=$((copied + 1))
           done < <(find "$work" -type d -name '*.dSYM' | sort)
           [ "$copied" -gt 0 ] || { echo "::error::복사할 device dSYM을 찾지 못했다." >&2; exit 1; }
-          echo "device dSYM $copied개 복사"
+          echo "device dSYM ${copied}개 복사"
 
       # 복사한 dSYM 이 실제로 쓸모 있는지는 UUID 가 말해 준다. 다만 이건 릴리스 게이트가
       # 아니다. 심볼 업로드가 안 돼도 앱은 정상 출시되므로 보고만 하고 막지 않는다.
@@ -574,7 +574,7 @@ jobs:
             fi
           done
 
-          echo "archive 바이너리 UUID $(wc -l < "$archive_uuids")개 / dSYM 일치 $matched개, 불일치 $unmatched개"
+          echo "archive 바이너리 UUID $(wc -l < "$archive_uuids")개 / dSYM 일치 ${matched}개, 불일치 ${unmatched}개"
           if [ "$matched" -eq 0 ]; then
             echo "::warning::archive 바이너리와 UUID가 일치하는 dSYM이 없다. 심볼 업로드가 실패할 수 있다."
           fi
