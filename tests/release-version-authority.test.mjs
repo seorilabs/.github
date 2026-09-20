@@ -1896,7 +1896,14 @@ test('App Store 워크플로는 인증서를 새로 발급하지 않는다', () 
 
     assert.match(text, /CODE_SIGN_STYLE=Manual/u, name);
     assert.match(text, /CODE_SIGN_IDENTITY="Apple Distribution"/u, name);
-    assert.match(text, /PROVISIONING_PROFILE_SPECIFIER="\$PROFILE_NAME"/u, name);
+    // Godot 은 생성 프로젝트 하나뿐이라 명령행으로 프로파일을 줘도 된다. RN 은 CocoaPods
+    // 타깃이 함께 있어 명령행으로 주면 "does not support provisioning profiles" 로 죽는다.
+    // 앱 타깃 프로파일은 caller 저장소의 Xcode 프로젝트가 지정한다.
+    if (name.startsWith('godot-')) {
+      assert.match(text, /PROVISIONING_PROFILE_SPECIFIER="\$PROFILE_NAME"/u, name);
+    } else {
+      assert.doesNotMatch(text, /^\s+PROVISIONING_PROFILE_SPECIFIER=/mu, name);
+    }
     assert.doesNotMatch(text, /CODE_SIGN_IDENTITY="Apple Development"/u, name);
 
     // export 도 automatic 으로 새 프로파일을 받으면 안 된다. 중앙이 manual 로 덮는다.

@@ -429,6 +429,13 @@ jobs:
           [ -n "$APPLE_TEAM_ID" ] || { echo "::error::APPLE_TEAM_ID 변수가 필요하다." >&2; exit 1; }
           mkdir -p "$(dirname "$ARCHIVE_PATH")"
           [ -n "$PROFILE_NAME" ] || { echo "::error::설치된 provisioning profile 이름을 받지 못했다." >&2; exit 1; }
+          # PROVISIONING_PROFILE_SPECIFIER 는 명령행으로 주지 않는다. xcodebuild 의 명령행
+          # build setting 은 모든 타깃에 적용되는데, CocoaPods 타깃은 프로파일을 받지 못한다:
+          #   "abseil does not support provisioning profiles, but provisioning profile
+          #    ... has been manually specified"
+          # 앱 타깃의 프로파일은 caller 저장소의 Xcode 프로젝트가 지정한다. 설치된 프로파일
+          # 이름은 로그로 남겨 프로젝트 설정과 어긋났을 때 대조할 수 있게 한다.
+          echo "설치된 프로파일: $PROFILE_NAME (앱 타깃 PROVISIONING_PROFILE_SPECIFIER 와 같아야 한다)"
           # 버전 정본은 태그다. Info.plist가 $(MARKETING_VERSION)/$(CURRENT_PROJECT_VERSION)를
           # 참조하므로 build setting 주입만으로 태그 파생값이 번들에 들어간다. pbxproj는 고치지 않는다.
           #
@@ -445,8 +452,7 @@ jobs:
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME"
+            CODE_SIGN_IDENTITY="Apple Distribution"
           [ -d "$ARCHIVE_PATH" ] || { echo "xcarchive가 생성되지 않았다: $ARCHIVE_PATH" >&2; exit 1; }
 
       # build setting 주입이 무시되거나 Info.plist가 리터럴 버전을 박아 두면 여기서 fail-closed한다.
