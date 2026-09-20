@@ -8,10 +8,12 @@
 # CURRENT_PROJECT_VERSION 을 xcodebuild build setting 으로 주입하고, archive Info.plist readback 이
 # 태그 파생값과 다르면 업로드 전에 fail-closed 한다.
 #
-# 서명: archive 는 automatic + Apple Development 로 하고 배포 서명은 exportArchive 가
-# exportOptions.plist(method=app-store-connect, signingStyle=automatic)로 다시 한다.
-# ASC API key + -allowProvisioningUpdates 가 필요한 프로파일을 그때 발급한다. caller 저장소의
-# Xcode 프로젝트를 manual signing 으로 개조하지 않아도 되고, 앱별 프로파일 secret 은 선택이다.
+# 서명: 배포 인증서와 App Store 프로파일로 manual 서명한다. -allowProvisioningUpdates 를 쓰지
+# 않는다. 그 옵션은 일회용 러너마다 Apple Development 인증서를 새로 발급하게 만들고, Apple 계정의
+# 인증서 한도("Your account has reached the maximum number of certificates")에 걸려 결국 모든
+# 서명이 실패한다. 실제로 babycare v1.1.11 빌드가 이 이유로 죽었다.
+# caller 의 Xcode 프로젝트가 CODE_SIGN_STYLE=Automatic 이어도 명령행 override 로 덮으므로
+# pbxproj 를 고칠 필요는 없다.
 name: RN Deploy App Store (reusable)
 
 on:
@@ -124,7 +126,7 @@ on:
       APPLE_KEYCHAIN_PASSWORD:
         required: false
       APPLE_PROVISIONING_PROFILE_BASE64:
-        required: false
+        required: true
       APP_STORE_CONNECT_API_KEY_ID:
         required: false
       APP_STORE_CONNECT_ISSUER_ID:
@@ -372,13 +374,24 @@ jobs:
             [ -n "$entry" ] && existing+=("$entry")
           done < <(security list-keychains -d user)
           security list-keychains -d user -s "$keychain" "${existing[@]}"
-          if [ -n "${APPLE_PROVISIONING_PROFILE_BASE64:-}" ]; then
-            profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
-            mkdir -p "$profile_dir"
-            printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$profile_dir/seori-release.mobileprovision"
-            echo "provisioning profile 설치 완료"
-          fi
-          echo "keychain=$keychain" >> "$GITHUB_OUTPUT"
+          [ -n "${APPLE_PROVISIONING_PROFILE_BASE64:-}" ] || {
+            echo "::error::APPLE_PROVISIONING_PROFILE_BASE64 secret이 필요하다. manual 서명에 쓴다." >&2
+            exit 1
+          }
+          profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$profile_dir"
+          profile="$profile_dir/seori-release.mobileprovision"
+          printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$profile"
+          # PROVISIONING_PROFILE_SPECIFIER 는 UUID 가 아니라 프로파일 Name 을 받는다.
+          profile_name="$(security cms -D -i "$profile" 2>/dev/null | plutil -extract Name raw - 2>/dev/null)"
+          profile_appid="$(security cms -D -i "$profile" 2>/dev/null | plutil -extract Entitlements.application-identifier raw - 2>/dev/null)"
+          [ -n "$profile_name" ] || { echo "::error::provisioning profile에서 Name을 읽지 못했다." >&2; exit 1; }
+          echo "provisioning profile 설치 완료: $profile_name ($profile_appid)"
+          {
+            echo "keychain=$keychain"
+            echo "profile_name=$profile_name"
+            echo "profile_bundle_id=${profile_appid#*.}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Write App Store Connect API key
         id: asc
@@ -407,9 +420,7 @@ jobs:
           XCODE_WORKSPACE_PATH: ${{ steps.meta.outputs.workspace }}
           XCODE_SCHEME: ${{ steps.meta.outputs.scheme }}
           ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
-          ASC_KEY_PATH: ${{ steps.asc.outputs.key_path }}
-          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          PROFILE_NAME: ${{ steps.signing.outputs.profile_name }}
           MARKETING_VERSION: ${{ steps.release.outputs.apple_marketing_version }}
           BUILD_NUMBER: ${{ steps.release.outputs.apple_build_number }}
         run: |
@@ -417,28 +428,25 @@ jobs:
           [ -d "$XCODE_WORKSPACE_PATH" ] || { echo "xcworkspace가 없다: $XCODE_WORKSPACE_PATH" >&2; exit 1; }
           [ -n "$APPLE_TEAM_ID" ] || { echo "::error::APPLE_TEAM_ID 변수가 필요하다." >&2; exit 1; }
           mkdir -p "$(dirname "$ARCHIVE_PATH")"
+          [ -n "$PROFILE_NAME" ] || { echo "::error::설치된 provisioning profile 이름을 받지 못했다." >&2; exit 1; }
           # 버전 정본은 태그다. Info.plist가 $(MARKETING_VERSION)/$(CURRENT_PROJECT_VERSION)를
           # 참조하므로 build setting 주입만으로 태그 파생값이 번들에 들어간다. pbxproj는 고치지 않는다.
           #
-          # 배포 서명은 여기서 하지 않는다. archive는 automatic + Apple Development로 끝내고
-          # exportArchive가 exportOptions.plist(method=app-store-connect)로 다시 서명한다.
-          # 그래야 caller 저장소의 CODE_SIGN_STYLE=Automatic 프로젝트를 개조하지 않아도 된다.
+          # 이미 키체인에 있는 배포 인증서와 설치한 App Store 프로파일로 manual 서명한다.
+          # -allowProvisioningUpdates 를 붙이면 Xcode 가 러너마다 Apple Development 인증서를
+          # 새로 발급해 Apple 계정 인증서 한도를 소진한다. 여기서는 새로 만들 것이 없다.
           xcodebuild archive \
             -workspace "$XCODE_WORKSPACE_PATH" \
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$ARCHIVE_PATH" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$ASC_KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             MARKETING_VERSION="$MARKETING_VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
-            CODE_SIGN_IDENTITY="Apple Development" \
-            PROVISIONING_PROFILE_SPECIFIER=""
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME"
           [ -d "$ARCHIVE_PATH" ] || { echo "xcarchive가 생성되지 않았다: $ARCHIVE_PATH" >&2; exit 1; }
 
       # build setting 주입이 무시되거나 Info.plist가 리터럴 버전을 박아 두면 여기서 fail-closed한다.
@@ -604,6 +612,9 @@ jobs:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           SEORI_EXPECTED_ARCHIVE_SHA256: ${{ steps.provenance.outputs.artifact_digest }}
+          PROFILE_NAME: ${{ steps.signing.outputs.profile_name }}
+          PROFILE_BUNDLE_ID: ${{ steps.signing.outputs.profile_bundle_id }}
+          INPUT_BUNDLE_ID: ${{ inputs.bundle_id }}
         run: |
           set -euo pipefail
           [ -f "$EXPORT_OPTIONS_PLIST" ] || { echo "exportOptions.plist가 없다: $EXPORT_OPTIONS_PLIST" >&2; exit 1; }
@@ -616,11 +627,31 @@ jobs:
             exit 1
           }
           mkdir -p "$EXPORT_DIR"
+
+          # export 서명 방식은 중앙이 정한다. caller 의 exportOptions.plist 가 automatic 이면
+          # exportArchive 가 -allowProvisioningUpdates 없이도 프로파일을 새로 받으려 하고,
+          # 결국 Apple 계정 인증서 한도를 갉아먹는다. 저장소 파일은 건드리지 않고 사본을 고친다.
+          effective="$RUNNER_TEMP/exportOptions.effective.plist"
+          cp "$EXPORT_OPTIONS_PLIST" "$effective"
+          bundle="${INPUT_BUNDLE_ID:-$PROFILE_BUNDLE_ID}"
+          plutil -replace signingStyle -string manual "$effective"
+          plutil -replace signingCertificate -string "Apple Distribution" "$effective"
+          case "$bundle" in
+            *"*"*|"")
+              echo "::warning::bundle id를 특정하지 못해 provisioningProfiles 매핑을 넣지 않는다: ${bundle:-empty}"
+              ;;
+            *)
+              plutil -replace provisioningProfiles -json "{\"$bundle\": \"$PROFILE_NAME\"}" "$effective"
+              ;;
+          esac
+          echo "적용되는 export 옵션:"
+          plutil -p "$effective" | sed 's/^/  /'
+
+          # -allowProvisioningUpdates 를 쓰지 않는다. ASC 인증은 업로드에만 쓴다.
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_DIR" \
-            -exportOptionsPlist "$EXPORT_OPTIONS_PLIST" \
-            -allowProvisioningUpdates \
+            -exportOptionsPlist "$effective" \
             -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
