@@ -563,21 +563,35 @@ jobs:
           fetch_dsyms dependencies "$rn_base-reactnative-dependencies-dSYM-release.tar.gz"
           fetch_dsyms hermes "$hermes_base-hermes-framework-dSYM-release.tar.gz"
 
-          # device 슬라이스만 쓴다. simulator / maccatalyst / tvos / xros / macos 는 제출물과 무관하다.
-          copied=0
-          while IFS= read -r dsym; do
-            case "$dsym" in
-              *simulator*|*maccatalyst*|*tvos*|*xros*|*macos*) continue ;;
-            esac
-            case "$dsym" in
-              *ios-arm64*) ;;
-              *) continue ;;
-            esac
-            cp -R "$dsym" "$ARCHIVE_PATH/dSYMs/"
-            copied=$((copied + 1))
-          done < <(find "$work" -type d -name '*.dSYM' | sort)
-          [ "$copied" -gt 0 ] || { echo "::error::복사할 device dSYM을 찾지 못했다." >&2; exit 1; }
-          echo "device dSYM ${copied}개 복사"
+          # device 슬라이스만 쓴다. 두 배포물의 슬라이스 이름 규칙이 다르다.
+          #   React Native: ios-arm64, ios-arm64_x86_64-simulator, ...  (아키텍처 이름)
+          #   hermes:       iphoneos, iphonesimulator, appletvos, ...   (플랫폼 SDK 이름)
+          # 한쪽만 맞추면 나머지가 조용히 0개로 빠진다. 실제로 hermes 가 그렇게 빠져
+          # hermesvm.framework 심볼 업로드만 계속 실패했다. 소스별로 세어 그 상황을 막는다.
+          copy_device_dsyms() {
+            local src="$1" n=0 dsym
+            while IFS= read -r dsym; do
+              case "$dsym" in
+                *simulator*|*catalyst*|*tvos*|*appletv*|*xros*|*macos*) continue ;;
+              esac
+              case "$dsym" in
+                *ios-arm64*|*iphoneos*) ;;
+                *) continue ;;
+              esac
+              cp -R "$dsym" "$ARCHIVE_PATH/dSYMs/"
+              n=$((n + 1))
+            done < <(find "$work/$src" -type d -name '*.dSYM' | sort)
+            echo "  $src: device dSYM ${n}개"
+            [ "$n" -gt 0 ] || {
+              echo "::error::$src 에서 device dSYM 을 찾지 못했다. 슬라이스 이름 규칙이 바뀌었을 수 있다." >&2
+              return 1
+            }
+          }
+          copy_device_dsyms core
+          copy_device_dsyms dependencies
+          copy_device_dsyms hermes
+          total="$(find "$ARCHIVE_PATH/dSYMs" -maxdepth 1 -type d -name '*.dSYM' | wc -l | tr -d ' ')"
+          echo "device dSYM 합계 ${total}개"
 
       # 복사한 dSYM 이 실제로 쓸모 있는지는 UUID 가 말해 준다. 다만 이건 릴리스 게이트가
       # 아니다. 심볼 업로드가 안 돼도 앱은 정상 출시되므로 보고만 하고 막지 않는다.
