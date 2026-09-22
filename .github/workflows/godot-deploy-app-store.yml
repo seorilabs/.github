@@ -71,6 +71,16 @@ on:
         required: false
         default: ""
         type: string
+      post_import_script:
+        description: >-
+          Godot import 직후·export 직전에 실행할 repo-local 스크립트.
+          `godot --import`는 등록되지 않은 커스텀 ProjectSettings를 저장 시 버린다.
+          그런 설정을 쓰는 플러그인(예: AdMob v5의 `admob/general/<platform>/app_id`)은
+          prepare_project_script 에서 주입해도 import 가 지우므로 여기서 다시 넣는다.
+          export 가 읽는 마지막 시점이다.
+        required: false
+        default: ""
+        type: string
       post_export_project_script:
         description: >-
           Godot iOS export 직후·archive 직전에 실행할 repo-local 스크립트.
@@ -128,6 +138,7 @@ jobs:
       EXPORT_OPTIONS_PLIST: ${{ inputs.export_options_plist }}
       SCRIPTS_DIR: ${{ inputs.scripts_dir }}
       PREPARE_PROJECT_SCRIPT: ${{ inputs.prepare_project_script }}
+      POST_IMPORT_SCRIPT: ${{ inputs.post_import_script }}
       POST_EXPORT_PROJECT_SCRIPT: ${{ inputs.post_export_project_script }}
       POST_EXPORT_VALIDATION_SCRIPT: ${{ inputs.post_export_validation_script }}
       SHOULD_UPLOAD: ${{ inputs.upload }}
@@ -316,6 +327,19 @@ jobs:
 
       - name: Import Godot project
         run: godot --headless --path "$PROJECT_DIR" --import --quit-after 1
+
+      # import 가 ProjectSettings 를 다시 저장하면서 등록되지 않은 커스텀 설정을 버린다.
+      # export 가 그 값을 읽어야 하는 저장소는 여기서 다시 주입한다.
+      - name: Run caller post-import project preparation
+        if: ${{ inputs.post_import_script != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f "$POST_IMPORT_SCRIPT" ] || {
+            echo "post_import_script를 찾을 수 없다: $POST_IMPORT_SCRIPT" >&2
+            exit 1
+          }
+          bash "$POST_IMPORT_SCRIPT"
 
       # 주입 대상 preset과 export 대상 preset이 같은 변수여야 다른 preset을 덮어쓰지 않는다.
       - name: Apply release version to the Godot iOS export preset
