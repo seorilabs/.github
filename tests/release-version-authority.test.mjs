@@ -1910,6 +1910,11 @@ test('App Store 워크플로는 인증서를 새로 발급하지 않는다', () 
     assert.match(text, /plutil -replace signingStyle -string manual/u, name);
     assert.match(text, /plutil -replace signingCertificate -string "Apple Distribution"/u, name);
 
+    // Xcode 16 부터 프로파일 위치가 UserData 아래로 바뀌었다. 구버전 경로에만 넣으면
+    // Xcode 26 이 프로파일을 보지 못하고, 없어서 생긴 실패를 capability 문제로 보고한다.
+    assert.match(text, /Library\/Developer\/Xcode\/UserData\/Provisioning Profiles/u, name);
+    assert.match(text, /Library\/MobileDevice\/Provisioning Profiles/u, name);
+
     // manual 서명은 프로파일 없이 성립하지 않는다.
     const profileSecret = text.match(
       /APPLE_PROVISIONING_PROFILE_BASE64:\n\s+required: (true|false)/u,

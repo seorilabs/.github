@@ -424,10 +424,16 @@ jobs:
             echo "::error::APPLE_PROVISIONING_PROFILE_BASE64 secret이 필요하다. manual 서명에 쓴다." >&2
             exit 1
           }
-          profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
-          mkdir -p "$profile_dir"
-          profile="$profile_dir/seori-release.mobileprovision"
+          # Xcode 16 부터 프로파일을 읽는 위치가 UserData 아래로 바뀌었다. 구버전 경로에만
+          # 넣으면 Xcode 26 이 프로파일을 아예 보지 못하고, manual 서명에서
+          # "requires a provisioning profile with the App Attest feature" 처럼
+          # 프로파일이 없어서 생긴 문제를 capability 문제로 보고한다. 양쪽에 모두 넣는다.
+          legacy_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+          modern_dir="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          mkdir -p "$legacy_dir" "$modern_dir"
+          profile="$modern_dir/seori-release.mobileprovision"
           printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$profile"
+          cp "$profile" "$legacy_dir/seori-release.mobileprovision"
           # PROVISIONING_PROFILE_SPECIFIER 는 UUID 가 아니라 프로파일 Name 을 받는다.
           profile_name="$(security cms -D -i "$profile" 2>/dev/null | plutil -extract Name raw - 2>/dev/null)"
           profile_appid="$(security cms -D -i "$profile" 2>/dev/null | plutil -extract Entitlements.application-identifier raw - 2>/dev/null)"
