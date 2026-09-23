@@ -1,0 +1,65 @@
+schemaVersion: 1
+id: seorilabs-google-play-account-routing-v1
+defaultNewAppRole: primary-korea-personal
+
+accountRoles:
+  - role: primary-korea-personal
+    accountType: personal
+    lifecycle: active
+    allowedOperations:
+      - new-app
+      - existing-app-maintenance
+      - advertising
+      - paid-app
+      - play-billing
+
+  - role: legacy-personal
+    accountType: personal
+    lifecycle: maintenance-only
+    allowedOperations:
+      - existing-app-maintenance
+      - advertising
+
+  - role: retiring-organization
+    accountType: organization
+    lifecycle: financial-recovery-only
+    allowedOperations:
+      - financial-recovery
+      - support
+
+routing:
+  newApps: primary-korea-personal
+  existingApps: live-owner-until-explicit-transfer
+  advertisingOnly: no-account-override
+  paidOrPlayBilling: primary-korea-personal
+  transferRequiresExplicitApproval: true
+
+testing:
+  useAsAccountRoutingCriterion: false
+  requirementSource: live-play-console
+  enforcement: comply-with-current-account-and-app-gates
+
+associatedAccounts:
+  declarationRequired: true
+  scope: all-owned-or-associated-accounts
+
+credentials:
+  publisherLogicalId: shared/google-play/publisher
+  requiredReadback:
+    - target-developer-account
+    - package-ownership
+    - publisher-access
+  unknownBindingBehavior: stop
+
+privacy:
+  publicContractFields:
+    - role
+    - account-type
+    - lifecycle
+    - allowed-operation
+  localOnlyFields:
+    - login-email
+    - developer-account-name
+    - developer-account-id
+    - merchant-id
+    - payments-profile-id

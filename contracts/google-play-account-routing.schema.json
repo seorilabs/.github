@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/v1/google-play-account-routing.schema.json",
+  "title": "Seorilabs Google Play account routing policy",
+  "description": "Public, identity-free routing policy for active, legacy, and retiring Google Play developer accounts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "defaultNewAppRole",
+    "accountRoles",
+    "routing",
+    "testing",
+    "associatedAccounts",
+    "credentials",
+    "privacy"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "const": "seorilabs-google-play-account-routing-v1" },
+    "defaultNewAppRole": { "const": "primary-korea-personal" },
+    "accountRoles": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "$ref": "#/$defs/accountRole" }
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "newApps",
+        "existingApps",
+        "advertisingOnly",
+        "paidOrPlayBilling",
+        "transferRequiresExplicitApproval"
+      ],
+      "properties": {
+        "newApps": { "const": "primary-korea-personal" },
+        "existingApps": { "const": "live-owner-until-explicit-transfer" },
+        "advertisingOnly": { "const": "no-account-override" },
+        "paidOrPlayBilling": { "const": "primary-korea-personal" },
+        "transferRequiresExplicitApproval": { "const": true }
+      }
+    },
+    "testing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "useAsAccountRoutingCriterion",
+        "requirementSource",
+        "enforcement"
+      ],
+      "properties": {
+        "useAsAccountRoutingCriterion": { "const": false },
+        "requirementSource": { "const": "live-play-console" },
+        "enforcement": { "const": "comply-with-current-account-and-app-gates" }
+      }
+    },
+    "associatedAccounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["declarationRequired", "scope"],
+      "properties": {
+        "declarationRequired": { "const": true },
+        "scope": { "const": "all-owned-or-associated-accounts" }
+      }
+    },
+    "credentials": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "publisherLogicalId",
+        "requiredReadback",
+        "unknownBindingBehavior"
+      ],
+      "properties": {
+        "publisherLogicalId": { "const": "shared/google-play/publisher" },
+        "requiredReadback": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "target-developer-account",
+              "package-ownership",
+              "publisher-access"
+            ]
+          }
+        },
+        "unknownBindingBehavior": { "const": "stop" }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publicContractFields", "localOnlyFields"],
+      "properties": {
+        "publicContractFields": {
+          "type": "array",
+          "minItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["role", "account-type", "lifecycle", "allowed-operation"]
+          }
+        },
+        "localOnlyFields": {
+          "type": "array",
+          "minItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "login-email",
+              "developer-account-name",
+              "developer-account-id",
+              "merchant-id",
+              "payments-profile-id"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "roleId": {
+      "enum": [
+        "primary-korea-personal",
+        "legacy-personal",
+        "retiring-organization"
+      ]
+    },
+    "operation": {
+      "enum": [
+        "new-app",
+        "existing-app-maintenance",
+        "advertising",
+        "paid-app",
+        "play-billing",
+        "financial-recovery",
+        "support"
+      ]
+    },
+    "accountRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "accountType", "lifecycle", "allowedOperations"],
+      "properties": {
+        "role": { "$ref": "#/$defs/roleId" },
+        "accountType": { "enum": ["personal", "organization"] },
+        "lifecycle": {
+          "enum": ["active", "maintenance-only", "financial-recovery-only"]
+        },
+        "allowedOperations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/operation" }
+        }
+      }
+    }
+  }
+}

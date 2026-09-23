@@ -13,6 +13,7 @@ Seorilabs organization-wide GitHub defaults, profile content, and operating cont
 - [Release policy](contracts/release-policy.yaml)
 - [Release version authority](contracts/release-version-authority.yaml)
 - [Agent policy](contracts/agent-policy.yaml)
+- [Google Play account routing](contracts/google-play-account-routing.yaml)
 - [Autonomous issue policy](contracts/autonomous-issue-policy.yaml)
 - [React Native profile](profiles/react-native.yaml)
 - [Godot profile](profiles/godot.yaml)
