@@ -47,6 +47,8 @@
 | `godot-deploy-app-store.yml` | Godot xcarchive + App Store Connect 업로드 | `macos-26` |
 | `cleanup-actions-storage.yml` | 아티팩트/캐시 정리 | ARC |
 
+Google Play 폐쇄 테스트 그룹 연결과 승인된 테스터 운영 절차는 [Google Play 폐쇄 테스트 운영](../../docs/ci-cd/google-play-closed-testing.md)을 따른다.
+
 ## @ref 정책
 
 - 모든 caller는 **`@main`**으로 호출한다. 중앙 정본이 곧 실행되는 정의다.

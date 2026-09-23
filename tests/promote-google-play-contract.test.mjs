@@ -44,4 +44,8 @@ test("Google Play 트랙 승격은 공개 여부로 라우팅한 러너에서 �
   assert.match(promoteStep, /--package-name "\$PACKAGE_NAME"/);
   // repo-local 레거시 스크립트는 그 인자를 모른다. 비었을 때는 붙이지 않는다.
   assert.match(promoteStep, /if \[ -n "\$PACKAGE_NAME" \]; then/);
+  // 폐쇄 테스트 그룹은 명시한 주소만 기존 그룹을 보존하며 승격 전에 연결한다.
+  assert.match(workflow, /closed_test_group_email:/);
+  assert.match(workflow, /- name: Configure closed-test group[\s\S]*?manage-google-play-testers\.py[\s\S]*?--apply/);
+  assert.match(workflow, /if: inputs\.closed_test_group_email != ''/);
 });

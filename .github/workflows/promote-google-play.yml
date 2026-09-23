@@ -54,6 +54,11 @@ on:
         required: false
         default: ""
         type: string
+      closed_test_group_email:
+        description: "폐쇄 테스트에 연결할 승인된 Google Group 주소. 지정하면 승격 전에 기존 그룹을 보존하며 추가한다."
+        required: false
+        default: ""
+        type: string
       timeout_minutes:
         required: false
         default: 15
@@ -193,6 +198,19 @@ jobs:
           # gh CLI는 ARC 러너 이미지에 없다. 중앙 해석기가 REST로 받고, 실패 사유를
           # 버리지 않는다. 자산이 붙어 있는데 읽지 못하면 그 자리에서 멈춘다.
           node .seorilabs-release-authority/scripts/release/resolve-release-notes.mjs --github-output
+
+      - name: Configure closed-test group
+        if: inputs.closed_test_group_email != ''
+        shell: bash
+        env:
+          PACKAGE_NAME: ${{ inputs.package_name }}
+          TARGET_TRACK: ${{ inputs.to_track }}
+          GROUP_EMAIL: ${{ inputs.closed_test_group_email }}
+        run: |
+          set -euo pipefail
+          python3 .seorilabs-release-authority/scripts/release/manage-google-play-testers.py \
+            --package-name "$PACKAGE_NAME" --track "$TARGET_TRACK" \
+            --group-email "$GROUP_EMAIL" --apply
 
       - name: Promote track
         shell: bash
