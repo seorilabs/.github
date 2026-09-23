@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add operator-approved, consenting testers to one Workspace Google Group.
+"""Add portfolio-approved testers to the shared Seorilabs Play test group.
 
 The private CSV is an execution input, never a repository manifest. Google Groups
 for Business and a credential scoped to this group's membership are required.
@@ -22,19 +22,19 @@ from google_play_client import PublicFailure, fail
 GROUP = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+%-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 SCOPE = "https://www.googleapis.com/auth/cloud-identity.groups"
 BASE = "https://cloudidentity.googleapis.com/v1"
-REQUIRED = {"appId", "email", "consentedAt", "approvedAt", "status"}
+CONSENT_SCOPE = "seorilabs-play-portfolio"
+REQUIRED = {"email", "consentScope", "consentedAt", "approvedAt", "status"}
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--app-id", required=True)
     parser.add_argument("--group-email", required=True)
     parser.add_argument("--approved-csv", required=True)
     parser.add_argument("--apply", action="store_true")
     return parser.parse_args(argv)
 
 
-def approved_emails(path: Path, app_id: str) -> set[str]:
+def approved_emails(path: Path) -> set[str]:
     if path.is_symlink() or not path.is_file() or path.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO):
         fail("TESTER_ROSTER_FILE_UNSAFE")
     try:
@@ -47,8 +47,10 @@ def approved_emails(path: Path, app_id: str) -> set[str]:
         fail("TESTER_ROSTER_READ_FAILED")
     emails: set[str] = set()
     for row in rows:
-        if row["appId"] != app_id or row["status"] != "approved":
+        if row["status"] != "approved":
             continue
+        if row["consentScope"] != CONSENT_SCOPE:
+            fail("TESTER_ROSTER_SCOPE_INVALID")
         email = row["email"].strip().lower()
         if not GROUP.fullmatch(email) or not row["consentedAt"].strip() or not row["approvedAt"].strip():
             fail("TESTER_ROSTER_APPROVAL_INVALID")
@@ -102,11 +104,9 @@ def group_members(session, group_name: str) -> set[str]:
 
 
 def sync(args: argparse.Namespace, session=None) -> dict[str, object]:
-    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,62}", args.app_id):
-        fail("APP_ID_INVALID")
     if not GROUP.fullmatch(args.group_email):
         fail("WORKSPACE_GROUP_EMAIL_INVALID")
-    approved = approved_emails(Path(args.approved_csv), args.app_id)
+    approved = approved_emails(Path(args.approved_csv))
     if session is None:
         try:
             import google.auth
@@ -127,7 +127,7 @@ def sync(args: argparse.Namespace, session=None) -> dict[str, object]:
         if not approved.issubset(group_members(session, name)):
             fail("WORKSPACE_GROUP_READBACK_MISMATCH")
     # Personal addresses and exact roster membership stay out of CI output.
-    return {"appId": args.app_id, "groupEmail": args.group_email, "approvedCount": len(approved), "alreadyMemberCount": len(approved & existing), "pendingCount": len(missing), "applied": args.apply and bool(missing)}
+    return {"consentScope": CONSENT_SCOPE, "groupEmail": args.group_email, "approvedCount": len(approved), "alreadyMemberCount": len(approved & existing), "pendingCount": len(missing), "applied": args.apply and bool(missing)}
 
 
 def main(argv: list[str]) -> int:

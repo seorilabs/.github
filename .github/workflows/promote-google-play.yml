@@ -55,7 +55,7 @@ on:
         default: ""
         type: string
       closed_test_group_email:
-        description: "폐쇄 테스트에 연결할 승인된 Google Group 주소. 지정하면 승격 전에 기존 그룹을 보존하며 추가한다."
+        description: "서리랩스 공통 폐쇄 테스트 Google Group 주소. 지정하면 승격 전에 기존 그룹을 보존하며 추가한다."
         required: false
         default: ""
         type: string
