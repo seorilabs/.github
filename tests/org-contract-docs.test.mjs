@@ -17,6 +17,7 @@ const JSON_SCHEMAS = [
   "contracts/app.schema.json",
   "contracts/autonomous-issue-policy.schema.json",
   "contracts/credential-consumer.schema.json",
+  "contracts/google-play-account-routing.schema.json",
   "contracts/provider-auth-matrix.schema.json",
   "contracts/product-verification.schema.json",
   "contracts/markets/app-store.schema.json",
@@ -29,6 +30,7 @@ const JSON_SCHEMAS = [
 const YAML_CONTRACTS = [
   "contracts/agent-policy.yaml",
   "contracts/autonomous-issue-policy.yaml",
+  "contracts/google-play-account-routing.yaml",
   "contracts/provider-auth-matrix.yaml",
   "contracts/product-verification.yaml",
   "contracts/release-policy.yaml",
