@@ -113,19 +113,41 @@ class ClosedTestingTests(unittest.TestCase):
             path.write_text("email,consentScope,consentedAt,approvedAt,status\nnew@example.com,seorilabs-play-portfolio,2026-09-01,2026-09-02,approved\nignored@example.com,,,,pending\n", encoding="utf-8")
             os.chmod(path, 0o600)
             session = FakeSession()
-            args = argparse.Namespace(group_email="test@example.com", approved_csv=str(path), apply=True)
+            args = argparse.Namespace(group_email="test@example.com", group_kind="portfolio", app_id=None, approved_csv=str(path), apply=True)
             self.assertTrue(workspace.sync(args, session)["applied"])
             self.assertFalse(workspace.sync(args, session)["applied"])
             self.assertEqual(session.posts, 1)
             self.assertNotIn("ignored@example.com", session.members)
 
-    def test_app_only_consent_cannot_join_shared_group(self):
+    def test_app_group_requires_both_consents_and_isolates_other_apps(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "roster.csv"
-            path.write_text("email,consentScope,consentedAt,approvedAt,status\napp@example.com,example-app,2026-09-01,2026-09-02,approved\n", encoding="utf-8")
+            path.write_text("email,consentScope,consentedAt,approvedAt,status\napp@example.com,seorilabs-play-portfolio,2026-09-01,2026-09-02,approved\napp@example.com,app:com.seorilabs.first,2026-09-03,2026-09-04,approved\nother@example.com,seorilabs-play-portfolio,2026-09-01,2026-09-02,approved\nother@example.com,app:com.seorilabs.second,2026-09-03,2026-09-04,approved\n", encoding="utf-8")
             os.chmod(path, 0o600)
-            with self.assertRaisesRegex(Exception, "TESTER_ROSTER_SCOPE_INVALID"):
-                workspace.approved_emails(path)
+            session = FakeSession()
+            args = argparse.Namespace(group_email="first@example.com", group_kind="app", app_id="com.seorilabs.first", approved_csv=str(path), apply=True)
+            self.assertTrue(workspace.sync(args, session)["applied"])
+            self.assertFalse(workspace.sync(args, session)["applied"])
+            self.assertIn("app@example.com", session.members)
+            self.assertNotIn("other@example.com", session.members)
+            self.assertEqual(session.posts, 1)
+
+    def test_app_only_consent_cannot_join_either_group(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "roster.csv"
+            path.write_text("email,consentScope,consentedAt,approvedAt,status\napp@example.com,app:com.seorilabs.first,2026-09-01,2026-09-02,approved\n", encoding="utf-8")
+            os.chmod(path, 0o600)
+            self.assertEqual(workspace.approved_emails(path, "portfolio", None), set())
+            with self.assertRaisesRegex(Exception, "TESTER_ROSTER_PORTFOLIO_CONSENT_MISSING"):
+                workspace.approved_emails(path, "app", "com.seorilabs.first")
+
+    def test_withdrawn_portfolio_consent_blocks_app_group(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "roster.csv"
+            path.write_text("email,consentScope,consentedAt,approvedAt,status\napp@example.com,seorilabs-play-portfolio,2026-09-01,2026-09-02,withdrawn\napp@example.com,app:com.seorilabs.first,2026-09-03,2026-09-04,approved\n", encoding="utf-8")
+            os.chmod(path, 0o600)
+            with self.assertRaisesRegex(Exception, "TESTER_ROSTER_PORTFOLIO_CONSENT_MISSING"):
+                workspace.approved_emails(path, "app", "com.seorilabs.first")
 
     def test_qa_accounts_and_group_membership_do_not_satisfy_requirement(self):
         with tempfile.TemporaryDirectory() as directory:

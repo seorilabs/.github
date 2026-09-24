@@ -8,10 +8,11 @@
 
 ## 그룹과 모집
 
-- 서리랩스 공통 테스터 그룹 **하나**를 여러 앱의 폐쇄 테스트 접근 명단으로 재사용한다. 앱마다 그룹을 새로 만들지 않는다. 실제 사람 16~20명을 모집하고, 그룹 가입 전에 연결된 모든 서리랩스 테스트 앱에 접근할 수 있다는 범위에 동의를 받는다. 본인의 추가 Google 계정은 설치·계정 전환 QA에 쓰되 12명 계획에는 넣지 않는다.
-- 첫 신규 앱에서 공통 Workspace Google Group이 Play Console 폐쇄 테스트의 테스터 탭에 연결되는지 소수 계정으로 검증한다. Workspace 도메인 주소가 거부되면 공통 `@googlegroups.com` 그룹 하나로 전환한다. Google 도움말은 이 형식을 안내하며, 비즈니스 그룹 API는 개인용 그룹을 관리하지 못한다.
+- 서리랩스 **전체 그룹**은 테스터 모집과 공통 공지에 쓴다. 실제 사람 16~20명을 모집하고 전체 프로그램 참여에 동의한 사람만 등록한다. 본인의 추가 Google 계정은 설치·계정 전환 QA에 쓰되 12명 계획에는 넣지 않는다.
+- **앱별 그룹**은 해당 앱의 폐쇄 테스트 접근에만 쓴다. 전체 그룹에서 앱 참여를 모집한 뒤 해당 앱에 별도로 동의하고 승인된 사람만 앱별 그룹에 등록한다. 전체 그룹을 앱별 그룹에 중첩하거나 Play 트랙에 연결하지 않는다.
+- 첫 신규 앱에서 앱별 Workspace Google Group이 Play Console 폐쇄 테스트의 테스터 탭에 연결되는지 소수 계정으로 검증한다. Workspace 도메인 주소가 거부되면 그 앱에는 `@googlegroups.com` 그룹을 사용한다. Google 도움말은 이 형식을 안내하며, 비즈니스 그룹 API는 개인용 그룹을 관리하지 못한다.
 - 그룹 가입자는 참여 링크에서 **직접 참여 신청**해야 한다. 내부 테스트에 참여 중인 계정은 먼저 내부 테스트에서 나와야 폐쇄 테스트를 받을 수 있다. 설치와 주요 기능 사용을 실기기에서 확인한다.
-- 그룹 가입은 앱별 참여 신청이나 14일 유지의 증거가 아니다. 각 앱의 참여 링크·설치 안내·테스트 과제·피드백 채널은 해당 앱 참여 희망자에게 별도로 안내한다. 그룹의 자동 환영 메시지는 공통 프로그램 범위만 설명한다.
+- 그룹 가입은 앱별 참여 신청이나 14일 유지의 증거가 아니다. 각 앱의 참여 링크·설치 안내·테스트 과제·피드백 채널은 해당 앱 승인자에게만 안내한다. 전체 그룹의 자동 환영 메시지는 공통 프로그램 범위만 설명한다.
 
 ## 중앙 도구
 
@@ -20,22 +21,25 @@
 ```bash
 python3 scripts/release/manage-google-play-testers.py \
   --package-name com.example.app --track closed \
-  --group-email example@googlegroups.com
+  --group-email example-app@googlegroups.com
 # Console에서 그룹 호환성을 확인한 후에만 위 명령에 --apply를 붙인다.
 ```
 
-중앙 `promote-google-play.yml`의 `closed_test_group_email` 입력은 내부 → 폐쇄 트랙 승격 전에 이 도구를 실행한다. 모든 대상 앱에 같은 공통 그룹 주소를 전달한다. 입력값은 앱별 운영 설정의 정본인 Backoffice `ConfigRevision` 또는 운영자의 명시적 dispatch에서 받아야 한다. 앱 저장소에 별도 운영 JSON을 만들지 않는다. 그룹 연결을 생략할 수 있는 기존 호출부와 호환된다.
+중앙 `promote-google-play.yml`의 `closed_test_group_email` 입력은 내부 → 폐쇄 트랙 승격 전에 이 도구를 실행한다. **해당 앱의 그룹 주소만** 전달한다. 입력값은 앱별 운영 설정의 정본인 Backoffice `ConfigRevision` 또는 운영자의 명시적 dispatch에서 받아야 한다. 앱 저장소에 별도 운영 JSON을 만들지 않는다. 그룹 연결을 생략할 수 있는 기존 호출부와 호환된다. `--apply` 전에는 전체 그룹 주소와 다른지 확인하고, 이후 API 읽기 결과와 Console 테스터 탭을 대조한다.
 
-Workspace 그룹을 Play가 수용한 경우 `scripts/release/sync-workspace-testers.py`가 비공개 승인 CSV에서 `consentScope=seorilabs-play-portfolio`, `status=approved`, `consentedAt`·`approvedAt`이 있는 행만 공통 그룹에 추가한다. 특정 앱에만 동의한 승인 행이 있으면 추가하지 않고 오류로 중단한다. 기본은 읽기 전용이고 `--apply`일 때만 등록한다. 회원 주소는 로그에 출력하지 않는다. 실행 계정은 대상 그룹의 소유자 또는 회원 관리 권한만 갖게 하고 도메인 전체 그룹 관리자 권한은 부여하지 않는다. 개인용 `@googlegroups.com` 그룹에는 이 API를 쓰지 않고 그룹 웹 화면에서 회원을 관리한다.
+Workspace 그룹을 사용하는 경우 `scripts/release/sync-workspace-testers.py`가 비공개 승인 CSV를 읽는다. 전체 그룹에는 `consentScope=seorilabs-play-portfolio` 승인자만 등록한다. 앱별 그룹에는 해당 전체 승인과 `consentScope=app:<Android 패키지명>` 승인이 모두 있는 사람만 등록한다. 다른 앱 동의만으로는 등록하지 않는다. 기본은 읽기 전용이고 `--apply`일 때만 등록한다. 회원 주소는 로그에 출력하지 않는다. 실행 계정은 대상 그룹의 소유자 또는 회원 관리 권한만 갖게 하고 도메인 전체 그룹 관리자 권한은 부여하지 않는다. 개인용 `@googlegroups.com` 그룹에는 이 API를 쓰지 않고 그룹 웹 화면에서 회원을 관리한다.
 
 ```bash
 python3 scripts/release/sync-workspace-testers.py \
-  --group-email testers@example.com \
+  --group-email testers@example.com --group-kind portfolio \
   --approved-csv /private/path/approved-testers.csv
-# 승인 기록 검토와 그룹 연결 검증 뒤 --apply
+python3 scripts/release/sync-workspace-testers.py \
+  --group-email example-app-testers@example.com --group-kind app \
+  --app-id com.seorilabs.example --approved-csv /private/path/approved-testers.csv
+# 각 그룹의 실제 주소와 승인 기록을 확인한 뒤 해당 명령에 --apply
 ```
 
-CSV는 저장소 밖에 두고 소유자만 읽고 쓰게 한다 (`chmod 600`). 열은 `email,consentScope,consentedAt,approvedAt,status`이며 날짜는 ISO 형식이다. `status=approved`가 아닌 행은 등록하지 않는다. 그룹의 환영 메시지는 공통 프로그램 안내를 담당한다. 승인 없이 직접 추가하거나 자동 이메일 발송을 시작하지 않는다.
+CSV는 저장소 밖에 두고 소유자만 읽고 쓰게 한다 (`chmod 600`). 열은 `email,consentScope,consentedAt,approvedAt,status`이며 날짜는 ISO 형식이다. 한 이메일과 동의 범위당 현재 상태 한 행을 유지한다. `status=approved`가 아닌 행은 등록하지 않는다. 승인 철회 시 그 행의 상태를 바꾸고 그룹 회원도 제거해야 한다. 이 도구는 **추가만** 하므로 제거는 운영자가 그룹에서 수행하고 재조회한다. 전체 그룹의 환영 메시지는 공통 프로그램 안내만 담당한다. 승인 없이 직접 추가하거나 자동 이메일 발송을 시작하지 않는다.
 
 `scripts/release/audit-google-play-closed-test.py`는 운영자가 Console에서 확인해 별도로 기록한 날짜를 집계한다. 비공개 CSV 열은 `appId,personId,accountType,optedInAt,optedOutAt,consoleVerifiedAt,feedbackRecordedAt`이다. `accountType`은 `independent` 또는 `owner-qa`; `personId`는 한 사람의 여러 계정을 묶는 임의 식별자다. 이 집계의 `candidateForConsoleReview`는 Console 확인 대상을 뜻하며 프로덕션 접근 자격이나 승인을 확정하지 않는다. 참여 철회 후 재참여 시 새 행에 새 시작일을 기록한다.
 
