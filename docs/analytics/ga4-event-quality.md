@@ -12,6 +12,18 @@
 
 앱이 같은 동작을 Firebase SDK와 Platform relay에 동시에 보내면 안 된다. Firebase 자동 이벤트는 이 규칙의 대상이 아니다.
 
+## 모바일 전송과 수집 확인
+
+Android·iOS 제품 이벤트는 각각 등록된 Firebase 앱의 Analytics SDK를 통해 GA4 앱 스트림으로 전송한다. 앱 설정의 수집 동의와 SDK의 수집·저장 동의를 함께 적용한다. Platform 이벤트 수집 경로는 운영 진단 등 별도 목적에만 사용하고, 같은 제품 동작을 중계하지 않는다. Measurement Protocol은 SDK 이벤트를 보완하는 서버 이벤트에만 사용하며, 앱 이벤트를 보낼 때는 SDK가 발급한 앱 인스턴스 ID를 사용한다.
+
+완료 상태는 세 단계로 구분한다.
+
+1. Android·iOS 앱 ID와 설치 빌드에 포함된 설정·SDK를 대조한다.
+2. 실기기에서 한 동작을 일으켜 DebugView 또는 실시간 보고서에서 해당 앱 스트림의 이벤트를 확인한다.
+3. BigQuery export에서 같은 이벤트의 stream·platform·geo·first-touch 값을 읽고, 동일 동작의 중복 전송이 없는지 확인한다. 아직 export 시점이 오지 않았으면 이 단계는 미확인으로 둔다.
+
+이 기준은 신규·변경 앱에 적용한다. 기존 앱의 전송 경로를 일괄 변경했다는 뜻은 아니다.
+
 ## BigQuery 정규화
 
 정규화 view는 값과 출처를 함께 노출한다. `dimension_source`는 `app_market`, `runtime_platform`, `release_version`, `country`별로 `observed`, `legacy`, `inferred`, `unknown` 중 하나를 가진 구조체다.
