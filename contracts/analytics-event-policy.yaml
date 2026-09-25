@@ -16,6 +16,22 @@ customEvents:
     release_version:
       source: release-version-authority
 
+transport:
+  mobile:
+    runtimePlatforms:
+      - android
+      - ios
+    sender: firebase-analytics-sdk
+    streamType: app
+    duplicatePlatformRelay: forbidden
+  measurementProtocol:
+    role: supplemental-server-events
+    appIdentity: sdk-issued-app-instance-id
+  verification:
+    - installed-build-and-firebase-app-id
+    - device-debugview-or-realtime-event
+    - exported-event-stream-platform-geo-and-first-touch
+
 normalization:
   unknownValue: unknown
   dimensionSources:

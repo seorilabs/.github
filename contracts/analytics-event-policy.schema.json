@@ -39,6 +39,50 @@
         }
       }
     },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mobile", "measurementProtocol", "verification"],
+      "properties": {
+        "mobile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["runtimePlatforms", "sender", "streamType", "duplicatePlatformRelay"],
+          "properties": {
+            "runtimePlatforms": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [{ "const": "android" }, { "const": "ios" }],
+              "items": false
+            },
+            "sender": { "const": "firebase-analytics-sdk" },
+            "streamType": { "const": "app" },
+            "duplicatePlatformRelay": { "const": "forbidden" }
+          }
+        },
+        "measurementProtocol": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["role", "appIdentity"],
+          "properties": {
+            "role": { "const": "supplemental-server-events" },
+            "appIdentity": { "const": "sdk-issued-app-instance-id" }
+          }
+        },
+        "verification": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            { "const": "installed-build-and-firebase-app-id" },
+            { "const": "device-debugview-or-realtime-event" },
+            { "const": "exported-event-stream-platform-geo-and-first-touch" }
+          ],
+          "items": false
+        }
+      }
+    },
     "normalization": {
       "type": "object",
       "additionalProperties": false,

@@ -39,6 +39,10 @@ test("Analytics 정책은 strict schema와 canonical enum을 통과한다", () =
   assert.equal(validate(policy), true, JSON.stringify(validate.errors));
   assert.deepEqual(policy.customEvents.requiredParameters.app_market.enum, APP_MARKETS);
   assert.deepEqual(policy.customEvents.requiredParameters.runtime_platform.enum, RUNTIME_PLATFORMS);
+  assert.deepEqual(policy.transport.mobile.runtimePlatforms, ["android", "ios"]);
+  assert.equal(policy.transport.mobile.sender, "firebase-analytics-sdk");
+  assert.equal(policy.transport.mobile.duplicatePlatformRelay, "forbidden");
+  assert.equal(policy.transport.verification.length, 3);
   assert.deepEqual(policy.normalization.dimensionSources, DIMENSION_SOURCES);
   assert.deepEqual(policy.managementPlan.checks, GA4_READINESS_CHECKS);
 });
