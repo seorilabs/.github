@@ -131,7 +131,7 @@ def main(argv: list[str]) -> int:
     try:
         report = read(args)
     except PublicFailure as failure:
-        sys.stderr.write(f"{failure.code}\n")
+        sys.stderr.write(f"{failure}\n")
         return 1
 
     serialized = json.dumps(report, indent=2, sort_keys=False, ensure_ascii=False)

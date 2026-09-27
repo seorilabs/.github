@@ -594,7 +594,7 @@ def main() -> int:
         else:
             result = upload(args)
     except PublicFailure as error:
-        print(error.code, file=sys.stderr)
+        print(str(error), file=sys.stderr)
         return 1
     except Exception:
         print(
