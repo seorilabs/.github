@@ -33,6 +33,7 @@ Seorilabs organization-wide GitHub defaults, profile content, and operating cont
 - [Autonomous issue registration](docs/agent-governance/autonomous-issue-registration.md)
 - [Autonomous issue routine](docs/agent-governance/autonomous-issue-routine.md)
 - [Agent skills design](docs/agent-governance/seorilabs-agent-skills-design.md)
+- [게임의 첫 학습과 UI 입력 검수](docs/game-development/player-learning-and-ui-qa.md)
 - [Spec and versioning policy](docs/agent-governance/spec-versioning-policy.md)
 - [Org CI/CD & release system — legacy migration reference](docs/ci-cd/org-cicd-release-system.md)
 - [Build toolchain contract](docs/ci-cd/build-toolchain-contract.md)
