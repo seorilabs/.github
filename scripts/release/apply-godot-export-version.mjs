@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Godot export preset의 version 값을 release tag 파생값으로 주입한다.
+// Godot export preset(과 --project 로 준 project.godot)의 version 값을 release tag 파생값으로 주입한다.
 // export_presets.cfg와 project.godot은 version authority가 아니라 주입 대상이며,
 // 실제 반영 여부는 build 이후 artifact readback에서 다시 검증한다.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import {
   ReleaseAuthorityError,
   applyGodotExportVersion,
+  applyGodotProjectVersion,
   parseReleaseBinding,
 } from './tag-version-authority.mjs';
 
@@ -54,6 +55,14 @@ function main() {
   const original = readFileSync(presetsPath, 'utf8');
   const patched = applyGodotExportVersion(original, { platform, binding, preset });
   writeFileSync(presetsPath, patched, 'utf8');
+
+  // 앱이 실행 중 읽는 application/config/version 도 같은 태그 값으로 맞춘다.
+  const projectPath = pick(args, 'project', 'GODOT_PROJECT_PATH');
+  if (projectPath.length > 0) {
+    const project = readFileSync(projectPath, 'utf8');
+    writeFileSync(projectPath, applyGodotProjectVersion(project, { binding }), 'utf8');
+    process.stdout.write(`project.godot config/version <- ${binding.versionName}\n`);
+  }
 
   process.stdout.write(
     `${platform} export preset ${preset} version <- ${binding.tag} ` +

@@ -1538,6 +1538,40 @@ export function applyGodotExportVersion(text, { platform, binding, preset }) {
   return patched.join('\n');
 }
 
+/**
+ * project.godot의 [application] config/version을 tag 파생 versionName으로 맞춘다.
+ * 게임은 실행 중 ProjectSettings로 이 값을 읽어 분석·신원·표시에 쓰므로, export preset만
+ * 바꾸면 스토어 버전과 앱이 보고하는 버전이 달라진다. 키가 없으면 섹션 첫 줄 뒤에 넣는다.
+ */
+export function applyGodotProjectVersion(text, { binding }) {
+  const versionName = binding?.versionName;
+  if (typeof versionName !== 'string' || versionName.length === 0) {
+    fail('artifact-provenance-mismatch', 'binding.versionName이 없다.');
+  }
+  const lines = text.split('\n');
+  const header = lines.findIndex((line) => line.trim() === '[application]');
+  if (header < 0) {
+    fail('artifact-provenance-mismatch', 'project.godot에 [application] 섹션이 없다.');
+  }
+  let end = lines.length;
+  for (let index = header + 1; index < lines.length; index += 1) {
+    if (/^\[[^\]]+\]\s*$/u.test(lines[index].trim())) {
+      end = index;
+      break;
+    }
+  }
+  const entry = `config/version="${versionName}"`;
+  const patched = [...lines];
+  for (let index = header + 1; index < end; index += 1) {
+    if (/^config\/version\s*=/u.test(patched[index].trim())) {
+      patched[index] = entry;
+      return patched.join('\n');
+    }
+  }
+  patched.splice(header + 1, 0, entry);
+  return patched.join('\n');
+}
+
 /** artifact에서 읽은 metadata가 tag 파생 binding과 exact match하는지 검증한다. */
 export function assertArtifactVersion({ kind, binding, observed }) {
   if (!ARTIFACT_KINDS.includes(kind)) {

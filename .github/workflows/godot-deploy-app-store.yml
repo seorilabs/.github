@@ -351,7 +351,8 @@ jobs:
           node .seorilabs-release-authority/scripts/release/apply-godot-export-version.mjs \
             --platform iOS \
             --preset "$IOS_EXPORT_PRESET" \
-            --presets "$PROJECT_DIR/export_presets.cfg"
+            --presets "$PROJECT_DIR/export_presets.cfg" \
+            --project "$PROJECT_DIR/project.godot"
 
       - name: Export Xcode project
         shell: bash

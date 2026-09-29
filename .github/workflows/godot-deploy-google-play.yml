@@ -283,7 +283,8 @@ jobs:
           node .seorilabs-release-authority/scripts/release/apply-godot-export-version.mjs \
             --platform Android \
             --preset "$ANDROID_EXPORT_PRESET" \
-            --presets "$PROJECT_DIR/export_presets.cfg"
+            --presets "$PROJECT_DIR/export_presets.cfg" \
+            --project "$PROJECT_DIR/project.godot"
 
       - name: Install Godot
         shell: bash
