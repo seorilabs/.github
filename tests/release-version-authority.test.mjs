@@ -24,6 +24,7 @@ import {
   RELEASE_TAG_SOURCES,
   ReleaseAuthorityError,
   applyGodotExportVersion,
+  applyGodotProjectVersion,
   assertArtifactReceipt,
   assertArtifactVersion,
   assertSourceBinding,
@@ -761,6 +762,34 @@ test('artifact receipt는 binding·kind·digest·memo를 한 파일로 묶는다
       }),
     )['artifact-digest-source'],
     'archive-info-plist',
+  );
+});
+
+test('project.godot config/version 은 태그 versionName 으로 맞춘다', () => {
+  const current = binding({ tag: 'v2.0.5', workflow: 'godot-deploy-google-play.yml' });
+  const project = [
+    '[application]',
+    '',
+    'config/name="Foam Party"',
+    'config/version="0.1.0"',
+    '',
+    '[other]',
+    'config/version="keep"',
+    '',
+  ].join('\n');
+  const patched = applyGodotProjectVersion(project, { binding: current });
+  assert.match(patched, /^config\/version="2\.0\.5"$/mu);
+  assert.match(patched, /^config\/version="keep"$/mu);
+  assert.doesNotMatch(patched, /"0\.1\.0"/u);
+  assert.equal(applyGodotProjectVersion(patched, { binding: current }), patched);
+
+  // 키가 없으면 [application] 바로 아래에 넣는다.
+  const inserted = applyGodotProjectVersion('[application]\nconfig/name="X"\n', { binding: current });
+  assert.equal(inserted.split('\n')[1], 'config/version="2.0.5"');
+
+  assert.throws(
+    () => applyGodotProjectVersion('[rendering]\n', { binding: current }),
+    (error) => error instanceof ReleaseAuthorityError,
   );
 });
 
