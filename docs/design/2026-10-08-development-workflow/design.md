@@ -188,20 +188,19 @@ Wiki 기능·열람 범위는 [GitHub 요금제와 저장소 공개 상태](http
 - 빌드 전과 배포 전 E2E가 이번 변경과 기존 구현 기능 전체를 포함하며 정확한 후보·설정과 일치한다.
 - 정책·템플릿 검증 통과와 실제 제품에서의 3회 검수/E2E 실행은 서로 다른 완료 상태로 보고한다.
 
-## 확정한 선택과 남은 설계 검토
+## 확정한 선택과 적용 범위
 
 1. 문서 정본은 `docs/design`, Wiki는 순서별 설계 목록·요약·티켓 링크로 확정했다.
 2. 검수는 작성자와 다른 리뷰 에이전트가 담당하고 필요한 경우 UX 전문 역할을 추가하는 것으로 확정했다.
 3. 사람이 v1을 승인했다. 중앙 정책은 조직 공통으로 적용하며, 이번 변경은 제품 UI나 기능을 변경하지 않는다. 제품별 실제 3회 검수는 다음 승인 구현 티켓에서 수행하고 결과를 별도로 보고한다.
 
-## 조회와 검증 범위
+## 설계 조사 시점의 조회와 검증 범위
 
 - 원격 `magicsih/agent-config` main: `32ab5d870b745cf5b331f28981c5cdf90a2c4cfd`.
 - 원격 `seorilabs/.github` main: `5dfe9dd31c0af50563e9182da075adc04896226f`.
 - 중앙 test, review, release, agent, autonomous-issue, product-verification 계약과 기존 설계·티켓 문서를 비교했다.
 - GitHub Wiki·Mermaid 공식 문서 및 arc42·C4 작성자의 문서를 확인했다.
-- 외부 Wiki 생성·게시·티켓 발행·코드 및 정책 반영은 이 설계 검토 후 별도 실행 단계다.
-
+- 승인 후 중앙 [티켓 218](https://github.com/seorilabs/.github/issues/218)·[PR 219](https://github.com/seorilabs/.github/pull/219), 공통 설정 [티켓 38](https://github.com/magicsih/agent-config/issues/38)·[PR 39](https://github.com/magicsih/agent-config/pull/39)를 연결하고 두 PR을 병합했다. Wiki 최초 게시가 불가해 [동일 순서 목록](../README.md)을 제공한다.
 
 ## 산출물 검수 결과
 
@@ -216,3 +215,7 @@ Wiki 기능·열람 범위는 [GitHub 요금제와 저장소 공개 상태](http
 - 실행 절차의 정본은 [중앙 개발 워크플로우](../../agent-governance/development-workflow.md)와 [기계 판독 계약](../../../contracts/development-workflow.yaml)이다. 설계 당시의 단계 설명을 실행 정책으로 중복 관리하지 않는다.
 - 검수 결과는 소스 밖의 GitHub Release 자산에 정확한 후보 SHA로 묶는다. 검수 기록 커밋으로 후보 SHA가 바뀌는 순환을 피하고, 단계·마켓별 별도 E2E 파일을 읽는다. E2E 근거의 최대 나이는 60분이며 변경이 있으면 이 시간 안이라도 다시 실행한다.
 - 자율 구현에 새 승인 조건이 생겨 기존 동작과 호환되지 않으므로 autonomous issue 계약은 v4로 올린다. v2/v3로 조용히 실행하지 않는다.
+
+## 정책 적용 검증
+
+2026-10-08 중앙 PR 219의 최신 커밋 CI에서 전체 테스트 322/322, 패키지와 workflow 린터가 통과했다. 공통 PR 39는 지침·신규 스킬 검증 뒤 병합했고 네 플랫폼의 공통 지침과 `development-workflow` 설치 링크를 확인했다. 정책 검증은 실제 제품의 기능·UX 검수와 E2E 완료를 대신하지 않는다. 제품별 실행 근거와 외부 Xcode Cloud 훅은 해당 구현·릴리스 작업에서 확인한다.
