@@ -10,11 +10,15 @@ import { parseDocument } from "yaml";
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const CONTRACT_ENTRYPOINTS = [
   "README.md",
+  "docs/agent-governance/development-workflow.md",
+  "docs/design/2026-10-08-development-workflow/design.md",
   ".github/workflows/README.md",
   "docs/ci-cd/product-verification.md",
 ];
 const JSON_SCHEMAS = [
   "contracts/app.schema.json",
+  "contracts/development-workflow.schema.json",
+  "contracts/development-evidence.schema.json",
   "contracts/autonomous-issue-policy.schema.json",
   "contracts/credential-consumer.schema.json",
   "contracts/google-play-account-routing.schema.json",
@@ -29,6 +33,7 @@ const JSON_SCHEMAS = [
 ];
 const YAML_CONTRACTS = [
   "contracts/agent-policy.yaml",
+  "contracts/development-workflow.yaml",
   "contracts/autonomous-issue-policy.yaml",
   "contracts/google-play-account-routing.yaml",
   "contracts/provider-auth-matrix.yaml",
@@ -42,8 +47,9 @@ const YAML_CONTRACTS = [
   "profiles/react-native.yaml",
 ];
 const YAML_SCHEMA_VERSIONS = new Map([
-  ["contracts/autonomous-issue-policy.yaml", 3],
+  ["contracts/autonomous-issue-policy.yaml", 4],
   ["contracts/release-version-authority.yaml", 3],
+  ["contracts/release-policy.yaml", 2],
 ]);
 
 function localMarkdownTargets(markdown) {

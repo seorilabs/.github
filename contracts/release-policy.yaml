@@ -1,4 +1,4 @@
-schemaVersion: 1
+schemaVersion: 2
 id: org-v1
 defaultBranch: main
 
@@ -37,7 +37,8 @@ execution:
   googlePlay:
     buildPlatform: x64-linux
   appleAppStore:
-    executor: xcode-cloud
+    publicExecutor: github-hosted-macos
+    privateExecutor: xcode-cloud
   appsInToss:
     preferredRunner: seorilabs-x64
 
@@ -69,3 +70,7 @@ lifecycle:
     - notApplicable
   evidenceRequiredForPassed: true
   implication: forbidden
+
+developmentWorkflow:
+  policy: contracts/development-workflow.yaml
+  editorE2eRequiredBeforeBuildAndDeploy: true

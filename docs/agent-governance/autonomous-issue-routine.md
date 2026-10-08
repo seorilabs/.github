@@ -6,7 +6,7 @@
 
 1. `contracts/autonomous-issue-policy.yaml`
 2. 이 문서
-3. `contracts/review-policy.yaml`, `contracts/test-policy.yaml`, `contracts/release-policy.yaml`
+3. `contracts/development-workflow.yaml`, [개발 워크플로우](development-workflow.md), `contracts/review-policy.yaml`, `contracts/test-policy.yaml`, `contracts/release-policy.yaml`
 4. 대상 저장소의 `AGENTS.md`, `.seorilabs/app.yaml`, README와 repo-local 실행 문서
 5. 현재 처리할 이슈 본문과 연결된 PR·review thread
 6. 로컬 환경에 관련 스킬이 있으면 구현·검증 어댑터로 사용
@@ -68,6 +68,12 @@ flowchart LR
 
 후보는 P1→P2→P3→P4 순으로 정렬하고, 같은 우선순위에서는 `createdAt`, 이슈 번호 오름차순으로 전체 순서를 만든다. 각 반복에서는 아직 시도하지 않은 최상위 한 건만 선택한다. 후보가 없으면 no-op으로 종료한다.
 
+## 설계 작성과 구현 전 재검증
+
+계약 v4는 후보의 설계 초안 작성과 코드 구현 자격을 구분한다. 승인 설계 없는 항목은 `docs/design` 초안을 만들고 사람 검토 대기를 해당 이슈에 기록한 뒤 이번 시도를 닫고 다음 미시도 항목으로 진행한다. 접수 이슈를 복제하지 않는다. 설계 승인 링크·정확한 문서 커밋·범위·인수조건·테스트 계획이 확인된 항목만 구현한다. 기존 진행 PR도 추가 코드 작성 전 동일하게 확인한다. v2/v3의 승인 없는 자동 구현 의미를 재사용하지 않는다.
+
+승인 대기는 항목별 차단이며, 전체 큐를 멈추거나 lease를 붙잡고 기다리지 않는다.
+
 ## 구현 전 재검증
 
 1. 원격 기본 브랜치와 exact HEAD를 fetch한다.
@@ -111,6 +117,8 @@ flowchart LR
 - 예외로, 타 에이전트 PR이 `staleAdoptionAfterHours` 이상 커밋·코멘트 없이 방치되고 이슈 lease도 만료됐으면, 그 PR에 claim 코멘트를 남겨 같은 중재를 거친 뒤 인수할 수 있다. 접두사 없는 레거시 자율 PR도 이 인수 절차로만 다룬다.
 
 ## 격리 구현과 검증
+
+승인 설계와 [개발 워크플로우](development-workflow.md)를 따라 테스트 우선 구현, UI 앱의 회차별 계획·다른 리뷰 에이전트의 기능·UX 검수 3회를 수행한다. 추가 회차는 사람 승인 전 시작하지 않는다. 빌드·배포가 별도로 승인된 작업이면 각 실행 전 Editor E2E 근거를 확인한다.
 
 - 기본 checkout의 dirty·untracked 변경을 보존한다. `reset`, `clean`, `stash`, `rebase`, `checkout`으로 사용자 상태를 바꾸지 않는다.
 - 최신 원격 기본 브랜치에서 이슈 전용 격리 worktree와 브랜치를 만든다. 브랜치 이름은 `<agentId>/`로 시작한다.

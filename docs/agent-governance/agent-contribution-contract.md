@@ -10,62 +10,21 @@
 - 연결된 Issue 또는 Project item
 - source-of-truth 문서
 - scope와 acceptance criteria
-- approval 필요 여부
+- 사람의 승인 설계·정확한 버전·범위
 - repo-local test/smoke command
 - release, store, production 영향 여부
 
 작업 시작 금지 조건:
 
-- 기획 승인 전 신규 app code/repo/store registration 생성
+- 설계 승인 전 코드 구현, 기획 승인 전 신규 app code/repo/store registration 생성
 - 배포 승인 전 production submit/promote/public release
 - 티켓 없이 장기 작업 시작
 - source-of-truth와 충돌하는 scope 확대
 - secret, credential, service account key를 client/repo에 추가
 
-## PR Description Template
+## 설계와 PR
 
-```markdown
-# 요약
-- 
-
-# 변경사항
--
-
-# 티켓
-- Refs #
-
-# 인수조건
-- [ ] 연결 티켓의 인수조건을 그대로 옮기고 충족 여부를 표시했다.
-
-# 범위
-- 포함:
-- 제외:
-
-# 스펙 / 버전 영향
-- Source of truth:
-- Spec Version:
-- Version Impact: none / patch / minor / major
-- Migration needed: no / yes
-
-# 검증
-- Local:
-- CI:
-- Runtime/browser/device:
-- Store/console/live:
-
-# 다이어그램
-- 구조나 흐름 이해에 도움이 안 되면 `생략`.
-
-# 리스크
-- 참고 -
-
-# 롤백
-- 
-
-# 노트
-- Planning approval: Not needed / Required / Approved
-- Release approval: Not needed / Required / Approved
-```
+구현 전에 [개발 워크플로우](development-workflow.md)의 사람 설계 승인을 확인한다. PR 본문은 [공통 템플릿](../../PULL_REQUEST_TEMPLATE.md)을 사용하고 설계·승인·조건·테스트·검수 기록을 연결한다. UI 독립 검수와 Copilot 코드 리뷰는 별도 단계다.
 
 ## Version Impact Rules
 

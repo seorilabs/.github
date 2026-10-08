@@ -122,7 +122,24 @@ permissions:
   contents: read
 
 jobs:
+  verify-apple-route:
+    runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || 'seorilabs-x64' }}
+    timeout-minutes: 2
+    steps:
+      - name: Require the matching Apple executor
+        shell: bash
+        env:
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          if [ "$PRIVATE_REPOSITORY" = "true" ]; then
+            echo "private Apple archive·upload는 Xcode Cloud 경로가 필요합니다." >&2
+            exit 1
+          fi
+
   build-archive:
+    needs: verify-apple-route
+    if: github.event.repository.private == false
     name: Godot signed iOS archive
     # 마켓 자격증명을 쓰는 job은 caller가 러너를 고를 수 없다. GitHub-hosted macOS로 고정한다.
     runs-on: macos-26
@@ -235,6 +252,22 @@ jobs:
 
       # export 이전이라 디스크를 탐색할 수 없다. 이름은 입력 경로가 결정한다.
       # scheme은 Godot이 만드는 xcodeproj 파일명과 같아야 xcodebuild가 찾는다.
+      - name: Install development verifier
+        shell: bash
+        run: npm ci --prefix .seorilabs-release-authority --ignore-scripts --no-audit
+
+      - name: Verify Editor E2E before-build
+        id: editor_before_build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
+            --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
+            --target app-store --phase before-build
+
       - name: Resolve archive identity
         id: meta
         shell: bash
@@ -545,6 +578,19 @@ jobs:
             exit 1
           }
           bash "$POST_EXPORT_VALIDATION_SCRIPT"
+
+      - name: Verify Editor E2E before-deploy
+        id: editor_before_deploy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
+          BUILD_E2E_COMPLETED_AT: ${{ env.EDITOR_BUILD_E2E_COMPLETED_AT }}
+        run: |
+          set -euo pipefail
+          node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
+            --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
+            --target app-store --phase before-deploy --after "$BUILD_E2E_COMPLETED_AT"
 
       - name: Export and upload to App Store Connect
         if: ${{ inputs.upload }}

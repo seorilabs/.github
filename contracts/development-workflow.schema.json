@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "scope",
+    "plan",
+    "design",
+    "implementation",
+    "uiReview",
+    "editorE2e",
+    "autonomousImplementation"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "const": "seorilabs-development-workflow-v1"
+    },
+    "scope": {
+      "const": "organization-development"
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "purpose",
+        "authorizesImplementation"
+      ],
+      "properties": {
+        "purpose": {
+          "const": "enumerate-all-work"
+        },
+        "authorizesImplementation": {
+          "const": false
+        }
+      }
+    },
+    "design": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonicalRoot",
+        "humanApprovalRequiredBeforeImplementation",
+        "approvalBinds",
+        "visualFirst",
+        "requiredElements",
+        "wikiRole",
+        "obsidianRole",
+        "duplicateDesignBodies",
+        "ticketRequiredAfterApproval",
+        "reuseSufficientIntakeIssue"
+      ],
+      "properties": {
+        "canonicalRoot": {
+          "const": "docs/design"
+        },
+        "humanApprovalRequiredBeforeImplementation": {
+          "const": true
+        },
+        "approvalBinds": {
+          "const": "design-commit-and-scope"
+        },
+        "visualFirst": {
+          "const": true
+        },
+        "requiredElements": {
+          "type": "array",
+          "const": [
+            "purpose-scope-evidence",
+            "user-flow-and-states",
+            "structure-responsibilities-dependencies",
+            "data-interfaces-failure-handling",
+            "quality-requirements",
+            "alternatives-and-decisions",
+            "acceptance-test-review-plan",
+            "rollout-operations-rollback",
+            "approval-and-traceability"
+          ]
+        },
+        "wikiRole": {
+          "const": "chronological-index-summary-links"
+        },
+        "obsidianRole": {
+          "const": "cross-project-decisions-and-approval"
+        },
+        "duplicateDesignBodies": {
+          "const": "forbidden"
+        },
+        "ticketRequiredAfterApproval": {
+          "const": true
+        },
+        "reuseSufficientIntakeIssue": {
+          "const": true
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preferredMethod",
+        "redMustFailFor",
+        "exceptionsRequire"
+      ],
+      "properties": {
+        "preferredMethod": {
+          "const": "test-first"
+        },
+        "redMustFailFor": {
+          "const": "unmet-behavior"
+        },
+        "exceptionsRequire": {
+          "const": "reason-and-replacement-verification"
+        }
+      }
+    },
+    "uiReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rounds",
+        "planBeforeEveryRound",
+        "everyRound",
+        "execution",
+        "reviewer",
+        "uxSpecialist",
+        "extraRounds",
+        "selfRoleSwitchCountsAsIndependent",
+        "endlessWithinRoundRetries"
+      ],
+      "properties": {
+        "rounds": {
+          "const": 3
+        },
+        "planBeforeEveryRound": {
+          "const": true
+        },
+        "everyRound": {
+          "const": "functional-and-ux"
+        },
+        "execution": {
+          "const": "real-development-runtime"
+        },
+        "reviewer": {
+          "const": "different-agent-from-implementer"
+        },
+        "uxSpecialist": {
+          "const": "when-needed"
+        },
+        "extraRounds": {
+          "const": "prior-human-approval-with-scope-time-cost"
+        },
+        "selfRoleSwitchCountsAsIndependent": {
+          "const": false
+        },
+        "endlessWithinRoundRetries": {
+          "const": "forbidden"
+        }
+      }
+    },
+    "editorE2e": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phases",
+        "coverage",
+        "featureInventory",
+        "candidateBinding",
+        "configurationFingerprintRequired",
+        "isolatedDataRequired",
+        "maxAgeMinutes",
+        "changesInvalidateEvidence",
+        "skippedOrBlockedPass",
+        "runtimeKinds",
+        "evidenceSchema",
+        "releaseAssetPattern",
+        "verifier"
+      ],
+      "properties": {
+        "phases": {
+          "type": "array",
+          "const": [
+            "before-build",
+            "before-deploy"
+          ]
+        },
+        "coverage": {
+          "const": "all-implemented-features"
+        },
+        "featureInventory": {
+          "const": "docs/qa/feature-inventory.json"
+        },
+        "candidateBinding": {
+          "const": "exact-source-sha-and-target"
+        },
+        "configurationFingerprintRequired": {
+          "const": true
+        },
+        "isolatedDataRequired": {
+          "const": true
+        },
+        "maxAgeMinutes": {
+          "const": 60
+        },
+        "changesInvalidateEvidence": {
+          "const": true
+        },
+        "skippedOrBlockedPass": {
+          "const": "forbidden"
+        },
+        "runtimeKinds": {
+          "type": "array",
+          "const": [
+            "godot-editor",
+            "unity-editor",
+            "web-browser",
+            "native-development",
+            "service-runtime"
+          ]
+        },
+        "evidenceSchema": {
+          "const": "contracts/development-evidence.schema.json"
+        },
+        "releaseAssetPattern": {
+          "const": "development-evidence.<target>.<phase>.json"
+        },
+        "verifier": {
+          "const": "scripts/release/verify-development-evidence.mjs"
+        }
+      }
+    },
+    "autonomousImplementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approvedDesignRequired",
+        "missingApproval",
+        "approvalDoesNotAuthorizeRelease"
+      ],
+      "properties": {
+        "approvedDesignRequired": {
+          "const": true
+        },
+        "missingApproval": {
+          "const": "draft-design-and-continue-next-unattempted"
+        },
+        "approvalDoesNotAuthorizeRelease": {
+          "const": true
+        }
+      }
+    }
+  }
+}

@@ -220,6 +220,22 @@ jobs:
             node .seorilabs-release-authority/scripts/release/resolve-release-version.mjs \
               --ledger-file "$RUNNER_TEMP/release-version-ledger.json" --github-output
 
+      - name: Install development verifier
+        shell: bash
+        run: npm ci --prefix .seorilabs-release-authority --ignore-scripts --no-audit
+
+      - name: Verify Editor E2E before-build
+        id: editor_before_build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
+            --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
+            --target google-play --phase before-build
+
       - name: Resolve AAB name
         id: meta
         shell: bash
@@ -554,6 +570,19 @@ jobs:
           # gh CLI는 ARC 러너 이미지에 없다. 중앙 해석기가 REST로 받고, 실패 사유를
           # 버리지 않는다. 자산이 붙어 있는데 읽지 못하면 그 자리에서 멈춘다.
           node .seorilabs-release-authority/scripts/release/resolve-release-notes.mjs --github-output
+
+      - name: Verify Editor E2E before-deploy
+        id: editor_before_deploy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
+          BUILD_E2E_COMPLETED_AT: ${{ env.EDITOR_BUILD_E2E_COMPLETED_AT }}
+        run: |
+          set -euo pipefail
+          node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
+            --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
+            --target google-play --phase before-deploy --after "$BUILD_E2E_COMPLETED_AT"
 
       - name: Upload to Google Play
         if: ${{ inputs.upload }}

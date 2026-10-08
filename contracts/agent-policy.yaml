@@ -42,3 +42,6 @@ updates:
   contractLockChange: pull-request
   skillChange: pull-request
   localInstallAfterMerge: explicit-verified-step
+
+developmentWorkflow:
+  policy: contracts/development-workflow.yaml

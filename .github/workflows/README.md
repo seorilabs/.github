@@ -10,7 +10,7 @@
 
 - **main 병합/PR = 정적 게이트만**(lint/typecheck/test/style + 정적 게이트). 무거운 빌드/배포 금지.
 - **마켓 업로드 = 명시적 Release/Tag 기준.** merge마다 자동 태깅 금지.
-- **러너**: AIT·Godot·web·lint/test → `seorilabs-x64`(ARC, 전용 CI 노드 seori-m6-01). Android AAB·Play → `ubuntu-latest`. Apple archive·App Store 업로드 → Xcode Cloud. public PR job은 ARC 금지.
+- **러너**: AIT·Godot·web·lint/test → `seorilabs-x64`(ARC, 전용 CI 노드 seori-m6-01). Android AAB·Play → `ubuntu-latest`. Apple archive·App Store 업로드 → public hosted macOS/private Xcode Cloud. public PR job은 ARC 금지.
   - **public repo는 ARC를 아예 쓸 수 없다.** org runner group이 전부 `allows_public_repositories: false`라 public repo가 ARC 라벨을 요청하면 job이 실패하지 않고 큐에 영원히 남는다. 중앙 workflow는 `github.event.repository.visibility == 'public'`으로 `ubuntu-latest`에 폴백하고, caller가 `runs_on`을 넘기는 workflow는 caller가 같은 조건을 쓴다. public repo의 GitHub-hosted 표준 러너는 분당 과금이 없으므로 이 폴백이 Actions 쿼타 보호 경로이기도 하다.
   - ARC 러너를 프로덕션 노드(rpi5)에 두지 마라. rpi5는 백오피스와 MySQL을 함께 이고 있어, CI 러너의 메모리 피크가 노드 전역 OOM을 일으켜 프로덕션을 끌어내린 전례가 있다(2026-09-17~18, 23시간에 6회).
 - **호출 계약**: reusable workflow는 `@main`으로 호출하고, secret은 `workflow_call.secrets`에 선언한 이름만 명시적으로 전달한다.
@@ -87,7 +87,7 @@ workflow/caller의 표시 이름일 뿐 required status check 이름으로 사�
 - **repo 레벨(앱 특화)**: `APPLE_PROVISIONING_PROFILE_BASE64`, `FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64`, `FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64`, (var) `GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL`.
 - **GitHub Environments**: `apps-in-toss`, `google-play`, `app-store`(보호 규칙/감사).
 
-Apple signing과 App Store Connect 인증은 Xcode Cloud 환경에서 관리한다. 아래 GitHub App Store secret과 workflow는 소비자를 확인한 뒤 Xcode Cloud로 옮길 legacy 대상이며 신규 앱의 표준이 아니다.
+Apple signing과 인증은 private의 Xcode Cloud와 public의 GitHub `app-store` environment로 분리한다. 아래 GitHub App Store Secret·workflow는 public archive·upload 경로다. private에서 실행하려 하면 명시적으로 차단한다.
 
 WorkflowBundle v4 Android build-only 경로는 GitHub secret을 받지 않는다. `internal`
 Environment에서 공개 identity인 `GOOGLE_WORKLOAD_IDENTITY_PROVIDER`,
@@ -141,7 +141,7 @@ publisher 권한을 가져서는 안 된다. GitHub OIDC 조건은 숫자 reposi
 - 결제 plugin·동적 Gradle preset처럼 중앙 direct export로 표현할 수 없는 Godot repo는 `build_script`를 넘긴다. 중앙이 태그 파생 `SEORI_RELEASE_*`와 exact `SEORI_ANDROID_AAB_OUTPUT`만 child process에 주입하고, upload와 provider API는 계속 중앙 workflow만 소유한다.
 - Firebase 복원: `scripts/restore-mobile-firebase-config.mjs --android|--ios --require`.
 - Godot web export: `scripts/export_godot_web.sh`.
-- Legacy GitHub App Store 경로의 Godot iOS: `scripts/ensure_godot.sh --with-export-templates`, `scripts/export_godot_ios.sh`(→ `<ios_output>.xcodeproj`). 이 입력 계약은 Xcode Cloud 이관 전 기존 consumer 확인에만 사용한다.
+- public GitHub App Store 경로의 Godot iOS: `scripts/ensure_godot.sh --with-export-templates`, `scripts/export_godot_ios.sh`(→ `<ios_output>.xcodeproj`). private 제품의 Xcode Cloud 훅은 별도로 확인한다.
 
 ## caller 예시
 
@@ -209,7 +209,7 @@ private repo에서만 digest-bound ARC image를 사용하고, Google WIF 전에 
 `.github/workflows/android-build-only.yml@refs/heads/main`인지 확인한 뒤 exact source
 checkout과 tracked-secret scan 뒤 x64 Cloud Build로 제출한다. Cloud Build config는 digest로
 고정한 builder, exact gcloud와 `scripts/build-android.sh`만 실행하며 AAB를 회수할 뿐 마켓
-API를 호출하지 않는다. RN private SDK는 RPI에서 일회성 `github.token`으로 exact package만
+API를 호출하지 않는다. RN private SDK는 general runner에서 일회성 `github.token`으로 exact package만
 content-addressed store에 채우고 token 비포함 검사를 통과한 store만 source archive에 싣는다.
 Cloud Build는 이 store를 사용하지만 token이나 `.npmrc` credential은 받지 않는다.
 
@@ -312,4 +312,8 @@ jobs:
     with: { release_tag: ${{ inputs.release_tag }} }
 ```
 
-> 이 예시는 GitHub에서 실행하는 AIT·Google Play 경로만 묶는다. Apple archive와 App Store 업로드는 Xcode Cloud에서 별도 gate로 실행한다. repo 로컬 caller도 각 `workflow_call.secrets` 이름을 선언하고 중앙 workflow에 다시 명시적으로 매핑해야 한다.
+> 이 예시는 GitHub에서 실행하는 AIT·Google Play 경로만 묶는다. Apple archive와 업로드는 public hosted macOS/private Xcode Cloud에서 별도 gate로 실행한다. repo 로컬 caller도 각 `workflow_call.secrets` 이름을 선언하고 중앙 workflow에 다시 명시적으로 매핑해야 한다.
+
+## 개발 검수 근거
+
+[개발 워크플로우](../../docs/agent-governance/development-workflow.md)의 승인 설계·TDD·UI 독립 검수 3회와 단계별 Editor E2E를 적용한다. RN·Godot 마켓 경로는 before-build/before-deploy 자산을 새로 읽어 exact SHA·마켓·회차·기능·시간을 검증한다. build-only는 before-build, Play 승격은 before-deploy가 필요하다. Godot Pages는 push-to-main 자동 배포를 하지 않으며 명시 dispatch/tag에서 단계별 근거를 확인한다. 근거 누락은 의도된 차단이다.

@@ -13,12 +13,13 @@
     "titlePolicy",
     "executionRouting",
     "lease",
+    "implementationGate",
     "issueBody",
     "repositories"
   ],
   "properties": {
-    "schemaVersion": { "const": 3 },
-    "id": { "const": "seorilabs-autonomous-issue-policy-v3" },
+    "schemaVersion": { "const": 4 },
+    "id": { "const": "seorilabs-autonomous-issue-policy-v4" },
     "defaults": {
       "type": "object",
       "additionalProperties": false,
@@ -273,6 +274,16 @@
             "staleAdoptionAfterHours": { "type": "integer", "minimum": 1, "maximum": 168 }
           }
         }
+      }
+    },
+    "implementationGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "approvedDesignRequired", "missingApproval"],
+      "properties": {
+        "policy": { "const": "contracts/development-workflow.yaml" },
+        "approvedDesignRequired": { "const": true },
+        "missingApproval": { "const": "draft-design-and-continue-next-unattempted" }
       }
     },
     "issueBody": {

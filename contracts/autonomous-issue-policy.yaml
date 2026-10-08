@@ -1,5 +1,5 @@
-schemaVersion: 3
-id: seorilabs-autonomous-issue-policy-v3
+schemaVersion: 4
+id: seorilabs-autonomous-issue-policy-v4
 
 defaults:
   registration: DISABLED
@@ -135,6 +135,11 @@ lease:
     branchPrefix: "<agentId>/"
     foreignAutonomousPrPolicy: item-blocked
     staleAdoptionAfterHours: 24
+
+implementationGate:
+  policy: contracts/development-workflow.yaml
+  approvedDesignRequired: true
+  missingApproval: draft-design-and-continue-next-unattempted
 
 issueBody:
   requiredSections:

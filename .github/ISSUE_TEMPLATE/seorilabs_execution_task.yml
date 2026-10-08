@@ -8,7 +8,8 @@ body:
     attributes:
       value: |
         Use this form for scoped implementation, QA, release-prep, docs, and operations work.
-        Planning and release approvals remain human gates.
+        Planning, implementation design, and release approvals are separate human gates.
+        구현 전 docs/design 정본과 정확한 승인 버전을 연결하고, UI 검수는 작성자와 다른 리뷰 에이전트가 담당합니다.
         제목에는 [P1], [BUG], 저장소명, U1/N1 같은 말머리를 붙이지 말고 고객 문제와 해결 후 가치를 적습니다.
 
   - type: textarea
@@ -56,6 +57,10 @@ body:
     attributes:
       label: 검증 계획
       value: |
+        조건 ID별 TDD 실패·통과 또는 사유·대체 검증:
+        UI 검수 1·2·3회 계획·기능·UX·독립 검수자:
+        추가 회차의 사전 승인:
+        빌드 전·배포 전 E2E — 기존 구현 기능 전체:
         Local:
         CI:
         Runtime/browser/device:
@@ -83,6 +88,18 @@ body:
         Obsidian/Vault:
         Repo docs:
         관련 PR/Issue:
+    validations:
+      required: true
+
+  - type: textarea
+    id: design_approval
+    attributes:
+      label: 구현 설계와 사람 승인
+      value: |
+        설계 ID·docs/design 정본:
+        승인 문서 커밋·승인자·시각·근거:
+        Wiki 목록·관련 티켓·PR:
+        문서·운영만의 작업이면 적용 불가 이유:
     validations:
       required: true
 

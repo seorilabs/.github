@@ -40,3 +40,6 @@ evidenceClasses:
 claims:
   implication: forbidden
   rule: A passing source or CI gate does not prove artifact, upload, device, review, approval, deployment, or public availability.
+
+developmentWorkflow:
+  policy: contracts/development-workflow.yaml
