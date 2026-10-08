@@ -3,6 +3,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
+import { resolveGitHubTagCommit } from "./release/resolve-github-tag-commit.mjs";
+import { verifyReleaseDevelopmentEvidence } from "./release/verify-development-evidence.mjs";
 
 const API_BASE = "https://api.appstoreconnect.apple.com";
 
@@ -166,6 +168,11 @@ async function main() {
 
   let buildRun = null;
   if (start) {
+    const repository = requiredEnv("GITHUB_REPOSITORY");
+    const githubToken = process.env.GH_TOKEN || requiredEnv("GITHUB_TOKEN");
+    const candidate = await resolveGitHubTagCommit({ repository, ref: tag, token: githubToken });
+    await verifyReleaseDevelopmentEvidence({ repository, tag, sourceSha: candidate.sourceSha,
+      target: "app-store", phase: "before-build", token: githubToken });
     const run = await appStoreConnect("/v1/ciBuildRuns", token, {
       method: "POST",
       body: JSON.stringify({

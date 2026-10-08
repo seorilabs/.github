@@ -188,9 +188,9 @@ test("자율 이슈 정책은 JSON Schema를 통과한다", () => {
   assert.equal(validate(policy), true, JSON.stringify(validate.errors));
 });
 
-test("v3 등록 계약은 건수 상한 없이 근거 후보를 한 차례 등록한다", () => {
-  assert.equal(policy.schemaVersion, 3);
-  assert.equal(policy.id, "seorilabs-autonomous-issue-policy-v3");
+test("v4 등록 계약은 건수 상한 없이 근거 후보를 한 차례 등록한다", () => {
+  assert.equal(policy.schemaVersion, 4);
+  assert.equal(policy.id, "seorilabs-autonomous-issue-policy-v4");
   assert.equal(Object.hasOwn(policy.schedules.registration, "maxIssuesPerRun"), false);
   assert.deepEqual(policy.schedules.registration, {
     localTimes: ["02:00", "14:00"],

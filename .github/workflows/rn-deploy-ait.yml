@@ -229,6 +229,22 @@ jobs:
 
       # install/build: eval 제거(시크릿 보유 스텝의 명령 인젝션 표면 차단).
       # custom 입력은 run 본문에 직접 보간, 미지정 시 package_manager 기반 고정 명령.
+      - name: Install development verifier
+        shell: bash
+        run: npm ci --prefix .seorilabs-release-authority --ignore-scripts --no-audit
+
+      - name: Verify Editor E2E before-build
+        id: editor_before_build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
+            --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
+            --target apps-in-toss --phase before-build
+
       - name: Install dependencies (custom)
         if: inputs.install_command != ''
         shell: bash
@@ -351,6 +367,19 @@ jobs:
 
       # 업로드는 외부 콘솔 상태를 바꾼다. caller 가 upload=false 로 부르면 빌드와 검증까지만
       # 하고 멈춘다. 전환 작업이나 회귀 확인에서 실제 업로드 없이 경로를 검증할 수 있다.
+      - name: Verify Editor E2E before-deploy
+        id: editor_before_deploy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
+          BUILD_E2E_COMPLETED_AT: ${{ env.EDITOR_BUILD_E2E_COMPLETED_AT }}
+        run: |
+          set -euo pipefail
+          node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
+            --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
+            --target apps-in-toss --phase before-deploy --after "$BUILD_E2E_COMPLETED_AT"
+
       - name: Deploy to AppsInToss
         if: inputs.upload
         shell: bash

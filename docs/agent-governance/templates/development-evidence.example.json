@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "repository": "seorilabs/example",
+  "sourceSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "target": "apps-in-toss",
+  "implementer": "author-agent",
+  "productKind": "ui",
+  "design": {
+    "id": "design-1",
+    "approvedCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "approverKind": "human",
+    "approver": "owner",
+    "approvalEvidence": "https://example.com/approval",
+    "document": "docs/design/example/design.md"
+  },
+  "features": [
+    {
+      "id": "create",
+      "core": true
+    },
+    {
+      "id": "settings",
+      "core": false
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "AC-1",
+      "status": "passed",
+      "evidence": [
+        "https://example.com/test"
+      ]
+    }
+  ],
+  "tdd": [
+    {
+      "acceptanceId": "AC-1",
+      "mode": "test-first",
+      "redEvidence": "https://example.com/red",
+      "greenEvidence": "https://example.com/green"
+    }
+  ],
+  "iterations": [
+    {
+      "number": 1,
+      "sourceSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "plan": "docs/qa/example/iteration-1.md",
+      "plannedAt": "2026-10-08T01:00:00Z",
+      "startedAt": "2026-10-08T01:01:00Z",
+      "completedAt": "2026-10-08T01:10:00Z",
+      "reviewer": "review-agent",
+      "personas": [
+        "functional-reviewer",
+        "new-user"
+      ],
+      "functional": {
+        "status": "passed",
+        "featureIds": [
+          "create"
+        ],
+        "evidence": [
+          "https://example.com/functional"
+        ]
+      },
+      "ux": {
+        "status": "passed",
+        "featureIds": [
+          "create"
+        ],
+        "evidence": [
+          "https://example.com/ux"
+        ]
+      }
+    },
+    {
+      "number": 2,
+      "sourceSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "plan": "docs/qa/example/iteration-2.md",
+      "plannedAt": "2026-10-08T02:00:00Z",
+      "startedAt": "2026-10-08T02:01:00Z",
+      "completedAt": "2026-10-08T02:10:00Z",
+      "reviewer": "review-agent",
+      "personas": [
+        "functional-reviewer",
+        "new-user"
+      ],
+      "functional": {
+        "status": "passed",
+        "featureIds": [
+          "create"
+        ],
+        "evidence": [
+          "https://example.com/functional"
+        ]
+      },
+      "ux": {
+        "status": "passed",
+        "featureIds": [
+          "create"
+        ],
+        "evidence": [
+          "https://example.com/ux"
+        ]
+      }
+    },
+    {
+      "number": 3,
+      "sourceSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "plan": "docs/qa/example/iteration-3.md",
+      "plannedAt": "2026-10-08T03:00:00Z",
+      "startedAt": "2026-10-08T03:01:00Z",
+      "completedAt": "2026-10-08T03:10:00Z",
+      "reviewer": "review-agent",
+      "personas": [
+        "functional-reviewer",
+        "new-user"
+      ],
+      "functional": {
+        "status": "passed",
+        "featureIds": [
+          "create"
+        ],
+        "evidence": [
+          "https://example.com/functional"
+        ]
+      },
+      "ux": {
+        "status": "passed",
+        "featureIds": [
+          "create"
+        ],
+        "evidence": [
+          "https://example.com/ux"
+        ]
+      }
+    }
+  ],
+  "additionalIterationApproval": null,
+  "e2e": {
+    "phase": "before-build",
+    "sourceSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "plannedAt": "2026-10-08T05:40:00Z",
+    "startedAt": "2026-10-08T05:45:00Z",
+    "completedAt": "2026-10-08T05:50:00Z",
+    "environment": {
+      "kind": "web-browser",
+      "configurationFingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "isolatedData": "qa-only account"
+    },
+    "scenarios": [
+      {
+        "id": "whole-journey",
+        "status": "passed",
+        "featureIds": [
+          "create",
+          "settings"
+        ],
+        "evidence": [
+          "https://example.com/e2e"
+        ]
+      }
+    ]
+  }
+}

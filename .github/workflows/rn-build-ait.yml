@@ -97,6 +97,30 @@ jobs:
           node-version: ${{ inputs.node_version }}
           check-latest: false
 
+      - name: Checkout development authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: seorilabs/.github
+          ref: main
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
+      - name: Install development verifier
+        shell: bash
+        run: npm ci --prefix .seorilabs-release-authority --ignore-scripts --no-audit
+
+      - name: Verify Editor E2E before-build
+        id: editor_before_build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_TAG: ${{ startsWith(inputs.release_tag, 'v') && inputs.release_tag || 'development-evidence' }}
+        run: |
+          set -euo pipefail
+          node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
+            --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
+            --target apps-in-toss --phase before-build
+
       - name: Enable pnpm
         if: inputs.package_manager == 'pnpm'
         shell: bash

@@ -36,9 +36,12 @@ permissions:
 
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     name: Build Godot Web
     runs-on: ${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-x64' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
+    outputs:
+      editor_e2e_completed_at: ${{ steps.editor_before_build.outputs.completed_at }}
     env:
       GODOT_VERSION: ${{ inputs.godot_version }}
       GODOT_STATUS: ${{ inputs.godot_status }}
@@ -62,6 +65,36 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node for development evidence
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+
+      - name: Checkout development authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: seorilabs/.github
+          ref: main
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
+      - name: Install development verifier
+        shell: bash
+        run: npm ci --prefix .seorilabs-release-authority --ignore-scripts --no-audit
+
+      - name: Verify Editor E2E before-build
+        id: editor_before_build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'development-evidence' }}
+        run: |
+          set -euo pipefail
+          node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
+            --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
+            --target web --phase before-build
 
       - name: Ensure fontconfig runtime
         shell: bash
@@ -147,6 +180,42 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Checkout candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node for development evidence
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          check-latest: false
+
+      - name: Checkout development authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: seorilabs/.github
+          ref: main
+          path: .seorilabs-release-authority
+          persist-credentials: false
+
+      - name: Install development verifier
+        shell: bash
+        run: npm ci --prefix .seorilabs-release-authority --ignore-scripts --no-audit
+
+      - name: Verify Editor E2E before-deploy
+        id: editor_before_deploy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'development-evidence' }}
+          BUILD_E2E_COMPLETED_AT: ${{ needs.build.outputs.editor_e2e_completed_at }}
+        run: |
+          set -euo pipefail
+          node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
+            --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
+            --target web --phase before-deploy --after "$BUILD_E2E_COMPLETED_AT"
+
       - name: Deploy Pages
         id: deployment
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

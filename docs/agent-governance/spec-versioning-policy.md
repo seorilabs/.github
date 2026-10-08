@@ -8,6 +8,7 @@ Agent가 여러 repo에 PR을 만들 때 스펙과 버전 판단이 흔들리지
 
 | Source | 위치 | 관리 방식 |
 | --- | --- | --- |
+| 구현 설계 | `docs/design/<date-name>/design.md` | 사람 승인 버전·인수조건·테스트·검수 계획 |
 | Product spec | `docs/product-spec.md`, `specs/*.md` | 기능, UX, game rule, data model 변경 기준 |
 | Architecture spec | `docs/architecture.md` | core/adapters boundary와 platform dependency 기준 |
 | Release readiness | `docs/release-readiness.md` | QA, policy, market blocker 상태 |
@@ -32,7 +33,7 @@ Spec Version: docs/release-readiness.md updated 2026-06-17
 Spec Version: 확정 필요
 ```
 
-`확정 필요`는 허용하지만, spec 영향이 큰 PR은 `Needs spec`으로 분류한다.
+`확정 필요`는 초안에서만 허용한다. 구현 시작 전에는 승인 설계의 정확한 커밋과 범위를 연결하며 미확정 승인 버전은 `Needs spec`으로 분류한다.
 
 ## Version Impact
 

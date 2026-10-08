@@ -4,8 +4,9 @@ Seorilabs organization-wide GitHub defaults, profile content, and operating cont
 
 ## 운영 계약
 
-앱 저장소는 중앙 재사용 워크플로를 부르는 얇은 caller만 둔다. 릴리스 태그가 버전의 유일한
-정본이고, Apple archive와 업로드는 Xcode Cloud에서만 한다.
+앱 저장소는 중앙 재사용 워크플로를 부르는 얇은 caller만 둔다. 버전은 중앙 버전 계약의
+태그·원장·실행 번호 규칙을 따른다. Apple archive와 업로드는 public 저장소의 GitHub-hosted
+macOS와 private 저장소의 Xcode Cloud로 나눈다.
 
 - [App contract schema](contracts/app.schema.json)
 - [Test policy](contracts/test-policy.yaml)
@@ -35,7 +36,11 @@ Seorilabs organization-wide GitHub defaults, profile content, and operating cont
 - [Agent skills design](docs/agent-governance/seorilabs-agent-skills-design.md)
 - [게임 개발 공통 지침](docs/game-development/common-lessons.md)
 - [Spec and versioning policy](docs/agent-governance/spec-versioning-policy.md)
-- [Org CI/CD & release system — legacy migration reference](docs/ci-cd/org-cicd-release-system.md)
+- [Org CI/CD & release system](docs/ci-cd/org-cicd-release-system.md)
 - [Build toolchain contract](docs/ci-cd/build-toolchain-contract.md)
 - [Release version authority](docs/ci-cd/release-version-authority.md)
 - [Repository visibility transition — private에서 public으로](docs/ci-cd/repository-visibility-transition.md)
+
+## 개발 워크플로우
+
+[실행 규칙과 템플릿](docs/agent-governance/development-workflow.md) · [계약](contracts/development-workflow.yaml) · [승인 설계](docs/design/2026-10-08-development-workflow/design.md). `/plan` 전체 작업 정리 뒤 사람의 설계 승인을 받고 구현한다. UI 독립 검수 3회와 빌드·배포 직전 E2E는 PR·CI·마켓 QA와 별도다.

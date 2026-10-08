@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "features": [
+    {
+      "id": "create",
+      "core": true
+    },
+    {
+      "id": "settings",
+      "core": false
+    }
+  ]
+}

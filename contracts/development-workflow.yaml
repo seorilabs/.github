@@ -1,0 +1,65 @@
+schemaVersion: 1
+id: seorilabs-development-workflow-v1
+scope: organization-development
+plan:
+  purpose: enumerate-all-work
+  authorizesImplementation: false
+design:
+  canonicalRoot: docs/design
+  humanApprovalRequiredBeforeImplementation: true
+  approvalBinds: design-commit-and-scope
+  visualFirst: true
+  requiredElements:
+    - purpose-scope-evidence
+    - user-flow-and-states
+    - structure-responsibilities-dependencies
+    - data-interfaces-failure-handling
+    - quality-requirements
+    - alternatives-and-decisions
+    - acceptance-test-review-plan
+    - rollout-operations-rollback
+    - approval-and-traceability
+  wikiRole: chronological-index-summary-links
+  obsidianRole: cross-project-decisions-and-approval
+  duplicateDesignBodies: forbidden
+  ticketRequiredAfterApproval: true
+  reuseSufficientIntakeIssue: true
+implementation:
+  preferredMethod: test-first
+  redMustFailFor: unmet-behavior
+  exceptionsRequire: reason-and-replacement-verification
+uiReview:
+  rounds: 3
+  planBeforeEveryRound: true
+  everyRound: functional-and-ux
+  execution: real-development-runtime
+  reviewer: different-agent-from-implementer
+  uxSpecialist: when-needed
+  extraRounds: prior-human-approval-with-scope-time-cost
+  selfRoleSwitchCountsAsIndependent: false
+  endlessWithinRoundRetries: forbidden
+editorE2e:
+  phases:
+    - before-build
+    - before-deploy
+  coverage: all-implemented-features
+  featureInventory: docs/qa/feature-inventory.json
+  candidateBinding: exact-source-sha-and-target
+  configurationFingerprintRequired: true
+  isolatedDataRequired: true
+  maxAgeMinutes: 60
+  changesInvalidateEvidence: true
+  skippedOrBlockedPass: forbidden
+  runtimeKinds:
+    - godot-editor
+    - unity-editor
+    - web-browser
+    - native-development
+    - service-runtime
+  evidenceSchema: contracts/development-evidence.schema.json
+  releaseAssetPattern: development-evidence.<target>.<phase>.json
+  verifier: scripts/release/verify-development-evidence.mjs
+autonomousImplementation:
+  approvedDesignRequired: true
+  missingApproval: draft-design-and-continue-next-unattempted
+  approvalDoesNotAuthorizeRelease: true
