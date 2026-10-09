@@ -37,7 +37,9 @@ Claude, Codex, Gemini Bot 등 automation agent가 만든 PR은 추가로 다음 
 
 - Seori는 PR 최초 턴에 인수조건 가이드를 한 번 제공한다. 요구사항을 반영하거나 같은 thread에 근거를 답하고 Resolve한다.
 - 새 push마다 Seori AI review를 다시 요청하거나 Seori approval을 기다리지 않는다.
-- 결함 검토는 CI와 작성자 자체 검토가 끝난 최종 HEAD에서 Copilot review를 한 번 요청한다. `unable-to-review`이거나 1차 리뷰 반영이 새 함수·파일·분기를 만든 경우에만 최종 HEAD에서 한 번 더 요청하며, PR당 총 요청은 최대 2회이고 성공 리뷰는 1~2회다.
+- 결함 검토는 CI와 작성자 자체 검토가 끝난 최종 HEAD에서 Copilot review를 한 번 요청한다. 1차 리뷰 반영이 새 함수·파일·분기를 만들었거나 사용 한도가 아닌 오류로 리뷰가 실패한 경우에만 최종 HEAD에서 한 번 더 요청한다. PR당 총 요청은 실패를 포함해 최대 2회다.
+- agent 요청은 요청 계정의 기본 리뷰 깊이(Lite)로 실행되고, API로는 깊이를 지정할 수 없다. 보안 민감 변경(인증·권한, 자격증명, 결제·인앱결제, 개인정보, 보안 규칙, GitHub Actions·릴리스 워크플로)은 agent가 요청하지 않고 PR 코멘트로 사람에게 PR 화면의 Balanced 요청을 부탁한다. 그 리뷰를 처리하기 전에는 병합하지 않는다.
+- Copilot이 `encountered an error` 리뷰를 남기면 head SHA의 `Running Copilot Code Review` Actions 실행 로그에서 원인을 확인한다. `errorType: 'rate_limit'`이면 재요청하지 않고, PR에 사용 한도로 리뷰할 수 없음과 초기화 시각, 작성자 자체 점검 결과를 남긴 뒤 나머지 gate로 진행한다. 보안 민감 변경의 Balanced 리뷰가 한도로 실패하면 병합 여부를 사람에게 확인한다.
 - CI failure, unresolved Seori/Copilot thread, merge conflict, 실제로 요구되는 사람 승인은 merge blocker다.
 - release 영향이 있는 PR은 release approval 전 배포하지 않는다.
 - source-of-truth 문서가 repo 현실과 어긋나면 문서를 먼저 갱신한다.

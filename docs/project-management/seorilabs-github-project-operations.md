@@ -124,7 +124,7 @@ PR 규칙:
 - PR description에 `Closes #123` 또는 `Refs #123`로 실행 티켓을 연결한다.
 - agent PR은 [agent-contribution-contract.md](../agent-governance/agent-contribution-contract.md)를 따른다.
 - 배포/릴리즈 PR은 `Approval`을 `Release approval`로 두고 사람 승인을 받은 뒤 Release stage로 이동한다.
-- Copilot review는 `contracts/review-policy.yaml`의 `assisted-review` 단계에 따라 코드 변경 PR에만 최종 HEAD에서 요청한다. Copilot은 새 커밋을 자동으로 재리뷰하지 않으므로, 수용한 수정이 새 함수·파일·분기를 만든 경우에만 한 번 더 요청한다.
+- Copilot review는 `contracts/review-policy.yaml`의 `assisted-review` 단계에 따라 코드 변경 PR에만 최종 HEAD에서 요청한다. 재요청 상한, 보안 민감 변경의 Balanced 요청, 실패 원인 확인은 [CONTRIBUTING.md](../../CONTRIBUTING.md#review-and-merge)를 따른다.
 
 ## Auto-add 운영
 
