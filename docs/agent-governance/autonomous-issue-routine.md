@@ -146,7 +146,7 @@ PR 본문에는 다음을 분리해 기록한다.
 `contracts/review-policy.yaml`을 그대로 따른다.
 
 1. 조직에 상시 자동 코드 리뷰가 없다. 직접 요청하지 않은 봇 리뷰나 봇 요약 코멘트가 도착하기를 기다리지 않는다.
-2. 코드나 설정 로직이 바뀌면 `gh pr edit <PR> --add-reviewer @copilot`으로 Copilot 리뷰를 요청한다. 문서·에셋·자동 생성물만 바뀐 PR에는 요청하지 않는다.
+2. 코드나 설정 로직이 바뀌면 `gh pr edit <PR> --add-reviewer @copilot`으로 Copilot 리뷰를 요청한다. 문서·에셋·자동 생성물만 바뀐 PR에는 요청하지 않는다. 재요청 상한, 보안 민감 변경의 Balanced 요청, 실패 원인 확인은 [CONTRIBUTING.md](../../CONTRIBUTING.md#review-and-merge)를 따른다. 사람의 Balanced 리뷰를 기다리는 PR은 항목별 review 대기로 기록한다.
 3. 받은 지적마다 수정·소명·후속 이슈 중 하나로 같은 thread에 한국어로 답하고 Resolve한다. 보안 민감·대형 변경도 별도 2차 의견 창구를 두지 않고 작성 agent가 직접 위험 지점을 점검해 근거를 PR에 남긴다.
 4. Ready, current HEAD, required check·CI green, conflict 없음, 미해결 thread 0개를 직접 확인한다.
 5. 모든 gate가 통과하면 `gh pr merge <PR> --squash --delete-branch`로 병합한다. ruleset이나 권한이 막으면 우회하지 않는다.
