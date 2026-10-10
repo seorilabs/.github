@@ -10,14 +10,16 @@ import { verifyReleaseDevelopmentEvidence, validateDevelopmentEvidence } from '.
 import { SHA, NOW, context, validEvidence } from './helpers/development-evidence-fixture.mjs';
 
 const reply = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
-function fakeGitHub({ evidence = validEvidence(), missing = false, status = 200, duplicate = false, paginated = false, tag = 'v1.0.0', phase = 'before-build', extra = [] } = {}) {
+function fakeGitHub({ evidence = validEvidence(), missing = false, status = 200, duplicate = false, paginated = false, tag = 'v1.0.0', phase = 'before-build', extra = [], archives } = {}) {
   const calls = [];
   const name = tag === 'development-evidence' ? `development-evidence.${SHA}.apps-in-toss.${phase}.json` : `development-evidence.apps-in-toss.${phase}.json`;
   const asset = { id: 20, name, size: 10000 };
   const fetchImpl = async url => {
     calls.push(url);
     if (status !== 200) return reply({ message: 'unavailable' }, status);
-    if (url.includes('/releases/tags/')) return reply({ id: 10 });
+    // 실제 API 처럼 draft 보관함은 태그 조회가 404 이고 목록에서만 보인다.
+    if (url.includes('/releases/tags/')) return tag === 'development-evidence' ? reply({ message: 'Not Found' }, 404) : reply({ id: 10 });
+    if (url.includes('/releases?per_page=')) return reply(archives ?? [{ id: 9, tag_name: 'v0.9.0', draft: false }, { id: 10, tag_name: 'development-evidence', draft: true }]);
     if (url.includes('/releases/10/assets?') && paginated && !url.includes('page=2')) return reply([], 200, { link: '<https://api.github.com/repos/seorilabs/example/releases/10/assets?page=2>; rel="next"' });
     if (url.includes('/releases/10/assets?')) return reply(missing ? [] : duplicate ? [asset, asset] : [asset, ...extra]);
     if (url.endsWith('/releases/assets/20')) return reply(evidence);
@@ -35,6 +37,19 @@ test('SHA-keyed draft evidence supports untagged development builds', async () =
   const api = fakeGitHub({ tag: 'development-evidence' });
   assert.equal((await verifyReleaseDevelopmentEvidence({ ...context, tag: 'development-evidence', token: 'fixture-token', fetchImpl: api.fetchImpl })).ok, true);
 });
+test('draft evidence archive is found from the release list because tag lookup never returns drafts', async () => {
+  const api = fakeGitHub({ tag: 'development-evidence' });
+  const result = await verifyReleaseDevelopmentEvidence({ ...context, tag: 'development-evidence', token: 'fixture-token', fetchImpl: api.fetchImpl });
+  assert.equal(result.assetId, 20);
+  assert.ok(api.calls.some(url => url.includes('/releases?per_page=')));
+  assert.ok(!api.calls.some(url => url.includes('/releases/tags/development-evidence')));
+});
+for (const [name, archives] of [['no draft archive', [{ id: 9, tag_name: 'v0.9.0', draft: false }]], ['a published archive', [{ id: 10, tag_name: 'development-evidence', draft: false }]], ['two draft archives', [{ id: 10, tag_name: 'development-evidence', draft: true }, { id: 11, tag_name: 'development-evidence', draft: true }]]]) {
+  test(`draft evidence lookup stops on ${name}`, async () => {
+    const api = fakeGitHub({ tag: 'development-evidence', archives });
+    await assert.rejects(verifyReleaseDevelopmentEvidence({ ...context, tag: 'development-evidence', token: 'fixture-token', fetchImpl: api.fetchImpl }), /DEVELOPMENT_EVIDENCE_ARCHIVE/);
+  });
+}
 for (const [name, options] of [['missing report', { missing: true }], ['duplicate report', { duplicate: true }], ['denied readback', { status: 403 }], ['missing release', { status: 404 }], ['invalid JSON document', { evidence: {} }]]) {
   test(`Release verifier stops on ${name}`, async () => {
     const api = fakeGitHub(options);

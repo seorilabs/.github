@@ -83,13 +83,31 @@ export function validateDevelopmentEvidence(document, context) {
   return { ok: errors.length === 0, errors };
 }
 
+const EVIDENCE_ARCHIVE_TAG = 'development-evidence';
+
+/**
+ * 태그 없는 build-only·웹 검수 보관함은 draft Release 다. GitHub 의 태그 조회
+ * (`GET /releases/tags/{tag}`)는 draft 를 돌려주지 않으므로 목록에서 찾는다. 목록의 draft 는
+ * 저장소 push 권한이 있는 토큰에만 보인다 — 읽기 전용 토큰이면 보관함 없음으로 멈춘다.
+ */
+async function findEvidenceArchive(repository, request) {
+  const releases = await githubPaginate(`/repos/${repository}/releases?per_page=100`, request);
+  const archives = releases.filter(release => release.tag_name === EVIDENCE_ARCHIVE_TAG && release.draft === true);
+  if (archives.length !== 1) {
+    throw new Error(`DEVELOPMENT_EVIDENCE_ARCHIVE_${archives.length === 0 ? 'MISSING' : 'AMBIGUOUS'} draft Release '${EVIDENCE_ARCHIVE_TAG}' ${archives.length}개 (목록의 draft 는 push 권한 토큰에만 보인다)`);
+  }
+  return archives[0];
+}
+
 export async function verifyReleaseDevelopmentEvidence(options) {
   const { repository, tag, sourceSha, target, phase, token, env = process.env, fetchImpl = globalThis.fetch } = options;
   if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(repository ?? '') || !/^[a-f0-9]{40}$/u.test(sourceSha ?? '') || !['before-build', 'before-deploy'].includes(phase) || !['apps-in-toss', 'google-play', 'app-store', 'web', 'service'].includes(target) || !tag) throw new Error('INVALID_EVIDENCE_CONTEXT');
   const request = { token, env, fetchImpl };
-  const release = await githubJson(`/repos/${repository}/releases/tags/${encodeURIComponent(tag)}`, request);
+  const release = tag === EVIDENCE_ARCHIVE_TAG
+    ? await findEvidenceArchive(repository, request)
+    : await githubJson(`/repos/${repository}/releases/tags/${encodeURIComponent(tag)}`, request);
   const assets = await githubPaginate(`/repos/${repository}/releases/${release.id}/assets?per_page=100`, request);
-  const nameFor = assetPhase => tag === 'development-evidence'
+  const nameFor = assetPhase => tag === EVIDENCE_ARCHIVE_TAG
     ? `development-evidence.${sourceSha}.${target}.${assetPhase}.json`
     : `development-evidence.${target}.${assetPhase}.json`;
   // 배포 직전 보고서가 따로 없으면 같은 후보의 빌드 직전 보고서를 읽는다(phaseReuse).
@@ -129,7 +147,7 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
     const featureInventory = JSON.parse(readFileSync(args.get('feature-inventory') ?? 'docs/qa/feature-inventory.json', 'utf8'));
     result = { ...validateDevelopmentEvidence(document, { ...context, featureInventory }), completedAt: document?.e2e?.completedAt };
   } else {
-    result = await verifyReleaseDevelopmentEvidence({ ...context, tag: args.get('tag') ?? 'development-evidence', env });
+    result = await verifyReleaseDevelopmentEvidence({ ...context, tag: args.get('tag') ?? EVIDENCE_ARCHIVE_TAG, env });
   }
   if (!result.ok) throw new Error(result.errors.join('\n'));
   process.stdout.write(`개발 검수 근거 통과: ${context.target} ${context.phase} ${context.sourceSha}\n`);
