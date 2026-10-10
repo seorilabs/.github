@@ -172,7 +172,7 @@ test("상시 자동 코드 리뷰 없이 요청 기반 리뷰 단계만 계약�
   assert.deepEqual(
     [...assistedReview.skipWhen].sort(),
     [
-      "cross-model-review-completed",
+      "cross-model-review-eligible",
       "docs-only-change",
       "generated-file-only-change",
     ],
@@ -198,10 +198,10 @@ test("위험하거나 큰 변경은 작성 모델과 다른 회사 모델에 교
   );
 
   assert.deepEqual(
-    crossReview.reviewers.map(({ author, provider }) => [author, provider]),
+    crossReview.reviewers.map(({ authors, provider }) => [authors, provider]),
     [
-      ["claude", "codex"],
-      ["codex-local", "claude"],
+      [["claude-local", "claude-cloud"], "codex"],
+      [["codex-local"], "claude"],
     ],
   );
   const codexReview = crossReview.reviewers.find(
@@ -216,10 +216,12 @@ test("위험하거나 큰 변경은 작성 모델과 다른 회사 모델에 교
     ({ provider }) => provider === "claude",
   );
   assert.equal(claudeReview.trigger, "local-headless");
+  assert.equal(claudeReview.input, "author-generated-diff");
   assert.equal(claudeReview.readOnly, true);
   assert.equal(claudeReview.resultPostedBy, "author");
 
   assert.equal(crossReview.fallback.stage, "assisted-review");
+  assert.deepEqual(crossReview.fallback.unavailableAuthors, ["codex-cloud"]);
   assert.deepEqual(
     [...crossReview.fallback.when].sort(),
     ["reviewer-unavailable", "usage-limit"],
