@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { appendFileSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { parse } from 'yaml';
@@ -8,7 +8,7 @@ import { githubDownload, githubJson, githubPaginate } from '../github-rest.mjs';
 const schema = JSON.parse(readFileSync(new URL('../../contracts/development-evidence.schema.json', import.meta.url), 'utf8'));
 const checkSchema = new Ajv2020({ allErrors: true }).compile(schema);
 const policy = parse(readFileSync(new URL('../../contracts/development-workflow.yaml', import.meta.url), 'utf8'));
-const MAX_E2E_AGE_MS = policy.editorE2e.maxAgeMinutes * 60 * 1000;
+const MAX_E2E_AGE_MS = policy.editorE2e.maxAgeHours * 60 * 60 * 1000;
 
 export function validateDevelopmentEvidence(document, context) {
   const errors = [];
@@ -70,10 +70,11 @@ export function validateDevelopmentEvidence(document, context) {
   });
   const e2e = document.e2e;
   times(e2e, 'e2e');
-  if (e2e.phase !== context.phase || e2e.sourceSha !== context.sourceSha) errors.push('E2E_CANDIDATE_OR_PHASE_MISMATCH');
+  // 같은 후보의 통과한 빌드 직전 E2E는 배포 직전에도 쓴다(phaseReuse). 배포 직전 실행이 빌드 직전을 대신하지는 않는다.
+  const phaseServes = e2e.phase === context.phase || (context.phase === 'before-deploy' && e2e.phase === 'before-build');
+  if (!phaseServes || e2e.sourceSha !== context.sourceSha) errors.push('E2E_CANDIDATE_OR_PHASE_MISMATCH');
   if (Date.parse(e2e.plannedAt) < previousEnd) errors.push('E2E_BEFORE_REVIEW_FINISHED');
   if (now - Date.parse(e2e.completedAt) > MAX_E2E_AGE_MS) errors.push('E2E_EXPIRED');
-  if (context.after && (!Number.isFinite(Date.parse(context.after)) || Date.parse(e2e.startedAt) <= Date.parse(context.after))) errors.push('SEPARATE_DEPLOY_E2E_REQUIRED');
   if (context.configurationFingerprint && e2e.environment.configurationFingerprint !== context.configurationFingerprint) errors.push('CONFIGURATION_CHANGED');
   if (ui && e2e.environment.kind === 'service-runtime') errors.push('UI_RUNTIME_REQUIRED');
   if (!ui && e2e.environment.kind !== 'service-runtime') errors.push('SERVICE_RUNTIME_REQUIRED');
@@ -88,11 +89,14 @@ export async function verifyReleaseDevelopmentEvidence(options) {
   const request = { token, env, fetchImpl };
   const release = await githubJson(`/repos/${repository}/releases/tags/${encodeURIComponent(tag)}`, request);
   const assets = await githubPaginate(`/repos/${repository}/releases/${release.id}/assets?per_page=100`, request);
-  const assetName = tag === 'development-evidence'
-    ? `development-evidence.${sourceSha}.${target}.${phase}.json`
-    : `development-evidence.${target}.${phase}.json`;
+  const nameFor = assetPhase => tag === 'development-evidence'
+    ? `development-evidence.${sourceSha}.${target}.${assetPhase}.json`
+    : `development-evidence.${target}.${assetPhase}.json`;
+  // 배포 직전 보고서가 따로 없으면 같은 후보의 빌드 직전 보고서를 읽는다(phaseReuse).
+  const candidates = phase === 'before-deploy' ? [nameFor('before-deploy'), nameFor('before-build')] : [nameFor(phase)];
+  const assetName = candidates.find(name => assets.some(asset => asset.name === name)) ?? candidates[0];
   const matches = assets.filter(asset => asset.name === assetName);
-  if (matches.length !== 1) throw new Error(`REQUIRED_DEVELOPMENT_EVIDENCE_MISSING ${assetName}`);
+  if (matches.length !== 1) throw new Error(`REQUIRED_DEVELOPMENT_EVIDENCE_MISSING ${candidates.join(' | ')}`);
   const asset = matches[0];
   if (!Number.isSafeInteger(asset.id) || asset.id <= 0 || asset.size > 2 * 1024 * 1024) throw new Error('INVALID_EVIDENCE_ASSET');
   const bytes = await githubDownload(`/repos/${repository}/releases/assets/${asset.id}`, request);
@@ -112,13 +116,13 @@ export async function verifyReleaseDevelopmentEvidence(options) {
 
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   const args = new Map();
-  const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'after', 'configuration-fingerprint']);
+  const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'configuration-fingerprint']);
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i]?.replace(/^--/u, '');
     if (!argv[i]?.startsWith('--') || !allowed.has(key) || !argv[i + 1] || argv[i + 1].startsWith('--') || args.has(key)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
     args.set(key, argv[i + 1]);
   }
-  const context = { repository: args.get('repo') ?? env.GITHUB_REPOSITORY, sourceSha: args.get('sha'), target: args.get('target'), phase: args.get('phase'), after: args.get('after'), configurationFingerprint: args.get('configuration-fingerprint'), requireUi: args.get('target') !== 'service' };
+  const context = { repository: args.get('repo') ?? env.GITHUB_REPOSITORY, sourceSha: args.get('sha'), target: args.get('target'), phase: args.get('phase'), configurationFingerprint: args.get('configuration-fingerprint'), requireUi: args.get('target') !== 'service' };
   let result;
   if (args.has('file')) {
     const document = JSON.parse(readFileSync(args.get('file'), 'utf8'));
@@ -128,8 +132,6 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
     result = await verifyReleaseDevelopmentEvidence({ ...context, tag: args.get('tag') ?? 'development-evidence', env });
   }
   if (!result.ok) throw new Error(result.errors.join('\n'));
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `completed_at=${result.completedAt}\n`);
-  if (env.GITHUB_ENV && context.phase === 'before-build') appendFileSync(env.GITHUB_ENV, `EDITOR_BUILD_E2E_COMPLETED_AT=${result.completedAt}\n`);
   process.stdout.write(`개발 검수 근거 통과: ${context.target} ${context.phase} ${context.sourceSha}\n`);
   return result;
 }
