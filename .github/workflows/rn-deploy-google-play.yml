@@ -457,12 +457,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
-          BUILD_E2E_COMPLETED_AT: ${{ env.EDITOR_BUILD_E2E_COMPLETED_AT }}
         run: |
           set -euo pipefail
           node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
             --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
-            --target google-play --phase before-deploy --after "$BUILD_E2E_COMPLETED_AT"
+            --target google-play --phase before-deploy
 
       - name: Upload AAB to Google Play
         if: ${{ inputs.upload }}

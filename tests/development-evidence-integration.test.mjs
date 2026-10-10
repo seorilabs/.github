@@ -10,16 +10,16 @@ import { verifyReleaseDevelopmentEvidence, validateDevelopmentEvidence } from '.
 import { SHA, NOW, context, validEvidence } from './helpers/development-evidence-fixture.mjs';
 
 const reply = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
-function fakeGitHub({ evidence = validEvidence(), missing = false, status = 200, duplicate = false, paginated = false, tag = 'v1.0.0' } = {}) {
+function fakeGitHub({ evidence = validEvidence(), missing = false, status = 200, duplicate = false, paginated = false, tag = 'v1.0.0', phase = 'before-build', extra = [] } = {}) {
   const calls = [];
-  const name = tag === 'development-evidence' ? `development-evidence.${SHA}.apps-in-toss.before-build.json` : 'development-evidence.apps-in-toss.before-build.json';
+  const name = tag === 'development-evidence' ? `development-evidence.${SHA}.apps-in-toss.${phase}.json` : `development-evidence.apps-in-toss.${phase}.json`;
   const asset = { id: 20, name, size: 10000 };
   const fetchImpl = async url => {
     calls.push(url);
     if (status !== 200) return reply({ message: 'unavailable' }, status);
     if (url.includes('/releases/tags/')) return reply({ id: 10 });
     if (url.includes('/releases/10/assets?') && paginated && !url.includes('page=2')) return reply([], 200, { link: '<https://api.github.com/repos/seorilabs/example/releases/10/assets?page=2>; rel="next"' });
-    if (url.includes('/releases/10/assets?')) return reply(missing ? [] : duplicate ? [asset, asset] : [asset]);
+    if (url.includes('/releases/10/assets?')) return reply(missing ? [] : duplicate ? [asset, asset] : [asset, ...extra]);
     if (url.endsWith('/releases/assets/20')) return reply(evidence);
     if (url.includes('/contents/docs/qa/feature-inventory.json?ref=')) return reply({ encoding: 'base64', content: Buffer.from(JSON.stringify(context.featureInventory)).toString('base64') });
     throw new Error('Unexpected URL');
@@ -41,13 +41,25 @@ for (const [name, options] of [['missing report', { missing: true }], ['duplicat
     await assert.rejects(verifyReleaseDevelopmentEvidence({ ...context, tag: 'v1.0.0', token: 'fixture-token', fetchImpl: api.fetchImpl }));
   });
 }
-test('changed configuration and invalid deployment boundary stop verification', () => {
+test('changed configuration stops verification', () => {
   assert.equal(validateDevelopmentEvidence(validEvidence(), { ...context, configurationFingerprint: 'd'.repeat(64) }).ok, false);
-  assert.equal(validateDevelopmentEvidence(validEvidence(), { ...context, after: 'not-a-time' }).ok, false);
 });
-test('deployment cannot rename the build E2E as a second run', () => {
-  const d = validEvidence(); d.e2e.phase = 'before-deploy';
-  assert.equal(validateDevelopmentEvidence(d, { ...context, phase: 'before-deploy', after: d.e2e.completedAt }).ok, false);
+test('before-deploy reads the build report when no separate deploy report exists', async () => {
+  for (const tag of ['v1.0.0', 'development-evidence']) {
+    const api = fakeGitHub({ tag });
+    const result = await verifyReleaseDevelopmentEvidence({ ...context, phase: 'before-deploy', tag, token: 'fixture-token', fetchImpl: api.fetchImpl });
+    assert.equal(result.ok, true); assert.equal(result.assetId, 20);
+  }
+});
+test('a separate deploy report takes precedence over the build report', async () => {
+  const deploy = validEvidence(); deploy.e2e.phase = 'before-deploy';
+  const api = fakeGitHub({ phase: 'before-deploy', evidence: deploy, extra: [{ id: 21, name: 'development-evidence.apps-in-toss.before-build.json', size: 10000 }] });
+  const result = await verifyReleaseDevelopmentEvidence({ ...context, phase: 'before-deploy', tag: 'v1.0.0', token: 'fixture-token', fetchImpl: api.fetchImpl });
+  assert.equal(result.assetId, 20);
+});
+test('the build gate never falls back to a deploy report', async () => {
+  const api = fakeGitHub({ phase: 'before-deploy' });
+  await assert.rejects(verifyReleaseDevelopmentEvidence({ ...context, phase: 'before-build', tag: 'v1.0.0', token: 'fixture-token', fetchImpl: api.fetchImpl }), /REQUIRED_DEVELOPMENT_EVIDENCE_MISSING/u);
 });
 test('development policy and example compile under strict JSON Schema', () => {
   const validator = new Ajv2020().compile(JSON.parse(readFileSync('contracts/development-workflow.schema.json', 'utf8')));

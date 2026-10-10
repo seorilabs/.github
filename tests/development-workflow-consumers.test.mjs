@@ -25,7 +25,8 @@ for (const [name, build, deploy] of entries) {
       assert.equal(step.if, undefined); assert.equal(step['continue-on-error'], undefined);
       assert.match(step.run, /--sha "\$\(git rev-parse HEAD\)"/u);
     }
-    assert.match(steps[index('Verify Editor E2E before-deploy')].run, /--after/u);
+    // 같은 후보의 빌드 직전 E2E를 다시 쓰므로 별도 실행 시각을 넘기지 않는다.
+    assert.doesNotMatch(steps[index('Verify Editor E2E before-deploy')].run, /--after/u);
   });
 }
 test('Pages does not turn a push to main into an automatic production build/deploy', () => {
@@ -34,10 +35,9 @@ test('Pages does not turn a push to main into an automatic production build/depl
   assert.match(workflow.jobs.build.if, /refs\/tags\//u);
   assert.equal(workflow.jobs.deploy.needs, 'build');
   for (const [job, phase] of [['build', 'before-build'], ['deploy', 'before-deploy']]) assert.ok(workflow.jobs[job].steps.some(step => step.name === `Verify Editor E2E ${phase}`));
-  assert.equal(workflow.jobs.build.outputs.editor_e2e_completed_at, '${{ steps.editor_before_build.outputs.completed_at }}');
+  assert.equal(workflow.jobs.build.outputs?.editor_e2e_completed_at, undefined);
   const deployGate = workflow.jobs.deploy.steps.find(step => step.name === 'Verify Editor E2E before-deploy');
-  assert.equal(deployGate.env.BUILD_E2E_COMPLETED_AT, '${{ needs.build.outputs.editor_e2e_completed_at }}');
-  assert.match(deployGate.run, /--after "\$BUILD_E2E_COMPLETED_AT"/u);
+  assert.doesNotMatch(deployGate.run, /--after/u);
 });
 test('private Apple requests fail before allocating the public macOS archive', () => {
   for (const name of ['rn-deploy-app-store', 'godot-deploy-app-store']) {

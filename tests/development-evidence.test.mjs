@@ -29,7 +29,6 @@ const cases = [
   ['previously implemented feature omitted', d => { d.e2e.scenarios[0].featureIds = ['create']; }],
   ['blocked E2E', d => { d.e2e.scenarios[0].status = 'blocked'; }],
   ['future completion', d => { d.e2e.completedAt = '2026-10-09T05:50:00Z'; }],
-  ['expired E2E', d => { d.e2e.completedAt = '2026-10-08T04:50:00Z'; d.e2e.startedAt = '2026-10-08T04:45:00Z'; d.e2e.plannedAt = '2026-10-08T04:40:00Z'; }],
   ['headless test reported as Editor E2E', d => { d.e2e.environment.kind = 'headless-unit-test'; }],
   ['unknown properties', d => { d.skipVerification = true; }],
 ];
@@ -76,4 +75,23 @@ test('report cannot omit an existing feature by shortening its own claimed inven
 
 test('source inventory is required even if the report claims all features passed', () => {
   assert.equal(validateDevelopmentEvidence(validEvidence(), { ...context, featureInventory: undefined }).ok, false);
+});
+
+// 같은 후보(SHA·마켓·설정 지문·기능 목록)의 통과한 E2E는 빌드 직전·배포 직전·승격에 다시 쓴다(7일 안).
+test('before-deploy reuses the passing before-build run of the same candidate', () => {
+  assert.deepEqual(validateDevelopmentEvidence(validEvidence(), { ...context, phase: 'before-deploy' }), { ok: true, errors: [] });
+});
+test('a deploy-phase run cannot stand in for the build gate', () => {
+  const d = validEvidence(); d.e2e.phase = 'before-deploy';
+  assert.equal(validateDevelopmentEvidence(d, context).ok, false);
+});
+test('the same candidate E2E stays valid for seven days', () => {
+  assert.equal(validateDevelopmentEvidence(validEvidence(), { ...context, phase: 'before-deploy', now: '2026-10-15T05:49:00Z' }).ok, true);
+});
+test('E2E older than seven days must run again', () => {
+  const result = validateDevelopmentEvidence(validEvidence(), { ...context, phase: 'before-deploy', now: '2026-10-15T05:51:00Z' });
+  assert.equal(result.ok, false); assert.ok(result.errors.includes('E2E_EXPIRED'));
+});
+test('a reused run still requires the same configuration fingerprint', () => {
+  assert.equal(validateDevelopmentEvidence(validEvidence(), { ...context, phase: 'before-deploy', configurationFingerprint: 'd'.repeat(64) }).ok, false);
 });

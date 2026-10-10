@@ -47,7 +47,8 @@ editorE2e:
   candidateBinding: exact-source-sha-and-target
   configurationFingerprintRequired: true
   isolatedDataRequired: true
-  maxAgeMinutes: 60
+  maxAgeHours: 168
+  phaseReuse: build-run-serves-deploy-for-same-candidate
   changesInvalidateEvidence: true
   skippedOrBlockedPass: forbidden
   runtimeKinds:

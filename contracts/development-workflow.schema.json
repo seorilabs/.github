@@ -172,7 +172,8 @@
         "candidateBinding",
         "configurationFingerprintRequired",
         "isolatedDataRequired",
-        "maxAgeMinutes",
+        "maxAgeHours",
+        "phaseReuse",
         "changesInvalidateEvidence",
         "skippedOrBlockedPass",
         "runtimeKinds",
@@ -203,8 +204,11 @@
         "isolatedDataRequired": {
           "const": true
         },
-        "maxAgeMinutes": {
-          "const": 60
+        "maxAgeHours": {
+          "const": 168
+        },
+        "phaseReuse": {
+          "const": "build-run-serves-deploy-for-same-candidate"
         },
         "changesInvalidateEvidence": {
           "const": true
