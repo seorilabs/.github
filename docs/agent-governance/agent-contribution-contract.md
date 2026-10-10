@@ -24,7 +24,7 @@
 
 ## 설계와 PR
 
-구현 전에 [개발 워크플로우](development-workflow.md)의 사람 설계 승인을 확인한다. PR 본문은 [공통 템플릿](../../PULL_REQUEST_TEMPLATE.md)을 사용하고 설계·승인·조건·테스트·검수 기록을 연결한다. UI 독립 검수와 Copilot 코드 리뷰는 별도 단계다.
+구현 전에 [개발 워크플로우](development-workflow.md)의 사람 설계 승인을 확인한다. PR 본문은 [공통 템플릿](../../PULL_REQUEST_TEMPLATE.md)을 사용하고 설계·승인·조건·테스트·검수 기록을 연결한다. UI 독립 검수와 코드 리뷰(Copilot 또는 교차 리뷰)는 별도 단계다.
 
 ## Version Impact Rules
 

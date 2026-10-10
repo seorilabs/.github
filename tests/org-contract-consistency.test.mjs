@@ -142,19 +142,17 @@ test("모든 stack profile은 SDK git submodule 배포를 금지한다", () => {
 test("상시 자동 코드 리뷰 없이 요청 기반 리뷰 단계만 계약된다", () => {
   assert.deepEqual(
     reviewPolicy.stages.map(({ id }) => id),
-    ["assisted-review", "required-checks"],
+    ["assisted-review", "cross-model-review", "required-checks"],
   );
   assert.deepEqual(
     reviewPolicy.stages.map(({ order }) => order),
-    [1, 2],
+    [1, 1, 2],
   );
-  assert.ok(
-    reviewPolicy.stages.every(
-      ({ trigger }) => trigger !== "automatic-first-turn",
-    ),
-  );
-  assert.ok(reviewPolicy.stages.every(({ trigger }) => trigger !== "mention"));
-  assert.ok(reviewPolicy.stages.every(({ provider }) => provider !== "codex"));
+  const triggers = reviewPolicy.stages.flatMap(({ trigger, reviewers = [] }) => [
+    trigger,
+    ...reviewers.map((reviewer) => reviewer.trigger),
+  ]);
+  assert.ok(triggers.every((trigger) => trigger !== "automatic-first-turn"));
 
   const assistedReview = reviewPolicy.stages.find(
     ({ id }) => id === "assisted-review",
@@ -167,14 +165,73 @@ test("상시 자동 코드 리뷰 없이 요청 기반 리뷰 단계만 계약�
   assert.equal(assistedReview.countsAsApproval, false);
   assert.equal(assistedReview.blocking, false);
   assert.equal(assistedReview.threadResolutionRequired, true);
+  assert.equal(assistedReview.allowedAsFallbackFor, "cross-model-review");
   assert.deepEqual(
     [...assistedReview.allowedWhen].sort(),
     ["author-request", "code-change"],
   );
   assert.deepEqual(
     [...assistedReview.skipWhen].sort(),
-    ["docs-only-change", "generated-file-only-change"],
+    [
+      "cross-model-review-eligible",
+      "docs-only-change",
+      "generated-file-only-change",
+    ],
   );
+});
+
+test("위험하거나 큰 변경은 작성 모델과 다른 회사 모델에 교차 리뷰를 요청한다", () => {
+  const crossReview = reviewPolicy.stages.find(
+    ({ id }) => id === "cross-model-review",
+  );
+  assert.equal(crossReview.mode, "advisory");
+  assert.equal(crossReview.optional, true);
+  assert.equal(crossReview.countsAsApproval, false);
+  assert.equal(crossReview.blocking, false);
+  assert.deepEqual(
+    [...crossReview.allowedWhen].sort(),
+    ["data-format-change", "large-code-change", "security-sensitive-change"],
+  );
+  assert.equal(crossReview.largeCodeChange.minChangedLines, 500);
+  assert.deepEqual(
+    [...crossReview.largeCodeChange.excludes].sort(),
+    ["assets", "docs", "generated-files", "lock-files", "translations"],
+  );
+
+  assert.deepEqual(
+    crossReview.reviewers.map(({ authors, provider }) => [authors, provider]),
+    [
+      [["claude-local", "claude-cloud"], "codex"],
+      [["codex-local"], "claude"],
+    ],
+  );
+  const codexReview = crossReview.reviewers.find(
+    ({ provider }) => provider === "codex",
+  );
+  assert.equal(codexReview.trigger, "mention");
+  assert.equal(codexReview.request, "@codex review");
+  assert.equal(
+    codexReview.securityRequest,
+    "@codex review for security issues",
+  );
+  assert.equal(codexReview.reviewer, "chatgpt-codex-connector[bot]");
+  assert.equal(codexReview.threadResolutionRequired, true);
+  const claudeReview = crossReview.reviewers.find(
+    ({ provider }) => provider === "claude",
+  );
+  assert.equal(claudeReview.trigger, "local-headless");
+  assert.equal(claudeReview.input, "author-generated-diff");
+  assert.equal(claudeReview.readOnly, true);
+  assert.equal(claudeReview.resultPostedBy, "author");
+
+  assert.equal(crossReview.fallback.stage, "assisted-review");
+  assert.deepEqual(crossReview.fallback.unavailableAuthors, ["codex-cloud"]);
+  assert.deepEqual(
+    [...crossReview.fallback.when].sort(),
+    ["reviewer-unavailable", "usage-limit"],
+  );
+  assert.equal(crossReview.fallback.recordReason, true);
+  assert.equal(crossReview.fallback.securitySensitiveRequiresHumanDecision, true);
 });
 
 test("머지 gate는 도착하지 않는 봇 산출물을 기다리지 않는다", () => {
@@ -183,8 +240,10 @@ test("머지 gate는 도착하지 않는 봇 산출물을 기다리지 않는다
     "humanApproval",
     "humanApprovalConditions",
     "requiredChecksPassed",
+    "reviewFindingsAnswered",
   ]);
   assert.equal(reviewPolicy.mergeGate.codeReviewThreadsResolved, true);
   assert.equal(reviewPolicy.mergeGate.requiredChecksPassed, true);
+  assert.equal(reviewPolicy.mergeGate.reviewFindingsAnswered, true);
   assert.equal(reviewPolicy.mergeGate.humanApproval, "conditional");
 });
