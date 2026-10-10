@@ -43,13 +43,13 @@ Claude, Codex, Gemini Bot 등 automation agent가 만든 PR은 추가로 다음 
   - 데이터 스키마·저장 형식·마이그레이션 변경
   - 문서·번역·에셋·자동 생성·lock 파일을 뺀 추가·삭제 줄이 500줄 이상인 변경
 - 교차 리뷰 요청 방법은 작성 agent에 따라 다르다.
-  - Claude가 작성: PR 코멘트에 `@codex review`, 보안 민감 변경이면 `@codex security review`를 이 문구 그대로 남긴다. `@codex /review`처럼 다른 문구는 리뷰가 아닌 Codex 작업 요청으로 처리돼 실행 환경을 요구한다.
+  - Claude가 작성: PR 코멘트에 `@codex review`, 보안 민감 변경이면 `@codex review for security issues`를 남긴다. 반드시 `@codex review`로 시작한다. `@codex /review`처럼 다른 문구는 리뷰가 아닌 Codex 작업 요청으로 처리돼 실행 환경을 요구한다.
   - Codex가 로컬에서 작성: 최종 HEAD의 `origin/main` 대비 diff를 넘겨 로컬 Claude Code를 읽기 전용으로 실행하고, 출력 원문을 PR 코멘트로 올린다. 리뷰어는 파일 수정, 커밋, 코멘트, 다른 리뷰 요청을 하지 않는다.
   - Codex 클라우드가 작성: Claude 리뷰를 부를 수 없으므로 Copilot review를 요청하고 PR에 교차 리뷰를 하지 못한 이유를 남긴다.
 - 그 밖의 코드·설정 변경은 Copilot review(`@copilot`)를 요청한다. 요청 계정의 기본 리뷰 깊이(Lite)로 실행되고, API로는 깊이를 지정할 수 없다.
 - Copilot이 `encountered an error` 리뷰를 남기면 head SHA의 `Running Copilot Code Review` Actions 실행 로그에서 원인을 확인한다. `errorType: 'rate_limit'`이면 재요청하지 않고, PR에 사용 한도로 리뷰할 수 없음과 초기화 시각, 작성자 자체 점검 결과를 남긴 뒤 나머지 gate로 진행한다.
 - Codex 교차 리뷰가 사용 한도 안내로 끝나면 재요청하지 않고 PR에 기록한 뒤 상한 안에서 Copilot review를 한 번 요청한다. 보안 민감 변경이 교차 리뷰를 받지 못했으면 병합 여부를 사람에게 확인한다.
 - Codex 인라인 지적은 Copilot 지적처럼 thread에 답하고 Resolve한다. thread가 없는 로컬 Claude 리뷰는 지적마다 처리 결과를 PR 코멘트 하나에 답한다.
-- CI failure, unresolved Seori/Copilot/Codex thread, merge conflict, 실제로 요구되는 사람 승인은 merge blocker다.
+- CI failure, unresolved Seori/Copilot/Codex thread, 처리 결과를 답하지 않은 로컬 Claude 리뷰 지적, merge conflict, 실제로 요구되는 사람 승인은 merge blocker다.
 - release 영향이 있는 PR은 release approval 전 배포하지 않는다.
 - source-of-truth 문서가 repo 현실과 어긋나면 문서를 먼저 갱신한다.

@@ -26,6 +26,7 @@ stages:
       - docs-only-change
       - generated-file-only-change
       - cross-model-review-eligible
+    allowedAsFallbackFor: cross-model-review
     threadResolutionRequired: true
   - id: cross-model-review
     order: 1
@@ -52,7 +53,7 @@ stages:
         provider: codex
         trigger: mention
         request: "@codex review"
-        securityRequest: "@codex security review"
+        securityRequest: "@codex review for security issues"
         reviewer: "chatgpt-codex-connector[bot]"
         threadResolutionRequired: true
       - authors:
@@ -77,6 +78,7 @@ stages:
 
 mergeGate:
   codeReviewThreadsResolved: true
+  reviewFindingsAnswered: true
   requiredChecksPassed: true
   humanApproval: conditional
   humanApprovalConditions:

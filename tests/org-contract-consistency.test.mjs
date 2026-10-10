@@ -165,6 +165,7 @@ test("상시 자동 코드 리뷰 없이 요청 기반 리뷰 단계만 계약�
   assert.equal(assistedReview.countsAsApproval, false);
   assert.equal(assistedReview.blocking, false);
   assert.equal(assistedReview.threadResolutionRequired, true);
+  assert.equal(assistedReview.allowedAsFallbackFor, "cross-model-review");
   assert.deepEqual(
     [...assistedReview.allowedWhen].sort(),
     ["author-request", "code-change"],
@@ -209,7 +210,10 @@ test("위험하거나 큰 변경은 작성 모델과 다른 회사 모델에 교
   );
   assert.equal(codexReview.trigger, "mention");
   assert.equal(codexReview.request, "@codex review");
-  assert.equal(codexReview.securityRequest, "@codex security review");
+  assert.equal(
+    codexReview.securityRequest,
+    "@codex review for security issues",
+  );
   assert.equal(codexReview.reviewer, "chatgpt-codex-connector[bot]");
   assert.equal(codexReview.threadResolutionRequired, true);
   const claudeReview = crossReview.reviewers.find(
@@ -236,8 +240,10 @@ test("머지 gate는 도착하지 않는 봇 산출물을 기다리지 않는다
     "humanApproval",
     "humanApprovalConditions",
     "requiredChecksPassed",
+    "reviewFindingsAnswered",
   ]);
   assert.equal(reviewPolicy.mergeGate.codeReviewThreadsResolved, true);
   assert.equal(reviewPolicy.mergeGate.requiredChecksPassed, true);
+  assert.equal(reviewPolicy.mergeGate.reviewFindingsAnswered, true);
   assert.equal(reviewPolicy.mergeGate.humanApproval, "conditional");
 });
