@@ -25,7 +25,46 @@ stages:
     skipWhen:
       - docs-only-change
       - generated-file-only-change
+      - cross-model-review-completed
     threadResolutionRequired: true
+  - id: cross-model-review
+    order: 1
+    mode: advisory
+    optional: true
+    countsAsApproval: false
+    blocking: false
+    allowedWhen:
+      - security-sensitive-change
+      - data-format-change
+      - large-code-change
+    largeCodeChange:
+      minChangedLines: 500
+      excludes:
+        - docs
+        - translations
+        - assets
+        - generated-files
+        - lock-files
+    reviewers:
+      - author: claude
+        provider: codex
+        trigger: mention
+        request: "@codex review"
+        securityRequest: "@codex security review"
+        reviewer: "chatgpt-codex-connector[bot]"
+        threadResolutionRequired: true
+      - author: codex-local
+        provider: claude
+        trigger: local-headless
+        readOnly: true
+        resultPostedBy: author
+    fallback:
+      stage: assisted-review
+      when:
+        - reviewer-unavailable
+        - usage-limit
+      recordReason: true
+      securitySensitiveRequiresHumanDecision: true
   - id: required-checks
     order: 2
     allRequired: true
