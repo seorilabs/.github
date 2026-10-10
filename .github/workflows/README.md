@@ -240,16 +240,6 @@ workflow ID는 자유 입력이 아니라 trusted Backoffice ExternalBinding rea
 adapter는 validator가 반환한 deep-frozen snapshot만 소비한다. 이 계약의 `marketUpload`은
 `false`이며 심사 제출과 공개 배포는 별도 승인 gate다.
 
-### Platform release gate
-
-static PR check는 signed fleet-approved Platform manifest와 Backoffice observation 부재를
-`SHADOW/EVALUATE` 진단으로만 기록한다. release build는
-`evaluatePlatformReleaseGate`의 trusted readback adapter가 두 readback을 exact
-repo/source/bundle/platform revision에 묶은 5분 receipt로 확인하지 못하면
-`FAIL_CLOSED`다. release executor는 `consumePlatformReleaseGateBinding`으로 exact identity,
-TTL과 receipt ID/generation durable CAS를 다시 확인한 opaque binding만 사용한다. Android와 Xcode의 이 문서상
-경로는 build-only이므로 release 승인을 대체하지 않는다.
-
 ### RN AIT 배포 (`.github/workflows/deploy-apps-in-toss.yml`)
 
 ```yaml
