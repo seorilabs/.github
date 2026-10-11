@@ -28,6 +28,7 @@ Claude, Codex, Gemini Bot 등 automation agent가 만든 PR은 추가로 다음 
 
 - default branch에서 최신 코드를 받는다.
 - 변경 범위를 한 티켓 안에 유지한다.
+- 문서·번역·에셋·자동 생성·lock 파일을 뺀 추가·삭제 줄이 1,500줄을 넘으면 리뷰 요청 전에 PR을 나눌 수 있는지 먼저 검토한다. 나누지 못하면 이유를 PR에 남긴다. 큰 PR은 리뷰 반영이 새 코드를 만들고 그 코드가 다시 지적받는 반복이 길어진다.
 - 불필요한 formatting churn을 피한다.
 - repo-local test, lint, smoke command를 우선 사용한다.
 - public repo 또는 fork PR 경로에서 self-hosted runner가 노출되지 않게 주의한다.
@@ -49,6 +50,9 @@ Claude, Codex, Gemini Bot 등 automation agent가 만든 PR은 추가로 다음 
 - 그 밖의 코드·설정 변경은 Copilot review(`@copilot`)를 요청한다. 요청 계정의 기본 리뷰 깊이(Lite)로 실행되고, API로는 깊이를 지정할 수 없다.
 - Copilot이 `encountered an error` 리뷰를 남기면 head SHA의 `Running Copilot Code Review` Actions 실행 로그에서 원인을 확인한다. `errorType: 'rate_limit'`이면 재요청하지 않고, PR에 사용 한도로 리뷰할 수 없음과 초기화 시각, 작성자 자체 점검 결과를 남긴 뒤 나머지 gate로 진행한다.
 - Codex 교차 리뷰가 사용 한도 안내로 끝나면 재요청하지 않고 PR에 기록한 뒤 상한 안에서 Copilot review를 한 번 요청한다. 보안 민감 변경이 교차 리뷰를 받지 못했으면 병합 여부를 사람에게 확인한다.
+- 리뷰 지적은 이 PR 범위 안에서 어떤 입력이나 상태에서 무엇이 틀리는지 실패 시나리오를 댈 수 있을 때 수용한다. 리뷰어가 붙인 심각도만으로 수용하지 않는다. 실패 시나리오 없이 더 엄격한 검증이나 가장자리 입력 거부를 요구하는 지적은 근거를 들어 소명하거나 후속 이슈로 돌린다.
+- 2회차 리뷰는 수정 확인만 한다. 1회차 리뷰 커밋 이후 변경분과 1회차 지적·처리 결과를 넘기고, 소명한 지적은 다시 올리지 말라고 지시한다. Codex는 `@codex review` 뒤에 범위 지시를 붙이고, 로컬 Claude에는 1회차 커밋 이후 diff만 넘긴다. Copilot은 범위를 지정할 수 없다.
+- 2회차 뒤에는 리뷰를 다시 요청하지 않는다. 2회차 지적 중 1회차 수정이 만든 결함만 고치고 테스트로 확인하며, 나머지는 후속 이슈로 돌린다. 2회차에도 같은 영역에서 실패 시나리오가 있는 결함이 나오면 리뷰를 더 돌리지 않고 PR 분할이나 설계 재검토를 사람에게 확인한다.
 - Codex 인라인 지적은 Copilot 지적처럼 thread에 답하고 Resolve한다. thread가 없는 로컬 Claude 리뷰는 지적마다 처리 결과를 PR 코멘트 하나에 답한다.
 - CI failure, unresolved Seori/Copilot/Codex thread, 처리 결과를 답하지 않은 로컬 Claude 리뷰 지적, merge conflict, 실제로 요구되는 사람 승인은 merge blocker다.
 - release 영향이 있는 PR은 release approval 전 배포하지 않는다.

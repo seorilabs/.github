@@ -8,6 +8,25 @@ pullRequest:
   mergeMethod: squash
   linkedTicketRequired: true
   acceptanceCriteriaRequired: true
+  splitReviewAboveChangedLines: 1500
+
+changedLines:
+  excludes:
+    - docs
+    - translations
+    - assets
+    - generated-files
+    - lock-files
+
+reviewRounds:
+  maxRequestsPerPr: 2
+  findingAcceptance: concrete-failure-scenario-in-scope
+  verificationRound:
+    when: accepted-fix-added-logic
+    scope: changes-since-first-review
+    includeFirstRoundFindings: true
+  afterVerificationRound: no-review-request
+  escalateWhen: same-area-defect-after-verification-round
 
 stages:
   - id: assisted-review
@@ -40,12 +59,6 @@ stages:
       - large-code-change
     largeCodeChange:
       minChangedLines: 500
-      excludes:
-        - docs
-        - translations
-        - assets
-        - generated-files
-        - lock-files
     reviewers:
       - authors:
           - claude-local
