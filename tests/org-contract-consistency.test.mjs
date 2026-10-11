@@ -193,10 +193,6 @@ test("위험하거나 큰 변경은 작성 모델과 다른 회사 모델에 교
     ["data-format-change", "large-code-change", "security-sensitive-change"],
   );
   assert.equal(crossReview.largeCodeChange.minChangedLines, 500);
-  assert.deepEqual(
-    [...crossReview.largeCodeChange.excludes].sort(),
-    ["assets", "docs", "generated-files", "lock-files", "translations"],
-  );
 
   assert.deepEqual(
     crossReview.reviewers.map(({ authors, provider }) => [authors, provider]),
@@ -232,6 +228,35 @@ test("위험하거나 큰 변경은 작성 모델과 다른 회사 모델에 교
   );
   assert.equal(crossReview.fallback.recordReason, true);
   assert.equal(crossReview.fallback.securitySensitiveRequiresHumanDecision, true);
+});
+
+test("변경 줄 수는 한 가지 제외 기준으로 세고 큰 PR은 리뷰 전에 분할을 검토한다", () => {
+  assert.deepEqual(
+    [...reviewPolicy.changedLines.excludes].sort(),
+    ["assets", "docs", "generated-files", "lock-files", "translations"],
+  );
+  assert.equal(reviewPolicy.pullRequest.splitReviewAboveChangedLines, 1500);
+  const crossReview = reviewPolicy.stages.find(
+    ({ id }) => id === "cross-model-review",
+  );
+  assert.ok(
+    crossReview.largeCodeChange.minChangedLines <
+      reviewPolicy.pullRequest.splitReviewAboveChangedLines,
+  );
+});
+
+test("리뷰는 2회차까지만 돌고 2회차는 1회차 이후 수정분만 확인한다", () => {
+  const rounds = reviewPolicy.reviewRounds;
+  assert.equal(rounds.maxRequestsPerPr, 2);
+  assert.equal(rounds.findingAcceptance, "concrete-failure-scenario-in-scope");
+  assert.equal(rounds.verificationRound.when, "accepted-fix-added-logic");
+  assert.equal(rounds.verificationRound.scope, "changes-since-first-review");
+  assert.equal(rounds.verificationRound.includeFirstRoundFindings, true);
+  assert.equal(rounds.afterVerificationRound, "no-review-request");
+  assert.equal(
+    rounds.escalateWhen,
+    "same-area-defect-after-verification-round",
+  );
 });
 
 test("머지 gate는 도착하지 않는 봇 산출물을 기다리지 않는다", () => {
