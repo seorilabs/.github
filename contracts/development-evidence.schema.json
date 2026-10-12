@@ -104,6 +104,16 @@
           },
           "core": {
             "type": "boolean"
+          },
+          "foundation": {
+            "type": "boolean"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         }
       }
