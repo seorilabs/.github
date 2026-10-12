@@ -12,7 +12,7 @@ const checkSchema = new Ajv2020({ allErrors: true }).compile(schema);
 const policy = parse(readFileSync(new URL('../../contracts/development-workflow.yaml', import.meta.url), 'utf8'));
 const MAX_E2E_AGE_MS = policy.editorE2e.maxAgeHours * 60 * 60 * 1000;
 const MAX_CARRY_FORWARD_MS = policy.foundationFeatures.carryForwardMaxAgeDays * 24 * 60 * 60 * 1000;
-// compare API는 첫 페이지에 변경 파일을 최대 300개만 준다. 300개면 잘렸을 수 있으므로 판정 불가로 본다.
+// compare API는 변경 파일을 최대 300개만 준다. 300개면 잘렸을 수 있으므로 판정 불가로 보고, 로컬 git 비교도 같은 기준을 쓴다.
 const COMPARE_FILE_LIMIT = 300;
 const INVENTORY_PATH = 'docs/qa/feature-inventory.json';
 
@@ -22,7 +22,9 @@ const validInventoryFeature = f => typeof f.id === 'string' && f.id.trim() && ty
 // glob의 **는 점으로 시작하는 파일을 건너뛴다. 양쪽의 선행 점을 지운 비교도 하여 놓치지 않는다(오탐은 재실행일 뿐이다).
 const undotted = value => value.replace(/(^|\/)\./gu, '$1');
 const touches = (file, pattern) => posix.matchesGlob(file, pattern) || posix.matchesGlob(undotted(file), undotted(pattern));
-const sameDefinition = (a, b) => a?.foundation === true && b?.foundation === true && JSON.stringify([...a.paths].sort()) === JSON.stringify([...b.paths].sort());
+const sameDefinition = (a, b) => a?.foundation === true && b?.foundation === true && Array.isArray(a.paths) && Array.isArray(b.paths)
+  && JSON.stringify([...a.paths].sort()) === JSON.stringify([...b.paths].sort());
+const withinCompareLimit = files => files.length < COMPARE_FILE_LIMIT ? files : null;
 
 // 영향 없는 기반 기능은 실제로 통과한 기준 SHA의 근거를 이어받는다. 기준부터 후보까지 바뀐 파일이 그 기능의
 // paths와 겹치거나, 비교할 수 없거나, 기능 정의가 달라졌거나, 실제 실행이 기한을 넘었으면 다시 실행해야 한다.
@@ -129,17 +131,18 @@ async function readRemoteInventory(repository, ref, request) {
   catch { throw new Error('SOURCE_FEATURE_INVENTORY_INVALID_JSON'); }
 }
 
-// 로컬 --file 검증은 현재 저장소의 git으로 Release 검증과 같은 비교를 한다. 이름 변경은 삭제·추가로 펼쳐 전후 경로를 모두 본다.
+// 로컬 --file 검증은 현재 저장소의 git으로 Release 검증과 같은 비교를 한다. 이름 변경은 삭제·추가로 펼쳐 전후 경로를 모두 보고,
+// 한글 등 비ASCII 경로가 따옴표로 바뀌지 않도록 NUL 구분 출력을 읽는다.
 function readLocalBaselines(document, sourceSha) {
   const git = (...args) => spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const baselines = {};
   if (!/^[a-f0-9]{40}$/u.test(sourceSha ?? '')) return baselines;
   for (const baselineSha of baselineShas(document)) {
-    const diff = git('merge-base', '--is-ancestor', baselineSha, sourceSha).status === 0 ? git('diff', '--name-only', '--no-renames', baselineSha, sourceSha) : null;
+    const diff = git('merge-base', '--is-ancestor', baselineSha, sourceSha).status === 0 ? git('diff', '--name-only', '--no-renames', '-z', baselineSha, sourceSha) : null;
     const inventory = git('show', `${baselineSha}:${INVENTORY_PATH}`);
     let parsed = null;
     try { parsed = inventory.status === 0 ? JSON.parse(inventory.stdout) : null; } catch { parsed = null; }
-    baselines[baselineSha] = { changedFiles: diff?.status === 0 ? diff.stdout.split('\n').filter(Boolean) : null, inventory: parsed };
+    baselines[baselineSha] = { changedFiles: diff?.status === 0 ? withinCompareLimit(diff.stdout.split('\0').filter(Boolean)) : null, inventory: parsed };
   }
   return baselines;
 }
@@ -186,10 +189,10 @@ export async function verifyReleaseDevelopmentEvidence(options) {
   // 기준 커밋이나 그 시점 기능 목록이 없으면(404) 로컬 검증처럼 판정 불가로 두어 다시 실행하게 한다.
   const unlessMissing = error => { if (error?.status === 404) return null; throw error; };
   for (const baselineSha of baselineShas(document)) {
-    const compare = await githubJson(`/repos/${repository}/compare/${baselineSha}...${sourceSha}?per_page=1`, request).catch(unlessMissing);
-    const complete = ['ahead', 'identical'].includes(compare?.status) && Array.isArray(compare.files) && compare.files.length < COMPARE_FILE_LIMIT;
+    const compare = await githubJson(`/repos/${repository}/compare/${baselineSha}...${sourceSha}`, request).catch(unlessMissing);
+    const files = ['ahead', 'identical'].includes(compare?.status) && Array.isArray(compare.files) ? withinCompareLimit(compare.files) : null;
     baselines[baselineSha] = {
-      changedFiles: complete ? compare.files.flatMap(f => [f.filename, f.previous_filename].filter(Boolean)) : null,
+      changedFiles: files?.flatMap(f => [f.filename, f.previous_filename].filter(Boolean)) ?? null,
       inventory: await readRemoteInventory(repository, baselineSha, request).catch(unlessMissing),
     };
   }

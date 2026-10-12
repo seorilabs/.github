@@ -135,6 +135,7 @@ test('Release verifier carries an unaffected foundation feature forward from the
   assert.equal((await verifyCarried(api)).ok, true);
   assert.ok(api.calls.some(url => url.includes(`/compare/${BASE}...${SHA}`)));
   assert.ok(api.calls.some(url => url.endsWith(`feature-inventory.json?ref=${BASE}`)));
+  assert.ok(api.calls.some(url => url.endsWith(`/compare/${BASE}...${SHA}`)));
 });
 for (const [name, compare, error] of [
   ['a renamed purchase file', { status: 'ahead', files: [{ filename: 'src/billing/a.ts', previous_filename: 'src/purchase/a.ts' }] }, /CARRY_FORWARD_AFFECTED purchase/u],
@@ -162,6 +163,11 @@ test('local CLI compares the baseline with git in the product repository', () =>
     const baseline = commit('src/purchase/a.ts', 'v1');
     const unaffected = commit('src/create/form.ts', 'v1');
     const affected = commit('src/purchase/a.ts', 'v2');
+    git('reset', '-q', '--hard', unaffected);
+    const nonAscii = commit('src/purchase/결제.ts', 'v1');
+    git('reset', '-q', '--hard', unaffected);
+    for (let i = 0; i < 300; i += 1) writeFileSync(join(dir, `src/create/${i}.ts`), 'v1');
+    const large = commit('src/create/last.ts', 'v1');
     const run = sha => {
       const d = carriedEvidence(sha, baseline), now = Date.now();
       d.carriedForward[0].verifiedAt = new Date(now - 7200000).toISOString();
@@ -178,7 +184,11 @@ test('local CLI compares the baseline with git in the product repository', () =>
     };
     const good = run(unaffected);
     assert.equal(good.status, 0, good.stderr);
-    const bad = run(affected);
-    assert.equal(bad.status, 1); assert.match(bad.stderr, /CARRY_FORWARD_AFFECTED purchase/u);
+    for (const sha of [affected, nonAscii]) {
+      const bad = run(sha);
+      assert.equal(bad.status, 1); assert.match(bad.stderr, /CARRY_FORWARD_AFFECTED purchase/u);
+    }
+    const truncated = run(large);
+    assert.equal(truncated.status, 1); assert.match(truncated.stderr, /CARRY_FORWARD_DIFF_UNAVAILABLE purchase/u);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -148,7 +148,7 @@ for (const [name, change] of [['missing comparison', ctx => { delete ctx.baselin
     assert.ok(carryErrors(d, ctx).includes('CARRY_FORWARD_DIFF_UNAVAILABLE purchase'));
   });
 }
-for (const [name, change] of [['narrowed paths', f => { f.paths = ['src/purchase/**', 'src/legacy/**']; }], ['no foundation flag', f => { delete f.foundation; }]]) {
+for (const [name, change] of [['narrowed paths', f => { f.paths = ['src/purchase/**', 'src/legacy/**']; }], ['no foundation flag', f => { delete f.foundation; }], ['malformed paths', f => { delete f.paths; }]]) {
   test(`baseline inventory with ${name} makes the feature run again`, () => {
     const { d, ctx } = carryForwardCase(); change(ctx.baselines[BASE].inventory.features[2]);
     assert.ok(carryErrors(d, ctx).includes('CARRY_FORWARD_INVENTORY_CHANGED purchase'));
