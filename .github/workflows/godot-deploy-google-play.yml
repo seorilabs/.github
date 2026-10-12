@@ -21,6 +21,11 @@ on:
         required: false
         default: ""
         type: string
+      release_verifier_sha:
+        description: "예외에서만 사용하는 검토·병합된 중앙 검증기 40hex SHA. main 철회 조회는 계속 수행."
+        required: false
+        default: ""
+        type: string
       release_tag:
         required: false
         default: ""
@@ -155,13 +160,26 @@ jobs:
           node-version: "24"
           check-latest: false
 
-      # 버전 authority 구현은 org 정본에만 둔다. caller 저장소 스크립트를 신뢰하지 않기 위해
-      # 중앙 저장소 main에서 정본을 받아 실행한다.
+      - name: Validate release exception verifier pin
+        if: ${{ inputs.release_exception_id != '' || inputs.release_verifier_sha != '' }}
+        shell: bash
+        env:
+          RELEASE_EXCEPTION_ID: ${{ inputs.release_exception_id }}
+          RELEASE_VERIFIER_SHA: ${{ inputs.release_verifier_sha }}
+        run: |
+          set -euo pipefail
+          [[ -n "$RELEASE_EXCEPTION_ID" && "$RELEASE_VERIFIER_SHA" =~ ^[a-f0-9]{40}$ ]] || {
+            echo "RELEASE_EXCEPTION_VERIFIER_PIN_REQUIRED" >&2
+            exit 1
+          }
+
+      # 일반 경로는 main. 예외는 검토된 정확한 구현을 쓰고, 검증기가 최신 main의
+      # ancestor 여부와 grant 철회를 별도로 조회하므로 무관 main 변경에 묶이지 않는다.
       - name: Checkout release version authority
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: seorilabs/.github
-          ref: main
+          ref: ${{ inputs.release_exception_id != '' && inputs.release_verifier_sha || 'main' }}
           path: .seorilabs-release-authority
           persist-credentials: false
 
@@ -242,12 +260,17 @@ jobs:
           EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
           RELEASE_EXCEPTION_ID: ${{ inputs.release_exception_id }}
           CONFIGURATION_FINGERPRINT: ${{ inputs.configuration_fingerprint }}
+          SEORI_EXCEPTION_PACKAGE_NAME: ${{ inputs.package_name }}
+          SEORI_EXCEPTION_TRACK: ${{ inputs.track }}
+          SEORI_EXCEPTION_RELEASE_STATUS: ${{ inputs.release_status }}
+          FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
         run: |
           set -euo pipefail
           args=()
           if [ -n "$RELEASE_EXCEPTION_ID" ]; then
             args+=(--release-exception-id "$RELEASE_EXCEPTION_ID" --configuration-fingerprint "$CONFIGURATION_FINGERPRINT"
               --verifier-sha "$(git -C .seorilabs-release-authority rev-parse HEAD)"
+              --app-repository "$GITHUB_WORKSPACE"
               --report "$RUNNER_TEMP/release-verification.before-build.json")
           fi
           node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
@@ -597,6 +620,10 @@ jobs:
           EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
           RELEASE_EXCEPTION_ID: ${{ inputs.release_exception_id }}
           CONFIGURATION_FINGERPRINT: ${{ inputs.configuration_fingerprint }}
+          SEORI_EXCEPTION_PACKAGE_NAME: ${{ inputs.package_name }}
+          SEORI_EXCEPTION_TRACK: ${{ inputs.track }}
+          SEORI_EXCEPTION_RELEASE_STATUS: ${{ inputs.release_status }}
+          FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
           VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
         run: |
           set -euo pipefail
@@ -604,6 +631,7 @@ jobs:
           if [ -n "$RELEASE_EXCEPTION_ID" ]; then
             args+=(--release-exception-id "$RELEASE_EXCEPTION_ID" --configuration-fingerprint "$CONFIGURATION_FINGERPRINT"
               --verifier-sha "$(git -C .seorilabs-release-authority rev-parse HEAD)"
+              --app-repository "$GITHUB_WORKSPACE"
               --report "$RUNNER_TEMP/release-verification.before-deploy.json"
               --release-binding "$RUNNER_TEMP/release-binding.json"
               --artifact-receipt "$RUNNER_TEMP/release-artifact-receipt.txt" --artifact-file "$VERIFIED_AAB_PATH")

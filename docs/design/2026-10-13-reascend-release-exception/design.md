@@ -25,13 +25,25 @@ flowchart TD
   F --> G
 ```
 
+별도 strict grant schema는 필수값과 168시간 상한을 검사한다. 기존 v1 `releaseExceptions`는 선택적 확장이며 정상 v1 근거 형식은 바꾸지 않는다.
+
 검토된 중앙 grant가 승인 해시·설계·기준 SHA·허용 파일·원래 판정·위험을 고정한다. runtime manifest의 자기 선언만으로 사람 승인으로 인정하지 않는다. 각 phase에서 최신 main의 grant를 다시 읽어 철회와 핵심 변경을 확인하며 조회 불가·해시 변경·후보/설정/마켓/태그 불일치·168시간 만료·원본 판정 변조·누락은 중단한다. Git recursive tree가 잘렸거나 원본이 달라져도 중단한다.
 
 UI8와 round7 최종 E2E 원본은 private 앱 Release의 고정 자산명으로 읽어 각각 기존 SHA-256과 대조한다. preflight도 원본 디렉터리를 필수로 받아 같은 검사를 한다. 공개 중앙 테스트는 격리 사본에 합성 fixture의 검토된 해시를 고정해 같은 production 검증기를 실행한다. 런타임에 신뢰 기준을 바꾸는 인자나 우회 코드는 추가하지 않는다.
 
-태그 발급 전 local preflight는 `releaseBinding:null`로 실제 원격 소스 tree를 검사하고 `preflight_ready`만 출력한다. 이를 빌드 허가로 쓰지 않는다. 실제 phase에서는 Release 자산과 annotated tag의 공식 receipt를 재조회한다. before-build에 아직 없는 artifact를 요구하지 않는다. before-deploy는 생성된 공식 binding과 실제 산출물 해시를 대조한다.
+태그 발급 전 local preflight는 `releaseBinding:null`로 실제 원격 소스 tree를 검사하고 `preflight_ready`만 출력한다. 이를 빌드 허가로 쓰지 않으며 CI 환경에서는 preflight를 거절한다. 실제 phase에서는 Release 자산과 annotated tag의 공식 receipt를 재조회한다. before-build에 아직 없는 artifact를 요구하지 않는다. before-deploy는 생성된 공식 binding과 실제 산출물 해시를 대조한다.
 
-Reascend 기존 Apple helper는 중앙 `53c0819ec0976a48c7e8302234bcfc408f0a1e0b`에 고정돼 있으며, 실제 반환 `appleBuildNumber`의 정본은 `CI_BUILD_NUMBER`다. 태그 receipt의 encoded `appleBuildNumber`와 실제 archive 번호는 서로 다른 역할이다. 실제 archive는 그 고정 helper의 source/tag/marketing/runtime version/authority·applied binding과 CI 번호, 최종 서명 앱 Info.plist를 대조한다. 버전 hook을 바꾸거나 현재 앱의 버전 경로를 이관하지 않는다.
+Reascend 기존 Apple helper는 중앙 `53c0819ec0976a48c7e8302234bcfc408f0a1e0b`에 고정돼 있으며, 실제 반환 `appleBuildNumber`의 정본은 `CI_BUILD_NUMBER`다. 태그 receipt의 encoded `appleBuildNumber`와 실제 archive 번호는 서로 다른 역할이다. 실제 archive는 그 고정 helper의 정확한 7필드 source/tag/marketing/runtime version/authority·applied binding과 실제 환경의 CI 번호, 최종 서명 앱 Info.plist를 대조한다. 버전 hook을 바꾸거나 현재 앱의 버전 경로를 이관하지 않는다. helper provenance는 보호된 소비자의 고정 선언이며 phase에서 이미 삭제된 helper bytes를 다시 읽었다고 하지 않는다. artifact digest는 최종 Info.plist 범위로 명시하고 전체 archive 해시와 구분한다.
+
+## 리뷰 보강과 실행 범위
+
+검증기 SHA 자기 선언을 제거한다. checkout은 실제 HEAD·직접 사용하는 tracked bytes, codeload archive는 GitHub 고정 revision의 같은 bytes를 독립 대조한다. 현재 main의 ancestor임을 확인하되 무관 main 변경은 허용한다. Android는 `release_verifier_sha`로 같은 authority를 고정하며 철회는 최신 main에서 매 phase 읽는다.
+
+마켓별 지문은 실행자가 직접 관측한 v2 설정으로 고정한다. CI는 실제 package/track/status/upload·Godot·preset·scripts·analytics·Xcode scheme/project/tag 입력, 등록 Firebase bytes, 보호된 generator/build.env, AdMob env projection을 대조한다. before-build는 아직 준비 전이므로 같은 generator의 격리 예상 runtime 해시를 확인한다. before-deploy는 실제 runtime·Firebase 사본과 광고 주입 후 두 파일 해시를 확인한다. 운영 서버 snapshot은 중앙 CI의 새 권한 없이 실행자가 전후 재조회하며 이 부분을 CI의 fresh 조회로 주장하지 않는다.
+
+Xcode trigger의 기동 전 검사는 ASC에서 실제 선택한 workflow/provider/tag ref와 공통 Release/source/승인 조건만 확인한다. `xcode-launch-request`와 `pending-ci-hook` 보고서는 실제 CI 판정을 대체하지 않는다. 외부 CLI skip flag와 가짜 CI env는 없으며 실제 Xcode hook에서 이 경계 사용을 거절한다. 실제 두 phase의 입력·runtime 검증은 유지한다.
+
+Actions의 기존 3일 보존을 바꾸지 않고 private Release에 판정 보고서를 함께 보존한다. 미사용 승격 workflow는 확장하지 않으며 수동 Console/API 승격 전 같은 실제 artifact로 before-deploy 검증을 다시 적용한다. 이전 397개 검증은 이전 후보의 결과이고 리뷰 수정 후 전체 검증으로 대체한다.
 
 ## 인수조건과 검증
 

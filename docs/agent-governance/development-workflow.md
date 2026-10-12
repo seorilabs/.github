@@ -92,6 +92,8 @@ node scripts/release/verify-development-evidence.mjs \
 
 [release-exception.schema.json](../../contracts/release-exception.schema.json)은 [일반 v1 PASS 근거](../../contracts/development-evidence.schema.json)와 별도다. 예외는 E2E 통과가 아니라 위험을 사람이 수용한 출시 판단이며 `decisionStatus:human_exception`, `productE2eStatus:blocked`를 출력한다. `--release-exception-id`를 명시하지 않으면 기존 검증만 수행한다. 빈 근거·자동 fallback·환경변수로 검증기를 끄는 경로는 없다.
 
+[grant schema](../../contracts/release-exception-grant.schema.json)는 필수값·알 수 없는 필드·168시간 상한을 검사한다. `development-workflow` v1의 `releaseExceptions`는 선택적 확장이므로 기존 v1 문서를 거절하지 않는다. 현재 중앙 정본에는 registry를 유지한다.
+
 현재 검토된 grant는 `seorilabs/reascend`의 `v1.1.0` 하나다. [승인 설계](../design/2026-10-13-reascend-release-exception/design.md), [grant](../../contracts/release-exceptions/reascend-1.1.0.json), [공개용 원문 승인](../../contracts/release-exceptions/reascend-1.1.0.approval.json), [원래 26기능 판정](../../contracts/release-exceptions/reascend-1.1.0.observations.json)을 결속한다. local home 경로·대화 식별자는 공개 receipt에 넣지 않고 private 원본의 해시만 연결한다. 향후 grant 추가는 조직 계약 변경과 사람 승인·필수 코드 리뷰를 거쳐야 한다. runtime manifest의 `approver:human` 같은 자기 선언은 승인으로 인정하지 않는다.
 
 마켓별 최종 source SHA, 비밀값 없는 실제 설정 SHA-256, 검증기 SHA, 기준 제품 tree와 26기능 inventory, 원문 승인/설계/관측 판정 해시, 최대 168시간을 확인한다. 실제 전체 E2E를 실행하지 않았다면 실행 시각을 만들거나 승인 시각을 E2E 완료 시각으로 쓰지 않는다. 기존 scoped PASS/partial/unknown/blocked를 보존하며, 실제 통과한 기반 기능의 30일 승계와 이번 사람 예외를 혼동하지 않는다.
@@ -113,7 +115,7 @@ release-exception.original-final-e2e-result.json
 
 두 원본 보고서는 기존 파일의 정확한 bytes를 위 자산명으로 첨부한다. 각 실제 phase에서 다운로드해 검토된 관측 기록의 해시와 비교한다. 누락·변조는 중단하며 이전 실행 시각을 갱신하지 않는다. 비공개 원본의 사용자 경로는 공개 중앙 저장소의 테스트 fixture에 복사하지 않는다.
 
-태그 발급 전 검사에는 `releaseBinding:null`을 쓴다. 이는 `preflight_ready`이며 빌드·업로드를 허가하지 않는다. source가 이미 원격에서 조회돼야 하고 현재 main의 grant도 조회 가능해야 한다.
+태그 발급 전 검사에는 `releaseBinding:null`을 쓴다. `CI`, `GITHUB_ACTIONS`, `CI_XCODE_CLOUD` 실행에서는 이 preflight를 거절한다. 이는 `preflight_ready`이며 빌드·업로드를 허가하지 않는다. source가 이미 원격에서 조회돼야 하고 현재 main의 grant도 조회 가능해야 한다.
 
 ```bash
 node scripts/release/verify-development-evidence.mjs \
@@ -128,7 +130,7 @@ node scripts/release/verify-development-evidence.mjs \
 
 공식 태그 발급 뒤 `releaseBinding`에 실제 annotated tag object SHA와 태그 message 원문의 SHA-256을 채운다. 실제 phase는 Release 자산을 다시 읽고 공식 receipt의 source/version/authority를 검증한다. 모든 phase에서 최신 중앙 main의 같은 grant를 조회해 철회·승인 핵심값 변경을 확인한다. 조회 불가나 `revoked:true`면 고정 pin의 검증기도 실패한다. 중앙의 무관 커밋만 바뀌면 grant 내용이 같으므로 이 조회는 막지 않는다.
 
-before-build에는 아직 없는 artifact를 요구하지 않는다. before-deploy에는 Android의 공식 release binding, artifact receipt, 실제 AAB 파일이 필요하다. iOS는 변경하지 않은 고정 helper `53c0819ec0976a48c7e8302234bcfc408f0a1e0b`가 만든 binding, 실제 서명 앱 Info.plist와 `CI_BUILD_NUMBER`를 대조한다. iOS archive의 CI 번호와 공식 태그 receipt의 encoded 번호는 구별한다. 이 provenance는 grant와 판정 리포트에 기록한다.
+before-build에는 아직 없는 artifact를 요구하지 않는다. before-deploy에는 Android의 공식 release binding, artifact receipt, 실제 AAB 파일이 필요하다. iOS는 변경하지 않은 고정 helper `53c0819ec0976a48c7e8302234bcfc408f0a1e0b`가 만든 binding, 실제 서명 앱 Info.plist와 `CI_BUILD_NUMBER`를 대조한다. CLI에 넘긴 번호도 실제 CI 환경의 같은 값이어야 한다. iOS archive의 CI 번호와 공식 태그 receipt의 encoded 번호는 구별한다. 이 provenance는 grant와 판정 리포트에 `declared-protected-consumer-pin`으로 기록한다. 소비자 코드는 제품 tree 검사로 보호하지만 기존 임시 helper는 phase 전에 삭제되므로 해당 phase에서 helper bytes를 다시 읽었다고 주장하지 않는다. iOS artifact 해시는 실제 Info.plist bytes이며 `kind:xcode-app-info-plist`로 범위를 표시한다. 전체 archive 해시가 아니다. 기존 post-xcodebuild의 서명·archive·bundle 검사도 계속 요구한다.
 
 ```bash
 # 실제 before-build: preflight 인자 없이 Release 자산을 읽는다.
@@ -136,7 +138,8 @@ node scripts/release/verify-development-evidence.mjs \
   --repo seorilabs/reascend --tag v1.1.0 --sha <final-sha> \
   --target google-play --phase before-build \
   --release-exception-id reascend-1.1.0 --configuration-fingerprint <market-sha256> \
-  --verifier-sha <reviewed-central-sha> --report /path/to/before-build.json
+  --verifier-sha <reviewed-central-sha> --app-repository /path/to/exact-app-checkout \
+  --report /path/to/before-build.json
 
 # Android before-deploy에는 기존 공식 도구로 생성·검증한 산출물을 추가한다.
 # 위 공통 인자 + --phase before-deploy
@@ -148,6 +151,16 @@ node scripts/release/verify-development-evidence.mjs \
 # --release-binding /path/to/.seori-release-binding.json
 # --artifact-file /path/to/signed.app/Info.plist --xcode-build-number <actual-CI_BUILD_NUMBER>
 ```
+
+검토된 grant에는 마켓별 실제 설정 지문과 등록 Firebase bytes, 생성 runtime, `build.env`·generator, AdMob 입력·주입 후 `project.godot`/`data/ad_units.json` 해시를 고정한다. 실제 CI phase는 `--app-repository`의 파일과 실제 workflow/CI 환경에서 package·internal track·completed status·upload·Godot·export preset·build/prepare/audit script·analytics·Xcode scheme/project/tag를 읽어 대조한다. 등록 설정의 내용은 출력하지 않고 해시만 남긴다.
+
+before-build는 실제 준비 스크립트보다 앞에 있다. 보호된 generator와 등록 Firebase CI bytes를 격리 디렉터리에서 실행한 예상 runtime을 확인하고 `generated-from-ci-input`으로 기록한다. 이미 소비된 runtime이라고 하지 않는다. before-deploy는 실제 생성된 runtime·Firebase 사본과 주입 후 광고 파일을 읽어 `actual-runtime-file`로 기록한다. 운영 서버 설정은 중앙 CI의 권한 밖이므로 검토된 snapshot과 실행자의 빌드 전후 직접 재조회가 필요하다. 중앙 해시 대조를 fresh 운영 조회라고 표시하지 않는다.
+
+검증기의 40hex 입력도 단독으로 신뢰하지 않는다. Git checkout은 실제 HEAD와 직접 사용 tracked bytes를 대조하며, `.git` 없는 Xcode codeload는 같은 GitHub revision의 검증기·authority·schema·registry·grant·승인·관측·package lock 원문과 로컬 bytes를 독립 대조한다. 해당 SHA가 현재 main의 ancestor여야 한다. npm CI로 lock의 의존성을 설치하며 파일 증명은 `verifierProof`에 남긴다. Android 예외는 `release_verifier_sha`를 명시해 같은 구현에 authority checkout을 고정하고, 정상 경로는 계속 main을 사용한다. 최신 main의 grant 철회는 pin과 별개로 매 phase 조회한다.
+
+Xcode 기동 요청은 실제 CI의 입력을 갖지 않는다. trigger 내부 `verifyXcodeLaunchRequest`는 공통 Release/source/승인 검증 후 ASC에서 선택한 provider·product·workflow·repository·TAG ref를 확인한다. `scope:xcode-launch-request`, `actualCiVerification:pending-ci-hook`, `executionConfiguration:null`을 출력하며 실제 CI 통과로 취급하지 않는다. 외부 CLI의 skip flag는 없고, `CI_XCODE_CLOUD=TRUE`인 실제 hook은 이 경계를 사용할 수 없다. 실제 hook의 before-build/before-deploy는 `scope:actual-ci-phase`의 전체 입력 검사를 실행한다. 거절도 요청된 JSON 보고서에 기록하고 원래 오류를 다시 던진다.
+
+Android Actions 보고서 보존 기간은 기존 3일을 유지한다. 실행자는 성공·거절 보고서와 실제 artifact digest를 해당 private GitHub Release의 운영 자산에 복사해 예외 유효기간과 릴리스 이력 동안 보존한다. Actions의 3일 artifact만 영구 근거로 삼지 않는다. 기존 `promote-google-play`에는 예외를 추가하지 않는다. 이번 수동 Console/API 승격 전에는 같은 Release와 실제 AAB·공식 binding·receipt로 `before-deploy` 검증을 다시 실행하고 보고서를 보존한 뒤 승격한다.
 
 검증기는 상태·원래 판정·승인 해시·후보·설정·태그·artifact를 JSON으로 보존한다. 예외에서 기존 ‘개발 검수 근거 통과’ 문구를 쓰지 않는다. Android caller와 Xcode hook/trigger는 계속 중앙 검증기를 실행한다. 예외 만료·철회·후보/설정 변경·해당 릴리스 종료 시 manifest를 닫고 다시 사용하지 않는다. 중앙 일반 지원은 검토된 계약으로 유지하며 임시 우회를 제거할 때까지 방치하는 방식은 사용하지 않는다.
 

@@ -56,7 +56,7 @@ test('build-only and track promotion keep their own required phase', () => {
 });
 test('Xcode Cloud start verifies the exact tag candidate before the mutation', () => {
   const script = readFileSync('scripts/trigger-xcode-cloud.mjs', 'utf8');
-  const gate = script.indexOf('await verifyReleaseDevelopmentEvidence');
+  const gate = script.indexOf('await verifyXcodeReleaseEvidence');
   assert.ok(gate > script.indexOf('await resolveGitHubTagCommit'));
   assert.ok(gate < script.indexOf('appStoreConnect("/v1/ciBuildRuns"'));
 });
@@ -64,6 +64,7 @@ test('Godot Android exception is explicit and keeps both central gates and actua
   const workflow = read('godot-deploy-google-play');
   assert.equal(workflow.on.workflow_call.inputs.release_exception_id.default, '');
   assert.equal(workflow.on.workflow_call.inputs.configuration_fingerprint.default, '');
+  assert.equal(workflow.on.workflow_call.inputs.release_verifier_sha.default, '');
   const steps = Object.values(workflow.jobs).find(job => job.steps?.some(step => step.name === 'Upload to Google Play')).steps;
   const build = steps.find(step => step.name === 'Verify Editor E2E before-build');
   const deploy = steps.find(step => step.name === 'Verify Editor E2E before-deploy');
@@ -72,7 +73,15 @@ test('Godot Android exception is explicit and keeps both central gates and actua
     assert.match(step.run, /--configuration-fingerprint "\$CONFIGURATION_FINGERPRINT"/u);
     assert.match(step.run, /--verifier-sha/u);
     assert.match(step.run, /--report/u);
+    assert.match(step.run, /--app-repository "\$GITHUB_WORKSPACE"/u);
+    assert.equal(step.env.SEORI_EXCEPTION_PACKAGE_NAME, '${{ inputs.package_name }}');
+    assert.equal(step.env.SEORI_EXCEPTION_TRACK, '${{ inputs.track }}');
+    assert.equal(step.env.SEORI_EXCEPTION_RELEASE_STATUS, '${{ inputs.release_status }}');
+    assert.equal(step.env.FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64, '${{ secrets.FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}');
   }
+  const checkout = steps.find(step => step.name === 'Checkout release version authority');
+  assert.equal(checkout.with.ref, "${{ inputs.release_exception_id != '' && inputs.release_verifier_sha || 'main' }}");
+  assert.ok(steps.findIndex(step => step.name === 'Validate release exception verifier pin') < steps.indexOf(checkout));
   assert.doesNotMatch(build.run, /--artifact/u);
   assert.match(deploy.run, /--artifact-receipt/u); assert.match(deploy.run, /--artifact-file "\$VERIFIED_AAB_PATH"/u);
   const preserve = steps.findIndex(step => step.name === 'Preserve release exception verdicts');

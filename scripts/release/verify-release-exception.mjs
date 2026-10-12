@@ -1,8 +1,10 @@
 // 별도 사람 승인 예외는 제품 E2E 통과를 뜻하지 않는다. 검토된 중앙 grant가 신뢰 기준이다.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { lstatSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { parse } from 'yaml';
 import { githubDownload, githubJson, githubPaginate } from '../github-rest.mjs';
@@ -12,9 +14,10 @@ import { assertArtifactReceipt, assertTagReceipt, deriveEncodedVersion, deriveTa
 const read = path => readFileSync(new URL(`../../${path}`, import.meta.url));
 const schema = JSON.parse(read('contracts/release-exception.schema.json'));
 const check = new Ajv2020({ allErrors: true }).compile(schema);
+const checkGrant = new Ajv2020({ allErrors: true }).compile(JSON.parse(read('contracts/release-exception-grant.schema.json')));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const SHA = /^[a-f0-9]{40}$/u, DIGEST = /^[a-f0-9]{64}$/u;
-const grants = new Map(parse(read('contracts/development-workflow.yaml').toString()).releaseExceptions.grantRegistry.map(path => {
+const grants = new Map((parse(read('contracts/development-workflow.yaml').toString()).releaseExceptions?.grantRegistry ?? []).map(path => {
   const match = /^contracts\/release-exceptions\/([a-z0-9][a-z0-9.-]+)\.json$/u.exec(path);
   if (!match) throw new Error('RELEASE_EXCEPTION_REGISTRY_INVALID');
   return [match[1], path];
@@ -28,11 +31,139 @@ function reviewedGrant(id) {
   const path = grants.get(id);
   if (!path) fail('RELEASE_EXCEPTION_NOT_REVIEWED');
   const grant = JSON.parse(read(path));
+  if (!checkGrant(grant)) fail('RELEASE_EXCEPTION_GRANT_SCHEMA');
   if (grant.revoked || grant.id !== id) fail('RELEASE_EXCEPTION_REVOKED');
   const prefix = 'contracts/release-exceptions/';
   const approval = read(`${prefix}${grant.approvalFile}`), observations = read(`${prefix}${grant.observationsFile}`);
   if (sha256(approval) !== grant.approvalSha256 || sha256(observations) !== grant.observationsSha256) fail('RELEASE_EXCEPTION_TRUST_ANCHOR_CHANGED');
   return { grant, approval, observations: JSON.parse(observations) };
+}
+
+// CLI의 40hex 주장을 신뢰하지 않는다. checkout은 HEAD와 tracked bytes, codeload archive는
+// 실제 GitHub commit의 직접 사용 소스 bytes를 대조한다. 각 phase에서 다시 확인한다.
+async function runtimeRevision(grant, claimedSha, request) {
+  const root = fileURLToPath(new URL('../../', import.meta.url));
+  const paths = ['scripts/release/verify-development-evidence.mjs', 'scripts/release/verify-release-exception.mjs',
+    'scripts/release/tag-version-authority.mjs', 'scripts/github-rest.mjs', 'scripts/trigger-xcode-cloud.mjs',
+    'scripts/release/resolve-github-tag-commit.mjs', 'contracts/development-evidence.schema.json',
+    'contracts/development-workflow.schema.json', 'contracts/development-workflow.yaml', 'contracts/release-exception.schema.json',
+    'contracts/release-exception-grant.schema.json',
+    'contracts/release-version-authority.yaml', grants.get(grant.id), `contracts/release-exceptions/${grant.approvalFile}`,
+    `contracts/release-exceptions/${grant.observationsFile}`, 'package.json', 'package-lock.json'];
+  const files = paths.map(path => {
+    try {
+      const location = join(root, path), stat = lstatSync(location);
+      if (!stat.isFile() || stat.isSymbolicLink()) fail('RELEASE_EXCEPTION_VERIFIER_SOURCE_NOT_REGULAR');
+      return { path, bytes: readFileSync(location) };
+    } catch { fail('RELEASE_EXCEPTION_VERIFIER_SOURCE_UNREADABLE'); }
+  });
+  let kind, revision;
+  if (existsSync(join(root, '.git'))) {
+    const git = args => execFileSync('git', ['-C', root, ...args], { maxBuffer: 4 * 1024 * 1024, timeout: 10000 });
+    try {
+      if (realpathSync(git(['rev-parse', '--show-toplevel']).toString().trim()) !== realpathSync(root)) fail('RELEASE_EXCEPTION_VERIFIER_CHECKOUT_ROOT');
+      revision = git(['rev-parse', 'HEAD']).toString().trim();
+      if (!SHA.test(revision) || claimedSha !== revision) fail('RELEASE_EXCEPTION_VERIFIER_REVISION_CHANGED');
+      if (files.some(file => !file.bytes.equals(git(['show', `${revision}:${file.path}`])))) fail('RELEASE_EXCEPTION_VERIFIER_SOURCE_CHANGED');
+    } catch (error) {
+      if (error.message.startsWith('RELEASE_EXCEPTION_')) throw error;
+      fail('RELEASE_EXCEPTION_VERIFIER_CHECKOUT_UNREADABLE');
+    }
+    kind = 'git-checkout';
+  } else {
+    try {
+      const commit = await githubJson(`/repos/seorilabs/.github/git/commits/${claimedSha}`, request);
+      if (commit.sha !== claimedSha) fail('RELEASE_EXCEPTION_VERIFIER_REVISION_UNVERIFIED');
+    } catch { fail('RELEASE_EXCEPTION_VERIFIER_REVISION_UNVERIFIED'); }
+    await Promise.all(files.map(async file => {
+      let remote;
+      try { remote = await githubJson(`/repos/seorilabs/.github/contents/${file.path}?ref=${claimedSha}`, request); }
+      catch { fail('RELEASE_EXCEPTION_VERIFIER_SOURCE_UNREADABLE'); }
+      if (remote.type !== 'file' || remote.encoding !== 'base64' || typeof remote.content !== 'string'
+        || !file.bytes.equals(Buffer.from(remote.content, 'base64'))) fail('RELEASE_EXCEPTION_VERIFIER_SOURCE_CHANGED');
+    }));
+    kind = 'github-archive'; revision = claimedSha;
+  }
+  let ancestry;
+  try { ancestry = await githubJson(`/repos/seorilabs/.github/compare/${revision}...main`, request); }
+  catch { fail('RELEASE_EXCEPTION_VERIFIER_NOT_REVIEWED_ON_MAIN'); }
+  if (!['ahead', 'identical'].includes(ancestry.status) || ancestry.base_commit?.sha !== revision) fail('RELEASE_EXCEPTION_VERIFIER_NOT_REVIEWED_ON_MAIN');
+  return { verified: true, kind, revision, reviewedOnCurrentMain: true,
+    files: files.map(({ path, bytes }) => ({ path, sha256: sha256(bytes) })) };
+}
+
+function regularBytes(path, code) {
+  try {
+    const stat = lstatSync(path);
+    if (!stat.isFile() || stat.isSymbolicLink()) fail(code);
+    return readFileSync(path);
+  } catch { fail(code); }
+}
+
+// build 직전에는 준비 스크립트가 아직 실행되지 않았다. 같은 보호된 generator와 실제 CI
+// Firebase bytes로 격리 생성한 결과를 검사한다. deploy 직전에는 실제 소비 파일을 검사한다.
+function executionConfiguration(options, grant) {
+  const env = options.env ?? process.env, expected = grant.executionConfiguration[options.target];
+  if (options.target === 'app-store' && env.CI_XCODE_CLOUD !== 'TRUE') fail('RELEASE_EXCEPTION_EXECUTION_INPUTS_CHANGED');
+  if (!options.appRepository) fail('RELEASE_EXCEPTION_APP_REPOSITORY_REQUIRED');
+  const root = resolve(options.appRepository);
+  const buildBytes = regularBytes(join(root, 'build.env'), 'RELEASE_EXCEPTION_BUILD_ENVIRONMENT_CHANGED');
+  if (sha256(buildBytes) !== expected.buildEnvironmentSha256) fail('RELEASE_EXCEPTION_BUILD_ENVIRONMENT_CHANGED');
+  const projection = Object.fromEntries(Object.keys(expected.expectedInputs).map(key => [key, String(env[key] ?? '')]));
+  projection.PROJECT_R_ANALYTICS_ENABLED = env.PROJECT_R_ANALYTICS_ENABLED ?? 'true';
+  if (options.target === 'app-store') {
+    projection.CI_PROJECT_FILE_PATH = env.CI_PROJECT_FILE_PATH ? relative(root, resolve(env.CI_PROJECT_FILE_PATH)) : '';
+    for (const key of ['GODOT_VERSION', 'GODOT_STATUS']) {
+      const match = new RegExp(`^${key}=["']?([^"'\\s]+)["']?$`, 'mu').exec(buildBytes.toString());
+      projection[key] = match?.[1] ?? '';
+    }
+    if (env.CI_BUNDLE_ID && env.CI_BUNDLE_ID !== grant.packageName) fail('RELEASE_EXCEPTION_EXECUTION_INPUTS_CHANGED');
+  }
+  if (!equal(projection, expected.expectedInputs)) fail('RELEASE_EXCEPTION_EXECUTION_INPUTS_CHANGED');
+  const adsKeys = options.target === 'google-play'
+    ? ['ADMOB_APP_ID', 'ADMOB_ANDROID_OFFLINE_REWARD_BOOST_REWARDED_AD_UNIT_ID', 'ADMOB_ANDROID_MATERIAL_BOX_FREE_REWARDED_AD_UNIT_ID', 'ADMOB_ANDROID_DAILY_SUPPLY_EXTRA_REWARDED_AD_UNIT_ID']
+    : ['ADMOB_IOS_APP_ID', 'ADMOB_IOS_OFFLINE_REWARD_BOOST_REWARDED_AD_UNIT_ID', 'ADMOB_IOS_MATERIAL_BOX_FREE_REWARDED_AD_UNIT_ID', 'ADMOB_IOS_DAILY_SUPPLY_EXTRA_REWARDED_AD_UNIT_ID'];
+  // iOS 소비자가 prepare 호출에 1을 고정한다. Android job env도 1로 고정한다.
+  const adsProjection = { ADMOB_REQUIRE_PRODUCTION: env.ADMOB_REQUIRE_PRODUCTION ?? '1',
+    ...Object.fromEntries(adsKeys.map(key => [key, String(env[key] ?? '').trim()])) };
+  const admobInputSha256 = sha256(canonical(adsProjection));
+  if (admobInputSha256 !== expected.admobInputSha256) fail('RELEASE_EXCEPTION_ADMOB_INPUT_CHANGED');
+  const encoded = env[options.target === 'google-play' ? 'FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64' : 'FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64'];
+  if (typeof encoded !== 'string' || !encoded.trim() || !/^[A-Za-z0-9+/=\s]+$/u.test(encoded)) fail('RELEASE_EXCEPTION_REGISTERED_CONFIG_CHANGED');
+  const registeredBytes = Buffer.from(encoded, 'base64');
+  if (sha256(registeredBytes) !== expected.registeredClientConfigurationSha256) fail('RELEASE_EXCEPTION_REGISTERED_CONFIG_CHANGED');
+  const generator = join(root, 'scripts/release/generate_runtime_config.py');
+  if (sha256(regularBytes(generator, 'RELEASE_EXCEPTION_RUNTIME_GENERATOR_CHANGED')) !== expected.generatorSha256) fail('RELEASE_EXCEPTION_RUNTIME_GENERATOR_CHANGED');
+  let runtimeBytes, kind;
+  if (options.phase === 'before-build') {
+    const dir = mkdtempSync(join(tmpdir(), 'seori-release-configuration-'));
+    try {
+      const firebaseFile = join(dir, 'firebase-client'), out = join(dir, 'runtime.json');
+      writeFileSync(firebaseFile, registeredBytes, { mode: 0o600 });
+      const args = [generator, '--platform', options.target === 'google-play' ? 'android' : 'ios', '--firebase-config', firebaseFile,
+        '--out', out, '--app-version', options.tag.slice(1), ...(projection.PROJECT_R_ANALYTICS_ENABLED === 'true' ? ['--analytics-enabled'] : [])];
+      try { execFileSync('python3', args, { stdio: 'ignore', timeout: 10000, env: { PATH: process.env.PATH } }); }
+      catch { fail('RELEASE_EXCEPTION_RUNTIME_GENERATION_FAILED'); }
+      runtimeBytes = regularBytes(out, 'RELEASE_EXCEPTION_RUNTIME_CONFIG_CHANGED'); kind = 'generated-from-ci-input';
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  } else {
+    runtimeBytes = regularBytes(join(root, 'config', options.target === 'google-play' ? 'android_runtime.json' : 'ios_runtime.json'), 'RELEASE_EXCEPTION_RUNTIME_CONFIG_CHANGED');
+    const registeredFile = join(root, options.target === 'google-play' ? 'google-services.json' : 'GoogleService-Info.plist');
+    if (sha256(regularBytes(registeredFile, 'RELEASE_EXCEPTION_REGISTERED_CONFIG_CHANGED')) !== expected.registeredClientConfigurationSha256) fail('RELEASE_EXCEPTION_REGISTERED_CONFIG_CHANGED');
+    kind = 'actual-runtime-file';
+  }
+  if (sha256(runtimeBytes) !== expected.runtimeConfigurationSha256) fail('RELEASE_EXCEPTION_RUNTIME_CONFIG_CHANGED');
+  let injectedConfiguration = null;
+  if (options.phase === 'before-deploy') {
+    const projectDigest = sha256(regularBytes(join(root, 'project.godot'), 'RELEASE_EXCEPTION_INJECTED_ADS_CONFIGURATION_CHANGED'));
+    const unitsDigest = sha256(regularBytes(join(root, 'data/ad_units.json'), 'RELEASE_EXCEPTION_INJECTED_ADS_CONFIGURATION_CHANGED'));
+    if (projectDigest !== expected.injectedProjectSha256 || unitsDigest !== expected.injectedAdUnitsSha256) fail('RELEASE_EXCEPTION_INJECTED_ADS_CONFIGURATION_CHANGED');
+    injectedConfiguration = { projectSha256: projectDigest, adUnitsSha256: unitsDigest };
+  }
+  return { kind, inputs: projection, registeredClientConfigurationSha256: sha256(registeredBytes), runtimeConfigurationSha256: sha256(runtimeBytes),
+    generatorSha256: expected.generatorSha256, buildEnvironmentSha256: sha256(buildBytes),
+    admobInputSha256, injectedConfiguration,
+    remoteOperationalConfiguration: 'reviewed-snapshot-operator-fresh-readback-required' };
 }
 
 // 원래 관측 판정은 정규화하지 않는다. 전체 기능의 blocked/partial/unknown을 보존한다.
@@ -49,6 +180,8 @@ export function validateReleaseException(document, context) {
   if (document.repository !== grant.repository || document.releaseTag !== grant.releaseTag || !grant.targets.includes(document.target)
     || document.baselineSourceSha !== grant.baselineSourceSha || document.sourceSha === grant.baselineSourceSha) fail('RELEASE_EXCEPTION_SCOPE');
   if (!['before-build', 'before-deploy'].includes(context.phase) || !DIGEST.test(context.configurationFingerprint ?? '') || !SHA.test(context.verifierSha ?? '')) fail('RELEASE_EXCEPTION_CONTEXT_REQUIRED');
+  if (context.configurationFingerprint !== grant.configurationFingerprints?.[context.target]) fail('RELEASE_EXCEPTION_CONFIGURATION_UNREVIEWED');
+  if (context.verifierProof?.verified !== true || context.verifierProof.revision !== context.verifierSha) fail('RELEASE_EXCEPTION_VERIFIER_REVISION_UNVERIFIED');
   for (const key of ['approvedAt', 'approvalSha256', 'proposalSha256', 'observationsSha256', 'inventorySha256']) {
     if (document[key] !== grant[key]) fail(`RELEASE_EXCEPTION_APPROVAL_MISMATCH ${key}`);
   }
@@ -71,12 +204,14 @@ export function validateReleaseException(document, context) {
   return { ok: true, decisionStatus: context.preflightOnly ? 'preflight_ready' : 'human_exception', productE2eStatus: 'blocked',
     repository: document.repository, sourceSha: document.sourceSha, target: document.target, releaseTag: document.releaseTag,
     phase: context.phase, configurationFingerprint: document.configurationFingerprint, verifierSha: document.verifierSha,
+    configurationObservationSha256: grant.configurationObservationSha256, verifierProof: context.verifierProof,
     exceptionId: grant.id, approvedAt: document.approvedAt, expiresAt: document.expiresAt,
     featureCount: document.features.length, features: document.features, approvedRisks: document.approvedRisks,
     approvalSha256: document.approvalSha256, observationsSha256: document.observationsSha256,
     originalEvidence: observations.observations,
     productTreeSha256: document.productTreeSha256, releaseBinding: document.releaseBinding,
-    iosBuildProvenance: document.target === 'app-store' ? grant.iosBuildProvenance : null, artifact: null };
+    iosBuildProvenance: document.target === 'app-store' ? { ...grant.iosBuildProvenance,
+      verificationScope: 'declared-protected-consumer-pin', actualHelperBytesThisPhaseVerified: false } : null, artifact: null };
 }
 
 async function releaseAssets(repository, tag, request) {
@@ -140,6 +275,7 @@ export function validateIosArtifact({ binding, tagReceipt, metadata, bundleId, x
 
 function artifactBinding(options, tagReceipt) {
   if (!options.artifactFile || !options.releaseBindingFile) fail('RELEASE_EXCEPTION_ARTIFACT_REQUIRED');
+  if (options.target === 'app-store' && String((options.env ?? process.env).CI_BUILD_NUMBER ?? '') !== String(options.xcodeBuildNumber ?? '')) fail('RELEASE_EXCEPTION_IOS_BUILD_AUTHORITY_MISMATCH');
   const text = readFileSync(options.releaseBindingFile, 'utf8');
   const binding = options.target === 'google-play' ? parseReleaseBinding(text) : JSON.parse(text);
   if (binding.tag !== options.tag || binding.sourceSha !== options.sourceSha) fail('RELEASE_EXCEPTION_ARTIFACT_BINDING_CHANGED');
@@ -156,20 +292,35 @@ function artifactBinding(options, tagReceipt) {
     const metadata = parseInfoPlistJson(plistJson), plist = JSON.parse(plistJson);
     validateIosArtifact({ ...options, binding, tagReceipt, metadata, bundleId: plist.CFBundleIdentifier });
   }
-  return { kind: options.target === 'google-play' ? 'android-app-bundle' : 'xcode-archive', sha256: artifactDigest,
+  return { kind: options.target === 'google-play' ? 'android-app-bundle' : 'xcode-app-info-plist', sha256: artifactDigest,
     digestSource: options.target === 'google-play' ? 'artifact-file' : 'app-info-plist', versionName: tagReceipt.versionName,
     androidVersionCode: Number(tagReceipt.androidVersionCode), appleBuildNumber: binding.appleBuildNumber,
     tagReceiptAppleBuildNumber: Number(tagReceipt.appleBuildNumber), buildNumberAuthority: options.target === 'google-play' ? 'release-tag' : binding.buildNumberAuthority };
 }
 
-export async function verifyReleaseException(options) {
+async function verifyException(options, launchRequestOnly = false) {
   const { grant, approval, observations } = reviewedGrant(options.exceptionId);
   if (options.repository !== grant.repository || options.tag !== grant.releaseTag || !SHA.test(options.sourceSha ?? '')
     || !grant.targets.includes(options.target) || !DIGEST.test(options.configurationFingerprint ?? '') || !SHA.test(options.verifierSha ?? '')) fail('RELEASE_EXCEPTION_CONTEXT_REQUIRED');
+  const env = options.env ?? process.env;
+  if (options.preflightOnly && ['CI', 'GITHUB_ACTIONS', 'CI_XCODE_CLOUD'].some(key => ['true', 'TRUE', '1'].includes(env[key]))) fail('RELEASE_EXCEPTION_PREFLIGHT_FORBIDDEN_IN_CI');
   if (options.preflightOnly && (!options.exceptionFile || options.phase !== 'before-build')) fail('RELEASE_EXCEPTION_PREFLIGHT_ONLY');
+  if (launchRequestOnly) {
+    if (env.CI_XCODE_CLOUD === 'TRUE') fail('RELEASE_EXCEPTION_XCODE_LAUNCH_REQUEST_FORBIDDEN_IN_CI_HOOK');
+    const launch = options.launchRequest;
+    if (options.preflightOnly || options.target !== 'app-store' || options.phase !== 'before-build'
+      || !launch || !equal(Object.keys(launch).sort(), ['provider', 'workflowId', 'productId', 'repositoryId', 'referenceId', 'bundleId', 'referenceKind', 'referenceName'].sort())
+      || launch.provider !== 'app-store-connect' || launch.workflowId !== grant.expectedXcodeWorkflowId
+      || launch.bundleId !== grant.packageName || launch.referenceKind !== 'TAG' || launch.referenceName !== grant.releaseTag
+      || ['productId', 'repositoryId', 'referenceId'].some(key => typeof launch[key] !== 'string' || !launch[key].trim())) fail('RELEASE_EXCEPTION_XCODE_LAUNCH_REQUEST_CHANGED');
+  }
+  if (options.configurationFingerprint !== grant.configurationFingerprints?.[options.target]) fail('RELEASE_EXCEPTION_CONFIGURATION_UNREVIEWED');
   const request = { token: options.token, env: options.env, fetchImpl: options.fetchImpl };
+  const verifierProof = await runtimeRevision(grant, options.verifierSha, request);
   // pin된 검증기도 각 phase에서 최신 grant의 철회를 읽는다. 중앙의 무관 커밋은 결속을 바꾸지 않는다.
-  const remoteGrantFile = await githubJson(`/repos/seorilabs/.github/contents/contracts/release-exceptions/${grant.id}.json?ref=main`, request);
+  let remoteGrantFile;
+  try { remoteGrantFile = await githubJson(`/repos/seorilabs/.github/contents/contracts/release-exceptions/${grant.id}.json?ref=main`, request); }
+  catch { fail('RELEASE_EXCEPTION_CURRENT_GRANT_UNREADABLE'); }
   if (remoteGrantFile.encoding !== 'base64' || typeof remoteGrantFile.content !== 'string') fail('RELEASE_EXCEPTION_CURRENT_GRANT_UNREADABLE');
   let remoteGrant;
   try { remoteGrant = JSON.parse(Buffer.from(remoteGrantFile.content, 'base64')); } catch { fail('RELEASE_EXCEPTION_CURRENT_GRANT_UNREADABLE'); }
@@ -196,9 +347,19 @@ export async function verifyReleaseException(options) {
   const baselineTree = await productTree(options.repository, grant.baselineSourceSha, grant.allowedAppFiles, request);
   const candidateTree = await productTree(options.repository, options.sourceSha, grant.allowedAppFiles, request);
   const remoteBinding = options.preflightOnly ? {} : await tagBinding(options.repository, options.tag, options.sourceSha, request);
-  const result = validateReleaseException(document, { ...options, approvalBytes, riskNotesBytes, originalEvidence,
+  const result = validateReleaseException(document, { ...options, approvalBytes, riskNotesBytes, originalEvidence, verifierProof,
     inventoryBytes: Buffer.from(inventory.content, 'base64'), productTreeVerified: equal(baselineTree, candidateTree),
     productTreeSha256: sha256(JSON.stringify(baselineTree)), ...remoteBinding });
-  if (!options.preflightOnly && options.phase === 'before-deploy') result.artifact = artifactBinding(options, remoteBinding.tagReceipt);
+  result.scope = options.preflightOnly ? 'manifest-preflight' : launchRequestOnly ? 'xcode-launch-request' : 'actual-ci-phase';
+  result.actualCiVerification = options.preflightOnly || launchRequestOnly ? 'pending-ci-hook' : 'verified';
+  result.executionConfiguration = options.preflightOnly || launchRequestOnly ? null : executionConfiguration(options, grant);
+  if (launchRequestOnly) result.launchRequest = options.launchRequest;
+  if (!options.preflightOnly && !launchRequestOnly && options.phase === 'before-deploy') result.artifact = artifactBinding(options, remoteBinding.tagReceipt);
   return result;
 }
+
+export async function verifyReleaseException(options) { return verifyException(options); }
+
+// Xcode trigger 내부 경계. CLI로 노출하지 않으며 실제 CI hook에서는 사용할 수 없다.
+// 이 보고서는 실제 CI의 두 phase를 대체하지 않는다.
+export async function verifyXcodeLaunchRequest(options) { return verifyException(options, true); }

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import { resolveGitHubTagCommit } from "./release/resolve-github-tag-commit.mjs";
 import { verifyReleaseDevelopmentEvidence } from "./release/verify-development-evidence.mjs";
+import { verifyXcodeLaunchRequest } from "./release/verify-release-exception.mjs";
 
 const API_BASE = "https://api.appstoreconnect.apple.com";
 
@@ -178,11 +179,12 @@ async function main() {
     const repository = requiredEnv("GITHUB_REPOSITORY");
     const githubToken = process.env.GH_TOKEN || requiredEnv("GITHUB_TOKEN");
     const candidate = await resolveGitHubTagCommit({ repository, ref: tag, token: githubToken });
-    const verification = await verifyReleaseDevelopmentEvidence({ repository, tag, sourceSha: candidate.sourceSha,
+    const verification = await verifyXcodeReleaseEvidence({ repository, tag, sourceSha: candidate.sourceSha,
       target: "app-store", phase: "before-build", token: githubToken,
-      ...(exceptionId ? { exceptionId, configurationFingerprint, verifierSha } : {}) });
+      ...(exceptionId ? { exceptionId, configurationFingerprint, verifierSha,
+        launchRequest: { provider: "app-store-connect", productId, workflowId, repositoryId, referenceId, bundleId,
+          referenceKind: "TAG", referenceName: tag } } : {}) }, reportPath);
     if (exceptionId) {
-      if (reportPath) fs.writeFileSync(reportPath, `${JSON.stringify(verification, null, 2)}\n`);
       console.log(`출시 판정 ${verification.decisionStatus}; 제품 E2E blocked`);
     }
     const run = await appStoreConnect("/v1/ciBuildRuns", token, {
@@ -219,6 +221,21 @@ async function main() {
       ? `Xcode Cloud 빌드 트리거 완료: tag=${tag}, build=${buildNumber || "pending"}`
       : `Xcode Cloud 배선 확인 완료(빌드 미시작): tag=${tag}, product=${productId}, workflow=${workflowId}`,
   );
+}
+
+export async function verifyXcodeReleaseEvidence(options, reportPath,
+  verify = options.exceptionId ? verifyXcodeLaunchRequest : verifyReleaseDevelopmentEvidence) {
+  let result;
+  try { result = await verify(options); }
+  catch (error) {
+    if (options.exceptionId && reportPath) fs.writeFileSync(reportPath, `${JSON.stringify({ ok: false,
+      decisionStatus: "rejected", productE2eStatus: "blocked", repository: options.repository, sourceSha: options.sourceSha,
+      target: options.target, phase: options.phase, scope: "xcode-launch-request", actualCiVerification: "pending-ci-hook",
+      error: error.message }, null, 2)}\n`);
+    throw error;
+  }
+  if (options.exceptionId && reportPath) fs.writeFileSync(reportPath, `${JSON.stringify(result, null, 2)}\n`);
+  return result;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
