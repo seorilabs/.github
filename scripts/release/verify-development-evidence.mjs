@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { parse } from 'yaml';
@@ -9,6 +11,37 @@ const schema = JSON.parse(readFileSync(new URL('../../contracts/development-evid
 const checkSchema = new Ajv2020({ allErrors: true }).compile(schema);
 const policy = parse(readFileSync(new URL('../../contracts/development-workflow.yaml', import.meta.url), 'utf8'));
 const MAX_E2E_AGE_MS = policy.editorE2e.maxAgeHours * 60 * 60 * 1000;
+const MAX_CARRY_FORWARD_MS = policy.foundationFeatures.carryForwardMaxAgeDays * 24 * 60 * 60 * 1000;
+// compare API는 첫 페이지에 변경 파일을 최대 300개만 준다. 300개면 잘렸을 수 있으므로 판정 불가로 본다.
+const COMPARE_FILE_LIMIT = 300;
+const INVENTORY_PATH = 'docs/qa/feature-inventory.json';
+
+const validInventoryFeature = f => typeof f.id === 'string' && f.id.trim() && typeof f.core === 'boolean'
+  && (f.foundation === undefined || typeof f.foundation === 'boolean')
+  && (f.foundation !== true || (Array.isArray(f.paths) && f.paths.length > 0 && f.paths.every(p => typeof p === 'string' && p.trim())));
+// glob의 **는 점으로 시작하는 파일을 건너뛴다. 양쪽의 선행 점을 지운 비교도 하여 놓치지 않는다(오탐은 재실행일 뿐이다).
+const undotted = value => value.replace(/(^|\/)\./gu, '$1');
+const touches = (file, pattern) => posix.matchesGlob(file, pattern) || posix.matchesGlob(undotted(file), undotted(pattern));
+const sameDefinition = (a, b) => a?.foundation === true && b?.foundation === true && JSON.stringify([...a.paths].sort()) === JSON.stringify([...b.paths].sort());
+
+// 영향 없는 기반 기능은 실제로 통과한 기준 SHA의 근거를 이어받는다. 기준부터 후보까지 바뀐 파일이 그 기능의
+// paths와 겹치거나, 비교할 수 없거나, 기능 정의가 달라졌거나, 실제 실행이 기한을 넘었으면 다시 실행해야 한다.
+function carriedForwardFeatures(document, context, inventoryFeatures, now, errors) {
+  const carried = new Set();
+  for (const item of document.carriedForward ?? []) {
+    if (carried.has(item.featureId)) { errors.push('DUPLICATE carried-forward'); continue; }
+    carried.add(item.featureId);
+    const feature = inventoryFeatures.find(f => f.id === item.featureId);
+    if (feature?.foundation !== true) { errors.push(`CARRY_FORWARD_NOT_FOUNDATION ${item.featureId}`); continue; }
+    const verifiedAt = Date.parse(item.verifiedAt);
+    if (!(verifiedAt <= now) || now - verifiedAt > MAX_CARRY_FORWARD_MS) errors.push(`CARRY_FORWARD_EXPIRED ${item.featureId}`);
+    const baseline = context.baselines?.[item.baselineSha];
+    if (!Array.isArray(baseline?.changedFiles)) { errors.push(`CARRY_FORWARD_DIFF_UNAVAILABLE ${item.featureId}`); continue; }
+    if (!sameDefinition(feature, baseline.inventory?.features?.find(f => f.id === item.featureId))) errors.push(`CARRY_FORWARD_INVENTORY_CHANGED ${item.featureId}`);
+    if (baseline.changedFiles.some(file => feature.paths.some(pattern => touches(file, pattern)))) errors.push(`CARRY_FORWARD_AFFECTED ${item.featureId}`);
+  }
+  return carried;
+}
 
 export function validateDevelopmentEvidence(document, context) {
   const errors = [];
@@ -30,7 +63,8 @@ export function validateDevelopmentEvidence(document, context) {
   const features = document.features.map(f => f.id);
   const core = document.features.filter(f => f.core).map(f => f.id);
   const inventory = context.featureInventory;
-  if (inventory?.schemaVersion !== 1 || !Array.isArray(inventory.features) || inventory.features.length === 0 || inventory.features.some(f => typeof f.id !== 'string' || !f.id.trim() || typeof f.core !== 'boolean')) {
+  const inventoryValid = inventory?.schemaVersion === 1 && Array.isArray(inventory.features) && inventory.features.length > 0 && inventory.features.every(validInventoryFeature);
+  if (!inventoryValid) {
     errors.push('SOURCE_FEATURE_INVENTORY_REQUIRED');
   } else {
     const key = f => `${f.id}:${f.core}`;
@@ -40,8 +74,9 @@ export function validateDevelopmentEvidence(document, context) {
   }
   const conditions = document.acceptance.map(a => a.id);
   unique(features, 'feature'); unique(conditions, 'acceptance');
+  const carried = carriedForwardFeatures(document, context, inventoryValid ? inventory.features : [], now, errors);
   const covered = (ids, expected, label) => {
-    if (expected.some(id => !ids.includes(id)) || ids.some(id => !features.includes(id))) errors.push(`FEATURE_COVERAGE ${label}`);
+    if (expected.some(id => !carried.has(id) && !ids.includes(id)) || ids.some(id => !features.includes(id))) errors.push(`FEATURE_COVERAGE ${label}`);
   };
   const tddIds = document.tdd.map(t => t.acceptanceId);
   unique(tddIds, 'tdd');
@@ -85,6 +120,30 @@ export function validateDevelopmentEvidence(document, context) {
 
 const EVIDENCE_ARCHIVE_TAG = 'development-evidence';
 
+const baselineShas = document => checkSchema(document) ? [...new Set((document.carriedForward ?? []).map(item => item.baselineSha))] : [];
+
+async function readRemoteInventory(repository, ref, request) {
+  const inventoryFile = await githubJson(`/repos/${repository}/contents/${INVENTORY_PATH}?ref=${ref}`, request);
+  if (inventoryFile?.encoding !== 'base64' || typeof inventoryFile.content !== 'string') throw new Error('SOURCE_FEATURE_INVENTORY_UNREADABLE');
+  try { return JSON.parse(Buffer.from(inventoryFile.content, 'base64').toString('utf8')); }
+  catch { throw new Error('SOURCE_FEATURE_INVENTORY_INVALID_JSON'); }
+}
+
+// 로컬 --file 검증은 현재 저장소의 git으로 Release 검증과 같은 비교를 한다. 이름 변경은 삭제·추가로 펼쳐 전후 경로를 모두 본다.
+function readLocalBaselines(document, sourceSha) {
+  const git = (...args) => spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const baselines = {};
+  if (!/^[a-f0-9]{40}$/u.test(sourceSha ?? '')) return baselines;
+  for (const baselineSha of baselineShas(document)) {
+    const diff = git('merge-base', '--is-ancestor', baselineSha, sourceSha).status === 0 ? git('diff', '--name-only', '--no-renames', baselineSha, sourceSha) : null;
+    const inventory = git('show', `${baselineSha}:${INVENTORY_PATH}`);
+    let parsed = null;
+    try { parsed = inventory.status === 0 ? JSON.parse(inventory.stdout) : null; } catch { parsed = null; }
+    baselines[baselineSha] = { changedFiles: diff?.status === 0 ? diff.stdout.split('\n').filter(Boolean) : null, inventory: parsed };
+  }
+  return baselines;
+}
+
 /**
  * 태그 없는 build-only·웹 검수 보관함은 draft Release 다. GitHub 의 태그 조회
  * (`GET /releases/tags/{tag}`)는 draft 를 돌려주지 않으므로 목록에서 찾는다. 목록의 draft 는
@@ -122,12 +181,19 @@ export async function verifyReleaseDevelopmentEvidence(options) {
   let document;
   try { document = JSON.parse(bytes.toString('utf8')); }
   catch { throw new Error('INVALID_EVIDENCE_JSON'); }
-  const inventoryFile = await githubJson(`/repos/${repository}/contents/docs/qa/feature-inventory.json?ref=${sourceSha}`, request);
-  if (inventoryFile?.encoding !== 'base64' || typeof inventoryFile.content !== 'string') throw new Error('SOURCE_FEATURE_INVENTORY_UNREADABLE');
-  let featureInventory;
-  try { featureInventory = JSON.parse(Buffer.from(inventoryFile.content, 'base64').toString('utf8')); }
-  catch { throw new Error('SOURCE_FEATURE_INVENTORY_INVALID_JSON'); }
-  const result = validateDevelopmentEvidence(document, { ...options, featureInventory });
+  const featureInventory = await readRemoteInventory(repository, sourceSha, request);
+  const baselines = {};
+  // 기준 커밋이나 그 시점 기능 목록이 없으면(404) 로컬 검증처럼 판정 불가로 두어 다시 실행하게 한다.
+  const unlessMissing = error => { if (error?.status === 404) return null; throw error; };
+  for (const baselineSha of baselineShas(document)) {
+    const compare = await githubJson(`/repos/${repository}/compare/${baselineSha}...${sourceSha}?per_page=1`, request).catch(unlessMissing);
+    const complete = ['ahead', 'identical'].includes(compare?.status) && Array.isArray(compare.files) && compare.files.length < COMPARE_FILE_LIMIT;
+    baselines[baselineSha] = {
+      changedFiles: complete ? compare.files.flatMap(f => [f.filename, f.previous_filename].filter(Boolean)) : null,
+      inventory: await readRemoteInventory(repository, baselineSha, request).catch(unlessMissing),
+    };
+  }
+  const result = validateDevelopmentEvidence(document, { ...options, featureInventory, baselines });
   if (!result.ok) throw new Error(result.errors.join('\n'));
   return { ...result, assetId: asset.id, completedAt: document.e2e.completedAt };
 }
@@ -144,8 +210,9 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   let result;
   if (args.has('file')) {
     const document = JSON.parse(readFileSync(args.get('file'), 'utf8'));
-    const featureInventory = JSON.parse(readFileSync(args.get('feature-inventory') ?? 'docs/qa/feature-inventory.json', 'utf8'));
-    result = { ...validateDevelopmentEvidence(document, { ...context, featureInventory }), completedAt: document?.e2e?.completedAt };
+    const featureInventory = JSON.parse(readFileSync(args.get('feature-inventory') ?? INVENTORY_PATH, 'utf8'));
+    const baselines = readLocalBaselines(document, context.sourceSha);
+    result = { ...validateDevelopmentEvidence(document, { ...context, featureInventory, baselines }), completedAt: document?.e2e?.completedAt };
   } else {
     result = await verifyReleaseDevelopmentEvidence({ ...context, tag: args.get('tag') ?? EVIDENCE_ARCHIVE_TAG, env });
   }

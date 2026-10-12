@@ -8,6 +8,16 @@
     {
       "id": "settings",
       "core": false
+    },
+    {
+      "id": "premium-purchase",
+      "core": false,
+      "foundation": true,
+      "paths": [
+        "src/adapters/purchase/**",
+        "src/screens/shop/**",
+        "android/app/build.gradle"
+      ]
     }
   ]
 }
