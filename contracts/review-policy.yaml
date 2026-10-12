@@ -18,6 +18,50 @@ changedLines:
     - generated-files
     - lock-files
 
+requestObligation:
+  requiredForApplicableStage: true
+  reviewResultCountsAsApproval: false
+  resultUnavailableRequiresRecordedReason: true
+  skipWhen:
+    - docs-only-change
+    - translations-only-change
+    - assets-only-change
+    - generated-file-only-change
+    - release-metadata-only-change
+
+repositoryExemptions:
+  repositories:
+    - seorilabs-backoffice
+    - seorilabs-official
+    - .github
+  skipReviewRequest: true
+  exceptWhen:
+    - security-sensitive-change
+    - payment-change
+    - data-format-change
+    - data-integrity-change
+    - release-logic-change
+
+copilotEffort:
+  default: lite
+  verifyFrom: review-overview-comment
+
+reviewFailures:
+  diagnoseBeforeRetry: true
+  allRequestsCountTowardLimit: true
+  allowanceExhausted:
+    retry: after-confirmed-reset-or-entitlement-restored
+    recordResetTime: if-provider-reported
+  transientRateLimit:
+    retry: once-after-provider-retry-time
+    unknownRetryTime: no-automatic-retry
+  unclassifiedLimit:
+    retry: no-automatic-retry
+  otherError:
+    maxRetries: 1
+  inventResetTime: false
+  changePaidUsageBudget: false
+
 reviewRounds:
   maxRequestsPerPr: 2
   findingAcceptance: concrete-failure-scenario-in-scope
@@ -35,11 +79,12 @@ stages:
     mode: advisory
     trigger: review-request
     reviewer: "copilot-pull-request-reviewer[bot]"
-    optional: true
+    optional: false
     countsAsApproval: false
     blocking: false
     allowedWhen:
       - code-change
+      - configuration-logic-change
       - author-request
     skipWhen:
       - docs-only-change
@@ -50,12 +95,15 @@ stages:
   - id: cross-model-review
     order: 1
     mode: advisory
-    optional: true
+    optional: false
     countsAsApproval: false
     blocking: false
     allowedWhen:
       - security-sensitive-change
+      - payment-change
       - data-format-change
+      - data-integrity-change
+      - release-logic-change
       - large-code-change
     largeCodeChange:
       minChangedLines: 500
@@ -78,6 +126,7 @@ stages:
         resultPostedBy: author
     fallback:
       stage: assisted-review
+      copilotEffort: balanced
       unavailableAuthors:
         - codex-cloud
       when:
