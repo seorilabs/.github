@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "kind": "human_release_approval",
+  "approvedAt": "2026-10-12T22:39:42.421196+00:00",
+  "userApprovalVerbatim": "1.1.0 후보 전용 예외 설계와 중앙·앱 파이프라인 변경, 남은 미확인 위험까지 승인. 추가 결제 테스트 없이 빌드·심사·공개까지 진행해.",
+  "proposalSha256": "a81b4a86f9b2bb17adb17dd2848c9d06bcf0ec3f02c3922f364f0d627d6dbd53",
+  "baselineSourceSha": "0f6e2f8cc2e2e2524fc488e34e029af925151c53",
+  "centralBaseSha": "992d2aff8fc544c64443a91bb63475902bae5ed5",
+  "markets": [
+    "google-play",
+    "app-store"
+  ],
+  "releaseTag": "v1.1.0",
+  "objective": "public_live",
+  "allowedAppFiles": [
+    ".github/workflows/deploy-google-play.yml",
+    "xcode-cloud/ci_scripts/verify_development_evidence.sh"
+  ],
+  "productTreeChangesAllowed": false,
+  "approvedUnverifiedRisks": [
+    "native authentication",
+    "remote account deletion",
+    "save/error/restart integration and incomplete whole26-feature E2E",
+    "previous Apple sandbox TEST HTTP404/no token and notification receiver/refund ledger unknown",
+    "physical-device IAP purchase/recovery/refund tests waived"
+  ],
+  "newPhysicalIapTestsAllowed": false,
+  "newUiOrWholeE2eRoundsAllowed": false,
+  "realMoneyPurchasesAllowed": false,
+  "sameAuthorizedScopeRepeatApprovalRequired": false,
+  "countriesExpandOnlyAfterEachMarket110Public": true,
+  "adsEnabled": false,
+  "appsInTossExcluded": true,
+  "privateReceiptSha256": "c0a6a163e2bab2effb838eac3eefd118e548b1da0ff28b6d42d7545d2f952a74"
+}

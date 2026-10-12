@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { parse } from 'yaml';
+import { parseArgs as parseXcodeArgs } from '../scripts/trigger-xcode-cloud.mjs';
 
 const read = name => parse(readFileSync(`.github/workflows/${name}.yml`, 'utf8'));
 const entries = [
@@ -58,4 +59,31 @@ test('Xcode Cloud start verifies the exact tag candidate before the mutation', (
   const gate = script.indexOf('await verifyReleaseDevelopmentEvidence');
   assert.ok(gate > script.indexOf('await resolveGitHubTagCommit'));
   assert.ok(gate < script.indexOf('appStoreConnect("/v1/ciBuildRuns"'));
+});
+test('Godot Android exception is explicit and keeps both central gates and actual deploy artifact binding', () => {
+  const workflow = read('godot-deploy-google-play');
+  assert.equal(workflow.on.workflow_call.inputs.release_exception_id.default, '');
+  assert.equal(workflow.on.workflow_call.inputs.configuration_fingerprint.default, '');
+  const steps = Object.values(workflow.jobs).find(job => job.steps?.some(step => step.name === 'Upload to Google Play')).steps;
+  const build = steps.find(step => step.name === 'Verify Editor E2E before-build');
+  const deploy = steps.find(step => step.name === 'Verify Editor E2E before-deploy');
+  for (const step of [build, deploy]) {
+    assert.match(step.run, /if \[ -n "\$RELEASE_EXCEPTION_ID" \]/u);
+    assert.match(step.run, /--configuration-fingerprint "\$CONFIGURATION_FINGERPRINT"/u);
+    assert.match(step.run, /--verifier-sha/u);
+    assert.match(step.run, /--report/u);
+  }
+  assert.doesNotMatch(build.run, /--artifact/u);
+  assert.match(deploy.run, /--artifact-receipt/u); assert.match(deploy.run, /--artifact-file "\$VERIFIED_AAB_PATH"/u);
+  const preserve = steps.findIndex(step => step.name === 'Preserve release exception verdicts');
+  assert.ok(preserve > steps.indexOf(deploy)); assert.ok(preserve < steps.findIndex(step => step.name === 'Upload to Google Play'));
+});
+test('Xcode trigger requires exception fingerprint and verifier SHA without changing normal arguments', () => {
+  const base = ['--tag', 'v1.1.0', '--bundle-id', 'com.seorilabs.reascend'];
+  assert.deepEqual(parseXcodeArgs(base), { tag: 'v1.1.0', bundleId: 'com.seorilabs.reascend', workflowName: '', start: true });
+  assert.throws(() => parseXcodeArgs([...base, '--release-exception-id', 'reascend-1.1.0']));
+  const parsed = parseXcodeArgs([...base, '--release-exception-id', 'reascend-1.1.0', '--configuration-fingerprint', 'a'.repeat(64), '--verifier-sha', 'b'.repeat(40)]);
+  assert.equal(parsed.exceptionId, 'reascend-1.1.0');
+  const script = readFileSync('scripts/trigger-xcode-cloud.mjs', 'utf8');
+  assert.match(script, /exceptionId, configurationFingerprint, verifierSha/u);
 });

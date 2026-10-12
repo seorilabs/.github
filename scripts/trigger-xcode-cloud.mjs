@@ -116,13 +116,20 @@ export function parseArgs(argv) {
   // 빌드를 실제로 시작하지 않고 제품·workflow·태그 ref 해석까지만 한다. 배선을 바꾼 뒤
   // 진짜 빌드를 태우지 않고 확인할 수 있어야 한다.
   const start = (values.get("--start") ?? "true") !== "false";
+  const exceptionId = values.get("--release-exception-id") ?? "";
+  const configurationFingerprint = values.get("--configuration-fingerprint") ?? "";
+  const verifierSha = values.get("--verifier-sha") ?? "";
+  if (exceptionId && (!/^[a-f0-9]{64}$/.test(configurationFingerprint) || !/^[a-f0-9]{40}$/.test(verifierSha))) {
+    throw new Error("출시 예외에는 마켓 설정 지문과 실제 중앙 검증기 SHA가 필요합니다.");
+  }
   if (!/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(tag)) {
     throw new Error(`release tag는 vX.Y.Z 형식이어야 합니다: ${tag || "empty"}`);
   }
   if (!bundleId) {
     throw new Error("--bundle-id가 필요합니다.");
   }
-  return { tag, bundleId, workflowName, start };
+  return { tag, bundleId, workflowName, start, ...(exceptionId ? { exceptionId, configurationFingerprint, verifierSha,
+    reportPath: values.get("--report") ?? "" } : {}) };
 }
 
 async function appStoreConnect(path, token, init = {}) {
@@ -145,7 +152,7 @@ async function appStoreConnect(path, token, init = {}) {
 }
 
 async function main() {
-  const { tag, bundleId, workflowName, start } = parseArgs(process.argv.slice(2));
+  const { tag, bundleId, workflowName, start, exceptionId, configurationFingerprint, verifierSha, reportPath } = parseArgs(process.argv.slice(2));
   const token = makeAppStoreConnectToken({
     keyId: requiredEnv("APP_STORE_CONNECT_API_KEY_ID"),
     issuerId: requiredEnv("APP_STORE_CONNECT_ISSUER_ID"),
@@ -171,8 +178,13 @@ async function main() {
     const repository = requiredEnv("GITHUB_REPOSITORY");
     const githubToken = process.env.GH_TOKEN || requiredEnv("GITHUB_TOKEN");
     const candidate = await resolveGitHubTagCommit({ repository, ref: tag, token: githubToken });
-    await verifyReleaseDevelopmentEvidence({ repository, tag, sourceSha: candidate.sourceSha,
-      target: "app-store", phase: "before-build", token: githubToken });
+    const verification = await verifyReleaseDevelopmentEvidence({ repository, tag, sourceSha: candidate.sourceSha,
+      target: "app-store", phase: "before-build", token: githubToken,
+      ...(exceptionId ? { exceptionId, configurationFingerprint, verifierSha } : {}) });
+    if (exceptionId) {
+      if (reportPath) fs.writeFileSync(reportPath, `${JSON.stringify(verification, null, 2)}\n`);
+      console.log(`출시 판정 ${verification.decisionStatus}; 제품 E2E blocked`);
+    }
     const run = await appStoreConnect("/v1/ciBuildRuns", token, {
       method: "POST",
       body: JSON.stringify({

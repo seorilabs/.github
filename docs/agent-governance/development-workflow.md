@@ -88,6 +88,71 @@ node scripts/release/verify-development-evidence.mjs \
 
 검증기는 후보 SHA의 기능 목록을 GitHub contents API에서 직접 읽어 보고서가 목록 자체를 줄였는지도 확인한다. 목록이 없으면 통과시키지 않는다. 이어받은 기반 기능은 GitHub compare API와 기준 SHA의 기능 목록으로, 로컬 `--file` 검증은 현재 저장소의 git으로 같은 판정을 한다. 검증기는 구조·후보 일치·회차·독립 검수자·시간 순서·기능 누락·통과 상태를 확인한다. 첨부 내용만으로 실제 플레이나 사람 승인을 증명하지 않는다. 작성자와 독립 검수자는 승인·실행·접근 가능한 증거를 확인할 책임이 있다.
 
+## 명시적으로 승인한 한 릴리스의 예외
+
+[release-exception.schema.json](../../contracts/release-exception.schema.json)은 [일반 v1 PASS 근거](../../contracts/development-evidence.schema.json)와 별도다. 예외는 E2E 통과가 아니라 위험을 사람이 수용한 출시 판단이며 `decisionStatus:human_exception`, `productE2eStatus:blocked`를 출력한다. `--release-exception-id`를 명시하지 않으면 기존 검증만 수행한다. 빈 근거·자동 fallback·환경변수로 검증기를 끄는 경로는 없다.
+
+현재 검토된 grant는 `seorilabs/reascend`의 `v1.1.0` 하나다. [승인 설계](../design/2026-10-13-reascend-release-exception/design.md), [grant](../../contracts/release-exceptions/reascend-1.1.0.json), [공개용 원문 승인](../../contracts/release-exceptions/reascend-1.1.0.approval.json), [원래 26기능 판정](../../contracts/release-exceptions/reascend-1.1.0.observations.json)을 결속한다. local home 경로·대화 식별자는 공개 receipt에 넣지 않고 private 원본의 해시만 연결한다. 향후 grant 추가는 조직 계약 변경과 사람 승인·필수 코드 리뷰를 거쳐야 한다. runtime manifest의 `approver:human` 같은 자기 선언은 승인으로 인정하지 않는다.
+
+마켓별 최종 source SHA, 비밀값 없는 실제 설정 SHA-256, 검증기 SHA, 기준 제품 tree와 26기능 inventory, 원문 승인/설계/관측 판정 해시, 최대 168시간을 확인한다. 실제 전체 E2E를 실행하지 않았다면 실행 시각을 만들거나 승인 시각을 E2E 완료 시각으로 쓰지 않는다. 기존 scoped PASS/partial/unknown/blocked를 보존하며, 실제 통과한 기반 기능의 30일 승계와 이번 사람 예외를 혼동하지 않는다.
+
+기준부터 후보까지 `.github/workflows/deploy-google-play.yml`·`xcode-cloud/ci_scripts/verify_development_evidence.sh` 두 파일만 바뀔 수 있다. Git recursive tree 전체를 읽어 두 파일 외 blob/모드/submodule의 동일성과 inventory 원문 해시를 비교한다. truncated 조회는 실패다. 두 파일 변경으로 새 SHA가 생기면 그 SHA에 manifest를 결속하며, 이전 UI8를 새 후보의 전체 PASS로 바꾸지 않는다.
+
+다음 자산을 같은 `v1.1.0` GitHub Release에 붙인다. GitHub Release 공개 상태와 마켓 공개는 별개다. draft 자산의 조회에는 push 권한이 필요할 수 있으며 조회 불가면 중단한다.
+
+```text
+release-exception.google-play.json
+release-exception.app-store.json
+release-exception.approval.json
+release-risk-notes.md
+release-exception.original-ui-review-8.md
+release-exception.original-final-e2e-result.json
+```
+
+[manifest 예제](templates/release-exception.example.json)의 반복 숫자는 placeholder이며 실제 실행값으로 교체한다. `sourceSha`, `verifierSha`, 마켓별 `configurationFingerprint`, `productTreeSha256`은 실행자가 계산한다. 제품 tree digest는 허용 두 파일을 제외한 recursive tree의 non-tree 항목을 path의 Unicode 순서로 정렬한 `[{path,type,mode,sha}]`를 `JSON.stringify`한 SHA-256이다. [위험 기록 예제](templates/release-risk-notes.example.md)의 정확한 bytes를 해시해 `riskNotesSha256`에 넣는다. 관측 판정과 승인 bytes는 중앙 원본과 같아야 한다.
+
+두 원본 보고서는 기존 파일의 정확한 bytes를 위 자산명으로 첨부한다. 각 실제 phase에서 다운로드해 검토된 관측 기록의 해시와 비교한다. 누락·변조는 중단하며 이전 실행 시각을 갱신하지 않는다. 비공개 원본의 사용자 경로는 공개 중앙 저장소의 테스트 fixture에 복사하지 않는다.
+
+태그 발급 전 검사에는 `releaseBinding:null`을 쓴다. 이는 `preflight_ready`이며 빌드·업로드를 허가하지 않는다. source가 이미 원격에서 조회돼야 하고 현재 main의 grant도 조회 가능해야 한다.
+
+```bash
+node scripts/release/verify-development-evidence.mjs \
+  --repo seorilabs/reascend --tag v1.1.0 --sha <final-sha> \
+  --target google-play --phase before-build \
+  --release-exception-id reascend-1.1.0 --configuration-fingerprint <market-sha256> \
+  --verifier-sha <reviewed-central-sha> --preflight true \
+  --exception-file /path/to/actual-manifest.json --risk-notes-file /path/to/actual-risk-notes.md \
+  --original-evidence-dir /path/to/original-report-assets \
+  --report /path/to/preflight.json
+```
+
+공식 태그 발급 뒤 `releaseBinding`에 실제 annotated tag object SHA와 태그 message 원문의 SHA-256을 채운다. 실제 phase는 Release 자산을 다시 읽고 공식 receipt의 source/version/authority를 검증한다. 모든 phase에서 최신 중앙 main의 같은 grant를 조회해 철회·승인 핵심값 변경을 확인한다. 조회 불가나 `revoked:true`면 고정 pin의 검증기도 실패한다. 중앙의 무관 커밋만 바뀌면 grant 내용이 같으므로 이 조회는 막지 않는다.
+
+before-build에는 아직 없는 artifact를 요구하지 않는다. before-deploy에는 Android의 공식 release binding, artifact receipt, 실제 AAB 파일이 필요하다. iOS는 변경하지 않은 고정 helper `53c0819ec0976a48c7e8302234bcfc408f0a1e0b`가 만든 binding, 실제 서명 앱 Info.plist와 `CI_BUILD_NUMBER`를 대조한다. iOS archive의 CI 번호와 공식 태그 receipt의 encoded 번호는 구별한다. 이 provenance는 grant와 판정 리포트에 기록한다.
+
+```bash
+# 실제 before-build: preflight 인자 없이 Release 자산을 읽는다.
+node scripts/release/verify-development-evidence.mjs \
+  --repo seorilabs/reascend --tag v1.1.0 --sha <final-sha> \
+  --target google-play --phase before-build \
+  --release-exception-id reascend-1.1.0 --configuration-fingerprint <market-sha256> \
+  --verifier-sha <reviewed-central-sha> --report /path/to/before-build.json
+
+# Android before-deploy에는 기존 공식 도구로 생성·검증한 산출물을 추가한다.
+# 위 공통 인자 + --phase before-deploy
+# --release-binding /path/to/release-binding.json
+# --artifact-receipt /path/to/release-artifact-receipt.txt --artifact-file /path/to/verified.aab
+
+# iOS before-deploy에는 고정 helper의 실제 binding과 서명 앱 plist를 추가한다.
+# 위 공통 인자 + --target app-store --phase before-deploy
+# --release-binding /path/to/.seori-release-binding.json
+# --artifact-file /path/to/signed.app/Info.plist --xcode-build-number <actual-CI_BUILD_NUMBER>
+```
+
+검증기는 상태·원래 판정·승인 해시·후보·설정·태그·artifact를 JSON으로 보존한다. 예외에서 기존 ‘개발 검수 근거 통과’ 문구를 쓰지 않는다. Android caller와 Xcode hook/trigger는 계속 중앙 검증기를 실행한다. 예외 만료·철회·후보/설정 변경·해당 릴리스 종료 시 manifest를 닫고 다시 사용하지 않는다. 중앙 일반 지원은 검토된 계약으로 유지하며 임시 우회를 제거할 때까지 방치하는 방식은 사용하지 않는다.
+
+서명, 상품·가격·지급·한도, 판매자·유료 계약·정산, 국가 정책·연령/확률 공시, 마켓 심사·승인·공개·실서비스 조회는 면제하지 않는다. 사용자용 마켓 문구와 별도로 릴리스의 운영 위험 기록에 미확인 항목과 판정 리포트를 남긴다.
+
 ## 자율 처리와 적용
 
 자율 이슈 계약 v4는 승인 설계 없는 항목의 **설계 작성**과 **코드 구현**을 구분한다. 접수·근거 조사·설계 초안은 가능하지만 구현 전 사람 검토를 기다린다. 해당 항목에 승인 대기를 기록하고 다른 미시도 적격 항목으로 진행한다. 승인된 범위에서는 TDD·3회 검수·PR·CI·병합을 계속한다. 기존 lease, 우선순위, 동시 처리 1개와 외부 배포 승인 경계를 유지한다. 기존 v2/v3 의미로 자동 구현하지 않는다.

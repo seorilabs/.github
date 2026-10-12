@@ -12,7 +12,8 @@
     "uiReview",
     "editorE2e",
     "foundationFeatures",
-    "autonomousImplementation"
+    "autonomousImplementation",
+    "releaseExceptions"
   ],
   "properties": {
     "schemaVersion": {
@@ -303,6 +304,71 @@
         },
         "approvalDoesNotAuthorizeRelease": {
           "const": true
+        }
+      }
+    },
+    "releaseExceptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "optIn",
+        "approvalTrust",
+        "originalVerdicts",
+        "decisionStatus",
+        "productE2eStatus",
+        "maxAgeHours",
+        "phases",
+        "beforeBuildArtifactRequired",
+        "beforeDeployArtifactRequired",
+        "revocation",
+        "crossCandidateMarketReleaseReuse",
+        "grantRegistry"
+      ],
+      "properties": {
+        "schema": {
+          "const": "contracts/release-exception.schema.json"
+        },
+        "optIn": {
+          "const": "explicit-reviewed-exception-id"
+        },
+        "approvalTrust": {
+          "const": "immutable-reviewed-central-grant"
+        },
+        "originalVerdicts": {
+          "const": "preserve"
+        },
+        "decisionStatus": {
+          "const": "human_exception"
+        },
+        "productE2eStatus": {
+          "const": "blocked"
+        },
+        "maxAgeHours": {
+          "const": 168
+        },
+        "phases": {
+          "const": [
+            "before-build",
+            "before-deploy"
+          ]
+        },
+        "beforeBuildArtifactRequired": {
+          "const": false
+        },
+        "beforeDeployArtifactRequired": {
+          "const": true
+        },
+        "revocation": {
+          "const": "read-current-central-grant-every-phase"
+        },
+        "crossCandidateMarketReleaseReuse": {
+          "const": "forbidden"
+        },
+        "grantRegistry": {
+          "const": [
+            "contracts/release-exceptions/reascend-1.1.0.json"
+          ]
         }
       }
     }
