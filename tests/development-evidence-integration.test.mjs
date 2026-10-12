@@ -168,8 +168,14 @@ test('local CLI compares the baseline with git in the product repository', () =>
     git('reset', '-q', '--hard', unaffected);
     for (let i = 0; i < 300; i += 1) writeFileSync(join(dir, `src/create/${i}.ts`), 'v1');
     const large = commit('src/create/last.ts', 'v1');
-    const run = sha => {
-      const d = carriedEvidence(sha, baseline), now = Date.now();
+    git('reset', '-q', '--hard', unaffected);
+    for (let i = 0; i < 150; i += 1) writeFileSync(join(dir, `src/create/r${i}.ts`), `r${i}`);
+    const renameBaseline = commit('src/create/r-last.ts', 'r-last');
+    mkdirSync(join(dir, 'src/create/moved'), { recursive: true });
+    for (let i = 0; i < 150; i += 1) git('mv', `src/create/r${i}.ts`, `src/create/moved/r${i}.ts`);
+    const renamed = commit('src/create/r-last.ts', 'r-last-2');
+    const run = (sha, from = baseline) => {
+      const d = carriedEvidence(sha, from), now = Date.now();
       d.carriedForward[0].verifiedAt = new Date(now - 7200000).toISOString();
       d.e2e.plannedAt = new Date(now - 60000).toISOString(); d.e2e.startedAt = new Date(now - 40000).toISOString(); d.e2e.completedAt = new Date(now - 20000).toISOString();
       d.iterations.forEach((r, i) => {
@@ -190,5 +196,8 @@ test('local CLI compares the baseline with git in the product repository', () =>
     }
     const truncated = run(large);
     assert.equal(truncated.status, 1); assert.match(truncated.stderr, /CARRY_FORWARD_DIFF_UNAVAILABLE purchase/u);
+    // Release compare처럼 이름 변경은 한 건으로 센다(151건 < 300).
+    const renames = run(renamed, renameBaseline);
+    assert.equal(renames.status, 0, renames.stderr);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

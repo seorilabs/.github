@@ -131,18 +131,29 @@ async function readRemoteInventory(repository, ref, request) {
   catch { throw new Error('SOURCE_FEATURE_INVENTORY_INVALID_JSON'); }
 }
 
-// 로컬 --file 검증은 현재 저장소의 git으로 Release 검증과 같은 비교를 한다. 이름 변경은 삭제·추가로 펼쳐 전후 경로를 모두 보고,
-// 한글 등 비ASCII 경로가 따옴표로 바뀌지 않도록 NUL 구분 출력을 읽는다.
+// 로컬 --file 검증은 현재 저장소의 git으로 Release 검증과 같은 비교를 한다. compare API처럼 이름 변경을 한 건으로 세고
+// 전후 경로를 모두 보며, 한글 등 비ASCII 경로가 따옴표로 바뀌지 않도록 NUL 구분 출력을 읽는다.
+function parseNameStatus(output) {
+  const parts = output.split('\0');
+  const entries = [];
+  for (let i = 0; i < parts.length && parts[i];) {
+    const width = /^[RC]/u.test(parts[i]) ? 2 : 1;
+    entries.push(parts.slice(i + 1, i + 1 + width));
+    i += 1 + width;
+  }
+  return entries;
+}
+
 function readLocalBaselines(document, sourceSha) {
   const git = (...args) => spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const baselines = {};
   if (!/^[a-f0-9]{40}$/u.test(sourceSha ?? '')) return baselines;
   for (const baselineSha of baselineShas(document)) {
-    const diff = git('merge-base', '--is-ancestor', baselineSha, sourceSha).status === 0 ? git('diff', '--name-only', '--no-renames', '-z', baselineSha, sourceSha) : null;
+    const diff = git('merge-base', '--is-ancestor', baselineSha, sourceSha).status === 0 ? git('diff', '--name-status', '--find-renames', '-z', baselineSha, sourceSha) : null;
     const inventory = git('show', `${baselineSha}:${INVENTORY_PATH}`);
     let parsed = null;
     try { parsed = inventory.status === 0 ? JSON.parse(inventory.stdout) : null; } catch { parsed = null; }
-    baselines[baselineSha] = { changedFiles: diff?.status === 0 ? withinCompareLimit(diff.stdout.split('\0').filter(Boolean)) : null, inventory: parsed };
+    baselines[baselineSha] = { changedFiles: diff?.status === 0 ? withinCompareLimit(parseNameStatus(diff.stdout))?.flat() ?? null : null, inventory: parsed };
   }
   return baselines;
 }
