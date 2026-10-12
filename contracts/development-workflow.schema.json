@@ -11,6 +11,7 @@
     "implementation",
     "uiReview",
     "editorE2e",
+    "foundationFeatures",
     "autonomousImplementation"
   ],
   "properties": {
@@ -234,6 +235,54 @@
         },
         "verifier": {
           "const": "scripts/release/verify-development-evidence.mjs"
+        }
+      }
+    },
+    "foundationFeatures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inventoryFlag",
+        "impactPaths",
+        "appliesTo",
+        "unaffectedMayCarryForward",
+        "impactBaseline",
+        "impactDetection",
+        "unknownImpact",
+        "carryForwardMaxAgeDays",
+        "realDeviceCheck"
+      ],
+      "properties": {
+        "inventoryFlag": {
+          "const": "foundation"
+        },
+        "impactPaths": {
+          "const": "paths"
+        },
+        "appliesTo": {
+          "type": "array",
+          "const": [
+            "ui-review",
+            "editor-e2e"
+          ]
+        },
+        "unaffectedMayCarryForward": {
+          "const": true
+        },
+        "impactBaseline": {
+          "const": "actual-passing-run-sha"
+        },
+        "impactDetection": {
+          "const": "changed-files-since-baseline"
+        },
+        "unknownImpact": {
+          "const": "rerun"
+        },
+        "carryForwardMaxAgeDays": {
+          "const": 30
+        },
+        "realDeviceCheck": {
+          "const": "once-per-candidate"
         }
       }
     },

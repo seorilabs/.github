@@ -60,6 +60,18 @@ editorE2e:
   evidenceSchema: contracts/development-evidence.schema.json
   releaseAssetPattern: development-evidence.<target>.<phase>.json
   verifier: scripts/release/verify-development-evidence.mjs
+foundationFeatures:
+  inventoryFlag: foundation
+  impactPaths: paths
+  appliesTo:
+    - ui-review
+    - editor-e2e
+  unaffectedMayCarryForward: true
+  impactBaseline: actual-passing-run-sha
+  impactDetection: changed-files-since-baseline
+  unknownImpact: rerun
+  carryForwardMaxAgeDays: 30
+  realDeviceCheck: once-per-candidate
 autonomousImplementation:
   approvedDesignRequired: true
   missingApproval: draft-design-and-continue-next-unattempted

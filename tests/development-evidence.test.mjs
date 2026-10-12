@@ -95,3 +95,70 @@ test('E2E older than seven days must run again', () => {
 test('a reused run still requires the same configuration fingerprint', () => {
   assert.equal(validateDevelopmentEvidence(validEvidence(), { ...context, phase: 'before-deploy', configurationFingerprint: 'd'.repeat(64) }).ok, false);
 });
+
+// 영향 없는 기반 기능은 실제로 통과한 기준 SHA의 근거를 이어받는다(30일, 경로 자동 판정).
+const BASE = 'e'.repeat(40);
+function carryForwardCase() {
+  const featureInventory = { schemaVersion: 1, features: [
+    { id: 'create', core: true }, { id: 'settings', core: false },
+    { id: 'purchase', core: true, foundation: true, paths: ['src/purchase/**', 'android/app/build.gradle'] },
+  ] };
+  const d = validEvidence();
+  d.features.push({ id: 'purchase', core: true });
+  d.carriedForward = [{ featureId: 'purchase', baselineSha: BASE, verifiedAt: '2026-10-01T00:00:00Z', evidence: ['https://example.com/device-purchase'] }];
+  const ctx = { ...context, featureInventory, baselines: { [BASE]: { changedFiles: ['src/create/form.ts', 'docs/qa/feature-inventory.json'], inventory: structuredClone(featureInventory) } } };
+  return { d, ctx };
+}
+const carryErrors = (d, ctx) => validateDevelopmentEvidence(d, ctx).errors;
+
+test('an unaffected foundation feature is carried forward instead of rerun in rounds and E2E', () => {
+  const { d, ctx } = carryForwardCase();
+  assert.deepEqual(validateDevelopmentEvidence(d, ctx), { ok: true, errors: [] });
+});
+test('a foundation feature without a carried-forward record still needs every round and E2E', () => {
+  const { d, ctx } = carryForwardCase(); delete d.carriedForward;
+  const errors = carryErrors(d, ctx);
+  assert.ok(errors.includes('FEATURE_COVERAGE functional-1')); assert.ok(errors.includes('FEATURE_COVERAGE e2e-all-implemented-features'));
+});
+for (const file of ['src/purchase/billing.ts', 'src/purchase/.env', 'android/app/build.gradle']) {
+  test(`a change to ${file} makes the foundation feature run again`, () => {
+    const { d, ctx } = carryForwardCase(); ctx.baselines[BASE].changedFiles.push(file);
+    assert.ok(carryErrors(d, ctx).includes('CARRY_FORWARD_AFFECTED purchase'));
+  });
+}
+test('a product feature cannot be carried forward', () => {
+  const { d, ctx } = carryForwardCase(); d.carriedForward[0].featureId = 'settings';
+  assert.ok(carryErrors(d, ctx).includes('CARRY_FORWARD_NOT_FOUNDATION settings'));
+});
+test('a foundation feature must declare the paths that decide its impact', () => {
+  const { d, ctx } = carryForwardCase(); delete ctx.featureInventory.features[2].paths;
+  assert.ok(carryErrors(d, ctx).includes('SOURCE_FEATURE_INVENTORY_REQUIRED'));
+});
+test('carried-forward evidence stays valid for thirty days from the actual run', () => {
+  const { d, ctx } = carryForwardCase();
+  assert.equal(validateDevelopmentEvidence(d, { ...ctx, now: '2026-10-30T23:59:00Z', phase: 'before-deploy' }).errors.includes('CARRY_FORWARD_EXPIRED purchase'), false);
+  d.carriedForward[0].verifiedAt = '2026-09-07T05:59:00Z';
+  assert.ok(carryErrors(d, ctx).includes('CARRY_FORWARD_EXPIRED purchase'));
+  d.carriedForward[0].verifiedAt = '2026-10-09T00:00:00Z';
+  assert.ok(carryErrors(d, ctx).includes('CARRY_FORWARD_EXPIRED purchase'));
+});
+for (const [name, change] of [['missing comparison', ctx => { delete ctx.baselines[BASE]; }], ['unknown comparison', ctx => { ctx.baselines[BASE].changedFiles = null; }]]) {
+  test(`${name} makes the foundation feature run again`, () => {
+    const { d, ctx } = carryForwardCase(); change(ctx);
+    assert.ok(carryErrors(d, ctx).includes('CARRY_FORWARD_DIFF_UNAVAILABLE purchase'));
+  });
+}
+for (const [name, change] of [['narrowed paths', f => { f.paths = ['src/purchase/**', 'src/legacy/**']; }], ['no foundation flag', f => { delete f.foundation; }], ['malformed paths', f => { delete f.paths; }]]) {
+  test(`baseline inventory with ${name} makes the feature run again`, () => {
+    const { d, ctx } = carryForwardCase(); change(ctx.baselines[BASE].inventory.features[2]);
+    assert.ok(carryErrors(d, ctx).includes('CARRY_FORWARD_INVENTORY_CHANGED purchase'));
+  });
+}
+test('reordered paths are the same feature definition', () => {
+  const { d, ctx } = carryForwardCase(); ctx.baselines[BASE].inventory.features[2].paths.reverse();
+  assert.equal(validateDevelopmentEvidence(d, ctx).ok, true);
+});
+test('the same feature cannot be carried forward twice', () => {
+  const { d, ctx } = carryForwardCase(); d.carriedForward.push({ ...d.carriedForward[0] });
+  assert.ok(carryErrors(d, ctx).includes('DUPLICATE carried-forward'));
+});
