@@ -18,7 +18,7 @@
     {
       "id": "matching-game",
       "core": true,
-      "originalVerdict": "UI1~3·최종 Editor 확인 범위 통과; 실제 iPhone/iPad 미검증(원본 회차별 한계 보존)",
+      "originalVerdict": "UI1 inactive창 입력/표시 정체 관찰·원인 미확정 보존; UI1~3·최종 Editor 실제 확인 범위 통과; 실제 iPhone/iPad 미검증",
       "wholeFeatureStatus": "partial"
     },
     {
@@ -30,7 +30,7 @@
     {
       "id": "timing-and-splits",
       "core": true,
-      "originalVerdict": "UI1~3·최종 Editor 확인 범위 통과; 실제 iPhone/iPad 미검증(원본 회차별 한계 보존)",
+      "originalVerdict": "UI1 76초 타이머 정체 관찰·원인 미확정 보존(제품 원인 단정 안 함); UI2~3·최종 Editor 시간·구간 확인 범위 통과; 실제 iPhone/iPad 미검증",
       "wholeFeatureStatus": "partial"
     },
     {
@@ -60,8 +60,8 @@
     {
       "id": "native-leaderboards",
       "core": false,
-      "originalVerdict": "UI1~3·최종 Editor desktop 미지원 숨김/게임 유지 범위 통과; 실제 Game Center 미검증",
-      "wholeFeatureStatus": "unknown"
+      "originalVerdict": "UI1~3·최종 Editor desktop 미지원 숨김/게임 유지 범위 통과; 최종 원본 nativeStatus blocked·실제 Game Center 미검증",
+      "wholeFeatureStatus": "blocked"
     },
     {
       "id": "interstitial-and-privacy",
@@ -78,8 +78,8 @@
     {
       "id": "analytics",
       "core": false,
-      "originalVerdict": "UI1~3 desktop no-op/게임 진행 유지 범위 통과; 현재 iOS 설정의 별도 앱 GA4 전송 expected_disabled; 제공자 전송 성공 미검증",
-      "wholeFeatureStatus": "not_run"
+      "originalVerdict": "UI1~3 desktop no-op/게임 진행 유지 범위 통과; 현재 iOS 별도 앱 GA4 전송 expected_disabled; 최종 원본 nativeStatus blocked·native 전송 미검증",
+      "wholeFeatureStatus": "blocked"
     }
   ],
   "observations": [
