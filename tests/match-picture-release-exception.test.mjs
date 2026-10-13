@@ -111,7 +111,7 @@ for (const path of Object.keys(configGrant.executionConfiguration['app-store'].s
   mkdirSync(join(app, path, '..'), { recursive: true });
   writeFileSync(join(app, path), path === 'godot/analytics.config.json' ? '{"measurement_id":"","api_secret":""}\n'
     : path === 'godot/project.godot' ? '[application]\nconfig/version="2.0.0"\n'
-      : path === 'godot/export_presets.cfg' ? '[preset.2]\nname="iOS"\nplatform="iOS"\n\n[preset.2.options]\napplication/short_version=""\napplication/version=""\n' : `synthetic ${path}\n`);
+      : path === 'godot/export_presets.cfg' ? '[preset.2]\nname="iOS"\nplatform="iOS"\n\n[preset.2.options]\napplication/short_version=""\napplication/version=""\n# SDK declaration\n# SDK manifest\nprivacy/tracking_enabled=true\n' : `synthetic ${path}\n`);
   configGrant.executionConfiguration['app-store'].sourceFiles[path] = hash(readFileSync(join(app, path)));
 }
 configGrant.executionConfiguration['app-store'].analyticsConfigurationSha256 = hash(readFileSync(join(app, 'godot/analytics.config.json')));
@@ -199,13 +199,29 @@ test('before-deploy checks actually consumed version settings and does not permi
   const originalProject = readFileSync(project), originalPresets = readFileSync(presets);
   try {
     writeFileSync(project, applyGodotProjectVersion(originalProject.toString(), { binding: ciBinding }));
-    writeFileSync(presets, applyGodotExportVersion(originalPresets.toString(), { platform: 'iOS', preset: 'iOS', binding: ciBinding }));
+    writeFileSync(presets, applyGodotExportVersion(originalPresets.toString(), { platform: 'iOS', preset: 'iOS', binding: ciBinding, canonicalizeComments: true }));
     assert.ok(validateHostedConfiguration({ ...ciOptions, phase: 'before-deploy', releaseBindingFile: ciBindingPath }, configGrant).consumedSettings);
     writeFileSync(project, readFileSync(project, 'utf8') + '\n[admob]\nunauthorized=true\n');
     assert.throws(() => validateHostedConfiguration({ ...ciOptions, phase: 'before-deploy', releaseBindingFile: ciBindingPath }, configGrant), /RELEASE_EXCEPTION_CONSUMED_SETTINGS_CHANGED/u);
     writeFileSync(project, applyGodotProjectVersion(originalProject.toString(), { binding: ciBinding }));
     writeFileSync(presets, '[preset.2.options]\napplication/version="1001006"\n');
     assert.throws(() => validateHostedConfiguration({ ...ciOptions, phase: 'before-deploy', releaseBindingFile: ciBindingPath }, configGrant), /RELEASE_EXCEPTION_CONSUMED_SETTINGS_CHANGED/u);
+  } finally { writeFileSync(project, originalProject); writeFileSync(presets, originalPresets); }
+});
+test('before-deploy accepts only exact comment-canonicalized bytes and rejects original broken syntax or changed settings', () => {
+  const project = join(app, 'godot/project.godot'), presets = join(app, 'godot/export_presets.cfg');
+  const originalProject = readFileSync(project), originalPresets = readFileSync(presets);
+  const options = { ...ciOptions, phase: 'before-deploy', releaseBindingFile: ciBindingPath };
+  try {
+    writeFileSync(project, applyGodotProjectVersion(originalProject.toString(), { binding: ciBinding }));
+    const versioned = applyGodotExportVersion(originalPresets.toString(), { platform: 'iOS', preset: 'iOS', binding: ciBinding });
+    const normalized = versioned.replace(/^([ \t]*)#/gmu, '$1;');
+    writeFileSync(presets, normalized);
+    assert.ok(validateHostedConfiguration(options, configGrant).consumedSettings);
+    for (const changed of [versioned, normalized.replace('privacy/tracking_enabled=true', 'privacy/tracking_enabled=false'), normalized + '; extra line\n']) {
+      writeFileSync(presets, changed);
+      assert.throws(() => validateHostedConfiguration(options, configGrant), /RELEASE_EXCEPTION_CONSUMED_SETTINGS_CHANGED/u);
+    }
   } finally { writeFileSync(project, originalProject); writeFileSync(presets, originalPresets); }
 });
 test('modified caller and untracked project override cannot reuse the exception', () => {

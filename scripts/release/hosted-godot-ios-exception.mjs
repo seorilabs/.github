@@ -84,7 +84,9 @@ export function validateHostedConfiguration(options, grant) {
   if (options.phase === 'before-deploy') {
     const binding = parseReleaseBinding(bytes(options.releaseBindingFile, 'RELEASE_EXCEPTION_ARTIFACT_BINDING_CHANGED').toString());
     const expectedProject = applyGodotProjectVersion(git(['show', 'HEAD:godot/project.godot']).toString(), { binding });
-    const expectedPresets = applyGodotExportVersion(git(['show', 'HEAD:godot/export_presets.cfg']).toString(), { platform: 'iOS', preset: 'iOS', binding });
+    const expectedPresets = applyGodotExportVersion(git(['show', 'HEAD:godot/export_presets.cfg']).toString(), {
+      platform: 'iOS', preset: 'iOS', binding, canonicalizeComments: grant.id === 'match-picture-1.1.7',
+    });
     if (bytes(join(root, 'godot/project.godot'), 'RELEASE_EXCEPTION_CONSUMED_SETTINGS_CHANGED').toString() !== expectedProject
       || bytes(join(root, 'godot/export_presets.cfg'), 'RELEASE_EXCEPTION_CONSUMED_SETTINGS_CHANGED').toString() !== expectedPresets) fail('RELEASE_EXCEPTION_CONSUMED_SETTINGS_CHANGED');
     consumedSettings = {};
