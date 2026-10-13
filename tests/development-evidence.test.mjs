@@ -158,6 +158,10 @@ test('reordered paths are the same feature definition', () => {
   const { d, ctx } = carryForwardCase(); ctx.baselines[BASE].inventory.features[2].paths.reverse();
   assert.equal(validateDevelopmentEvidence(d, ctx).ok, true);
 });
+test('a report may copy the source inventory with foundation fields as its feature list', () => {
+  const { d, ctx } = carryForwardCase(); d.features = structuredClone(ctx.featureInventory.features);
+  assert.deepEqual(validateDevelopmentEvidence(d, ctx), { ok: true, errors: [] });
+});
 test('the same feature cannot be carried forward twice', () => {
   const { d, ctx } = carryForwardCase(); d.carriedForward.push({ ...d.carriedForward[0] });
   assert.ok(carryErrors(d, ctx).includes('DUPLICATE carried-forward'));
