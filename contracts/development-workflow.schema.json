@@ -367,7 +367,8 @@
         "grantRegistry": {
           "const": [
             "contracts/release-exceptions/reascend-1.1.0.json",
-            "contracts/release-exceptions/reascend-1.1.1.json"
+            "contracts/release-exceptions/reascend-1.1.1.json",
+            "contracts/release-exceptions/match-picture-1.1.7.json"
           ]
         }
       }
