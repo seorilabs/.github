@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { lstatSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { githubJson, githubPaginate } from '../github-rest.mjs';
-import { assertArtifactReceipt, assertTagReceipt, parseArtifactReceipt, parseInfoPlistJson, parseReleaseBinding } from './tag-version-authority.mjs';
+import { githubJson } from '../github-rest.mjs';
+import { applyGodotExportVersion, applyGodotProjectVersion, assertArtifactReceipt, assertTagReceipt, parseArtifactReceipt, parseInfoPlistJson, parseReleaseBinding } from './tag-version-authority.mjs';
 
 const fail = code => { throw new Error(code); };
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -55,8 +55,9 @@ export function validateHostedConfiguration(options, grant) {
   if (Object.entries(expected.expectedInputs).some(([key, value]) => String(env[key] ?? '') !== value)
     || env.GITHUB_SHA !== options.sourceSha || !/^[1-9][0-9]*$/u.test(env.GITHUB_RUN_ID ?? '')
     || !/^[1-9][0-9]*$/u.test(env.GITHUB_RUN_ATTEMPT ?? '') || env.CI_XCODE_CLOUD === 'TRUE') fail('RELEASE_EXCEPTION_EXECUTION_INPUTS_CHANGED');
-  const root = resolve(options.appRepository), encoded = env.GODOT_ANALYTICS_CONFIG_JSON_BASE64 ?? '';
-  if (expected.analyticsMode !== 'disabled' || encoded.trim()) fail('RELEASE_EXCEPTION_REGISTERED_CONFIG_CHANGED');
+  const root = resolve(options.appRepository);
+  if (expected.analyticsMode !== 'disabled' || env.SEORI_ANALYTICS_SECRET_PRESENT !== 'false') fail('RELEASE_EXCEPTION_REGISTERED_CONFIG_CHANGED');
+  if (digest(bytes(join(root, '.github/workflows/deploy-app-store.yml'), 'RELEASE_EXCEPTION_APP_CALLER_CHANGED')) !== grant.callerSha256) fail('RELEASE_EXCEPTION_APP_CALLER_CHANGED');
   const analyticsBytes = bytes(join(root, 'godot/analytics.config.json'), 'RELEASE_EXCEPTION_REGISTERED_CONFIG_CHANGED');
   let config; try { config = JSON.parse(analyticsBytes); } catch { fail('RELEASE_EXCEPTION_REGISTERED_CONFIG_CHANGED'); }
   if (config.measurement_id !== '' || config.api_secret !== '') fail('RELEASE_EXCEPTION_REGISTERED_CONFIG_CHANGED');
@@ -67,6 +68,9 @@ export function validateHostedConfiguration(options, grant) {
     if (git(['rev-parse', 'HEAD']).toString().trim() !== options.sourceSha) fail('RELEASE_EXCEPTION_SOURCE_CHANGED');
     changed = git(['diff', '--name-only', 'HEAD']).toString().trim().split('\n').filter(Boolean);
   } catch { fail('RELEASE_EXCEPTION_SOURCE_CHANGED'); }
+  const generated = ['.seorilabs-release-authority/', 'godot/addons/admob/ios/bin/', 'godot/ios/plugins/ad_privacy/libmatch_ad_privacy.', 'templates/'];
+  const untracked = git(['ls-files', '--others', '--exclude-standard']).toString().trim().split('\n').filter(Boolean);
+  if (untracked.some(path => !generated.some(prefix => path.startsWith(prefix)) && !['godot.zip', 'export_templates.tpz'].includes(path))) fail('RELEASE_EXCEPTION_EXECUTION_SOURCE_CHANGED');
   if (changed.some(path => options.phase === 'before-build' || !mutable.includes(path))) fail('RELEASE_EXCEPTION_EXECUTION_SOURCE_CHANGED');
   const sourceHashes = {};
   for (const [path, hash] of Object.entries(expected.sourceFiles)) {
@@ -78,6 +82,11 @@ export function validateHostedConfiguration(options, grant) {
   }
   let consumedSettings = null;
   if (options.phase === 'before-deploy') {
+    const binding = parseReleaseBinding(bytes(options.releaseBindingFile, 'RELEASE_EXCEPTION_ARTIFACT_BINDING_CHANGED').toString());
+    const expectedProject = applyGodotProjectVersion(git(['show', 'HEAD:godot/project.godot']).toString(), { binding });
+    const expectedPresets = applyGodotExportVersion(git(['show', 'HEAD:godot/export_presets.cfg']).toString(), { platform: 'iOS', preset: 'iOS', binding });
+    if (bytes(join(root, 'godot/project.godot'), 'RELEASE_EXCEPTION_CONSUMED_SETTINGS_CHANGED').toString() !== expectedProject
+      || bytes(join(root, 'godot/export_presets.cfg'), 'RELEASE_EXCEPTION_CONSUMED_SETTINGS_CHANGED').toString() !== expectedPresets) fail('RELEASE_EXCEPTION_CONSUMED_SETTINGS_CHANGED');
     consumedSettings = {};
     for (const [path, settings] of Object.entries(expected.consumedSettings)) {
       const text = bytes(join(root, path), 'RELEASE_EXCEPTION_CONSUMED_SETTINGS_CHANGED').toString();
@@ -93,19 +102,46 @@ export function validateHostedConfiguration(options, grant) {
     analyticsConfigurationSha256: digest(analyticsBytes), sourceHashes, consumedSettings };
 }
 
+// public 저장소의 run/job 조회만 익명으로 수행해 기존 caller의 토큰 권한을 유지한다.
+async function publicHostedJson(path, request) {
+  const response = await (request.fetchImpl ?? globalThis.fetch)(`https://api.github.com${path}`, {
+    method: 'GET', headers: { accept: 'application/vnd.github+json', 'user-agent': 'seorilabs-github-rest', 'x-github-api-version': '2022-11-28' },
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!response.ok) fail('RELEASE_EXCEPTION_HOSTED_API_UNREADABLE');
+  return response.json();
+}
 export async function verifyHostedExecution(options, grant, request) {
   const result = validateHostedConfiguration(options, grant), env = options.env ?? process.env;
-  const run = await githubJson(`/repos/${grant.repository}/actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}`, request);
+  const runPath = `/repos/${grant.repository}/actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}`;
+  const run = await publicHostedJson(runPath, request);
   if (String(run.id) !== env.GITHUB_RUN_ID || String(run.run_attempt) !== env.GITHUB_RUN_ATTEMPT
     || run.head_sha !== options.sourceSha || run.head_repository?.full_name !== grant.repository
-    || run.event !== 'workflow_dispatch' || run.path !== '.github/workflows/deploy-app-store.yml'
+    || run.event !== 'workflow_dispatch' || run.path?.split('@')[0] !== '.github/workflows/deploy-app-store.yml'
     || run.head_branch !== 'main' || run.status !== 'in_progress') fail('RELEASE_EXCEPTION_HOSTED_RUN_CHANGED');
-  const jobs = await githubPaginate(`/repos/${grant.repository}/actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs?per_page=100`, { ...request, select: page => page.jobs });
+  const path = '.github/workflows/godot-deploy-app-store.yml';
+  const workflows = run.referenced_workflows?.filter(item => item.path === `seorilabs/.github/${path}@main`);
+  if (workflows?.length !== 1 || !/^[a-f0-9]{40}$/u.test(workflows[0].sha ?? '')) fail('RELEASE_EXCEPTION_HOSTED_WORKFLOW_CHANGED');
+  const workflowSha = workflows[0].sha;
+  const ancestry = await githubJson(`/repos/seorilabs/.github/compare/${workflowSha}...main`, request);
+  const remote = await githubJson(`/repos/seorilabs/.github/contents/${path}?ref=${workflowSha}`, request);
+  if (!['ahead', 'identical'].includes(ancestry.status) || ancestry.base_commit?.sha !== workflowSha
+    || remote.type !== 'file' || remote.encoding !== 'base64' || typeof remote.content !== 'string'
+    || !Buffer.from(remote.content, 'base64').equals(readFileSync(new URL(`../../${path}`, import.meta.url)))) fail('RELEASE_EXCEPTION_HOSTED_WORKFLOW_CHANGED');
+  const jobs = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const result = await publicHostedJson(`${runPath}/jobs?per_page=100&page=${page}`, request);
+    if (!Array.isArray(result.jobs) || !Number.isSafeInteger(result.total_count)) fail('RELEASE_EXCEPTION_HOSTED_JOB_CHANGED');
+    jobs.push(...result.jobs);
+    if (jobs.length >= result.total_count) break;
+    if (page === 100 || result.jobs.length === 0) fail('RELEASE_EXCEPTION_HOSTED_JOB_CHANGED');
+  }
   const matches = jobs.filter(job => job.name === 'app-store / Godot signed iOS archive' && job.status === 'in_progress'
     && job.runner_group_name === 'GitHub Actions' && JSON.stringify(job.labels) === JSON.stringify(['macos-26']));
   if (matches.length !== 1 || !Number.isSafeInteger(matches[0].id)) fail('RELEASE_EXCEPTION_HOSTED_JOB_CHANGED');
   return { ...result, hostedExecution: { runId: run.id, runAttempt: run.run_attempt, jobId: matches[0].id,
-    sourceSha: run.head_sha, workflowPath: run.path, runnerLabels: matches[0].labels } };
+    sourceSha: run.head_sha, workflowPath: run.path, runnerLabels: matches[0].labels,
+    actualReusableWorkflowSha: workflowSha, actualReusableWorkflowBytesVerified: true } };
 }
 
 export function bindHostedArtifact(options, grant, tagReceipt) {
@@ -130,5 +166,5 @@ export function bindHostedArtifact(options, grant, tagReceipt) {
     receipt: parseArtifactReceipt(bytes(options.artifactReceiptFile, 'RELEASE_EXCEPTION_ARTIFACT_RECEIPT_REQUIRED').toString()) });
   return { kind: 'xcode-archive', digestSource: 'app-info-plist-json', sha256,
     versionName: binding.appleMarketingVersion, appleBuildNumber: binding.appleBuildNumber,
-    buildNumberAuthority: 'release-tag', signatureVerified: true };
+    buildNumberAuthority: 'release-tag', signatureIntegrityVerified: true, signatureVerificationScope: 'archive-app-codesign-verify-deep-strict' };
 }

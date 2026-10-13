@@ -39,6 +39,13 @@ function reviewedGrant(id) {
   const prefix = 'contracts/release-exceptions/';
   const approval = read(`${prefix}${grant.approvalFile}`), observations = read(`${prefix}${grant.observationsFile}`);
   if (sha256(approval) !== grant.approvalSha256 || sha256(observations) !== grant.observationsSha256) fail('RELEASE_EXCEPTION_TRUST_ANCHOR_CHANGED');
+  if (grant.schemaVersion === 2) {
+    let receipt; try { receipt = JSON.parse(approval); } catch { fail('RELEASE_EXCEPTION_APPROVAL_SCOPE_CHANGED'); }
+    if (receipt.kind !== 'human_release_approval' || receipt.objective !== 'public_live'
+      || receipt.repository !== grant.repository || receipt.releaseTag !== grant.releaseTag || receipt.packageName !== grant.packageName
+      || receipt.proposalSha256 !== grant.proposalSha256 || receipt.approvalRecordedAt !== grant.approvedAt
+      || !equal(receipt.markets, grant.targets) || !equal(receipt.approvedUnverifiedRisks, grant.approvedRisks)) fail('RELEASE_EXCEPTION_APPROVAL_SCOPE_CHANGED');
+  }
   return { grant, approval, observations: JSON.parse(observations) };
 }
 
@@ -222,8 +229,8 @@ export function validateReleaseException(document, context) {
     productTreeSha256: document.productTreeSha256, releaseBinding: document.releaseBinding,
     editorEvidence,
     iosBuildProvenance: document.target === 'app-store' ? { ...grant.iosBuildProvenance,
-      verificationScope: grant.schemaVersion === 2 ? 'reviewed-hosted-consumer-source' : 'declared-protected-consumer-pin',
-      actualHelperBytesThisPhaseVerified: grant.schemaVersion === 2 } : null, artifact: null };
+      verificationScope: 'declared-protected-consumer-pin',
+      actualHelperBytesThisPhaseVerified: false } : null, artifact: null };
 }
 
 async function releaseAssets(repository, tag, request) {
@@ -361,6 +368,11 @@ async function verifyException(options, launchRequestOnly = false, promotionOnly
   }
   const inventory = await githubJson(`/repos/${options.repository}/contents/docs/qa/feature-inventory.json?ref=${options.sourceSha}`, request);
   if (inventory.encoding !== 'base64' || typeof inventory.content !== 'string') fail('RELEASE_EXCEPTION_INVENTORY_UNREADABLE');
+  if (grant.schemaVersion === 2) {
+    const caller = await githubJson(`/repos/${options.repository}/contents/.github/workflows/deploy-app-store.yml?ref=${options.sourceSha}`, request);
+    if (caller.type !== 'file' || caller.encoding !== 'base64' || typeof caller.content !== 'string'
+      || sha256(Buffer.from(caller.content, 'base64')) !== grant.callerSha256) fail('RELEASE_EXCEPTION_APP_CALLER_CHANGED');
+  }
   const baselineTree = await productTree(options.repository, grant.baselineSourceSha, grant.allowedAppFiles, request);
   const candidateTree = await productTree(options.repository, options.sourceSha, grant.allowedAppFiles, request);
   const remoteBinding = options.preflightOnly ? {} : await tagBinding(options.repository, options.tag, options.sourceSha, request);
@@ -372,6 +384,10 @@ async function verifyException(options, launchRequestOnly = false, promotionOnly
   result.actualCiVerification = options.preflightOnly || launchRequestOnly ? 'pending-ci-hook' : 'verified';
   result.executionConfiguration = options.preflightOnly || launchRequestOnly ? null
     : grant.schemaVersion === 2 ? await verifyHostedExecution(options, grant, request) : executionConfiguration(options, grant);
+  if (grant.schemaVersion === 2 && result.executionConfiguration?.hostedExecution?.actualReusableWorkflowBytesVerified) {
+    result.iosBuildProvenance.verificationScope = 'actual-hosted-consumer-source';
+    result.iosBuildProvenance.actualHelperBytesThisPhaseVerified = true;
+  }
   if (launchRequestOnly) result.launchRequest = options.launchRequest;
   if (!options.preflightOnly && !launchRequestOnly && options.phase === 'before-deploy') result.artifact = artifactBinding(options, remoteBinding.tagReceipt);
   return result;

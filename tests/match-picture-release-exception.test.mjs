@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse, stringify } from 'yaml';
 import childProcess, { execFileSync } from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { createReleaseBinding, parseTagReceipt, renderTagReceipt, renderArtifactReceipt } from '../scripts/release/tag-version-authority.mjs';
+import { applyGodotExportVersion, applyGodotProjectVersion, createReleaseBinding, parseTagReceipt, renderTagReceipt, renderArtifactReceipt } from '../scripts/release/tag-version-authority.mjs';
 import { validateHostedConfiguration, validateHostedEditorEvidence, verifyHostedExecution, bindHostedArtifact } from '../scripts/release/hosted-godot-ios-exception.mjs';
 
 // 합성 승인과 실행 원본을 격리한 중앙 사본에만 등록한다. 제품 검수 근거가 아니다.
@@ -26,7 +26,8 @@ const inventory = { schemaVersion: 1, features: ids.map((id, index) => ({ id, co
   ...(index === 10 ? { foundation: true, paths: ['godot/src/platform/*ads*'] } : {}) })) };
 const inventoryBytes = Buffer.from(JSON.stringify(inventory));
 const features = inventory.features.map(({ id, core }) => ({ id, core, originalVerdict: 'scoped Editor pass; native unverified', wholeFeatureStatus: 'partial' }));
-const approvalBytes = Buffer.from('synthetic human physical-device waiver fixture');
+const approvalReceipt = { kind: 'human_release_approval', objective: 'public_live', repository: 'seorilabs/match-picture-app', releaseTag: 'v1.1.7', packageName: 'com.github.magicsih.MatchSymbol', proposalSha256: 'e'.repeat(64), approvalRecordedAt: '2026-10-13T12:00:00Z', markets: ['app-store'], approvedUnverifiedRisks: ['native physical-device QA unverified'] };
+const approvalBytes = Buffer.from(JSON.stringify(approvalReceipt));
 const e2e = { schemaVersion: 1, sourceSha: SOURCE, target: 'app-store', configurationFingerprint: FP,
   inventorySha256: hash(inventoryBytes), startedAt: '2026-10-13T13:00:00Z', completedAt: '2026-10-13T13:10:00Z',
   editorVerdict: 'pass', productE2eStatus: 'blocked', physicalDeviceExecution: 'waived',
@@ -48,7 +49,7 @@ const grant = { schemaVersion: 2, provider: 'github-actions-godot-ios', id: 'mat
   approvalFile: 'match-picture-1.1.7.approval.json', observationsFile: 'match-picture-1.1.7.observations.json',
   approvedAt: '2026-10-13T12:00:00Z', approvalSha256: hash(approvalBytes), proposalSha256: 'e'.repeat(64),
   observationsSha256: hash(observationsBytes), inventorySha256: hash(inventoryBytes), configurationObservationSha256: 'f'.repeat(64),
-  baselineSourceSha: BASE, targets: ['app-store'], allowedAppFiles: ['.github/workflows/deploy-app-store.yml'],
+  callerSha256: '7'.repeat(64), baselineSourceSha: BASE, targets: ['app-store'], allowedAppFiles: ['.github/workflows/deploy-app-store.yml'],
   maxAgeHours: 168, approvedRisks: ['native physical-device QA unverified'], revoked: false,
   configurationFingerprints: { 'app-store': FP },
   iosBuildProvenance: { provider: 'github-actions', workflowPath: '.github/workflows/godot-deploy-app-store.yml', buildNumberAuthority: 'release-tag' },
@@ -110,14 +111,19 @@ for (const path of Object.keys(configGrant.executionConfiguration['app-store'].s
   mkdirSync(join(app, path, '..'), { recursive: true });
   writeFileSync(join(app, path), path === 'godot/analytics.config.json' ? '{"measurement_id":"","api_secret":""}\n'
     : path === 'godot/project.godot' ? '[application]\nconfig/version="2.0.0"\n'
-      : path === 'godot/export_presets.cfg' ? '[preset.2.options]\napplication/version=""\n' : `synthetic ${path}\n`);
+      : path === 'godot/export_presets.cfg' ? '[preset.2]\nname="iOS"\nplatform="iOS"\n\n[preset.2.options]\napplication/short_version=""\napplication/version=""\n' : `synthetic ${path}\n`);
   configGrant.executionConfiguration['app-store'].sourceFiles[path] = hash(readFileSync(join(app, path)));
 }
 configGrant.executionConfiguration['app-store'].analyticsConfigurationSha256 = hash(readFileSync(join(app, 'godot/analytics.config.json')));
+mkdirSync(join(app, '.github/workflows'), { recursive: true });
+writeFileSync(join(app, '.github/workflows/deploy-app-store.yml'), 'synthetic fixed caller');
+configGrant.callerSha256 = hash(readFileSync(join(app, '.github/workflows/deploy-app-store.yml')));
 const git = args => execFileSync('git', ['-C', app, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
 git(['init']); git(['add', '.']); git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture']);
 const realSha = git(['rev-parse', 'HEAD']).toString().trim();
-const ciEnv = { ...inputs, GITHUB_SHA: realSha, GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1' };
+const ciBinding = createReleaseBinding({ tag: grant.releaseTag, sourceSha: realSha, configRevision: '4'.repeat(64), authorityRevision: '5'.repeat(64), androidVersionCode: 22, androidVersionCodeSource: 'github-ledger' });
+const ciBindingPath = join(dir, 'ci-binding.json'); writeFileSync(ciBindingPath, JSON.stringify(ciBinding));
+const ciEnv = { ...inputs, SEORI_ANALYTICS_SECRET_PRESENT: 'false', GITHUB_SHA: realSha, GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1' };
 const ciOptions = { ...context, sourceSha: realSha, appRepository: app, env: ciEnv, preflightOnly: false };
 test('before-build binds the disabled analytics file and real clean candidate without requiring an artifact', () => {
   const result = validateHostedConfiguration(ciOptions, configGrant);
@@ -126,7 +132,7 @@ test('before-build binds the disabled analytics file and real clean candidate wi
 });
 test('actual input, candidate, registered analytics and native source changes fail before build', () => {
   for (const env of [{ ...ciEnv, SHOULD_UPLOAD: 'false' }, { ...ciEnv, GITHUB_SHA: SOURCE },
-    { ...ciEnv, GODOT_ANALYTICS_CONFIG_JSON_BASE64: 'Zm9yZ2Vk' }]) {
+    { ...ciEnv, SEORI_ANALYTICS_SECRET_PRESENT: 'true' }]) {
     assert.throws(() => validateHostedConfiguration({ ...ciOptions, env }, configGrant), /RELEASE_EXCEPTION_(EXECUTION_INPUTS|REGISTERED_CONFIG)_CHANGED/u);
   }
   const path = join(app, 'platform/ios/ad_privacy/ad_privacy.mm'), original = readFileSync(path);
@@ -134,27 +140,55 @@ test('actual input, candidate, registered analytics and native source changes fa
   assert.throws(() => validateHostedConfiguration(ciOptions, configGrant), /RELEASE_EXCEPTION_EXECUTION_SOURCE_CHANGED/u);
   writeFileSync(path, original);
 });
-test('actual hosted run and macOS job are fetched; spoofed local CI environment cannot supply the proof', async () => {
+test('actual hosted run, reusable bytes and macOS job are fetched without new Actions token permission', async () => {
+  const workflowSha = '9'.repeat(40), workflowPath = '.github/workflows/godot-deploy-app-store.yml';
+  const workflow = readFileSync(join(root, workflowPath));
   const run = { id: 123, run_attempt: 1, head_sha: realSha, head_repository: { full_name: grant.repository },
-    event: 'workflow_dispatch', path: '.github/workflows/deploy-app-store.yml', head_branch: 'main', status: 'in_progress' };
+    event: 'workflow_dispatch', path: '.github/workflows/deploy-app-store.yml@main', head_branch: 'main', status: 'in_progress',
+    referenced_workflows: [{ path: `seorilabs/.github/${workflowPath}@main`, sha: workflowSha }] };
   const job = { id: 456, name: 'app-store / Godot signed iOS archive', status: 'in_progress', runner_group_name: 'GitHub Actions', labels: ['macos-26'] };
-  const request = (runChanges = {}, jobChanges = {}) => ({ token: 'fixture-token', fetchImpl: async url => new Response(JSON.stringify(
-    String(url).includes('/jobs?') ? { jobs: [{ ...job, ...jobChanges }] } : { ...run, ...runChanges }), { headers: { 'content-type': 'application/json' } }) });
+  const request = (runChanges = {}, jobChanges = {}, remoteBytes = workflow) => ({ token: 'fixture-token', fetchImpl: async (url, options) => {
+    let value;
+    if (String(url).includes('/actions/')) {
+      assert.equal(options.headers.authorization, undefined);
+      value = String(url).includes('/jobs?') ? { jobs: [{ ...job, ...jobChanges }], total_count: 1 } : { ...run, ...runChanges };
+    } else if (String(url).includes('/compare/')) value = { status: 'ahead', base_commit: { sha: workflowSha } };
+    else value = { type: 'file', encoding: 'base64', content: remoteBytes.toString('base64') };
+    return new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
+  } });
   const result = await verifyHostedExecution(ciOptions, configGrant, request());
   assert.equal(result.hostedExecution.jobId, 456);
+  assert.equal(result.hostedExecution.actualReusableWorkflowBytesVerified, true);
   await assert.rejects(verifyHostedExecution(ciOptions, configGrant, request({ head_sha: SOURCE })), /RELEASE_EXCEPTION_HOSTED_RUN_CHANGED/u);
   await assert.rejects(verifyHostedExecution(ciOptions, configGrant, request({}, { labels: ['self-hosted', 'macos-26'] })), /RELEASE_EXCEPTION_HOSTED_JOB_CHANGED/u);
+  await assert.rejects(verifyHostedExecution(ciOptions, configGrant, request({ referenced_workflows: [{ path: `seorilabs/.github/${workflowPath}@unreviewed`, sha: workflowSha }] })), /RELEASE_EXCEPTION_HOSTED_WORKFLOW_CHANGED/u);
+  await assert.rejects(verifyHostedExecution(ciOptions, configGrant, request({}, {}, Buffer.from('changed workflow'))), /RELEASE_EXCEPTION_HOSTED_WORKFLOW_CHANGED/u);
 });
 test('before-deploy checks actually consumed version settings and does not permit another source edit', () => {
   const project = join(app, 'godot/project.godot'), presets = join(app, 'godot/export_presets.cfg');
   const originalProject = readFileSync(project), originalPresets = readFileSync(presets);
   try {
-    writeFileSync(project, '[application]\nconfig/version="1.1.7"\n');
-    writeFileSync(presets, '[preset.2.options]\napplication/version="1001007"\n');
-    assert.ok(validateHostedConfiguration({ ...ciOptions, phase: 'before-deploy' }, configGrant).consumedSettings);
+    writeFileSync(project, applyGodotProjectVersion(originalProject.toString(), { binding: ciBinding }));
+    writeFileSync(presets, applyGodotExportVersion(originalPresets.toString(), { platform: 'iOS', preset: 'iOS', binding: ciBinding }));
+    assert.ok(validateHostedConfiguration({ ...ciOptions, phase: 'before-deploy', releaseBindingFile: ciBindingPath }, configGrant).consumedSettings);
+    writeFileSync(project, readFileSync(project, 'utf8') + '\n[admob]\nunauthorized=true\n');
+    assert.throws(() => validateHostedConfiguration({ ...ciOptions, phase: 'before-deploy', releaseBindingFile: ciBindingPath }, configGrant), /RELEASE_EXCEPTION_CONSUMED_SETTINGS_CHANGED/u);
+    writeFileSync(project, applyGodotProjectVersion(originalProject.toString(), { binding: ciBinding }));
     writeFileSync(presets, '[preset.2.options]\napplication/version="1001006"\n');
-    assert.throws(() => validateHostedConfiguration({ ...ciOptions, phase: 'before-deploy' }, configGrant), /RELEASE_EXCEPTION_CONSUMED_SETTINGS_CHANGED/u);
+    assert.throws(() => validateHostedConfiguration({ ...ciOptions, phase: 'before-deploy', releaseBindingFile: ciBindingPath }, configGrant), /RELEASE_EXCEPTION_CONSUMED_SETTINGS_CHANGED/u);
   } finally { writeFileSync(project, originalProject); writeFileSync(presets, originalPresets); }
+});
+test('modified caller and untracked project override cannot reuse the exception', () => {
+  const caller = join(app, '.github/workflows/deploy-app-store.yml'), original = readFileSync(caller);
+  try {
+    writeFileSync(caller, 'changed reusable ref');
+    assert.throws(() => validateHostedConfiguration(ciOptions, configGrant), /RELEASE_EXCEPTION_APP_CALLER_CHANGED/u);
+  } finally { writeFileSync(caller, original); }
+  const override = join(app, 'godot/override.cfg');
+  try {
+    writeFileSync(override, '[admob]\nunauthorized=true\n');
+    assert.throws(() => validateHostedConfiguration(ciOptions, configGrant), /RELEASE_EXCEPTION_EXECUTION_SOURCE_CHANGED/u);
+  } finally { rmSync(override); }
 });
 test('before-deploy requires the actual artifact, official binding and archive receipt', () => {
   assert.throws(() => bindHostedArtifact(ciOptions, configGrant, {}), /RELEASE_EXCEPTION_ARTIFACT_REQUIRED/u);
@@ -174,11 +208,21 @@ test('signed-app version and actual JSON digest must match the official archive 
   syncBuiltinESMExports();
   try {
     const options = { ...ciOptions, artifactFile: plist, releaseBindingFile: bindingPath, artifactReceiptFile: artifactReceipt, env: { ...ciEnv, ARCHIVE_PATH: archive } };
-    assert.equal(bindHostedArtifact(options, configGrant, receipt).signatureVerified, true);
+    assert.equal(bindHostedArtifact(options, configGrant, receipt).signatureIntegrityVerified, true);
     assert.deepEqual(commands, ['/usr/bin/codesign', '/usr/bin/plutil']);
     metadata = Buffer.from(JSON.stringify({ CFBundleIdentifier: grant.packageName, CFBundleShortVersionString: '1.1.7', CFBundleVersion: '1001006' }));
     assert.throws(() => bindHostedArtifact(options, configGrant, receipt), /RELEASE_EXCEPTION_ARTIFACT_VERSION_CHANGED/u);
     metadata = Buffer.from(JSON.stringify({ CFBundleIdentifier: grant.packageName, CFBundleShortVersionString: '1.1.7', CFBundleVersion: '1001007', Changed: true }));
     assert.throws(() => bindHostedArtifact(options, configGrant, receipt), /artifact receipt/u);
   } finally { childProcess.execFileSync = original; syncBuiltinESMExports(); }
+});
+
+test('approval receipt content must match the grant even when the new bytes hash is declared', () => {
+  const path = join(dir, 'contracts/release-exceptions', grant.approvalFile);
+  const grantPath = join(dir, 'contracts/release-exceptions/match-picture-1.1.7.json');
+  try {
+    const changed = Buffer.from(JSON.stringify({ ...approvalReceipt, releaseTag: 'v1.1.8' }));
+    writeFileSync(path, changed); writeFileSync(grantPath, JSON.stringify({ ...grant, approvalSha256: hash(changed) }));
+    assert.throws(() => validateReleaseException(document, context), /RELEASE_EXCEPTION_APPROVAL_SCOPE_CHANGED/u);
+  } finally { writeFileSync(path, approvalBytes); writeFileSync(grantPath, JSON.stringify(grant)); }
 });
