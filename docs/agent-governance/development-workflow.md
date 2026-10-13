@@ -160,7 +160,31 @@ before-build는 실제 준비 스크립트보다 앞에 있다. 보호된 genera
 
 Xcode 기동 요청은 실제 CI의 입력을 갖지 않는다. trigger 내부 `verifyXcodeLaunchRequest`는 공통 Release/source/승인 검증 후 ASC에서 선택한 provider·product·workflow·repository·TAG ref를 확인한다. `scope:xcode-launch-request`, `actualCiVerification:pending-ci-hook`, `executionConfiguration:null`을 출력하며 실제 CI 통과로 취급하지 않는다. 외부 CLI의 skip flag는 없고, `CI_XCODE_CLOUD=TRUE`인 실제 hook은 이 경계를 사용할 수 없다. 실제 hook의 before-build/before-deploy는 `scope:actual-ci-phase`의 전체 입력 검사를 실행한다. 거절도 요청된 JSON 보고서에 기록하고 원래 오류를 다시 던진다.
 
-Android Actions 보고서 보존 기간은 기존 3일을 유지한다. 실행자는 성공·거절 보고서와 실제 artifact digest를 해당 private GitHub Release의 운영 자산에 복사해 예외 유효기간과 릴리스 이력 동안 보존한다. Actions의 3일 artifact만 영구 근거로 삼지 않는다. 기존 `promote-google-play`에는 예외를 추가하지 않는다. 이번 수동 Console/API 승격 전에는 같은 Release와 실제 AAB·공식 binding·receipt로 `before-deploy` 검증을 다시 실행하고 보고서를 보존한 뒤 승격한다.
+Android Actions 보고서·산출물 보존 기간은 기존 3일을 유지한다. 실제 internal 업로드가 성공한 같은 job이 AAB·공식 binding·receipt·두 실제 CI 판정·주입 설정 해시를 `promotion-evidence.zip` 하나로 묶고, 명세와 원본 ZIP의 SHA256을 원격 job 로그 한 줄에 기록한다. 실행자는 Actions 다운로드 묶음 안의 **이 원본 inner ZIP**을 재압축하지 않고 private Release 운영 자산에 복사한다. 원격 성공 run/attempt/job와 로그를 읽지 못하면 Release 자기선언이나 로컬 CI 환경 복제로 대체하지 않는다.
+
+기존 `promote-google-play`는 일반 PASS 계약을 유지한다. 이번 수동 Console/API 공개 승격 직전에는 별도 `verify-google-play-promotion.mjs`를 실행한다. 이 경계는 `promotion-recheck`/`reused-successful-ci`이며 실제 CI phase를 새로 실행했다고 기록하지 않는다. 같은 후보·마켓 설정·26개 원래 판정·168시간 예외·태그·최신 중앙 철회를 다시 검증하고, 원격 CI의 reusable workflow SHA가 현재 main의 ancestor인지와 검토 pin의 workflow bytes가 같은지 확인한다. workflow SHA와 verifier checkout pin은 서로 다른 역할이며 값이 달라도 bytes가 같아야 한다. 원격 job 로그의 원본 ZIP·명세 해시와 보존한 실제 bytes, 두 CI 보고서의 실제 입력/주입 해시, 같은 공식 AAB/receipt를 결속한 뒤 **기존 read edit의 Play internal track GET**으로 `completed`인 같은 versionCode를 확인한다. 토큰과 edit ID는 환경 변수에서만 읽고 출력하지 않는다. edit 발급/삭제·승격 자체는 검증기의 기능이 아니다. 운영 서버 설정의 fresh readback과 동일 projection 확인은 기존 등록 운영 identity를 쓰는 실행자 경계로 계속 별도 보존한다.
+
+Android dispatch는 `--ref v1.1.0`을 명시한다. 입력의 `release_tag`만 지정하고 실행 ref를 main에 두면 main 이동 후 run의 `head_sha`와 고정 후보가 달라져 승격 경계가 거절한다.
+
+```sh
+gh workflow run deploy-google-play.yml --repo seorilabs/reascend --ref v1.1.0 \
+  -f release_tag=v1.1.0 -f release_exception_id=reascend-1.1.0 \
+  -f release_verifier_sha="$RELEASE_VERIFIER_SHA" \
+  -f configuration_fingerprint="$GOOGLE_PLAY_CONFIGURATION_FINGERPRINT" \
+  -f upload=true -f track=internal -f release_status=completed
+```
+
+실행자는 Actions가 보관한 inner ZIP을 `release-exception.google-play.promotion-evidence.zip`으로 Release에 보존하고 로컬로 다시 받아 다음 명령을 공개 승격 직전에 실행한다. `GH_TOKEN`, `GOOGLE_PLAY_ACCESS_TOKEN`, `GOOGLE_PLAY_READ_EDIT_ID`는 기존 identity의 환경 변수로 준비하고 인자·로그에 값을 넣지 않는다. 성공 보고서를 Release 운영 자산에 보존한 뒤 같은 versionCode만 승격한다.
+
+```sh
+node scripts/release/verify-google-play-promotion.mjs \
+  --repo seorilabs/reascend --tag v1.1.0 --sha "$RELEASE_SOURCE_SHA" \
+  --release-exception-id reascend-1.1.0 --verifier-sha "$RELEASE_VERIFIER_SHA" \
+  --configuration-fingerprint "$GOOGLE_PLAY_CONFIGURATION_FINGERPRINT" \
+  --ci-run-id "$SUCCESSFUL_RUN_ID" --ci-run-attempt "$SUCCESSFUL_RUN_ATTEMPT" \
+  --evidence-bundle release-exception.google-play.promotion-evidence.zip \
+  --report promotion-recheck.json
+```
 
 검증기는 상태·원래 판정·승인 해시·후보·설정·태그·artifact를 JSON으로 보존한다. 예외에서 기존 ‘개발 검수 근거 통과’ 문구를 쓰지 않는다. Android caller와 Xcode hook/trigger는 계속 중앙 검증기를 실행한다. 예외 만료·철회·후보/설정 변경·해당 릴리스 종료 시 manifest를 닫고 다시 사용하지 않는다. 중앙 일반 지원은 검토된 계약으로 유지하며 임시 우회를 제거할 때까지 방치하는 방식은 사용하지 않는다.
 

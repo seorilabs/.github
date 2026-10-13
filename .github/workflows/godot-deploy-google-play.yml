@@ -166,12 +166,24 @@ jobs:
         env:
           RELEASE_EXCEPTION_ID: ${{ inputs.release_exception_id }}
           RELEASE_VERIFIER_SHA: ${{ inputs.release_verifier_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ -n "$RELEASE_EXCEPTION_ID" && "$RELEASE_VERIFIER_SHA" =~ ^[a-f0-9]{40}$ ]] || {
             echo "RELEASE_EXCEPTION_VERIFIER_PIN_REQUIRED" >&2
             exit 1
           }
+          # main workflow 자체가 검사한다. pin의 checkout/npm/코드는 아직 실행하지 않는다.
+          node --input-type=module <<'NODE'
+          const sha = process.env.RELEASE_VERIFIER_SHA;
+          const response = await fetch(`https://api.github.com/repos/seorilabs/.github/compare/${sha}...main`, {
+            headers: { authorization: `Bearer ${process.env.GH_TOKEN}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' }
+          });
+          if (!response.ok) throw new Error('RELEASE_EXCEPTION_VERIFIER_NOT_REVIEWED_ON_MAIN');
+          const result = await response.json();
+          if (!['ahead', 'identical'].includes(result.status) || result.base_commit?.sha !== sha)
+            throw new Error('RELEASE_EXCEPTION_VERIFIER_NOT_REVIEWED_ON_MAIN');
+          NODE
 
       # 일반 경로는 main. 예외는 검토된 정확한 구현을 쓰고, 검증기가 최신 main의
       # ancestor 여부와 grant 철회를 별도로 조회하므로 무관 main 변경에 묶이지 않는다.
@@ -698,6 +710,32 @@ jobs:
           )
           [ -n "$RELEASE_NOTES_JSON" ] && args+=(--release-notes-json "$RELEASE_NOTES_JSON")
           python3 .seorilabs-release-authority/scripts/release/upload-google-play-aab.py "${args[@]}"
+
+      - name: Package promotion evidence
+        if: ${{ inputs.upload && inputs.release_exception_id != '' }}
+        shell: bash
+        env:
+          VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
+          PROMOTION_EVIDENCE_DIRECTORY: ${{ runner.temp }}/promotion-evidence
+          PROMOTION_EVIDENCE_ZIP: ${{ runner.temp }}/promotion-evidence.zip
+        run: |
+          set -euo pipefail
+          mkdir -p "$PROMOTION_EVIDENCE_DIRECTORY"
+          cp "$VERIFIED_AAB_PATH" "$PROMOTION_EVIDENCE_DIRECTORY/app.aab"
+          cp "$RUNNER_TEMP/release-binding.json" "$PROMOTION_EVIDENCE_DIRECTORY/release-binding.json"
+          cp "$RUNNER_TEMP/release-artifact-receipt.txt" "$PROMOTION_EVIDENCE_DIRECTORY/release-artifact-receipt.txt"
+          cp "$RUNNER_TEMP/release-verification.before-build.json" "$PROMOTION_EVIDENCE_DIRECTORY/before-build.json"
+          cp "$RUNNER_TEMP/release-verification.before-deploy.json" "$PROMOTION_EVIDENCE_DIRECTORY/before-deploy.json"
+          node .seorilabs-release-authority/scripts/release/create-promotion-evidence.mjs
+
+      - name: Preserve promotion evidence bundle
+        if: ${{ inputs.upload && inputs.release_exception_id != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1; existing workflow pin
+        with:
+          name: reascend-1.1.0-google-play-promotion-evidence
+          path: ${{ runner.temp }}/promotion-evidence.zip
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Summary
         shell: bash

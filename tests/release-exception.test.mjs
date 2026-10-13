@@ -64,6 +64,8 @@ grant.observationsSha256 = digest(observationsBytes);
 const sandbox = mkdtempSync(join(tmpdir(), 'release-exception-reviewed-fixture-'));
 const repo = fileURLToPath(new URL('../', import.meta.url));
 for (const dir of ['scripts', 'contracts']) cpSync(join(repo, dir), join(sandbox, dir), { recursive: true });
+mkdirSync(join(sandbox, '.github/workflows'), { recursive: true });
+cpSync(join(repo, '.github/workflows/godot-deploy-google-play.yml'), join(sandbox, '.github/workflows/godot-deploy-google-play.yml'));
 writeFileSync(join(sandbox, 'package.json'), '{"type":"module"}\n');
 cpSync(join(repo, 'package.json'), join(sandbox, 'package.json'));
 cpSync(join(repo, 'package-lock.json'), join(sandbox, 'package-lock.json'));
@@ -71,7 +73,8 @@ symlinkSync(join(repo, 'node_modules'), join(sandbox, 'node_modules'), 'dir');
 writeFileSync(join(sandbox, `contracts/release-exceptions/${grant.observationsFile}`), observationsBytes);
 writeFileSync(join(sandbox, 'contracts/release-exceptions/reascend-1.1.0.json'), JSON.stringify(grant));
 after(() => { rmSync(sandbox, { recursive: true, force: true }); rmSync(appRepository, { recursive: true, force: true }); });
-const { verifyXcodeLaunchRequest } = await import(pathToFileURL(join(sandbox, 'scripts/release/verify-release-exception.mjs')));
+const { verifyXcodeLaunchRequest, verifyGooglePlayPromotion } = await import(pathToFileURL(join(sandbox, 'scripts/release/verify-release-exception.mjs')));
+const { createPromotionEvidence } = await import(pathToFileURL(join(sandbox, 'scripts/release/release-promotion-evidence.mjs')));
 const { verifyReleaseDevelopmentEvidence } = await import(pathToFileURL(join(sandbox, 'scripts/release/verify-development-evidence.mjs')));
 const SOURCE = 'a'.repeat(40), VERIFIER = 'b'.repeat(40), TAG_OBJECT = 'c'.repeat(40), TREE = 'd'.repeat(40);
 const inventoryBytes = Buffer.from(`${JSON.stringify({ schemaVersion: 1, features: observations.features.map(({ id, core }) => ({ id, core })) }, null, 2)}\n`);
@@ -144,6 +147,15 @@ test('explicit reviewed release exception preserves all 26 original verdicts and
   assert.equal(result.verifierProof.kind, 'github-archive'); assert.equal(result.verifierProof.revision, VERIFIER);
   assert.ok(result.verifierProof.files.some(file => file.path === 'scripts/github-rest.mjs'));
   assert.equal(result.executionConfiguration.kind, 'generated-from-ci-input');
+});
+test('promotion boundary retains fresh common expiry, grant revocation, source and original status rejection', async () => {
+  for (const [changes, options, message] of [
+    [{ remoteGrant: { ...grant, revoked: true } }, {}, 'RELEASE_EXCEPTION_REVOKED'],
+    [{ changedProduct: true }, {}, 'RELEASE_EXCEPTION_PRODUCT_TREE_CHANGED'],
+    [{ tagSource: '9'.repeat(40) }, {}, 'RELEASE_EXCEPTION_TAG_SOURCE_CHANGED'],
+    [{}, { now: new Date(Date.parse(grant.approvedAt) + 169 * 3600000).toISOString() }, 'RELEASE_EXCEPTION_EXPIRED'],
+  ]) await assert.rejects(verifyGooglePlayPromotion({ ...context, ...options, phase: 'before-deploy', env: {},
+    ciRunId: '123', ciRunAttempt: '1', evidenceBundleFile: '/unused-fixture', fetchImpl: github(changes).fetchImpl }), { message });
 });
 
 test('matching arbitrary caller and manifest fingerprint claims cannot replace reviewed market settings', async () => {
@@ -329,6 +341,41 @@ test('before-deploy binds the actual Android bytes to the existing official arti
     await assert.rejects(verifyReleaseDevelopmentEvidence({ ...options, fetchImpl: github().fetchImpl }), /artifact-digest-mismatch/u);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+test('promotion whole boundary preserves 26 verdicts and reuses successful CI without recreating CI env', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'promotion-whole-boundary-'));
+  try {
+    const artifactFile = join(dir, 'app.aab'), releaseBindingFile = join(dir, 'release-binding.json'), artifactReceiptFile = join(dir, 'release-artifact-receipt.txt');
+    const bytes = Buffer.from('static synthetic AAB'); writeFileSync(artifactFile, bytes);
+    const binding = createReleaseBinding({ tag: context.tag, sourceSha: SOURCE, authorityRevision: digest(read('contracts/release-version-authority.yaml')),
+      configRevision: '7'.repeat(64), androidVersionCode: 21, androidVersionCodeSource: 'github-ledger' });
+    writeFileSync(releaseBindingFile, JSON.stringify(binding));
+    writeFileSync(artifactReceiptFile, renderArtifactReceipt({ binding, kind: 'android-app-bundle', artifactDigest: digest(bytes) }));
+    const before = await verifyReleaseDevelopmentEvidence({ ...context, fetchImpl: github().fetchImpl });
+    const after = await verifyReleaseDevelopmentEvidence({ ...context, phase: 'before-deploy', artifactFile, releaseBindingFile, artifactReceiptFile, fetchImpl: github().fetchImpl });
+    writeFileSync(join(dir, 'before-build.json'), JSON.stringify(before)); writeFileSync(join(dir, 'before-deploy.json'), JSON.stringify(after));
+    const outputFile = join(dir, 'promotion-evidence.zip');
+    const evidence = createPromotionEvidence({ directory: dir, outputFile, env: { GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: grant.repository, GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1' } });
+    const api = github(), workflowSha = '9'.repeat(40), reply = value => new Response(JSON.stringify(value));
+    const fetchImpl = async (url, init) => {
+      if (url.endsWith('/actions/runs/123/attempts/1')) return reply({ id: 123, run_attempt: 1, status: 'completed', conclusion: 'success', event: 'workflow_dispatch',
+        head_sha: SOURCE, path: '.github/workflows/deploy-google-play.yml', repository: { full_name: grant.repository }, head_repository: { full_name: grant.repository },
+        run_started_at: new Date(Date.parse(context.now) - 60000).toISOString(), updated_at: new Date(Date.parse(context.now) + 60000).toISOString(),
+        referenced_workflows: [{ path: 'seorilabs/.github/.github/workflows/godot-deploy-google-play.yml@main', sha: workflowSha }] });
+      if (url.includes('/attempts/1/jobs?')) return reply({ jobs: [{ id: 456, run_id: 123, run_attempt: 1, status: 'completed', conclusion: 'success', head_sha: SOURCE,
+        steps: ['Verify Editor E2E before-build', 'Verify Editor E2E before-deploy', 'Upload to Google Play', 'Package promotion evidence', 'Preserve promotion evidence bundle'].map(name => ({ name, conclusion: 'success' })) }] });
+      if (url.endsWith('/actions/jobs/456/logs')) return new Response(evidence.logLine);
+      if (url.includes('/contents/.github/workflows/godot-deploy-google-play.yml?')) return reply({ type: 'file', encoding: 'base64', content: read('.github/workflows/godot-deploy-google-play.yml').toString('base64') });
+      if (url.includes('/tracks/internal')) { assert.equal(init.method, 'GET'); return reply({ track: 'internal', releases: [{ status: 'completed', versionCodes: ['21'] }] }); }
+      return api.fetchImpl(url, init);
+    };
+    const result = await verifyGooglePlayPromotion({ ...context, phase: 'before-deploy', env: { GOOGLE_PLAY_ACCESS_TOKEN: 'static-fixture', GOOGLE_PLAY_READ_EDIT_ID: 'existing-read-edit' },
+      ciRunId: '123', ciRunAttempt: '1', evidenceBundleFile: outputFile, fetchImpl });
+    assert.equal(result.productE2eStatus, 'blocked'); assert.equal(result.decisionStatus, 'human_exception');
+    assert.equal(result.scope, 'promotion-recheck'); assert.equal(result.actualCiVerification, 'reused-successful-ci');
+    assert.equal(result.featureCount, 26); assert.deepEqual(result.features, observations.features);
+    assert.equal(result.artifact.sha256, digest(bytes)); assert.equal(result.ciProof.workflowSha, workflowSha);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 test('local preflight cannot manufacture an executed E2E or build authorization', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'release-exception-preflight-'));
   try {
@@ -368,7 +415,7 @@ test('git checkout verifier derives HEAD and rejects caller SHA mismatch or dirt
   const git = args => execFileSync('git', ['-C', sandbox, ...args], { stdio: 'pipe' }).toString().trim();
   const path = join(sandbox, 'scripts/github-rest.mjs'), bytes = readFileSync(path);
   try {
-    git(['init', '--quiet']); git(['add', '--', 'scripts', 'contracts', 'package.json', 'package-lock.json']);
+    git(['init', '--quiet']); git(['add', '--', 'scripts', 'contracts', '.github', 'package.json', 'package-lock.json']);
     git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.test', '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'verifier fixture']);
     const revision = git(['rev-parse', 'HEAD']), manifest = fixture(); manifest.verifierSha = revision;
     const options = { ...context, verifierSha: revision, fetchImpl: github({ manifest, verifierSha: revision }).fetchImpl };

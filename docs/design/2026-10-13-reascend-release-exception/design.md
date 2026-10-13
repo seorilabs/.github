@@ -43,7 +43,7 @@ Reascend 기존 Apple helper는 중앙 `53c0819ec0976a48c7e8302234bcfc408f0a1e0b
 
 Xcode trigger의 기동 전 검사는 ASC에서 실제 선택한 workflow/provider/tag ref와 공통 Release/source/승인 조건만 확인한다. `xcode-launch-request`와 `pending-ci-hook` 보고서는 실제 CI 판정을 대체하지 않는다. 외부 CLI skip flag와 가짜 CI env는 없으며 실제 Xcode hook에서 이 경계 사용을 거절한다. 실제 두 phase의 입력·runtime 검증은 유지한다.
 
-Actions의 기존 3일 보존을 바꾸지 않고 private Release에 판정 보고서를 함께 보존한다. 미사용 승격 workflow는 확장하지 않으며 수동 Console/API 승격 전 같은 실제 artifact로 before-deploy 검증을 다시 적용한다. 이전 397개 검증은 이전 후보의 결과이고 리뷰 수정 후 전체 검증으로 대체한다.
+Actions의 기존 3일 보존을 바꾸지 않고 private Release에 판정 보고서와 실제 CI의 원본 `promotion-evidence.zip`을 함께 보존한다. 미사용 승격 workflow는 확장하지 않는다. 공개 승격 전 `promotion-recheck`는 성공한 같은 원격 run/attempt/job·검토 workflow bytes·원격 job 로그의 ZIP/명세 SHA256·두 실제 CI 보고서·같은 AAB/receipt·최신 예외/태그/설정·실제 Play internal versionCode를 결속한다. 로컬 CI env 복제나 새 actual-ci-phase 판정은 금지한다. workflow의 main 실행 SHA와 검증기 pin SHA는 별도로 확인한다. pin checkout/npm 전에 main workflow 자체가 GitHub compare로 병합 ancestry를 확인한다. 이전 397/411개 검증은 이전 후보의 결과이며 이 수정 후 전체 검증으로 대체한다.
 
 ## 인수조건과 검증
 

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { parse } from 'yaml';
 import { githubDownload, githubJson, githubPaginate } from '../github-rest.mjs';
+import { verifyPromotionEvidence } from './release-promotion-evidence.mjs';
 import { assertArtifactReceipt, assertTagReceipt, deriveEncodedVersion, deriveTagEncodedVersionCode,
   parseArtifactReceipt, parseInfoPlistJson, parseReleaseBinding, parseTagReceipt } from './tag-version-authority.mjs';
 
@@ -44,6 +45,8 @@ function reviewedGrant(id) {
 async function runtimeRevision(grant, claimedSha, request) {
   const root = fileURLToPath(new URL('../../', import.meta.url));
   const paths = ['scripts/release/verify-development-evidence.mjs', 'scripts/release/verify-release-exception.mjs',
+    'scripts/release/release-promotion-evidence.mjs', 'scripts/release/create-promotion-evidence.mjs',
+    'scripts/release/verify-google-play-promotion.mjs', '.github/workflows/godot-deploy-google-play.yml',
     'scripts/release/tag-version-authority.mjs', 'scripts/github-rest.mjs', 'scripts/trigger-xcode-cloud.mjs',
     'scripts/release/resolve-github-tag-commit.mjs', 'contracts/development-evidence.schema.json',
     'contracts/development-workflow.schema.json', 'contracts/development-workflow.yaml', 'contracts/release-exception.schema.json',
@@ -202,6 +205,7 @@ export function validateReleaseException(document, context) {
   if (!context.preflightOnly && (!document.releaseBinding || !equal(document.releaseBinding, context.releaseBinding))) fail('RELEASE_EXCEPTION_TAG_RECEIPT_MISMATCH');
   if (context.preflightOnly && document.releaseBinding !== null) fail('RELEASE_EXCEPTION_PREFLIGHT_ONLY');
   return { ok: true, decisionStatus: context.preflightOnly ? 'preflight_ready' : 'human_exception', productE2eStatus: 'blocked',
+    verifiedAt: new Date(now).toISOString(),
     repository: document.repository, sourceSha: document.sourceSha, target: document.target, releaseTag: document.releaseTag,
     phase: context.phase, configurationFingerprint: document.configurationFingerprint, verifierSha: document.verifierSha,
     configurationObservationSha256: grant.configurationObservationSha256, verifierProof: context.verifierProof,
@@ -298,11 +302,13 @@ function artifactBinding(options, tagReceipt) {
     tagReceiptAppleBuildNumber: Number(tagReceipt.appleBuildNumber), buildNumberAuthority: options.target === 'google-play' ? 'release-tag' : binding.buildNumberAuthority };
 }
 
-async function verifyException(options, launchRequestOnly = false) {
+async function verifyException(options, launchRequestOnly = false, promotionOnly = false) {
   const { grant, approval, observations } = reviewedGrant(options.exceptionId);
   if (options.repository !== grant.repository || options.tag !== grant.releaseTag || !SHA.test(options.sourceSha ?? '')
     || !grant.targets.includes(options.target) || !DIGEST.test(options.configurationFingerprint ?? '') || !SHA.test(options.verifierSha ?? '')) fail('RELEASE_EXCEPTION_CONTEXT_REQUIRED');
   const env = options.env ?? process.env;
+  if (promotionOnly && (launchRequestOnly || options.target !== 'google-play' || options.phase !== 'before-deploy' || options.preflightOnly
+    || ['GITHUB_ACTIONS', 'CI_XCODE_CLOUD'].some(key => ['true', 'TRUE'].includes(env[key])))) fail('RELEASE_PROMOTION_FORBIDDEN_IN_CI');
   if (options.preflightOnly && ['CI', 'GITHUB_ACTIONS', 'CI_XCODE_CLOUD'].some(key => ['true', 'TRUE', '1'].includes(env[key]))) fail('RELEASE_EXCEPTION_PREFLIGHT_FORBIDDEN_IN_CI');
   if (options.preflightOnly && (!options.exceptionFile || options.phase !== 'before-build')) fail('RELEASE_EXCEPTION_PREFLIGHT_ONLY');
   if (launchRequestOnly) {
@@ -315,7 +321,7 @@ async function verifyException(options, launchRequestOnly = false) {
       || ['productId', 'repositoryId', 'referenceId'].some(key => typeof launch[key] !== 'string' || !launch[key].trim())) fail('RELEASE_EXCEPTION_XCODE_LAUNCH_REQUEST_CHANGED');
   }
   if (options.configurationFingerprint !== grant.configurationFingerprints?.[options.target]) fail('RELEASE_EXCEPTION_CONFIGURATION_UNREVIEWED');
-  const request = { token: options.token, env: options.env, fetchImpl: options.fetchImpl };
+  const request = { token: options.token, env: { ...env, GITHUB_API_URL: 'https://api.github.com' }, fetchImpl: options.fetchImpl };
   const verifierProof = await runtimeRevision(grant, options.verifierSha, request);
   // pin된 검증기도 각 phase에서 최신 grant의 철회를 읽는다. 중앙의 무관 커밋은 결속을 바꾸지 않는다.
   let remoteGrantFile;
@@ -350,6 +356,7 @@ async function verifyException(options, launchRequestOnly = false) {
   const result = validateReleaseException(document, { ...options, approvalBytes, riskNotesBytes, originalEvidence, verifierProof,
     inventoryBytes: Buffer.from(inventory.content, 'base64'), productTreeVerified: equal(baselineTree, candidateTree),
     productTreeSha256: sha256(JSON.stringify(baselineTree)), ...remoteBinding });
+  if (promotionOnly) return { ...result, ...await verifyPromotionEvidence(options, grant, result, remoteBinding.tagReceipt) };
   result.scope = options.preflightOnly ? 'manifest-preflight' : launchRequestOnly ? 'xcode-launch-request' : 'actual-ci-phase';
   result.actualCiVerification = options.preflightOnly || launchRequestOnly ? 'pending-ci-hook' : 'verified';
   result.executionConfiguration = options.preflightOnly || launchRequestOnly ? null : executionConfiguration(options, grant);
@@ -363,3 +370,6 @@ export async function verifyReleaseException(options) { return verifyException(o
 // Xcode trigger 내부 경계. CLI로 노출하지 않으며 실제 CI hook에서는 사용할 수 없다.
 // 이 보고서는 실제 CI의 두 phase를 대체하지 않는다.
 export async function verifyXcodeLaunchRequest(options) { return verifyException(options, true); }
+
+// 실제 성공 CI와 원격 job 로그가 증명한 원본만 재사용한다. 로컬 CI env 복제는 금지한다.
+export async function verifyGooglePlayPromotion(options) { return verifyException(options, false, true); }
