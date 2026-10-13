@@ -1604,7 +1604,7 @@ test('일반 릴리즈는 중앙 main을 사용하고 승인된 Godot 예외만 
     assert.match(text, /repository: seorilabs\/\.github/u, name);
     const workflow = parse(text);
     const checkout = Object.values(workflow.jobs).flatMap(job => job.steps ?? []).find(step => step.with?.repository === 'seorilabs/.github');
-    assert.equal(checkout.with.ref, name === 'godot-deploy-google-play.yml'
+    assert.equal(checkout.with.ref, ['godot-deploy-google-play.yml', 'godot-deploy-app-store.yml'].includes(name)
       ? "${{ inputs.release_exception_id != '' && inputs.release_verifier_sha || 'main' }}" : 'main', name);
     assert.match(text, /path: \.seorilabs-release-authority/u, name);
     assert.match(text, /persist-credentials: false/u, name);
