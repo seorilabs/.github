@@ -95,3 +95,9 @@ node scripts/release/verify-development-evidence.mjs \
 신규 착수부터 적용한다. 구현 중인 작업은 현재 설계와 남은 작업을 정리해 추가 코드 작성 전에 검토받는다. 완료 이력에 새 승인이나 가짜 검수 기록을 소급 작성하지 않는다. 문서·정책만의 변경에 제품 UI 검수 3회를 만들어 붙이지 않는다. 템플릿·검증기 테스트와 실제 제품 검수 완료는 별도로 보고한다.
 
 릴리스 계약 v2는 public/private Apple 실행 경로와 필수 개발 검수 gate를 명시한다. 계약 ID `org-v1`은 기존 앱 manifest의 조직 정책 식별자로 유지하며, 읽는 계약의 schemaVersion은 2로 고정해 구분한다. 오래된 executor 필드의 의미를 조용히 재사용하지 않는다.
+
+## 사람이 승인한 특정 릴리스 예외
+
+정확한 저장소·stable 태그·소스 SHA·마켓·phase를 사람이 명시 승인한 경우에만 중앙 `contracts/release-verification-exceptions.json`에 승인 근거·사유·기한을 PR로 기록한다. 예외는 최대 168시간이며 현재 허용 목적은 두 네이티브 마켓의 심사 제출이다. 제출 접수 뒤 항목을 제거한다. CLI·환경변수로 범용 생략을 요청할 수 없다. 검증기는 Release와 실제 annotated tag의 commit SHA를 재조회하고, 범위·시각이 맞을 때만 `human-exception`을 반환·출력한다. 이는 실제 UI/E2E 통과가 아니다. 실패·차단·미실행 원본은 유지하고 서명·산출물·SDK 감사·마켓 문구·제출 상태 검증은 이어서 수행한다.
+
+Xcode Cloud의 기존 완료 시각 receipt와 `--after` 대조를 지원한다. 정상 검증의 `completed_at`은 E2E 완료 시각이고, 예외의 값은 승인 시각이다. 예외 ID와 근거는 표준 출력의 별도 예외 메시지로 남긴다. 만료 또는 항목 제거 후에는 원래 필수 근거 검증으로 복귀한다.

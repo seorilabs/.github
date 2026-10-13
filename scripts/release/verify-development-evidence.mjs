@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { parse } from 'yaml';
 import { githubDownload, githubJson, githubPaginate } from '../github-rest.mjs';
+import { findHumanReleaseException } from './human-release-exception.mjs';
 
 const schema = JSON.parse(readFileSync(new URL('../../contracts/development-evidence.schema.json', import.meta.url), 'utf8'));
 const checkSchema = new Ajv2020({ allErrors: true }).compile(schema);
@@ -179,6 +180,16 @@ export async function verifyReleaseDevelopmentEvidence(options) {
   const release = tag === EVIDENCE_ARCHIVE_TAG
     ? await findEvidenceArchive(repository, request)
     : await githubJson(`/repos/${repository}/releases/tags/${encodeURIComponent(tag)}`, request);
+  const exception = findHumanReleaseException(options);
+  if (exception) {
+    // A context string is not proof: even an approved exception must bind to the live annotated tag.
+    const ref = await githubJson(`/repos/${repository}/git/ref/tags/${encodeURIComponent(tag)}`, request);
+    if (ref.object?.type !== 'tag' || !/^[a-f0-9]{40}$/u.test(ref.object?.sha ?? '')) throw new Error('EXCEPTION_TAG_BINDING_MISMATCH');
+    const liveTag = await githubJson(`/repos/${repository}/git/tags/${ref.object.sha}`, request);
+    if (liveTag.tag !== tag || liveTag.object?.type !== 'commit' || liveTag.object?.sha !== sourceSha) throw new Error('EXCEPTION_TAG_BINDING_MISMATCH');
+    return { ok: true, errors: [], verificationStatus: 'human-exception', exceptionId: exception.id,
+      approvalEvidence: exception.approvalEvidence, completedAt: exception.approvedAt };
+  }
   const assets = await githubPaginate(`/repos/${repository}/releases/${release.id}/assets?per_page=100`, request);
   const nameFor = assetPhase => tag === EVIDENCE_ARCHIVE_TAG
     ? `development-evidence.${sourceSha}.${target}.${assetPhase}.json`
@@ -214,7 +225,7 @@ export async function verifyReleaseDevelopmentEvidence(options) {
 
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   const args = new Map();
-  const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'configuration-fingerprint']);
+  const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'configuration-fingerprint', 'after']);
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i]?.replace(/^--/u, '');
     if (!argv[i]?.startsWith('--') || !allowed.has(key) || !argv[i + 1] || argv[i + 1].startsWith('--') || args.has(key)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
@@ -231,7 +242,13 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
     result = await verifyReleaseDevelopmentEvidence({ ...context, tag: args.get('tag') ?? EVIDENCE_ARCHIVE_TAG, env });
   }
   if (!result.ok) throw new Error(result.errors.join('\n'));
-  process.stdout.write(`개발 검수 근거 통과: ${context.target} ${context.phase} ${context.sourceSha}\n`);
+  const after = args.get('after');
+  if (after !== undefined && (!Number.isFinite(Date.parse(after)) || Date.parse(result.completedAt) < Date.parse(after))) throw new Error('EVIDENCE_COMPLETION_BEFORE_BUILD');
+  const status = result.verificationStatus ?? 'passed';
+  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `completed_at=${result.completedAt}\n`);
+  process.stdout.write(status === 'human-exception'
+    ? `개발 검수 예외 승인: ${context.target} ${context.phase} ${context.sourceSha} ${result.exceptionId} (${result.approvalEvidence})\n`
+    : `개발 검수 근거 통과: ${context.target} ${context.phase} ${context.sourceSha}\n`);
   return result;
 }
 

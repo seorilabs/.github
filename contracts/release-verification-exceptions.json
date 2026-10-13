@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "exceptions": [
+    {
+      "id": "jomul-v1.1.2-review-20261013",
+      "repository": "seorilabs/jomul",
+      "tag": "v1.1.2",
+      "sourceSha": "975d2e8c555bcb43f37a9034c881bfb17574cfea",
+      "targets": [
+        "google-play",
+        "app-store"
+      ],
+      "phases": [
+        "before-build",
+        "before-deploy"
+      ],
+      "approvedAt": "2026-10-13T08:42:25Z",
+      "expiresAt": "2026-10-20T08:42:25Z",
+      "approverKind": "human",
+      "approvalEvidence": "https://github.com/seorilabs/jomul/issues/200",
+      "objective": "submitted",
+      "reason": "Owner approved this release exception and skipped unavailable device QA; full-product UI remains 26 passed / 4 blocked and final E2E unexecuted.",
+      "removeAfter": "both market review submissions; expiry applies independently"
+    }
+  ]
+}
