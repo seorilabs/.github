@@ -3,15 +3,14 @@
   "id": "reascend-1.1.1",
   "repository": "seorilabs/reascend",
   "releaseTag": "v1.1.1",
-  "baselineSourceSha": "0f6e2f8cc2e2e2524fc488e34e029af925151c53",
+  "baselineSourceSha": "0ebc8b713ef7d6c50a0ea19863caf1284014b7e5",
   "targets": [
     "app-store"
   ],
   "allowedAppFiles": [
-    ".github/workflows/deploy-google-play.yml",
     "xcode-cloud/ci_scripts/verify_development_evidence.sh"
   ],
-  "approvalSha256": "4b4e790350c99374135819cb6db74ebbb000416c30f4c69b93138b6fbdb3dcf8",
+  "approvalSha256": "e9ba608dc2f3d914075c3a2361a777d261ba10ab453763e61c40dd95e834343c",
   "proposalSha256": "ee0490727461bec768da6d06e19eecc8acf4c3d5843a227db7bcea4c7e55ad49",
   "observationsSha256": "f7bd1593b4492dad2c81ca52db815f944e6f1f5e2821be55311ac8c55b2da437",
   "inventorySha256": "a663a239b785f43bd76264398e6576d47d640b999d1294d1ed4433cff7319232",
@@ -38,9 +37,9 @@
   },
   "configurationFingerprints": {
     "google-play": "1c49738b0436c1eb5228b45a4c4454b812dac20c865df739d92a779498e8f64e",
-    "app-store": "b3a26675659bfca56f6e428667a0da98704c6de16a1863d8032709870e9f9c8c"
+    "app-store": "aa870aa607cdd29b0abe3693b37d24f00d2f6752599cc747b110c169190b9f87"
   },
-  "configurationObservationSha256": "77a571b005366247ecb2273e205efe8733b935248692f0c9c278f5da7f0fe6e2",
+  "configurationObservationSha256": "106068bae060182c753173bbe8d1022f377a021afc841391f01ff34108f146c8",
   "expectedXcodeWorkflowId": "3A3999C4-DDF0-4476-8B80-548F5D3710E5",
   "executionConfiguration": {
     "google-play": {

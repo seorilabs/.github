@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import childProcess, { execFileSync } from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test, { after } from 'node:test';
+import test, { after, mock } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateIosArtifact } from '../scripts/release/verify-release-exception.mjs';
 import { createReleaseBinding, deriveTagEncodedVersionCode, parseTagReceipt, renderArtifactReceipt } from '../scripts/release/tag-version-authority.mjs';
@@ -94,7 +95,8 @@ function fixture() {
 }
 function github({ manifest = fixture(), changedProduct = false, approvalBytes = approval, duplicate = false,
   originalBytes = originals, missingOriginal = false, remoteVerifierExists = true, changedVerifierSource = false, assetTarget = 'google-play', mainAncestor = true,
-  verifierSha = VERIFIER, treeTruncated = false, tagMessage = receipt, tagSource = SOURCE, riskBytes = riskNotes, remoteGrant = grant } = {}) {
+  verifierSha = VERIFIER, treeTruncated = false, tagMessage = receipt, tagSource = SOURCE, riskBytes = riskNotes, remoteGrant = grant,
+  effectiveGrant = grant, treeEntries = productTree, changedAndroid = false } = {}) {
   const calls = [];
   const reply = body => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
   const fetchImpl = async url => {
@@ -109,7 +111,7 @@ function github({ manifest = fixture(), changedProduct = false, approvalBytes = 
     if (url.includes('/repos/seorilabs/.github/contents/contracts/release-exceptions/')) return remoteGrant === null
       ? new Response('{}', { status: 404, headers: { 'content-type': 'application/json' } })
       : reply({ encoding: 'base64', content: Buffer.from(JSON.stringify(remoteGrant)).toString('base64') });
-    if (url.includes('/releases/tags/')) return reply({ id: 1, tag_name: grant.releaseTag });
+    if (url.includes('/releases/tags/')) return reply({ id: 1, tag_name: effectiveGrant.releaseTag });
     if (url.includes('/releases/1/assets?')) return reply([
       { id: 10, name: `release-exception.${assetTarget}.json`, size: 10000 },
       ...(duplicate ? [{ id: 11, name: 'release-exception.google-play.json', size: 10000 }] : []),
@@ -123,10 +125,10 @@ function github({ manifest = fixture(), changedProduct = false, approvalBytes = 
     if (url.includes('/contents/docs/qa/feature-inventory.json?ref=')) return reply({ encoding: 'base64', content: inventoryBytes.toString('base64') });
     if (url.includes('/git/commits/')) return reply({ tree: { sha: url.endsWith(SOURCE) ? TREE : '2'.repeat(40) } });
     if (url.includes('/git/trees/')) return reply({ truncated: treeTruncated, tree: [
-      ...productTree.map((entry, i) => changedProduct && i === 0 && url.includes(TREE) ? { ...entry, sha: '3'.repeat(40) } : entry),
-      ...grant.allowedAppFiles.map(path => ({ path, type: 'blob', mode: '100644', sha: '8'.repeat(40) }))] });
-    if (url.includes('/git/ref/tags/')) return reply({ ref: 'refs/tags/v1.1.0', object: { type: 'tag', sha: TAG_OBJECT } });
-    if (url.includes('/git/tags/')) return reply({ sha: TAG_OBJECT, tag: 'v1.1.0', object: { type: 'commit', sha: tagSource }, message: tagMessage });
+      ...treeEntries.map((entry, i) => (changedProduct && i === 0 || changedAndroid && entry.path === ".github/workflows/deploy-google-play.yml") && url.includes(TREE) ? { ...entry, sha: '3'.repeat(40) } : entry),
+      ...effectiveGrant.allowedAppFiles.map(path => ({ path, type: 'blob', mode: '100644', sha: '8'.repeat(40) }))] });
+    if (url.includes('/git/ref/tags/')) return reply({ ref: `refs/tags/${effectiveGrant.releaseTag}`, object: { type: 'tag', sha: TAG_OBJECT } });
+    if (url.includes('/git/tags/')) return reply({ sha: TAG_OBJECT, tag: effectiveGrant.releaseTag, object: { type: 'commit', sha: tagSource }, message: tagMessage });
     throw new Error(`Unexpected URL: ${url}`);
   };
   return { fetchImpl, calls };
@@ -430,4 +432,53 @@ test('git checkout verifier derives HEAD and rejects caller SHA mismatch or dirt
       } finally { writeFileSync(location, original); }
     }
   } finally { writeFileSync(path, bytes); rmSync(join(sandbox, '.git'), { recursive: true, force: true }); }
+});
+
+// 합성 외부 응답/원본과 plutil 경계만 격리한다. 이 단위 테스트를 실제 CI 산출물 근거로 사용하지 않는다.
+test('iOS111 full verifier preserves build/deploy checks and freezes Android workflow', async () => {
+  const scopedGrant = JSON.parse(read('contracts/release-exceptions/reascend-1.1.1.json'));
+  const scopedApproval = read(`contracts/release-exceptions/${scopedGrant.approvalFile}`);
+  const scopedRuntime = Buffer.from('{"appVersion":"1.1.1","fixture":"runtime"}\n');
+  const scopedGenerator = Buffer.from(generatorBytes.toString().replaceAll('1.1.0', '1.1.1'));
+  scopedGrant.observationsSha256 = digest(observationsBytes);
+  scopedGrant.executionConfiguration['app-store'] = { ...grant.executionConfiguration['app-store'],
+    expectedInputs: { ...scopedGrant.executionConfiguration['app-store'].expectedInputs, CI_TAG: 'v1.1.1' },
+    runtimeConfigurationSha256: digest(scopedRuntime), generatorSha256: digest(scopedGenerator) };
+  writeFileSync(join(sandbox, `contracts/release-exceptions/${scopedGrant.observationsFile}`), observationsBytes);
+  writeFileSync(join(sandbox, 'contracts/release-exceptions/reascend-1.1.1.json'), JSON.stringify(scopedGrant));
+  const treeEntries = [...productTree, { path: '.github/workflows/deploy-google-play.yml', type: 'blob', mode: '100644', sha: '7'.repeat(40) }];
+  const scopedTreeHash = digest(JSON.stringify(treeEntries.sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0)));
+  const scopedReceipt = receipt.replaceAll('v1.1.0','v1.1.1').replace('version-name: 1.1.0','version-name: 1.1.1').replace('android-version-code: 21','android-version-code: 22').replace('apple-build-number: 1001000','apple-build-number: 1001001');
+  const manifest = { ...fixture(), id: scopedGrant.id, releaseTag: scopedGrant.releaseTag,
+    baselineSourceSha: scopedGrant.baselineSourceSha, target: 'app-store', productTreeSha256: scopedTreeHash,
+    configurationFingerprint: scopedGrant.configurationFingerprints['app-store'], approvalSha256: scopedGrant.approvalSha256,
+    proposalSha256: scopedGrant.proposalSha256, observationsSha256: scopedGrant.observationsSha256,
+    releaseBinding: { tagObjectSha: TAG_OBJECT, tagReceiptSha256: digest(scopedReceipt) } };
+  const api = changes => github({ manifest, assetTarget:'app-store', effectiveGrant:scopedGrant, remoteGrant:scopedGrant,
+    treeEntries, tagMessage:scopedReceipt, approvalBytes:scopedApproval, ...changes });
+  const options = { ...context, tag:'v1.1.1', target:'app-store', exceptionId:scopedGrant.id,
+    configurationFingerprint:manifest.configurationFingerprint, env:{ ...iosExecutionEnv, CI_TAG:'v1.1.1', CI_BUILD_NUMBER:'42' }, fetchImpl:api().fetchImpl };
+  const generatorPath=join(appRepository,'scripts/release/generate_runtime_config.py');
+  const runtimePath=join(appRepository,'config/ios_runtime.json');
+  const bindingPath=join(appRepository,'111-binding.json'), plistPath=join(appRepository,'111-Info.plist');
+  const plist={CFBundleIdentifier:scopedGrant.packageName,CFBundleShortVersionString:'1.1.1',CFBundleVersion:'42'};
+  const realExec=childProcess.execFileSync;
+  const boundary=mock.method(childProcess,'execFileSync',(command,args,...rest)=>command==='/usr/bin/plutil'?JSON.stringify(plist):realExec(command,args,...rest));
+  syncBuiltinESMExports();
+  try {
+    writeFileSync(generatorPath,scopedGenerator);writeFileSync(runtimePath,scopedRuntime);
+    const before=await verifyReleaseDevelopmentEvidence(options);
+    assert.equal(before.scope,'actual-ci-phase');assert.equal(before.executionConfiguration.kind,'generated-from-ci-input');assert.equal(before.productE2eStatus,'blocked');
+    await assert.rejects(verifyReleaseDevelopmentEvidence({...options,fetchImpl:api({changedAndroid:true}).fetchImpl}),{message:'RELEASE_EXCEPTION_PRODUCT_TREE_CHANGED'});
+    await assert.rejects(verifyReleaseDevelopmentEvidence({...options,env:{...options.env,CI_TAG:'v1.1.0'}}),{message:'RELEASE_EXCEPTION_EXECUTION_INPUTS_CHANGED'});
+    await assert.rejects(verifyReleaseDevelopmentEvidence({...options,fetchImpl:api({remoteGrant:{...scopedGrant,revoked:true}}).fetchImpl}),{message:'RELEASE_EXCEPTION_REVOKED'});
+    writeFileSync(bindingPath,JSON.stringify({tag:'v1.1.1',sourceSha:SOURCE,runtimeVersionCode:deriveTagEncodedVersionCode('v1.1.1'),appleMarketingVersion:'1.1.1',appleBuildNumber:42,buildNumberAuthority:'xcode-cloud-ci-build-number',applied:true}));
+    writeFileSync(plistPath,JSON.stringify(plist));
+    const deploy={...options,phase:'before-deploy',artifactFile:plistPath,releaseBindingFile:bindingPath,xcodeBuildNumber:'42'};
+    const afterBuild=await verifyReleaseDevelopmentEvidence(deploy);
+    assert.equal(afterBuild.artifact.versionName,'1.1.1');assert.equal(afterBuild.artifact.appleBuildNumber,42);assert.equal(afterBuild.executionConfiguration.kind,'actual-runtime-file');assert.equal(afterBuild.productE2eStatus,'blocked');
+    await assert.rejects(verifyReleaseDevelopmentEvidence({...deploy,xcodeBuildNumber:'43'}),{message:'RELEASE_EXCEPTION_IOS_BUILD_AUTHORITY_MISMATCH'});
+    plist.CFBundleShortVersionString='1.1.0';
+    await assert.rejects(verifyReleaseDevelopmentEvidence(deploy),{message:'RELEASE_EXCEPTION_IOS_ARTIFACT_VERSION_CHANGED'});
+  } finally {boundary.mock.restore();syncBuiltinESMExports();writeFileSync(generatorPath,generatorBytes);writeFileSync(runtimePath,runtimeBytes);}
 });
