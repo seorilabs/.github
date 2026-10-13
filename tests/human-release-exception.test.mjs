@@ -28,7 +28,7 @@ for (const [name, changes] of [
   ['invalid clock', {now:'not-a-time'}],
 ]) test(`no exception for ${name}`, () => assert.equal(findHumanReleaseException({...ctx,...changes}), null));
 
-function liveTagApi({ tagSha = ctx.sourceSha, status = 200, type = 'tag' } = {}) {
+function liveTagApi({ tagSha = ctx.sourceSha, status = 200, type = 'tag', deniedPath } = {}) {
   const calls = [];
   return { calls, fetchImpl: async url => {
     calls.push(url);
@@ -38,7 +38,7 @@ function liveTagApi({ tagSha = ctx.sourceSha, status = 200, type = 'tag' } = {})
     else if (url.includes('/git/tags/')) data = { sha: 'a'.repeat(40), tag: 'v1.1.2', object: { type: 'commit', sha: tagSha } };
     else if (url.includes('/releases/100/assets')) data = [];
     else throw new Error('Unexpected URL');
-    return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
+    return new Response(JSON.stringify(data), { status: deniedPath && !url.includes(deniedPath) ? 200 : status, headers: { 'content-type': 'application/json' } });
   }};
 }
 test('the live exact annotated tag yields an auditable human exception instead of fabricated evidence', async () => {
@@ -52,11 +52,24 @@ test('the live exact annotated tag yields an auditable human exception instead o
   assert.equal(result.assetId, undefined);
   assert.equal(api.calls.length, 3);
 });
-for (const [name, args] of [['moved tag', {tagSha:'f'.repeat(40)}],['lightweight tag',{type:'commit'}],['denied tag access',{status:403}]]) {
+for (const [name, args, message] of [
+  ['moved tag', {tagSha:'f'.repeat(40)}, /EXCEPTION_TAG_BINDING_MISMATCH/],
+  ['lightweight tag', {type:'commit'}, /EXCEPTION_TAG_BINDING_MISMATCH/],
+  ['denied tag ref', {status:403, deniedPath:'/git/ref/tags/'}, /403/],
+  ['denied tag object', {status:403, deniedPath:'/git/tags/'}, /403/],
+]) {
   test(`approved exception still blocks ${name}`, async () => {
-    await assert.rejects(verifyReleaseDevelopmentEvidence({...ctx,token:'fixture-token',fetchImpl:liveTagApi(args).fetchImpl}));
+    const api = liveTagApi(args);
+    await assert.rejects(verifyReleaseDevelopmentEvidence({...ctx,token:'fixture-token',fetchImpl:api.fetchImpl}), message);
+    if (args.deniedPath) assert.ok(api.calls.some(url => url.includes(args.deniedPath)));
   });
 }
+test('approval expires if its tag readback finishes at the absolute deadline', async () => {
+  let reads = 0;
+  const options = {...ctx, token:'fixture-token', fetchImpl:liveTagApi().fetchImpl};
+  Object.defineProperty(options, 'now', {get:()=> ++reads === 1 ? '2026-10-20T08:42:24.900Z' : '2026-10-20T08:42:25Z'});
+  await assert.rejects(verifyReleaseDevelopmentEvidence(options), /EXCEPTION_EXPIRED_DURING_READBACK/);
+});
 test('expired approval returns to mandatory normal evidence lookup', async () => {
   await assert.rejects(verifyReleaseDevelopmentEvidence({...ctx,now:'2026-10-20T08:42:25Z',token:'fixture-token',fetchImpl:liveTagApi().fetchImpl}), /REQUIRED_DEVELOPMENT_EVIDENCE_MISSING/);
 });

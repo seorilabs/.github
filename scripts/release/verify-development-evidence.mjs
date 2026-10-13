@@ -189,9 +189,11 @@ export async function verifyReleaseDevelopmentEvidence(options) {
     if (ref.ref !== `refs/tags/${tag}` || ref.object?.type !== 'tag' || !/^[a-f0-9]{40}$/u.test(ref.object?.sha ?? '')) throw new Error('EXCEPTION_TAG_BINDING_MISMATCH');
     const liveTag = await githubJson(`/repos/${repository}/git/tags/${ref.object.sha}`, request);
     if (liveTag.sha !== ref.object.sha || liveTag.tag !== tag || liveTag.object?.type !== 'commit' || liveTag.object?.sha !== sourceSha) throw new Error('EXCEPTION_TAG_BINDING_MISMATCH');
+    const decidedAt = options.now ?? new Date().toISOString();
+    if (!findHumanReleaseException({ ...options, now: decidedAt })) throw new Error('EXCEPTION_EXPIRED_DURING_READBACK');
     return { ok: true, errors: [], verificationStatus: 'human-exception', exceptionId: exception.id,
       approvalEvidence: exception.approvalEvidence, productE2eStatus: 'blocked', completionKind: 'exception-decision',
-      completedAt: new Date(options.now ?? Date.now()).toISOString() };
+      completedAt: new Date(decidedAt).toISOString() };
   }
   const assets = await githubPaginate(`/repos/${repository}/releases/${release.id}/assets?per_page=100`, request);
   const nameFor = assetPhase => tag === EVIDENCE_ARCHIVE_TAG
