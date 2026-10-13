@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "kind": "human_release_approval",
+  "approvedAt": "2026-10-12T22:39:42.421196+00:00",
+  "userApprovalVerbatim": "Android 1.1.0·iOS 1.1.1 전환 설계 승인 (권장)",
+  "proposalSha256": "ee0490727461bec768da6d06e19eecc8acf4c3d5843a227db7bcea4c7e55ad49",
+  "baselineSourceSha": "0ebc8b713ef7d6c50a0ea19863caf1284014b7e5",
+  "centralBaseSha": "793b01669e3a4a3af0502559d86c596c6a3bf468",
+  "markets": [
+    "app-store"
+  ],
+  "releaseTag": "v1.1.1",
+  "objective": "public_live",
+  "allowedAppFiles": [
+    "xcode-cloud/ci_scripts/verify_development_evidence.sh"
+  ],
+  "productTreeChangesAllowed": false,
+  "approvedUnverifiedRisks": [
+    "native authentication",
+    "remote account deletion",
+    "save/error/restart integration and incomplete whole26-feature E2E",
+    "previous Apple sandbox TEST HTTP404/no token and notification receiver/refund ledger unknown",
+    "physical-device IAP purchase/recovery/refund tests waived"
+  ],
+  "newPhysicalIapTestsAllowed": false,
+  "newUiOrWholeE2eRoundsAllowed": false,
+  "realMoneyPurchasesAllowed": false,
+  "sameAuthorizedScopeRepeatApprovalRequired": false,
+  "countriesExpandOnlyAfterEachMarket110Public": true,
+  "adsEnabled": false,
+  "appsInTossExcluded": true,
+  "privateReceiptSha256": "cf14230c3249baf88018d2c829f7a28bef33d7547b55f707da42b5ea10d9d05b",
+  "additionalScopeApprovedAt": "2026-10-13T12:33:07+00:00",
+  "inheritedEvidenceClockApprovedAt": "2026-10-12T22:39:42.421196+00:00",
+  "inheritedApprovalSha256": "3329c528a76e9de541b8edb0dfdc5d4a81edc72348f3058a320c797b5606bfb8",
+  "android110SubmissionPreserved": true,
+  "originalEvidenceSourceSha": "0f6e2f8cc2e2e2524fc488e34e029af925151c53"
+}
