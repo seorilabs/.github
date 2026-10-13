@@ -46,7 +46,7 @@ test('the live exact annotated tag yields an auditable human exception instead o
   const result = await verifyReleaseDevelopmentEvidence({ ...ctx, token: 'fixture-token', fetchImpl: api.fetchImpl });
   assert.equal(result.verificationStatus, 'human-exception');
   assert.equal(result.exceptionId, 'jomul-v1.1.2-review-20261013');
-  assert.equal(result.completedAt, ctx.now);
+  assert.equal(result.completedAt, new Date(ctx.now).toISOString());
   assert.equal(result.completionKind, 'exception-decision');
   assert.equal(result.productE2eStatus, 'blocked');
   assert.equal(result.assetId, undefined);
