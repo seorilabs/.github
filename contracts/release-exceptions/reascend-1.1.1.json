@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "id": "reascend-1.1.1",
+  "repository": "seorilabs/reascend",
+  "releaseTag": "v1.1.1",
+  "baselineSourceSha": "0f6e2f8cc2e2e2524fc488e34e029af925151c53",
+  "targets": [
+    "app-store"
+  ],
+  "allowedAppFiles": [
+    ".github/workflows/deploy-google-play.yml",
+    "xcode-cloud/ci_scripts/verify_development_evidence.sh"
+  ],
+  "approvalSha256": "4b4e790350c99374135819cb6db74ebbb000416c30f4c69b93138b6fbdb3dcf8",
+  "proposalSha256": "ee0490727461bec768da6d06e19eecc8acf4c3d5843a227db7bcea4c7e55ad49",
+  "observationsSha256": "f7bd1593b4492dad2c81ca52db815f944e6f1f5e2821be55311ac8c55b2da437",
+  "inventorySha256": "a663a239b785f43bd76264398e6576d47d640b999d1294d1ed4433cff7319232",
+  "approvedAt": "2026-10-12T22:39:42.421196+00:00",
+  "maxAgeHours": 168,
+  "approvedRisks": [
+    "native authentication",
+    "remote account deletion",
+    "save/error/restart integration and incomplete whole26-feature E2E",
+    "previous Apple sandbox TEST HTTP404/no token and notification receiver/refund ledger unknown",
+    "physical-device IAP purchase/recovery/refund tests waived"
+  ],
+  "packageName": "com.seorilabs.reascend",
+  "revoked": false,
+  "approvalFile": "reascend-1.1.1.approval.json",
+  "observationsFile": "reascend-1.1.1.observations.json",
+  "iosBuildProvenance": {
+    "helperSourceSha": "53c0819ec0976a48c7e8302234bcfc408f0a1e0b",
+    "helperSha256": "5578eaa8e0d9cb99a20bce37047d596d74eac6e630b9aee3bc67e8a96d163fd9",
+    "authorityModuleSha256": "29d13ace360ba7bfe731c9d36bee46b259d8e0b6f9b18ee0d0fd9824497c30d1",
+    "buildNumberAuthority": "xcode-cloud-ci-build-number",
+    "consumer": "xcode-cloud/ci_scripts/ci_post_clone.sh",
+    "sourceChangesAllowed": false
+  },
+  "configurationFingerprints": {
+    "google-play": "1c49738b0436c1eb5228b45a4c4454b812dac20c865df739d92a779498e8f64e",
+    "app-store": "b3a26675659bfca56f6e428667a0da98704c6de16a1863d8032709870e9f9c8c"
+  },
+  "configurationObservationSha256": "77a571b005366247ecb2273e205efe8733b935248692f0c9c278f5da7f0fe6e2",
+  "expectedXcodeWorkflowId": "3A3999C4-DDF0-4476-8B80-548F5D3710E5",
+  "executionConfiguration": {
+    "google-play": {
+      "expectedInputs": {
+        "GITHUB_ACTIONS": "true",
+        "GODOT_VERSION": "4.7.2",
+        "GODOT_STATUS": "stable",
+        "PROJECT_DIR": ".",
+        "ANDROID_EXPORT_PRESET": "Android",
+        "SCRIPTS_DIR": "tools",
+        "BUILD_SCRIPT": "",
+        "PREPARE_PROJECT_SCRIPT": "scripts/release/prepare_android_release.sh",
+        "POST_EXPORT_VALIDATION_SCRIPT": "scripts/release/audit_android_aab.sh",
+        "SHOULD_UPLOAD": "true",
+        "SEORI_EXCEPTION_PACKAGE_NAME": "com.seorilabs.reascend",
+        "SEORI_EXCEPTION_TRACK": "internal",
+        "SEORI_EXCEPTION_RELEASE_STATUS": "completed",
+        "PROJECT_R_ANALYTICS_ENABLED": "true"
+      },
+      "registeredClientConfigurationSha256": "180dd421fcf368a27409fc1c2baef4c423efbd55bad3b2607252ddc8503cc261",
+      "runtimeConfigurationSha256": "ec1c7849e07cfbd8ab9c10445fb0f399e804c827168000b1f2abdd53260dbbfc",
+      "generatorSha256": "bdd0cbb880bd192f0aceb117e59e77ebed2a12e861888b076e9c1677fd9e7e26",
+      "buildEnvironmentSha256": "24c0c3d4cd61b8dc9fd2b0682b014ffed16788aa7ad0d43509421a0711f07136",
+      "admobInputSha256": "8bb8bad32d95a1b9c88a6f691732624ec68b6c71a4a73f82f56561b1ac03d154",
+      "injectedProjectSha256": "24108a7dc5a0c38942afc433e810d65e47664d831b1e85986963fb3f5a74b96f",
+      "injectedAdUnitsSha256": "283ae3992b9dc86c857e72610a452b3faa6abbfbb35812356a50826c3d4ae819"
+    },
+    "app-store": {
+      "expectedInputs": {
+        "CI_XCODE_CLOUD": "TRUE",
+        "CI_TAG": "v1.1.1",
+        "CI_XCODE_SCHEME": "reascend-ios-project",
+        "CI_PROJECT_FILE_PATH": "xcode-cloud/reascend-ios-project.xcodeproj",
+        "GODOT_VERSION": "4.7.2",
+        "GODOT_STATUS": "stable",
+        "PROJECT_R_ANALYTICS_ENABLED": "true"
+      },
+      "registeredClientConfigurationSha256": "5458a96a37fdd5b357e43a025fbfab81ca74b9926d18c4a4576cab75e47cb041",
+      "runtimeConfigurationSha256": "44dad9697fd40b378811630ceb7f7592f57995cd0186772facc4b29a6eef1f5d",
+      "generatorSha256": "bdd0cbb880bd192f0aceb117e59e77ebed2a12e861888b076e9c1677fd9e7e26",
+      "buildEnvironmentSha256": "24c0c3d4cd61b8dc9fd2b0682b014ffed16788aa7ad0d43509421a0711f07136",
+      "admobInputSha256": "4485f6d005fdcc63a94c54e48b5775ca997530e004f7964265a635bc112b626e",
+      "injectedProjectSha256": "fad6aff8c3b3857c686dfe0b68853b931c17fa750d845862807b3079ebdc84c9",
+      "injectedAdUnitsSha256": "f13ce8d0596d7f78c814d654854f8f3231dd2e833b1afc9a3347fdbc5728d318"
+    }
+  }
+}
