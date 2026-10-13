@@ -25,3 +25,11 @@
 ## 검수 범위
 
 Editor에서 실제 확인한 범위와 native/마켓 실행 미검증을 분리한다. 최종 Editor JSON의 실제 시작/종료 시각·13항목·후보/설정/원본 해시를 요구한다. 소명한 범위 축소를 통과 판정으로 대체하지 않는다. 앱·중앙 릴리스 로직은 별도 교차 리뷰 및 current HEAD CI·미해결 thread 0개를 확인한다.
+
+
+## 실제 공개 조회 한도 차단 진단
+
+- 실제 CI [38428845877](https://github.com/seorilabs/match-picture-app/actions/runs/38428845877)의 1·2차 실행은 빌드 전에 `RELEASE_EXCEPTION_HOSTED_API_RATE_LIMITED HTTP_403`으로 중단됐다. 소스·공식 태그·설정은 동일하며 서명·업로드·심사 제출은 실행되지 않았다.
+- 기존 오류가 복구 시각을 남기지 않아 `x-ratelimit-remaining`, `x-ratelimit-reset`, `retry-after`의 숫자 값만 오류에 기록한다. 응답 본문·토큰·인증 헤더는 기록하지 않는다.
+- 검사 조건·익명 조회·권한·무재시도·무fallback과 실패 차단은 유지한다. 복구 시각이 있으면 그 이후까지 기다린다. 시각이 없는 기존 실패에 대해서는 마지막 실패 후 전체 1시간을 기다리고 다음 실제 실행에서 새 응답의 복구 시각을 확인한다.
+- 사람의 원래 승인 receipt와 미검증 상태는 변경하지 않는다. 이 진단 수정도 검토된 중앙 SHA와 Release manifest에 다시 결속한 뒤 사용한다.

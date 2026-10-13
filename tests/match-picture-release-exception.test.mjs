@@ -168,6 +168,32 @@ test('anonymous API failure remains closed and identifies rate limiting without 
   const request = { token: 'fixture-token', fetchImpl: async () => new Response('{}', { status: 403, headers: { 'x-ratelimit-remaining': '0' } }) };
   await assert.rejects(verifyHostedExecution(ciOptions, configGrant, request), /RELEASE_EXCEPTION_HOSTED_API_RATE_LIMITED HTTP_403/u);
 });
+test('rate-limit failure preserves the recovery headers and performs no retry or authenticated fallback', async () => {
+  let calls = 0;
+  const request = { token: 'private-fixture-token', fetchImpl: async (_, options) => {
+    calls += 1;
+    assert.equal(options.headers.authorization, undefined);
+    return new Response('private-response-body', { status: 403, headers: {
+      'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1791908400', 'retry-after': '120',
+    } });
+  } };
+  await assert.rejects(verifyHostedExecution(ciOptions, configGrant, request), error => {
+    assert.match(error.message, /HTTP_403 remaining=0 resetEpoch=1791908400 retryAfterSeconds=120/u);
+    assert.doesNotMatch(error.message, /private-fixture-token|private-response-body/u);
+    return true;
+  });
+  assert.equal(calls, 1);
+});
+test('rate-limit diagnostics redact nonnumeric and excessive header values', async () => {
+  const request = { token: 'private-fixture-token', fetchImpl: async () => new Response('', { status: 429, headers: {
+    'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '999999999999999', 'retry-after': 'private-fixture-token',
+  } }) };
+  await assert.rejects(verifyHostedExecution(ciOptions, configGrant, request), error => {
+    assert.match(error.message, /HTTP_429 remaining=0 resetEpoch=unknown retryAfterSeconds=unknown/u);
+    assert.doesNotMatch(error.message, /999999999999999|private-fixture-token/u);
+    return true;
+  });
+});
 test('before-deploy checks actually consumed version settings and does not permit another source edit', () => {
   const project = join(app, 'godot/project.godot'), presets = join(app, 'godot/export_presets.cfg');
   const originalProject = readFileSync(project), originalPresets = readFileSync(presets);

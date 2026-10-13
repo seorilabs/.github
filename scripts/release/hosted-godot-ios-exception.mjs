@@ -110,7 +110,14 @@ async function publicHostedJson(path, request) {
   });
   if (!response.ok) {
     const rateLimited = [403, 429].includes(response.status) && (response.headers.get('x-ratelimit-remaining') === '0' || response.headers.has('retry-after'));
-    fail(`${rateLimited ? 'RELEASE_EXCEPTION_HOSTED_API_RATE_LIMITED' : 'RELEASE_EXCEPTION_HOSTED_API_UNREADABLE'} HTTP_${response.status}`);
+    const rateInfo = rateLimited ? [
+      ['remaining', 'x-ratelimit-remaining'], ['resetEpoch', 'x-ratelimit-reset'], ['retryAfterSeconds', 'retry-after'],
+    ].map(([name, header]) => {
+      const value = response.headers.get(header);
+      return `${name}=${/^[0-9]{1,10}$/u.test(value ?? '') ? value : 'unknown'}`;
+    }).join(' ') : '';
+    // 숫자 제한 헤더만 기록한다. 응답 본문·토큰·인증 헤더는 읽거나 출력하지 않는다.
+    fail(`${rateLimited ? 'RELEASE_EXCEPTION_HOSTED_API_RATE_LIMITED' : 'RELEASE_EXCEPTION_HOSTED_API_UNREADABLE'} HTTP_${response.status}${rateInfo ? ` ${rateInfo}` : ''}`);
   }
   return response.json();
 }
