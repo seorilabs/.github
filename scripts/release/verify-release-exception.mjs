@@ -45,7 +45,6 @@ function reviewedGrant(id) {
 async function runtimeRevision(grant, claimedSha, request) {
   const root = fileURLToPath(new URL('../../', import.meta.url));
   const paths = ['scripts/release/verify-development-evidence.mjs', 'scripts/release/verify-release-exception.mjs',
-    'scripts/release/human-release-exception.mjs', 'contracts/release-verification-exceptions.json',
     'scripts/release/release-promotion-evidence.mjs', 'scripts/release/create-promotion-evidence.mjs',
     'scripts/release/verify-google-play-promotion.mjs', '.github/workflows/godot-deploy-google-play.yml',
     'scripts/release/tag-version-authority.mjs', 'scripts/github-rest.mjs', 'scripts/trigger-xcode-cloud.mjs',

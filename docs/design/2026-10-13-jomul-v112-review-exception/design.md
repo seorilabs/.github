@@ -26,3 +26,11 @@ flowchart LR
 5. 의미 있는 단위·통합·CLI 테스트, 전체 npm test, 독립 Claude 코드 리뷰와 required check 후 병합한다. 제품 UI 변경이 없어 새 UI 검수는 해당 없음이다.
 
 중앙 승인 항목 삭제 또는 만료는 즉시 원래 검증으로 복귀한다. 관련 티켓: jomul #200. Version Impact: patch.
+
+## 사용 종료 — 2026-10-13
+
+Google Play 제출 `14`는 검토 중이며, App Store `1.1.2 / build 31`은 제출 `7f50faff-d6e0-4b49-8123-01999b319c36`으로 `WAITING_FOR_REVIEW`다. App Store의 실제 제출 항목 하나·선택 빌드·수동 출시를 재조회했다. Google Play 관리형 게시와 App Store 수동 출시로 공개는 보류한다.
+
+승인 당시 정한 제거 조건에 따라 Jomul 전용 승인 목록·모듈·자동 예외 분기·전용 로그·무결성 경로를 제거한다. 이 후보도 이후 새 검증 요청에는 정상 근거가 필요하다. 두 마켓·두 phase의 정상 근거 복귀 검사 4개가 수정 전 실패, 수정 후 통과했다. 정상 `completed_at`·`--after` CLI 회귀는 별도 파일로 옮겨 유지한다. 기존 Reascend 명시적 grant 계약과 런타임 무결성 검사를 보존한다.
+
+전체 `npm test` 438개와 배포 패키지 검사를 통과했다. 최초 전체 검사의 로컬 HTTP 서버 `EPERM`은 환경 제한으로 보존하고 같은 검사를 제한 밖에서 확인했다. 심사 접수는 기존 UI/E2E의 미충족 항목을 통과로 바꾸지 않는다.
