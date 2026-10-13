@@ -9,6 +9,7 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import { parse } from 'yaml';
 import { githubDownload, githubJson, githubPaginate } from '../github-rest.mjs';
 import { verifyPromotionEvidence } from './release-promotion-evidence.mjs';
+import { bindHostedArtifact, validateHostedEditorEvidence, verifyHostedExecution } from './hosted-godot-ios-exception.mjs';
 import { assertArtifactReceipt, assertTagReceipt, deriveEncodedVersion, deriveTagEncodedVersionCode,
   parseArtifactReceipt, parseInfoPlistJson, parseReleaseBinding, parseTagReceipt } from './tag-version-authority.mjs';
 
@@ -16,6 +17,7 @@ const read = path => readFileSync(new URL(`../../${path}`, import.meta.url));
 const schema = JSON.parse(read('contracts/release-exception.schema.json'));
 const check = new Ajv2020({ allErrors: true }).compile(schema);
 const checkGrant = new Ajv2020({ allErrors: true }).compile(JSON.parse(read('contracts/release-exception-grant.schema.json')));
+const checkHostedGrant = new Ajv2020({ allErrors: true }).compile(JSON.parse(read('contracts/hosted-godot-ios-exception-grant.schema.json')));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const SHA = /^[a-f0-9]{40}$/u, DIGEST = /^[a-f0-9]{64}$/u;
 const grants = new Map((parse(read('contracts/development-workflow.yaml').toString()).releaseExceptions?.grantRegistry ?? []).map(path => {
@@ -32,7 +34,7 @@ function reviewedGrant(id) {
   const path = grants.get(id);
   if (!path) fail('RELEASE_EXCEPTION_NOT_REVIEWED');
   const grant = JSON.parse(read(path));
-  if (!checkGrant(grant)) fail('RELEASE_EXCEPTION_GRANT_SCHEMA');
+  if (!(grant.schemaVersion === 2 ? checkHostedGrant(grant) : checkGrant(grant))) fail('RELEASE_EXCEPTION_GRANT_SCHEMA');
   if (grant.revoked || grant.id !== id) fail('RELEASE_EXCEPTION_REVOKED');
   const prefix = 'contracts/release-exceptions/';
   const approval = read(`${prefix}${grant.approvalFile}`), observations = read(`${prefix}${grant.observationsFile}`);
@@ -46,13 +48,15 @@ async function runtimeRevision(grant, claimedSha, request) {
   const root = fileURLToPath(new URL('../../', import.meta.url));
   const paths = ['scripts/release/verify-development-evidence.mjs', 'scripts/release/verify-release-exception.mjs',
     'scripts/release/release-promotion-evidence.mjs', 'scripts/release/create-promotion-evidence.mjs',
+    'scripts/release/hosted-godot-ios-exception.mjs', 'contracts/hosted-godot-ios-exception-grant.schema.json',
     'scripts/release/verify-google-play-promotion.mjs', '.github/workflows/godot-deploy-google-play.yml',
     'scripts/release/tag-version-authority.mjs', 'scripts/github-rest.mjs', 'scripts/trigger-xcode-cloud.mjs',
     'scripts/release/resolve-github-tag-commit.mjs', 'contracts/development-evidence.schema.json',
     'contracts/development-workflow.schema.json', 'contracts/development-workflow.yaml', 'contracts/release-exception.schema.json',
     'contracts/release-exception-grant.schema.json',
     'contracts/release-version-authority.yaml', grants.get(grant.id), `contracts/release-exceptions/${grant.approvalFile}`,
-    `contracts/release-exceptions/${grant.observationsFile}`, 'package.json', 'package-lock.json'];
+    `contracts/release-exceptions/${grant.observationsFile}`, 'package.json', 'package-lock.json',
+    ...(grant.schemaVersion === 2 ? ['.github/workflows/godot-deploy-app-store.yml', 'scripts/release/apply-godot-export-version.mjs', 'scripts/release/verify-release-artifact.mjs'] : [])];
   const files = paths.map(path => {
     try {
       const location = join(root, path), stat = lstatSync(location);
@@ -197,7 +201,9 @@ export function validateReleaseException(document, context) {
   if (!Buffer.isBuffer(context.inventoryBytes) || sha256(context.inventoryBytes) !== grant.inventorySha256) fail('RELEASE_EXCEPTION_INVENTORY_CHANGED');
   let inventory;
   try { inventory = JSON.parse(context.inventoryBytes); } catch { fail('RELEASE_EXCEPTION_INVENTORY_INVALID'); }
-  if (inventory.schemaVersion !== 1 || !equal(inventory.features, document.features.map(({ id, core }) => ({ id, core }))) || inventory.features.length !== 26) fail('RELEASE_EXCEPTION_INVENTORY_CHANGED');
+  if (inventory.schemaVersion !== 1 || !equal(grant.schemaVersion === 2 ? inventory.features.map(({ id, core }) => ({ id, core })) : inventory.features,
+    document.features.map(({ id, core }) => ({ id, core }))) || inventory.features.length !== (grant.schemaVersion === 2 ? 13 : 26)) fail('RELEASE_EXCEPTION_INVENTORY_CHANGED');
+  const editorEvidence = grant.schemaVersion === 2 ? validateHostedEditorEvidence(observations, context, grant) : null;
   if (!context.productTreeVerified || document.productTreeSha256 !== context.productTreeSha256) fail('RELEASE_EXCEPTION_PRODUCT_TREE_CHANGED');
   if (!Buffer.isBuffer(context.riskNotesBytes) || sha256(context.riskNotesBytes) !== document.riskNotesSha256) fail('RELEASE_EXCEPTION_RISK_NOTES_CHANGED');
   const notes = context.riskNotesBytes.toString('utf8');
@@ -214,8 +220,10 @@ export function validateReleaseException(document, context) {
     approvalSha256: document.approvalSha256, observationsSha256: document.observationsSha256,
     originalEvidence: observations.observations,
     productTreeSha256: document.productTreeSha256, releaseBinding: document.releaseBinding,
+    editorEvidence,
     iosBuildProvenance: document.target === 'app-store' ? { ...grant.iosBuildProvenance,
-      verificationScope: 'declared-protected-consumer-pin', actualHelperBytesThisPhaseVerified: false } : null, artifact: null };
+      verificationScope: grant.schemaVersion === 2 ? 'reviewed-hosted-consumer-source' : 'declared-protected-consumer-pin',
+      actualHelperBytesThisPhaseVerified: grant.schemaVersion === 2 } : null, artifact: null };
 }
 
 async function releaseAssets(repository, tag, request) {
@@ -278,6 +286,8 @@ export function validateIosArtifact({ binding, tagReceipt, metadata, bundleId, x
 }
 
 function artifactBinding(options, tagReceipt) {
+  const { grant } = reviewedGrant(options.exceptionId);
+  if (grant.schemaVersion === 2) return bindHostedArtifact(options, grant, tagReceipt);
   if (!options.artifactFile || !options.releaseBindingFile) fail('RELEASE_EXCEPTION_ARTIFACT_REQUIRED');
   if (options.target === 'app-store' && String((options.env ?? process.env).CI_BUILD_NUMBER ?? '') !== String(options.xcodeBuildNumber ?? '')) fail('RELEASE_EXCEPTION_IOS_BUILD_AUTHORITY_MISMATCH');
   const text = readFileSync(options.releaseBindingFile, 'utf8');
@@ -304,6 +314,7 @@ function artifactBinding(options, tagReceipt) {
 
 async function verifyException(options, launchRequestOnly = false, promotionOnly = false) {
   const { grant, approval, observations } = reviewedGrant(options.exceptionId);
+  if (grant.schemaVersion === 2 && (launchRequestOnly || promotionOnly)) fail('RELEASE_EXCEPTION_PROVIDER_MISMATCH');
   if (options.repository !== grant.repository || options.tag !== grant.releaseTag || !SHA.test(options.sourceSha ?? '')
     || !grant.targets.includes(options.target) || !DIGEST.test(options.configurationFingerprint ?? '') || !SHA.test(options.verifierSha ?? '')) fail('RELEASE_EXCEPTION_CONTEXT_REQUIRED');
   const env = options.env ?? process.env;
@@ -359,7 +370,8 @@ async function verifyException(options, launchRequestOnly = false, promotionOnly
   if (promotionOnly) return { ...result, ...await verifyPromotionEvidence(options, grant, result, remoteBinding.tagReceipt) };
   result.scope = options.preflightOnly ? 'manifest-preflight' : launchRequestOnly ? 'xcode-launch-request' : 'actual-ci-phase';
   result.actualCiVerification = options.preflightOnly || launchRequestOnly ? 'pending-ci-hook' : 'verified';
-  result.executionConfiguration = options.preflightOnly || launchRequestOnly ? null : executionConfiguration(options, grant);
+  result.executionConfiguration = options.preflightOnly || launchRequestOnly ? null
+    : grant.schemaVersion === 2 ? await verifyHostedExecution(options, grant, request) : executionConfiguration(options, grant);
   if (launchRequestOnly) result.launchRequest = options.launchRequest;
   if (!options.preflightOnly && !launchRequestOnly && options.phase === 'before-deploy') result.artifact = artifactBinding(options, remoteBinding.tagReceipt);
   return result;

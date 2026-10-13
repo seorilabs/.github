@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/hosted-godot-ios-exception-grant.schema.json",
+  "title": "One-release Match Symbols hosted Godot iOS physical QA exception",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "repository",
+    "releaseTag",
+    "packageName",
+    "approvalFile",
+    "observationsFile",
+    "approvedAt",
+    "approvalSha256",
+    "proposalSha256",
+    "observationsSha256",
+    "inventorySha256",
+    "configurationObservationSha256",
+    "schemaVersion",
+    "baselineSourceSha",
+    "targets",
+    "allowedAppFiles",
+    "maxAgeHours",
+    "approvedRisks",
+    "revoked",
+    "configurationFingerprints",
+    "iosBuildProvenance",
+    "executionConfiguration",
+    "provider"
+  ],
+  "properties": {
+    "id": {
+      "const": "match-picture-1.1.7"
+    },
+    "repository": {
+      "const": "seorilabs/match-picture-app"
+    },
+    "releaseTag": {
+      "const": "v1.1.7"
+    },
+    "packageName": {
+      "const": "com.github.magicsih.MatchSymbol"
+    },
+    "approvalFile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observationsFile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approvedAt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approvalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "proposalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "observationsSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "inventorySha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "configurationObservationSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "schemaVersion": {
+      "const": 2
+    },
+    "baselineSourceSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "targets": {
+      "const": [
+        "app-store"
+      ]
+    },
+    "allowedAppFiles": {
+      "const": [
+        ".github/workflows/deploy-app-store.yml"
+      ]
+    },
+    "maxAgeHours": {
+      "const": 168
+    },
+    "approvedRisks": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "revoked": {
+      "type": "boolean"
+    },
+    "configurationFingerprints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "app-store"
+      ],
+      "properties": {
+        "app-store": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "iosBuildProvenance": {
+      "const": {
+        "provider": "github-actions",
+        "workflowPath": ".github/workflows/godot-deploy-app-store.yml",
+        "buildNumberAuthority": "release-tag"
+      }
+    },
+    "executionConfiguration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "app-store"
+      ],
+      "properties": {
+        "app-store": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "expectedInputs",
+            "analyticsMode",
+            "analyticsConfigurationSha256",
+            "sourceFiles",
+            "consumedSettings"
+          ],
+          "properties": {
+            "expectedInputs": {
+              "const": {
+                "GITHUB_ACTIONS": "true",
+                "GITHUB_REPOSITORY": "seorilabs/match-picture-app",
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "GITHUB_REF": "refs/heads/main",
+                "RUNNER_OS": "macOS",
+                "RUNNER_ENVIRONMENT": "github-hosted",
+                "GODOT_VERSION": "4.7.2",
+                "GODOT_STATUS": "stable",
+                "PROJECT_DIR": "godot",
+                "IOS_EXPORT_PRESET": "iOS",
+                "XCODE_PROJECT_PATH": "release-artifacts/ios/xcode/match-picture-app.xcodeproj",
+                "EXPORT_OPTIONS_PLIST": "app-store/exportOptions.plist",
+                "SCRIPTS_DIR": "tools",
+                "PREPARE_PROJECT_SCRIPT": "tools/prepare_ios_privacy.sh",
+                "POST_IMPORT_SCRIPT": "",
+                "POST_EXPORT_PROJECT_SCRIPT": "tools/finish_ios_privacy.sh",
+                "POST_EXPORT_VALIDATION_SCRIPT": "tools/validate_ios_privacy.sh",
+                "SHOULD_UPLOAD": "true",
+                "SEORI_EXCEPTION_BUNDLE_ID": "com.github.magicsih.MatchSymbol",
+                "SEORI_EXCEPTION_SCHEME": ""
+              }
+            },
+            "analyticsMode": {
+              "const": "disabled"
+            },
+            "analyticsConfigurationSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "sourceFiles": {
+              "type": "object",
+              "required": [
+                "godot/project.godot",
+                "godot/export_presets.cfg",
+                "godot/analytics.config.json",
+                "platform/ios/ad_privacy/ad_privacy.mm",
+                "tools/prepare_ios_privacy.py",
+                "tools/prepare_ios_privacy.sh",
+                "tools/finish_ios_privacy.py",
+                "tools/finish_ios_privacy.sh",
+                "tools/validate_ios_privacy.sh",
+                "app-store/releases/1.1.7/sdk-privacy-manifests.json",
+                "app-store/exportOptions.plist"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "godot/project.godot": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "godot/export_presets.cfg": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "godot/analytics.config.json": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "platform/ios/ad_privacy/ad_privacy.mm": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "tools/prepare_ios_privacy.py": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "tools/prepare_ios_privacy.sh": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "tools/finish_ios_privacy.py": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "tools/finish_ios_privacy.sh": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "tools/validate_ios_privacy.sh": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "app-store/releases/1.1.7/sdk-privacy-manifests.json": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "app-store/exportOptions.plist": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            "consumedSettings": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "godot/project.godot",
+                "godot/export_presets.cfg"
+              ],
+              "properties": {
+                "godot/project.godot": {
+                  "type": "object",
+                  "minProperties": 1,
+                  "additionalProperties": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "godot/export_presets.cfg": {
+                  "type": "object",
+                  "minProperties": 1,
+                  "additionalProperties": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "provider": {
+      "const": "github-actions-godot-ios"
+    }
+  }
+}
