@@ -422,7 +422,12 @@ test('git checkout verifier derives HEAD and rejects caller SHA mismatch or dirt
     const result = await verifyReleaseDevelopmentEvidence(options);
     assert.equal(result.verifierProof.kind, 'git-checkout'); assert.equal(result.verifierProof.revision, revision);
     await assert.rejects(verifyReleaseDevelopmentEvidence({ ...options, verifierSha: VERIFIER }), { message: 'RELEASE_EXCEPTION_VERIFIER_REVISION_CHANGED' });
-    writeFileSync(path, 'modified tracked source');
-    await assert.rejects(verifyReleaseDevelopmentEvidence(options), { message: 'RELEASE_EXCEPTION_VERIFIER_SOURCE_CHANGED' });
+    for (const source of ['scripts/github-rest.mjs', 'scripts/release/human-release-exception.mjs', 'contracts/release-verification-exceptions.json']) {
+      const location = join(sandbox, source), original = readFileSync(location);
+      try {
+        writeFileSync(location, 'modified tracked source');
+        await assert.rejects(verifyReleaseDevelopmentEvidence(options), { message: 'RELEASE_EXCEPTION_VERIFIER_SOURCE_CHANGED' });
+      } finally { writeFileSync(location, original); }
+    }
   } finally { writeFileSync(path, bytes); rmSync(join(sandbox, '.git'), { recursive: true, force: true }); }
 });
