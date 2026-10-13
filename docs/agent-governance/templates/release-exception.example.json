@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 1,
+  "kind": "human_release_exception",
+  "state": "active",
+  "id": "reascend-1.1.0",
+  "repository": "seorilabs/reascend",
+  "sourceSha": "1111111111111111111111111111111111111111",
+  "baselineSourceSha": "0f6e2f8cc2e2e2524fc488e34e029af925151c53",
+  "target": "google-play",
+  "releaseTag": "v1.1.0",
+  "verifierSha": "2222222222222222222222222222222222222222",
+  "configurationFingerprint": "1c49738b0436c1eb5228b45a4c4454b812dac20c865df739d92a779498e8f64e",
+  "inventorySha256": "a663a239b785f43bd76264398e6576d47d640b999d1294d1ed4433cff7319232",
+  "productTreeSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "approvedAt": "2026-10-12T22:39:42.421196+00:00",
+  "expiresAt": "2026-10-19T22:39:42.421196+00:00",
+  "approvalSha256": "3329c528a76e9de541b8edb0dfdc5d4a81edc72348f3058a320c797b5606bfb8",
+  "proposalSha256": "a81b4a86f9b2bb17adb17dd2848c9d06bcf0ec3f02c3922f364f0d627d6dbd53",
+  "observationsSha256": "f7bd1593b4492dad2c81ca52db815f944e6f1f5e2821be55311ac8c55b2da437",
+  "riskNotesSha256": "cb192be66b3882907afb660ab865e1a09c0c608432cde195160644006bdfe79d",
+  "approvedRisks": [
+    "native authentication",
+    "remote account deletion",
+    "save/error/restart integration and incomplete whole26-feature E2E",
+    "previous Apple sandbox TEST HTTP404/no token and notification receiver/refund ledger unknown",
+    "physical-device IAP purchase/recovery/refund tests waived"
+  ],
+  "features": [
+    {
+      "id": "startup-auth",
+      "core": true,
+      "originalVerdict": "PARTIAL/PASS_SCOPED · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "tutorial-help",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_SCOPED · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "battle-stage-navigation",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_SCOPED · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "stat-growth",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_SCOPED · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "promotion-talents",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_SCOPED · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "skills-mastery",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_WITH_MINOR_NOTE · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "regression-memory",
+      "core": true,
+      "originalVerdict": "PARTIAL/PARTIAL · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "equipment-upgrade-awakening",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_WITH_MINOR_NOTE · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "inventory-imprint",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_WITH_MINOR_NOTE · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "treasure-summon-milestones",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_WITH_MINOR_NOTE · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "companions-constellations",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_SCOPED · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "avatars-collections-codex",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_SCOPED · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "equipment-shop-refresh",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_SCOPED · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "material-box-probabilities",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PARTIAL · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "gem-store-purchase",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PARTIAL · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "paid-wallet-ledger-spend",
+      "core": true,
+      "originalVerdict": "PARTIAL/PARTIAL · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "pending-purchase-recovery",
+      "core": true,
+      "originalVerdict": "PARTIAL/UNKNOWN · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "daily-supply-attendance-missions",
+      "core": true,
+      "originalVerdict": "PARTIAL/PARTIAL · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "online-offline-rewards",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PARTIAL · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "battle-pass",
+      "core": true,
+      "originalVerdict": "PARTIAL/PARTIAL · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "liveops-events-ranking",
+      "core": true,
+      "originalVerdict": "PARTIAL/PARTIAL · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "mailbox",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_WITH_MINOR_NOTE · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "settings-language-audio",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_SCOPED · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "local-cloud-save-conflicts",
+      "core": true,
+      "originalVerdict": "PARTIAL/UNKNOWN · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "account-deletion",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PARTIAL · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    },
+    {
+      "id": "iap-version-gate-ads-off",
+      "core": true,
+      "originalVerdict": "PASS_SCOPED/PASS_SCOPED · 전체BLOCKED_SCOPE",
+      "wholeFeatureStatus": "blocked"
+    }
+  ],
+  "releaseBinding": null,
+  "decisionStatus": "human_exception",
+  "productE2eStatus": "blocked"
+}

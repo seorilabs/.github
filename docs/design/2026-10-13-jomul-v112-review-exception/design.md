@@ -7,7 +7,7 @@ flowchart LR
   A[릴리스 검증 요청] --> B{중앙 승인 목록의 정확한 후보인가}
   B -->|아니오| C[기존 UI/E2E 검증]
   B -->|예| D[현재 GitHub 태그와 SHA 대조]
-  D --> E[human-exception 결과와 승인 시각 기록]
+  D --> E[human-exception 결과와 예외 판단 시각 기록]
   E --> F[서명·산출물·SDK 감사·업로드·심사 상태 확인]
 ```
 
@@ -15,7 +15,7 @@ flowchart LR
 
 ## 구현과 실패 처리
 
-중앙에서 검토한 승인 기록만 읽고 일반 CLI/환경변수 생략 옵션은 추가하지 않는다. 후보·마켓·phase·시각이 다르면 기존 검증 경로를 쓴다. 실제 annotated tag를 읽고 commit SHA가 다르거나 조회에 실패하면 예외도 거절한다. 예외 결과는 `human-exception`과 승인 기록 ID를 출력한다. Xcode Cloud 기존 훅이 필요로 하는 `completed_at`은 검증 완료/예외 승인 시각이며 실제 E2E 실행을 뜻하지 않는다. 기존 훅의 `--after`를 지원하고 시각 역전은 거절한다.
+중앙에서 검토한 승인 기록만 읽고 일반 CLI/환경변수 생략 옵션은 추가하지 않는다. 후보·마켓·phase·시각이 다르면 기존 검증 경로를 쓴다. 실제 annotated tag를 읽고 commit SHA가 다르거나 조회에 실패하면 예외도 거절한다. 예외 결과는 `human-exception`, `productE2eStatus:blocked`와 승인 기록 ID를 출력한다. 이미 발급한 고정 태그의 호환 경로이며 두 마켓 제출 후 전용 승인 목록과 코드를 제거한다. 새로운 릴리스에는 최신 명시적 grant 경로를 쓴다. Xcode Cloud 기존 훅이 필요로 하는 `completed_at`은 E2E 완료/실제 예외 판단 완료 시각이며 실제 E2E 실행을 뜻하지 않는다. 기존 훅의 `--after`를 지원하고 시각 역전은 거절한다.
 
 ## 인수조건과 검증
 

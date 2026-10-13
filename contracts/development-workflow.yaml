@@ -72,6 +72,20 @@ foundationFeatures:
   unknownImpact: rerun
   carryForwardMaxAgeDays: 30
   realDeviceCheck: once-per-candidate
+releaseExceptions:
+  schema: contracts/release-exception.schema.json
+  optIn: explicit-reviewed-exception-id
+  approvalTrust: immutable-reviewed-central-grant
+  originalVerdicts: preserve
+  decisionStatus: human_exception
+  productE2eStatus: blocked
+  maxAgeHours: 168
+  phases: [before-build, before-deploy]
+  beforeBuildArtifactRequired: false
+  beforeDeployArtifactRequired: true
+  revocation: read-current-central-grant-every-phase
+  crossCandidateMarketReleaseReuse: forbidden
+  grantRegistry: [contracts/release-exceptions/reascend-1.1.0.json]
 autonomousImplementation:
   approvedDesignRequired: true
   missingApproval: draft-design-and-continue-next-unattempted

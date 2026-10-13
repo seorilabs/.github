@@ -34,8 +34,8 @@ function liveTagApi({ tagSha = ctx.sourceSha, status = 200, type = 'tag' } = {})
     calls.push(url);
     let data;
     if (url.includes('/releases/tags/v1.1.2')) data = { id: 100 };
-    else if (url.includes('/git/ref/tags/v1.1.2')) data = { object: { type, sha: 'a'.repeat(40) } };
-    else if (url.includes('/git/tags/')) data = { tag: 'v1.1.2', object: { type: 'commit', sha: tagSha } };
+    else if (url.includes('/git/ref/tags/v1.1.2')) data = { ref: 'refs/tags/v1.1.2', object: { type, sha: 'a'.repeat(40) } };
+    else if (url.includes('/git/tags/')) data = { sha: 'a'.repeat(40), tag: 'v1.1.2', object: { type: 'commit', sha: tagSha } };
     else if (url.includes('/releases/100/assets')) data = [];
     else throw new Error('Unexpected URL');
     return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
@@ -46,7 +46,9 @@ test('the live exact annotated tag yields an auditable human exception instead o
   const result = await verifyReleaseDevelopmentEvidence({ ...ctx, token: 'fixture-token', fetchImpl: api.fetchImpl });
   assert.equal(result.verificationStatus, 'human-exception');
   assert.equal(result.exceptionId, 'jomul-v1.1.2-review-20261013');
-  assert.equal(result.completedAt, '2026-10-13T08:42:25Z');
+  assert.equal(result.completedAt, ctx.now);
+  assert.equal(result.completionKind, 'exception-decision');
+  assert.equal(result.productE2eStatus, 'blocked');
   assert.equal(result.assetId, undefined);
   assert.equal(api.calls.length, 3);
 });
