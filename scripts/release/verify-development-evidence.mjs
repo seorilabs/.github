@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { parse } from 'yaml';
 import { githubDownload, githubJson, githubPaginate } from '../github-rest.mjs';
+import { verifyReleaseException } from './verify-release-exception.mjs';
 
 const schema = JSON.parse(readFileSync(new URL('../../contracts/development-evidence.schema.json', import.meta.url), 'utf8'));
 const checkSchema = new Ajv2020({ allErrors: true }).compile(schema);
@@ -173,6 +174,7 @@ async function findEvidenceArchive(repository, request) {
 }
 
 export async function verifyReleaseDevelopmentEvidence(options) {
+  if (options.exceptionId) return verifyReleaseException(options);
   const { repository, tag, sourceSha, target, phase, token, env = process.env, fetchImpl = globalThis.fetch } = options;
   if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(repository ?? '') || !/^[a-f0-9]{40}$/u.test(sourceSha ?? '') || !['before-build', 'before-deploy'].includes(phase) || !['apps-in-toss', 'google-play', 'app-store', 'web', 'service'].includes(target) || !tag) throw new Error('INVALID_EVIDENCE_CONTEXT');
   const request = { token, env, fetchImpl };
@@ -214,13 +216,36 @@ export async function verifyReleaseDevelopmentEvidence(options) {
 
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   const args = new Map();
-  const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'configuration-fingerprint']);
+  const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'configuration-fingerprint',
+    'release-exception-id', 'verifier-sha', 'report', 'release-binding', 'artifact-receipt', 'artifact-file',
+    'exception-file', 'preflight', 'risk-notes-file', 'original-evidence-dir', 'xcode-build-number', 'app-repository']);
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i]?.replace(/^--/u, '');
     if (!argv[i]?.startsWith('--') || !allowed.has(key) || !argv[i + 1] || argv[i + 1].startsWith('--') || args.has(key)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
     args.set(key, argv[i + 1]);
   }
   const context = { repository: args.get('repo') ?? env.GITHUB_REPOSITORY, sourceSha: args.get('sha'), target: args.get('target'), phase: args.get('phase'), configurationFingerprint: args.get('configuration-fingerprint'), requireUi: args.get('target') !== 'service' };
+  if (args.has('release-exception-id')) {
+    if (args.has('file') || (args.has('preflight') && args.get('preflight') !== 'true')) throw new Error('INVALID_EVIDENCE_ARGUMENT');
+    let result;
+    try {
+      result = await verifyReleaseDevelopmentEvidence({ ...context, tag: args.get('tag'), env,
+        exceptionId: args.get('release-exception-id'), verifierSha: args.get('verifier-sha'),
+        releaseBindingFile: args.get('release-binding'), artifactReceiptFile: args.get('artifact-receipt'), artifactFile: args.get('artifact-file'),
+        exceptionFile: args.get('exception-file'), riskNotesFile: args.get('risk-notes-file'), preflightOnly: args.get('preflight') === 'true',
+        originalEvidenceDir: args.get('original-evidence-dir'),
+        xcodeBuildNumber: args.get('xcode-build-number'), appRepository: args.get('app-repository') });
+    } catch (error) {
+      if (args.has('report')) writeFileSync(args.get('report'), `${JSON.stringify({ ok: false, decisionStatus: 'rejected',
+        productE2eStatus: 'blocked', repository: context.repository, sourceSha: context.sourceSha, target: context.target,
+        phase: context.phase, error: error.message }, null, 2)}\n`);
+      throw error;
+    }
+    if (args.has('report')) writeFileSync(args.get('report'), `${JSON.stringify(result, null, 2)}\n`);
+    process.stdout.write(`출시 판정 ${result.decisionStatus}: ${context.target} ${context.phase} ${context.sourceSha}; 제품 E2E blocked\n`);
+    return result;
+  }
+  if (['verifier-sha', 'report', 'release-binding', 'artifact-receipt', 'artifact-file', 'exception-file', 'preflight', 'risk-notes-file', 'original-evidence-dir', 'xcode-build-number', 'app-repository'].some(key => args.has(key))) throw new Error('RELEASE_EXCEPTION_ID_REQUIRED');
   let result;
   if (args.has('file')) {
     const document = JSON.parse(readFileSync(args.get('file'), 'utf8'));

@@ -1,0 +1,294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seorilabs.github.io/contracts/release-exception-grant.schema.json",
+  "title": "Reviewed release exception grant",
+  "type": "object",
+  "required": [
+    "id",
+    "repository",
+    "releaseTag",
+    "packageName",
+    "approvalFile",
+    "observationsFile",
+    "approvedAt",
+    "expectedXcodeWorkflowId",
+    "approvalSha256",
+    "proposalSha256",
+    "observationsSha256",
+    "inventorySha256",
+    "configurationObservationSha256",
+    "schemaVersion",
+    "baselineSourceSha",
+    "targets",
+    "allowedAppFiles",
+    "maxAgeHours",
+    "approvedRisks",
+    "revoked",
+    "configurationFingerprints",
+    "iosBuildProvenance",
+    "executionConfiguration"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1
+    },
+    "releaseTag": {
+      "type": "string",
+      "minLength": 1
+    },
+    "packageName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approvalFile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observationsFile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approvedAt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expectedXcodeWorkflowId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approvalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "proposalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "observationsSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "inventorySha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "configurationObservationSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "baselineSourceSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "google-play",
+          "app-store"
+        ]
+      }
+    },
+    "allowedAppFiles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "maxAgeHours": {
+      "const": 168
+    },
+    "approvedRisks": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "revoked": {
+      "type": "boolean"
+    },
+    "configurationFingerprints": {
+      "type": "object",
+      "required": [
+        "google-play",
+        "app-store"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "google-play": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "app-store": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "iosBuildProvenance": {
+      "type": "object",
+      "required": [
+        "helperSourceSha",
+        "helperSha256",
+        "authorityModuleSha256",
+        "buildNumberAuthority",
+        "consumer",
+        "sourceChangesAllowed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "helperSourceSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "helperSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "authorityModuleSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "buildNumberAuthority": {
+          "const": "xcode-cloud-ci-build-number"
+        },
+        "consumer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceChangesAllowed": {
+          "const": false
+        }
+      }
+    },
+    "executionConfiguration": {
+      "type": "object",
+      "required": [
+        "google-play",
+        "app-store"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "google-play": {
+          "type": "object",
+          "required": [
+            "registeredClientConfigurationSha256",
+            "runtimeConfigurationSha256",
+            "generatorSha256",
+            "buildEnvironmentSha256",
+            "expectedInputs",
+            "admobInputSha256",
+            "injectedProjectSha256",
+            "injectedAdUnitsSha256"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "registeredClientConfigurationSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "runtimeConfigurationSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "generatorSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "buildEnvironmentSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "expectedInputs": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "admobInputSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "injectedProjectSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "injectedAdUnitsSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        },
+        "app-store": {
+          "type": "object",
+          "required": [
+            "registeredClientConfigurationSha256",
+            "runtimeConfigurationSha256",
+            "generatorSha256",
+            "buildEnvironmentSha256",
+            "expectedInputs",
+            "admobInputSha256",
+            "injectedProjectSha256",
+            "injectedAdUnitsSha256"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "registeredClientConfigurationSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "runtimeConfigurationSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "generatorSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "buildEnvironmentSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "expectedInputs": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "admobInputSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "injectedProjectSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "injectedAdUnitsSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
+      }
+    }
+  }
+}
