@@ -184,9 +184,6 @@ async function main() {
       ...(exceptionId ? { exceptionId, configurationFingerprint, verifierSha,
         launchRequest: { provider: "app-store-connect", productId, workflowId, repositoryId, referenceId, bundleId,
           referenceKind: "TAG", referenceName: tag } } : {}) }, reportPath);
-    if (verification.verificationStatus === 'human-exception') {
-      console.log(`개발 검수 예외 승인: ${verification.exceptionId}; ${verification.approvalEvidence}; 제품 E2E blocked`);
-    }
     if (exceptionId) {
       console.log(`출시 판정 ${verification.decisionStatus}; 제품 E2E blocked`);
     }

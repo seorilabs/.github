@@ -198,8 +198,8 @@ node scripts/release/verify-google-play-promotion.mjs \
 
 릴리스 계약 v2는 public/private Apple 실행 경로와 필수 개발 검수 gate를 명시한다. 계약 ID `org-v1`은 기존 앱 manifest의 조직 정책 식별자로 유지하며, 읽는 계약의 schemaVersion은 2로 고정해 구분한다. 오래된 executor 필드의 의미를 조용히 재사용하지 않는다.
 
-## 기존 고정 태그의 Jomul v1.1.2 승인 예외
+## 기존 고정 태그의 Jomul v1.1.2 예외 이력
 
-Jomul은 명시적 예외 입력을 지원하기 전에 이미 발급된 `v1.1.2` 태그를 옮기지 않는다. 이번 사람 승인은 `contracts/release-verification-exceptions.json`의 정확한 저장소·태그·SHA·두 마켓·두 phase·168시간에만 결속한다. 이 항목만 Release와 실제 annotated tag를 재조회한 뒤 `human-exception`, `productE2eStatus:blocked`를 반환한다. 일반 후보의 빈 근거 fallback이나 CLI/환경변수 검증 생략은 없다. 새 앱/릴리스의 예외에는 위의 명시적 grant 경로를 사용한다. 두 마켓 심사 제출 뒤 이 Jomul 항목과 전용 경로를 제거한다. 기존 Reascend grant 검증과 철회·산출물 검증은 그대로 적용한다.
+Jomul의 고정 `v1.1.2` 태그 한 건에 대한 사람 승인 예외는 [중앙 PR #238](https://github.com/seorilabs/.github/pull/238)로 적용했다. Google Play·App Store 심사 접수 뒤 승인 목록과 전용 호환 경로를 제거했다. 기존 26 통과/4 차단, 미실행 E2E·장비 검수 생략 원본은 [jomul #200](https://github.com/seorilabs/jomul/issues/200)에 보존하며 검증 성공으로 바꾸지 않는다. 이 종료가 공개 출시를 승인하지는 않는다.
 
-기존 Xcode Cloud receipt의 `completed_at`은 이 경우 실제 **예외 판단 완료 시각**이다. E2E 실행 시각을 만들거나 승인 시각을 E2E 완료 시각으로 기록하지 않는다. 예외 ID·승인 근거는 별도 로그에 남기고 `--after`는 실제 빌드 전 판단 이후인지 대조한다. 정상 검증의 값은 기존 E2E 완료 시각이다. 서명·산출물·SDK 감사·마켓 문구·실제 접수는 별도 요구한다. 기존 26 통과/4 차단, 미실행 E2E·장비 검수 생략 원본을 유지한다.
+새 릴리스의 예외에는 위의 명시적 grant 경로를 사용한다. 정상 검증의 Xcode Cloud `completed_at`과 `--after`는 기존 E2E 완료 시각과 빌드 전 완료 시각을 대조하는 일반 지원으로 유지한다. 기존 Reascend grant 검증·철회·산출물 검증은 그대로 적용한다.

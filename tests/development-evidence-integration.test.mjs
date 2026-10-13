@@ -33,6 +33,16 @@ test('Release verifier reads paginated assets and the exact candidate report', a
   const result = await verifyReleaseDevelopmentEvidence({ ...context, tag: 'v1.0.0', token: 'fixture-token', fetchImpl: api.fetchImpl });
   assert.equal(result.ok, true); assert.equal(result.assetId, 20); assert.equal(api.calls.length, 5);
 });
+for (const target of ['google-play', 'app-store']) for (const phase of ['before-build', 'before-deploy']) {
+  test(`closed Jomul v1.1.2 submission exception requires normal evidence for ${target} ${phase}`, async () => {
+    const api = fakeGitHub({ missing: true });
+    await assert.rejects(verifyReleaseDevelopmentEvidence({
+      repository: 'seorilabs/jomul', tag: 'v1.1.2', sourceSha: '975d2e8c555bcb43f37a9034c881bfb17574cfea',
+      target, phase, now: '2026-10-13T10:00:00Z', token: 'fixture-token', fetchImpl: api.fetchImpl,
+    }), /REQUIRED_DEVELOPMENT_EVIDENCE_MISSING/);
+    assert.equal(api.calls.length, 2);
+  });
+}
 test('SHA-keyed draft evidence supports untagged development builds', async () => {
   const api = fakeGitHub({ tag: 'development-evidence' });
   assert.equal((await verifyReleaseDevelopmentEvidence({ ...context, tag: 'development-evidence', token: 'fixture-token', fetchImpl: api.fetchImpl })).ok, true);
