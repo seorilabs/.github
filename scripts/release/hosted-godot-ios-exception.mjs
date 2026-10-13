@@ -108,7 +108,10 @@ async function publicHostedJson(path, request) {
     method: 'GET', headers: { accept: 'application/vnd.github+json', 'user-agent': 'seorilabs-github-rest', 'x-github-api-version': '2022-11-28' },
     signal: AbortSignal.timeout(30000),
   });
-  if (!response.ok) fail('RELEASE_EXCEPTION_HOSTED_API_UNREADABLE');
+  if (!response.ok) {
+    const rateLimited = [403, 429].includes(response.status) && (response.headers.get('x-ratelimit-remaining') === '0' || response.headers.has('retry-after'));
+    fail(`${rateLimited ? 'RELEASE_EXCEPTION_HOSTED_API_RATE_LIMITED' : 'RELEASE_EXCEPTION_HOSTED_API_UNREADABLE'} HTTP_${response.status}`);
+  }
   return response.json();
 }
 export async function verifyHostedExecution(options, grant, request) {

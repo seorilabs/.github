@@ -164,6 +164,10 @@ test('actual hosted run, reusable bytes and macOS job are fetched without new Ac
   await assert.rejects(verifyHostedExecution(ciOptions, configGrant, request({ referenced_workflows: [{ path: `seorilabs/.github/${workflowPath}@unreviewed`, sha: workflowSha }] })), /RELEASE_EXCEPTION_HOSTED_WORKFLOW_CHANGED/u);
   await assert.rejects(verifyHostedExecution(ciOptions, configGrant, request({}, {}, Buffer.from('changed workflow'))), /RELEASE_EXCEPTION_HOSTED_WORKFLOW_CHANGED/u);
 });
+test('anonymous API failure remains closed and identifies rate limiting without exposing a token', async () => {
+  const request = { token: 'fixture-token', fetchImpl: async () => new Response('{}', { status: 403, headers: { 'x-ratelimit-remaining': '0' } }) };
+  await assert.rejects(verifyHostedExecution(ciOptions, configGrant, request), /RELEASE_EXCEPTION_HOSTED_API_RATE_LIMITED HTTP_403/u);
+});
 test('before-deploy checks actually consumed version settings and does not permit another source edit', () => {
   const project = join(app, 'godot/project.godot'), presets = join(app, 'godot/export_presets.cfg');
   const originalProject = readFileSync(project), originalPresets = readFileSync(presets);

@@ -102,7 +102,11 @@ test('hosted iOS exception pins reviewed source and preserves reports before upl
   assert.deepEqual(workflow.permissions, { contents: 'read' });
   for (const key of ['release_exception_id', 'configuration_fingerprint', 'release_verifier_sha']) assert.equal(workflow.on.workflow_call.inputs[key].default, '');
   const steps = workflow.jobs['build-archive'].steps, index = name => steps.findIndex(step => step.name === name);
+  for (const name of ['Require reviewed exception verifier before executing its source', 'Checkout release version authority', 'Verify Editor E2E before-build', 'Verify Editor E2E before-deploy', 'Require all verified exception reports before preservation', 'Preserve verified exception reports before upload', 'Export and upload to App Store Connect', 'Preserve failed exception reports']) assert.ok(index(name) >= 0, name);
   assert.ok(index('Require reviewed exception verifier before executing its source') < index('Checkout release version authority'));
+  const failure = steps[index('Preserve failed exception reports')];
+  assert.equal(failure.if, "${{ failure() && inputs.release_exception_id != '' }}");
+  assert.match(failure.with.name, /app-store-failed-/u);
   const build = steps[index('Verify Editor E2E before-build')], deploy = steps[index('Verify Editor E2E before-deploy')];
   assert.doesNotMatch(build.run, /--artifact/u);
   for (const flag of ['--artifact-file', '--artifact-receipt', '--release-binding', '--app-repository', '--report']) assert.ok(deploy.run.includes(flag));
