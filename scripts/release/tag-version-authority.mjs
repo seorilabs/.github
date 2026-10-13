@@ -1512,7 +1512,7 @@ export function selectGodotExportPreset(text, { platform, preset }) {
  * 아니라 주입 대상이며, 실제 반영 여부는 artifact readback으로 다시 확인한다.
  * 명시된 preset 하나의 options 섹션만 바꾸고 다른 preset은 그대로 둔다.
  */
-export function applyGodotExportVersion(text, { platform, binding, preset }) {
+export function applyGodotExportVersion(text, { platform, binding, preset, canonicalizeComments = false }) {
   const keyFactory = GODOT_PLATFORM_VERSION_KEYS[platform];
   if (keyFactory === undefined) {
     fail('artifact-provenance-mismatch', `지원하지 않는 Godot export platform: ${platform}`);
@@ -1520,6 +1520,13 @@ export function applyGodotExportVersion(text, { platform, binding, preset }) {
 
   const { lines, section, options } = selectGodotExportPreset(text, { platform, preset });
   const patched = [...lines];
+  // ConfigFile 주석은 ;만 허용한다. 검토된 frozen 입력에 명시적으로 적용할 때만
+  // 선택한 options 섹션의 주석 표기를 고친다. 값과 다른 preset은 변경하지 않는다.
+  if (canonicalizeComments) {
+    for (let index = options.start; index < options.end; index += 1) {
+      patched[index] = patched[index].replace(/^([ \t]*)#/u, '$1;');
+    }
+  }
   for (const [key, value] of keyFactory(binding)) {
     const pattern = new RegExp(`^${key.replace('/', '\\/')}\\s*=`, 'u');
     let replaced = false;

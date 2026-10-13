@@ -431,7 +431,8 @@ jobs:
             --platform iOS \
             --preset "$IOS_EXPORT_PRESET" \
             --presets "$PROJECT_DIR/export_presets.cfg" \
-            --project "$PROJECT_DIR/project.godot"
+            --project "$PROJECT_DIR/project.godot" \
+            --release-exception-id "$RELEASE_EXCEPTION_ID"
 
       - name: Export Xcode project
         shell: bash

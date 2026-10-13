@@ -33,3 +33,12 @@ Editor에서 실제 확인한 범위와 native/마켓 실행 미검증을 분리
 - 기존 오류가 복구 시각을 남기지 않아 `x-ratelimit-remaining`, `x-ratelimit-reset`, `retry-after`의 숫자 값만 오류에 기록한다. 응답 본문·토큰·인증 헤더는 기록하지 않는다.
 - 검사 조건·익명 조회·권한·무재시도·무fallback과 실패 차단은 유지한다. 복구 시각이 있으면 그 이후까지 기다린다. 시각이 없는 기존 실패에 대해서는 마지막 실패 후 전체 1시간을 기다리고 다음 실제 실행에서 새 응답의 복구 시각을 확인한다.
 - 사람의 원래 승인 receipt와 미검증 상태는 변경하지 않는다. 이 진단 수정도 검토된 중앙 SHA와 Release manifest에 다시 결속한 뒤 사용한다.
+
+## 실제 서명 앱에서 발견한 ConfigFile 주석 오류
+
+- 실제 [38437853250](https://github.com/seorilabs/match-picture-app/actions/runs/38437853250) 시도 2는 공개 API 복구 뒤 `before-build` 검증을 통과하고 1.1.7/1001007 archive를 서명했다. caller SDK 검사는 `signed 앱의 root 추적 공개 누락`으로 실패했으며 `before-deploy`와 업로드는 실행되지 않았다.
+- 정확한 Godot 4.7.2 `ConfigFile`로 재현했다. iOS options의 두 `#` 주석과 다음 `privacy/tracking_enabled`가 하나의 키로 읽혀 정상 키가 사라졌다. [공식 문법](https://docs.godotengine.org/en/stable/classes/class_configfile.html)은 `;` 주석이다. 두 줄의 표기만 고친 사본은 의도한 `true` 값을 읽는다.
+- 승인된 설정의 소비 오류를 중앙 version 주입 단계에서 바로잡는다. `match-picture-1.1.7`을 명시한 iOS/iOS preset만 허용하고 저장소·실제 CI SHA/태그 binding·등록된 원본 preset 해시를 쓰기 전에 대조한다. 선택한 options의 주석만 변환하며 다른 preset과 모든 설정값은 보존한다. 다른 예외와 일반 경로는 변환하지 않는다.
+- `before-deploy`도 같은 함수를 사용해 원본 SHA의 정확한 파생 bytes 전체를 비교한다. 주석을 변환하지 않은 파일, 추적값 변경, 추가 줄 모두 거절한다. 원본 source/hash, 제품 tree, 구성 지문, grant 승인·만료·철회와 caller SDK/서명 검사는 축소하지 않는다.
+- 앱 소스 `ff3317a66feac0c2ebf349f2e47c93dfd70db8bb`, 공식 태그 객체 `4bb5d835fd620268fc3c74f33a084a498369312d`, 빌드 `1001007`과 원문 승인 설계는 고정한다. 중앙 수정의 회귀·교차 리뷰·CI를 마친 새 검증기 SHA와 실제 새 run으로만 재검증한다. 수정 전 run은 재실행하지 않는다.
+- 먼저 요구사항 때문에 실패한 회귀를 확인했다. 실제 서명 앱 SDK 검사의 새 성공과 업로드는 별도 실행 결과가 필요하다. 실기기 검수는 계속 `not_verified/waived`, 전체 제품 E2E는 `blocked`다.
