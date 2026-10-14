@@ -8,7 +8,7 @@
 
 ## 개발 흐름
 
-- 구현 전에 `contracts/development-workflow.yaml`과 `docs/agent-governance/development-workflow.md`를 읽고 승인 설계·TDD·UI 독립 검수 3회·빌드와 배포 직전 Editor E2E를 적용한다. 문서·정책만의 변경에 가짜 제품 UI 검수 결과를 붙이지 않는다.
+- 구현 전에 `contracts/development-workflow.yaml`과 `docs/agent-governance/development-workflow.md`를 읽고 승인 설계·테스트 계획(등급 L1~L3·실행 환경·출시 범위)·TDD·단계별 근거 검증을 적용한다. 문서·정책만의 변경에 가짜 제품 실행 기록을 붙이지 않는다.
 
 ## 변경 규칙
 

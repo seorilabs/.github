@@ -1,5 +1,5 @@
-schemaVersion: 1
-id: seorilabs-development-workflow-v1
+schemaVersion: 2
+id: seorilabs-development-workflow-v2
 scope: organization-development
 plan:
   purpose: enumerate-all-work
@@ -19,6 +19,9 @@ design:
     - acceptance-test-review-plan
     - rollout-operations-rollback
     - approval-and-traceability
+  testPlan: docs/design/<id>/test-plan.json
+  testPlanSchema: contracts/test-plan.schema.json
+  testPlanApproval: same-commit-as-design
   wikiRole: chronological-index-summary-links
   obsidianRole: cross-project-decisions-and-approval
   duplicateDesignBodies: forbidden
@@ -28,7 +31,40 @@ implementation:
   preferredMethod: test-first
   redMustFailFor: unmet-behavior
   exceptionsRequire: reason-and-replacement-verification
-uiReview:
+testLevels:
+  L1:
+    scope: changed-features
+    environments: dev-only
+    executor: implementer-allowed
+  L2:
+    scope: changed-features
+    environments: android-or-ios-device-with-optional-dev
+    executor: different-agent-for-device-runs
+  L3:
+    scope: changed-and-all-features
+    environments: any-planned
+    executor: different-agent-for-all-runs
+  environmentKinds:
+    dev:
+      - godot-editor
+      - unity-editor
+      - web-browser
+      - native-development
+      - service-runtime
+    android:
+      - android-device
+    ios:
+      - ios-device
+  marketPlatforms:
+    apps-in-toss: [android, ios]
+    google-play: [android]
+    app-store: [ios]
+    web: []
+    service: []
+  mergeDesigns: highest-level-union-features-environments-markets-earliest-until
+redesignReview:
+  appliesTo: redesign-plan
+  minimumLevel: L3
   rounds: 3
   planBeforeEveryRound: true
   everyRound: functional-and-ux
@@ -38,40 +74,102 @@ uiReview:
   extraRounds: prior-human-approval-with-scope-time-cost
   selfRoleSwitchCountsAsIndependent: false
   endlessWithinRoundRetries: forbidden
-editorE2e:
-  phases:
-    - before-build
-    - before-deploy
-  coverage: all-implemented-features
+floors:
+  changedFiles: plan-baseline-to-candidate
+  featurePaths: run-feature-in-planned-environments
+  foundationPaths: device-run-on-target-market-platform
+  regressionPaths: full-regression-in-planned-environments
+  unknownDiff: full-regression
+  firstRelease: full-regression-not-overridable
+  redesign: L3-not-overridable
+  overrides: approved-plan-reason-only
+  raiseAfterApproval: run-more-without-new-approval
+  compareFileLimit: 300
+  defaultRegressionPaths:
+    - "**/project.godot"
+    - "**/export_presets.cfg"
+    - "**/addons/**"
+    - "**/android/plugins/**"
+    - "**/ios/plugins/**"
+    - "**/android/build.gradle"
+    - "**/android/settings.gradle"
+    - "**/android/gradle.properties"
+    - "**/android/gradle/**"
+    - "**/android/app/build.gradle"
+    - "**/AndroidManifest.xml"
+    - "**/ios/Podfile"
+    - "**/ios/Podfile.lock"
+    - "**/*.xcodeproj/**"
+    - "**/Info.plist"
+    - "**/*.entitlements"
+    - "**/app.json"
+    - "**/app.config.*"
+    - "**/granite.config.*"
+    - "**/ProjectSettings/**"
+    - "**/Packages/manifest.json"
+    - "**/Packages/packages-lock.json"
+    - "**/package-lock.json"
+    - "**/yarn.lock"
+    - "**/pnpm-lock.yaml"
+    - "**/bun.lock"
+    - "**/bun.lockb"
+runs:
   featureInventory: docs/qa/feature-inventory.json
-  candidateBinding: exact-source-sha-and-target
-  configurationFingerprintRequired: true
-  isolatedDataRequired: true
+  candidateBinding: exact-source-sha
   maxAgeHours: 168
-  phaseReuse: build-run-serves-deploy-for-same-candidate
-  changesInvalidateEvidence: true
+  isolatedDataRequired: true
+  configurationFingerprint: device-runs-of-verified-market
   skippedOrBlockedPass: forbidden
-  runtimeKinds:
-    - godot-editor
-    - unity-editor
-    - web-browser
-    - native-development
-    - service-runtime
   evidenceSchema: contracts/development-evidence.schema.json
   releaseAssetPattern: development-evidence.<target>.<phase>.json
   verifier: scripts/release/verify-development-evidence.mjs
+phases:
+  before-build: dev-runs
+  before-deploy: dev-runs
+  before-release: all-runs-and-release-scope
+  webAndServiceBeforeDeploy: all-runs-and-release-scope
+  assetFallback:
+    - before-release
+    - before-deploy
+    - before-build
 foundationFeatures:
   inventoryFlag: foundation
   impactPaths: paths
-  appliesTo:
-    - ui-review
-    - editor-e2e
+  appliesTo: regression-scope
   unaffectedMayCarryForward: true
+  rerunAllFlag: foundationRerun
   impactBaseline: actual-passing-run-sha
   impactDetection: changed-files-since-baseline
   unknownImpact: rerun
   carryForwardMaxAgeDays: 30
-  realDeviceCheck: once-per-candidate
+release:
+  authorizedBy: approved-test-plan-release
+  defaultUntil: public
+  until:
+    - test-track
+    - review-submitted
+    - public
+  stopConditions:
+    - unfixable-failure-within-approved-scope
+    - verifier-required-check-or-ruleset-block
+    - planned-environment-unavailable
+    - market-rejection-outside-approved-scope
+    - redesign-unresolved-after-three-rounds
+    - separately-approved-action
+  separatelyApprovedActions:
+    - payment-products-prices-settlement
+    - credential-create-or-rotate
+    - data-delete-or-restore
+    - security-change-without-cross-review
+    - support-contact
+legacyEvidence:
+  schema: contracts/development-evidence-v1.schema.json
+  acceptedUntil: "2026-10-22T00:00:00Z"
+  removal: delete-v1-branch-after-acceptedUntil
+autonomousImplementation:
+  approvedDesignRequired: true
+  missingApproval: draft-design-and-continue-next-unattempted
+  releaseScope: approved-test-plan-release
 releaseExceptions:
   schema: contracts/release-exception.schema.json
   optIn: explicit-reviewed-exception-id
@@ -86,7 +184,3 @@ releaseExceptions:
   revocation: read-current-central-grant-every-phase
   crossCandidateMarketReleaseReuse: forbidden
   grantRegistry: [contracts/release-exceptions/reascend-1.1.0.json, contracts/release-exceptions/reascend-1.1.1.json, contracts/release-exceptions/match-picture-1.1.7.json]
-autonomousImplementation:
-  approvedDesignRequired: true
-  missingApproval: draft-design-and-continue-next-unattempted
-  approvalDoesNotAuthorizeRelease: true

@@ -52,7 +52,13 @@ test('private Apple requests fail before allocating the public macOS archive', (
 test('build-only and track promotion keep their own required phase', () => {
   assert.ok(Object.values(read('rn-build-ait').jobs).some(job => job.steps?.some(step => step.name === 'Verify Editor E2E before-build')));
   const steps = Object.values(read('promote-google-play').jobs)[0].steps;
-  assert.ok(steps.findIndex(step => step.name === 'Verify Editor E2E before-deploy') < steps.findIndex(step => step.name === 'Promote track'));
+  const gate = steps.find(step => step.name === 'Verify development evidence before promotion');
+  assert.ok(steps.indexOf(gate) >= 0 && steps.indexOf(gate) < steps.findIndex(step => step.name === 'Promote track'));
+  // production 승격은 출시 단계 검사, 테스트 트랙 사이의 승격은 업로드 단계 검사다.
+  assert.equal(gate.env.TO_TRACK, '${{ inputs.to_track }}');
+  assert.match(gate.run, /\[ "\$TO_TRACK" = production \] && phase=before-release/u);
+  assert.match(gate.run, /--phase "\$phase"/u);
+  assert.equal(gate.if, undefined); assert.equal(gate['continue-on-error'], undefined);
 });
 test('Xcode Cloud start verifies the exact tag candidate before the mutation', () => {
   const script = readFileSync('scripts/trigger-xcode-cloud.mjs', 'utf8');

@@ -92,7 +92,12 @@ test('development policy and example compile under strict JSON Schema', () => {
   assert.equal(validator(policy), true);
   const changed = structuredClone(policy); changed.design.humanApprovalRequiredBeforeImplementation = false;
   assert.equal(validator(changed), false);
-  assert.equal(validateDevelopmentEvidence(JSON.parse(readFileSync('docs/agent-governance/templates/development-evidence.example.json', 'utf8')), context).ok, true);
+  const template = name => JSON.parse(readFileSync(`docs/agent-governance/templates/${name}`, 'utf8'));
+  const example = template('development-evidence.example.json');
+  const exampleContext = { repository: example.repository, sourceSha: example.sourceSha, target: 'google-play', phase: 'before-release', now: '2026-10-14T06:00:00Z',
+    featureInventory: template('feature-inventory.example.json'), plans: { [example.designs[0].id]: { approved: true, plan: template('test-plan.example.json') } },
+    changes: { 'v1.4.0': ['src/adapters/purchase/billing.ts'] } };
+  assert.deepEqual(validateDevelopmentEvidence(example, exampleContext).errors, []);
 });
 test('actual CLI exits nonzero for a mismatched final candidate without printing payloads', () => {
   const dir = mkdtempSync(join(tmpdir(), 'development-evidence-cli-'));

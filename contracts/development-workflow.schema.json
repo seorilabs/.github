@@ -9,17 +9,22 @@
     "plan",
     "design",
     "implementation",
-    "uiReview",
-    "editorE2e",
+    "testLevels",
+    "redesignReview",
+    "floors",
+    "runs",
+    "phases",
     "foundationFeatures",
+    "release",
+    "legacyEvidence",
     "autonomousImplementation"
   ],
   "properties": {
     "schemaVersion": {
-      "const": 1
+      "const": 2
     },
     "id": {
-      "const": "seorilabs-development-workflow-v1"
+      "const": "seorilabs-development-workflow-v2"
     },
     "scope": {
       "const": "organization-development"
@@ -49,6 +54,9 @@
         "approvalBinds",
         "visualFirst",
         "requiredElements",
+        "testPlan",
+        "testPlanSchema",
+        "testPlanApproval",
         "wikiRole",
         "obsidianRole",
         "duplicateDesignBodies",
@@ -81,6 +89,15 @@
             "rollout-operations-rollback",
             "approval-and-traceability"
           ]
+        },
+        "testPlan": {
+          "const": "docs/design/<id>/test-plan.json"
+        },
+        "testPlanSchema": {
+          "const": "contracts/test-plan.schema.json"
+        },
+        "testPlanApproval": {
+          "const": "same-commit-as-design"
         },
         "wikiRole": {
           "const": "chronological-index-summary-links"
@@ -119,10 +136,162 @@
         }
       }
     },
-    "uiReview": {
+    "testLevels": {
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "L1",
+        "L2",
+        "L3",
+        "environmentKinds",
+        "marketPlatforms",
+        "mergeDesigns"
+      ],
+      "properties": {
+        "L1": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope",
+            "environments",
+            "executor"
+          ],
+          "properties": {
+            "scope": {
+              "const": "changed-features"
+            },
+            "environments": {
+              "const": "dev-only"
+            },
+            "executor": {
+              "const": "implementer-allowed"
+            }
+          }
+        },
+        "L2": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope",
+            "environments",
+            "executor"
+          ],
+          "properties": {
+            "scope": {
+              "const": "changed-features"
+            },
+            "environments": {
+              "const": "android-or-ios-device-with-optional-dev"
+            },
+            "executor": {
+              "const": "different-agent-for-device-runs"
+            }
+          }
+        },
+        "L3": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope",
+            "environments",
+            "executor"
+          ],
+          "properties": {
+            "scope": {
+              "const": "changed-and-all-features"
+            },
+            "environments": {
+              "const": "any-planned"
+            },
+            "executor": {
+              "const": "different-agent-for-all-runs"
+            }
+          }
+        },
+        "environmentKinds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dev",
+            "android",
+            "ios"
+          ],
+          "properties": {
+            "dev": {
+              "type": "array",
+              "const": [
+                "godot-editor",
+                "unity-editor",
+                "web-browser",
+                "native-development",
+                "service-runtime"
+              ]
+            },
+            "android": {
+              "type": "array",
+              "const": [
+                "android-device"
+              ]
+            },
+            "ios": {
+              "type": "array",
+              "const": [
+                "ios-device"
+              ]
+            }
+          }
+        },
+        "marketPlatforms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "apps-in-toss",
+            "google-play",
+            "app-store",
+            "web",
+            "service"
+          ],
+          "properties": {
+            "apps-in-toss": {
+              "type": "array",
+              "const": [
+                "android",
+                "ios"
+              ]
+            },
+            "google-play": {
+              "type": "array",
+              "const": [
+                "android"
+              ]
+            },
+            "app-store": {
+              "type": "array",
+              "const": [
+                "ios"
+              ]
+            },
+            "web": {
+              "type": "array",
+              "const": []
+            },
+            "service": {
+              "type": "array",
+              "const": []
+            }
+          }
+        },
+        "mergeDesigns": {
+          "const": "highest-level-union-features-environments-markets-earliest-until"
+        }
+      }
+    },
+    "redesignReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "appliesTo",
+        "minimumLevel",
         "rounds",
         "planBeforeEveryRound",
         "everyRound",
@@ -134,6 +303,12 @@
         "endlessWithinRoundRetries"
       ],
       "properties": {
+        "appliesTo": {
+          "const": "redesign-plan"
+        },
+        "minimumLevel": {
+          "const": "L3"
+        },
         "rounds": {
           "const": 3
         },
@@ -163,69 +338,119 @@
         }
       }
     },
-    "editorE2e": {
+    "floors": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "phases",
-        "coverage",
+        "changedFiles",
+        "featurePaths",
+        "foundationPaths",
+        "regressionPaths",
+        "unknownDiff",
+        "firstRelease",
+        "redesign",
+        "overrides",
+        "raiseAfterApproval",
+        "compareFileLimit",
+        "defaultRegressionPaths"
+      ],
+      "properties": {
+        "changedFiles": {
+          "const": "plan-baseline-to-candidate"
+        },
+        "featurePaths": {
+          "const": "run-feature-in-planned-environments"
+        },
+        "foundationPaths": {
+          "const": "device-run-on-target-market-platform"
+        },
+        "regressionPaths": {
+          "const": "full-regression-in-planned-environments"
+        },
+        "unknownDiff": {
+          "const": "full-regression"
+        },
+        "firstRelease": {
+          "const": "full-regression-not-overridable"
+        },
+        "redesign": {
+          "const": "L3-not-overridable"
+        },
+        "overrides": {
+          "const": "approved-plan-reason-only"
+        },
+        "raiseAfterApproval": {
+          "const": "run-more-without-new-approval"
+        },
+        "compareFileLimit": {
+          "const": 300
+        },
+        "defaultRegressionPaths": {
+          "type": "array",
+          "const": [
+            "**/project.godot",
+            "**/export_presets.cfg",
+            "**/addons/**",
+            "**/android/plugins/**",
+            "**/ios/plugins/**",
+            "**/android/build.gradle",
+            "**/android/settings.gradle",
+            "**/android/gradle.properties",
+            "**/android/gradle/**",
+            "**/android/app/build.gradle",
+            "**/AndroidManifest.xml",
+            "**/ios/Podfile",
+            "**/ios/Podfile.lock",
+            "**/*.xcodeproj/**",
+            "**/Info.plist",
+            "**/*.entitlements",
+            "**/app.json",
+            "**/app.config.*",
+            "**/granite.config.*",
+            "**/ProjectSettings/**",
+            "**/Packages/manifest.json",
+            "**/Packages/packages-lock.json",
+            "**/package-lock.json",
+            "**/yarn.lock",
+            "**/pnpm-lock.yaml",
+            "**/bun.lock",
+            "**/bun.lockb"
+          ]
+        }
+      }
+    },
+    "runs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
         "featureInventory",
         "candidateBinding",
-        "configurationFingerprintRequired",
-        "isolatedDataRequired",
         "maxAgeHours",
-        "phaseReuse",
-        "changesInvalidateEvidence",
+        "isolatedDataRequired",
+        "configurationFingerprint",
         "skippedOrBlockedPass",
-        "runtimeKinds",
         "evidenceSchema",
         "releaseAssetPattern",
         "verifier"
       ],
       "properties": {
-        "phases": {
-          "type": "array",
-          "const": [
-            "before-build",
-            "before-deploy"
-          ]
-        },
-        "coverage": {
-          "const": "all-implemented-features"
-        },
         "featureInventory": {
           "const": "docs/qa/feature-inventory.json"
         },
         "candidateBinding": {
-          "const": "exact-source-sha-and-target"
-        },
-        "configurationFingerprintRequired": {
-          "const": true
-        },
-        "isolatedDataRequired": {
-          "const": true
+          "const": "exact-source-sha"
         },
         "maxAgeHours": {
           "const": 168
         },
-        "phaseReuse": {
-          "const": "build-run-serves-deploy-for-same-candidate"
-        },
-        "changesInvalidateEvidence": {
+        "isolatedDataRequired": {
           "const": true
+        },
+        "configurationFingerprint": {
+          "const": "device-runs-of-verified-market"
         },
         "skippedOrBlockedPass": {
           "const": "forbidden"
-        },
-        "runtimeKinds": {
-          "type": "array",
-          "const": [
-            "godot-editor",
-            "unity-editor",
-            "web-browser",
-            "native-development",
-            "service-runtime"
-          ]
         },
         "evidenceSchema": {
           "const": "contracts/development-evidence.schema.json"
@@ -238,6 +463,39 @@
         }
       }
     },
+    "phases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "before-build",
+        "before-deploy",
+        "before-release",
+        "webAndServiceBeforeDeploy",
+        "assetFallback"
+      ],
+      "properties": {
+        "before-build": {
+          "const": "dev-runs"
+        },
+        "before-deploy": {
+          "const": "dev-runs"
+        },
+        "before-release": {
+          "const": "all-runs-and-release-scope"
+        },
+        "webAndServiceBeforeDeploy": {
+          "const": "all-runs-and-release-scope"
+        },
+        "assetFallback": {
+          "type": "array",
+          "const": [
+            "before-release",
+            "before-deploy",
+            "before-build"
+          ]
+        }
+      }
+    },
     "foundationFeatures": {
       "type": "object",
       "additionalProperties": false,
@@ -246,11 +504,11 @@
         "impactPaths",
         "appliesTo",
         "unaffectedMayCarryForward",
+        "rerunAllFlag",
         "impactBaseline",
         "impactDetection",
         "unknownImpact",
-        "carryForwardMaxAgeDays",
-        "realDeviceCheck"
+        "carryForwardMaxAgeDays"
       ],
       "properties": {
         "inventoryFlag": {
@@ -260,14 +518,13 @@
           "const": "paths"
         },
         "appliesTo": {
-          "type": "array",
-          "const": [
-            "ui-review",
-            "editor-e2e"
-          ]
+          "const": "regression-scope"
         },
         "unaffectedMayCarryForward": {
           "const": true
+        },
+        "rerunAllFlag": {
+          "const": "foundationRerun"
         },
         "impactBaseline": {
           "const": "actual-passing-run-sha"
@@ -280,9 +537,74 @@
         },
         "carryForwardMaxAgeDays": {
           "const": 30
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authorizedBy",
+        "defaultUntil",
+        "until",
+        "stopConditions",
+        "separatelyApprovedActions"
+      ],
+      "properties": {
+        "authorizedBy": {
+          "const": "approved-test-plan-release"
         },
-        "realDeviceCheck": {
-          "const": "once-per-candidate"
+        "defaultUntil": {
+          "const": "public"
+        },
+        "until": {
+          "type": "array",
+          "const": [
+            "test-track",
+            "review-submitted",
+            "public"
+          ]
+        },
+        "stopConditions": {
+          "type": "array",
+          "const": [
+            "unfixable-failure-within-approved-scope",
+            "verifier-required-check-or-ruleset-block",
+            "planned-environment-unavailable",
+            "market-rejection-outside-approved-scope",
+            "redesign-unresolved-after-three-rounds",
+            "separately-approved-action"
+          ]
+        },
+        "separatelyApprovedActions": {
+          "type": "array",
+          "const": [
+            "payment-products-prices-settlement",
+            "credential-create-or-rotate",
+            "data-delete-or-restore",
+            "security-change-without-cross-review",
+            "support-contact"
+          ]
+        }
+      }
+    },
+    "legacyEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "acceptedUntil",
+        "removal"
+      ],
+      "properties": {
+        "schema": {
+          "const": "contracts/development-evidence-v1.schema.json"
+        },
+        "acceptedUntil": {
+          "const": "2026-10-22T00:00:00Z"
+        },
+        "removal": {
+          "const": "delete-v1-branch-after-acceptedUntil"
         }
       }
     },
@@ -292,7 +614,7 @@
       "required": [
         "approvedDesignRequired",
         "missingApproval",
-        "approvalDoesNotAuthorizeRelease"
+        "releaseScope"
       ],
       "properties": {
         "approvedDesignRequired": {
@@ -301,8 +623,8 @@
         "missingApproval": {
           "const": "draft-design-and-continue-next-unattempted"
         },
-        "approvalDoesNotAuthorizeRelease": {
-          "const": true
+        "releaseScope": {
+          "const": "approved-test-plan-release"
         }
       }
     },
