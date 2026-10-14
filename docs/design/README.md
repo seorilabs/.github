@@ -9,5 +9,8 @@
 | 2026-10-12 | [영향 없는 기반 기능의 검수 이어받기 v1](2026-10-12-e2e-foundation-carry-forward/design.md) | 대화 승인 범위 기록(이 설계의 최초 커밋) | PR 본문에 기록 | 각 PR의 계약·검증기 테스트 결과 |
 | 2026-10-13 | [Reascend 1.1.0 사람 승인 출시 예외](2026-10-13-reascend-release-exception/design.md) | [승인 receipt](../../contracts/release-exceptions/reascend-1.1.0.approval.json) | [Reascend 506](https://github.com/seorilabs/reascend/issues/506) | 중앙 예외·회귀 검사; 제품 전체 E2E blocked 보존 |
 | 2026-10-13 | [Match Symbols iOS 1.1.7 실기기 검수 예외 v1 — 사람 승인](2026-10-13-match-picture-ios-117-exception/design.md) | [783b0e9 승인 receipt](../../contracts/release-exceptions/match-picture-1.1.7.approval.json) | [앱 PR 113](https://github.com/seorilabs/match-picture-app/pull/113) · [제품 티켓 112](https://github.com/seorilabs/match-picture-app/issues/112) | [중앙 PR 241](https://github.com/seorilabs/.github/pull/241) · [실행 티켓 242](https://github.com/seorilabs/.github/issues/242); 실제 검수 판정 보존 |
+| 2026-10-14 | [변경 등급별 테스트 계획과 앞단 승인 v1 — 사람 승인](2026-10-14-test-levels/design.md) | 대화 승인(검토용 커밋 7c117d4, 승인 기록은 문서 안) | PR 본문에 기록 | 중앙 검증기·계약 테스트 결과 |
 
 설계 최신 원본과 승인 커밋을 구분한다. 기존 승인 문서를 임의로 이동하거나 본문을 복제하지 않는다.
+
+| 2026-10-14 | [Spiritgate UI5 별도 승인 결속](2026-10-14-spiritgate-ui5/design.md) | [원문 승인](2026-10-14-spiritgate-ui5/approval.json) · 제품 제안62415abe | [Spiritgate240](https://github.com/seorilabs/spiritgate-defenders/issues/240) | 중앙 거절 검사·전체 회귀; 실제 제품 UI5는 독립 실행 |

@@ -137,7 +137,8 @@ async function reviewedBootstrap(id,verifierSha,request){
     'scripts/github-rest.mjs','scripts/trigger-xcode-cloud.mjs','scripts/release/resolve-github-tag-commit.mjs','scripts/release/internal-testflight-bootstrap.mjs','scripts/release/verify-development-evidence.mjs',
     'scripts/release/verify-release-exception.mjs','scripts/release/hosted-godot-ios-exception.mjs',
     'scripts/release/release-promotion-evidence.mjs','scripts/release/tag-version-authority.mjs',
-    'contracts/development-evidence.schema.json','contracts/release-exception.schema.json','contracts/release-exception-grant.schema.json',
+    'contracts/development-evidence.schema.json','contracts/development-evidence-v1.schema.json','contracts/test-plan.schema.json',
+    'scripts/release/development-evidence-v1.mjs','scripts/release/test-plan.mjs','scripts/release/carry-forward.mjs','contracts/release-exception.schema.json','contracts/release-exception-grant.schema.json',
     'contracts/hosted-godot-ios-exception-grant.schema.json','contracts/internal-testflight-bootstrap.schema.json','contracts/internal-testflight-bootstrap-grant.schema.json',
     ...(grant.approvedUiRounds===5 ? [grant.additionalUiApprovalFile,ui5ProposalPath] : [])];
   await Promise.all(sources.map(async path=>{

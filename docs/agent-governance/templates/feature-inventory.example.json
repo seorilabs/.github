@@ -1,13 +1,25 @@
 {
   "schemaVersion": 1,
+  "regressionPaths": [
+    "godot/project.godot",
+    "godot/export_presets.cfg",
+    "godot/addons/**",
+    "package-lock.json"
+  ],
   "features": [
     {
       "id": "create",
-      "core": true
+      "core": true,
+      "paths": [
+        "src/screens/create/**"
+      ]
     },
     {
       "id": "settings",
-      "core": false
+      "core": false,
+      "paths": [
+        "src/screens/settings/**"
+      ]
     },
     {
       "id": "premium-purchase",

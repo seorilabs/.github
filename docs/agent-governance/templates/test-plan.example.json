@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "level": "L2",
+  "baseline": "v1.4.0",
+  "changedFeatures": [
+    "premium-purchase"
+  ],
+  "environments": [
+    "dev",
+    "android"
+  ],
+  "redesign": false,
+  "foundationRerun": false,
+  "floorOverrides": [],
+  "release": {
+    "markets": [
+      "google-play",
+      "app-store"
+    ],
+    "until": "public",
+    "rollout": 0.2
+  }
+}

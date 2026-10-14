@@ -1,129 +1,195 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
-import { parse } from 'yaml';
 import { githubDownload, githubJson, githubPaginate } from '../github-rest.mjs';
+import { carriedForwardFeatures } from './carry-forward.mjs';
+import { validateLegacyEvidence } from './development-evidence-v1.mjs';
+import { computeFloor, DEVICE_ENVIRONMENTS, environmentOf, highestLevel, mergeTestPlans, policy, RELEASE_ONLY_TARGETS,
+  testPlanProblems, validInventory } from './test-plan.mjs';
 import { verifyReleaseException } from './verify-release-exception.mjs';
 
 const schema = JSON.parse(readFileSync(new URL('../../contracts/development-evidence.schema.json', import.meta.url), 'utf8'));
 const checkSchema = new Ajv2020({ allErrors: true }).compile(schema);
-const policy = parse(readFileSync(new URL('../../contracts/development-workflow.yaml', import.meta.url), 'utf8'));
-const MAX_E2E_AGE_MS = policy.editorE2e.maxAgeHours * 60 * 60 * 1000;
-const MAX_CARRY_FORWARD_MS = policy.foundationFeatures.carryForwardMaxAgeDays * 24 * 60 * 60 * 1000;
+const MAX_RUN_AGE_MS = policy.runs.maxAgeHours * 60 * 60 * 1000;
+const ROUNDS = policy.redesignReview.rounds;
+const LEGACY_ACCEPTED_UNTIL = Date.parse(policy.legacyEvidence.acceptedUntil);
 // compare API는 변경 파일을 최대 300개만 준다. 300개면 잘렸을 수 있으므로 판정 불가로 보고, 로컬 git 비교도 같은 기준을 쓴다.
-const COMPARE_FILE_LIMIT = 300;
-const INVENTORY_PATH = 'docs/qa/feature-inventory.json';
+const COMPARE_FILE_LIMIT = policy.floors.compareFileLimit;
+const INVENTORY_PATH = policy.runs.featureInventory;
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
+const PHASES = Object.keys(policy.phases).filter(key => key.startsWith('before-'));
+const TARGETS = Object.keys(policy.testLevels.marketPlatforms);
+const SHA_PATTERN = /^[a-f0-9]{40}$/u;
+const PLAN_PATH = /^docs\/design\/[^/]+\/test-plan\.json$/u;
 
-const validInventoryFeature = f => typeof f.id === 'string' && f.id.trim() && typeof f.core === 'boolean'
-  && (f.foundation === undefined || typeof f.foundation === 'boolean')
-  && (f.foundation !== true || (Array.isArray(f.paths) && f.paths.length > 0 && f.paths.every(p => typeof p === 'string' && p.trim())));
-// glob의 **는 점으로 시작하는 파일을 건너뛴다. 양쪽의 선행 점을 지운 비교도 하여 놓치지 않는다(오탐은 재실행일 뿐이다).
-const undotted = value => value.replace(/(^|\/)\./gu, '$1');
-const touches = (file, pattern) => posix.matchesGlob(file, pattern) || posix.matchesGlob(undotted(file), undotted(pattern));
-const sameDefinition = (a, b) => a?.foundation === true && b?.foundation === true && Array.isArray(a.paths) && Array.isArray(b.paths)
-  && JSON.stringify([...a.paths].sort()) === JSON.stringify([...b.paths].sort());
 const withinCompareLimit = files => files.length < COMPARE_FILE_LIMIT ? files : null;
-
-// 영향 없는 기반 기능은 실제로 통과한 기준 SHA의 근거를 이어받는다. 기준부터 후보까지 바뀐 파일이 그 기능의
-// paths와 겹치거나, 비교할 수 없거나, 기능 정의가 달라졌거나, 실제 실행이 기한을 넘었으면 다시 실행해야 한다.
-function carriedForwardFeatures(document, context, inventoryFeatures, now, errors) {
-  const carried = new Set();
-  for (const item of document.carriedForward ?? []) {
-    if (carried.has(item.featureId)) { errors.push('DUPLICATE carried-forward'); continue; }
-    carried.add(item.featureId);
-    const feature = inventoryFeatures.find(f => f.id === item.featureId);
-    if (feature?.foundation !== true) { errors.push(`CARRY_FORWARD_NOT_FOUNDATION ${item.featureId}`); continue; }
-    const verifiedAt = Date.parse(item.verifiedAt);
-    if (!(verifiedAt <= now) || now - verifiedAt > MAX_CARRY_FORWARD_MS) errors.push(`CARRY_FORWARD_EXPIRED ${item.featureId}`);
-    const baseline = context.baselines?.[item.baselineSha];
-    if (!Array.isArray(baseline?.changedFiles)) { errors.push(`CARRY_FORWARD_DIFF_UNAVAILABLE ${item.featureId}`); continue; }
-    if (!sameDefinition(feature, baseline.inventory?.features?.find(f => f.id === item.featureId))) errors.push(`CARRY_FORWARD_INVENTORY_CHANGED ${item.featureId}`);
-    if (baseline.changedFiles.some(file => feature.paths.some(pattern => touches(file, pattern)))) errors.push(`CARRY_FORWARD_AFFECTED ${item.featureId}`);
-  }
-  return carried;
-}
+const sameFolder = design => design.testPlan === `${String(design.document).split('/').slice(0, 3).join('/')}/test-plan.json`;
+const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 export function validateDevelopmentEvidence(document, context) {
-  const errors = [];
-  if (!checkSchema(document)) {
-    return { ok: false, errors: [...new Set(checkSchema.errors.map(e => `EVIDENCE_SCHEMA ${e.instancePath || '/'}: ${e.keyword}`))] };
+  if (document?.schemaVersion === 1) {
+    const now = Date.parse(context.now ?? new Date().toISOString());
+    if (!(now < LEGACY_ACCEPTED_UNTIL)) return { ok: false, errors: ['EVIDENCE_V1_RETIRED'] };
+    return validateLegacyEvidence(document, context);
   }
-  const now = Date.parse(context.now ?? new Date().toISOString());
-  if (!Number.isFinite(now)) errors.push('INVALID_CURRENT_TIME');
-  for (const key of ['repository', 'sourceSha', 'target']) {
-    if (document[key] !== context[key]) errors.push(`CANDIDATE_MISMATCH ${key}`);
-  }
-  const times = (value, label) => {
-    const plan = Date.parse(value.plannedAt), start = Date.parse(value.startedAt), end = Date.parse(value.completedAt);
-    if (![plan, start, end].every(Number.isFinite) || plan > start || start > end || end > now) errors.push(`EXECUTION_ORDER ${label}`);
-  };
-  const unique = (values, label) => {
-    if (new Set(values).size !== values.length) errors.push(`DUPLICATE ${label}`);
-  };
-  const features = document.features.map(f => f.id);
-  const core = document.features.filter(f => f.core).map(f => f.id);
-  const inventory = context.featureInventory;
-  const inventoryValid = inventory?.schemaVersion === 1 && Array.isArray(inventory.features) && inventory.features.length > 0 && inventory.features.every(validInventoryFeature);
-  if (!inventoryValid) {
-    errors.push('SOURCE_FEATURE_INVENTORY_REQUIRED');
-  } else {
-    const key = f => `${f.id}:${f.core}`;
-    const actual = document.features.map(key).sort();
-    const expected = inventory.features.map(key).sort();
-    if (JSON.stringify(actual) !== JSON.stringify(expected) || new Set(inventory.features.map(f => f.id)).size !== inventory.features.length) errors.push('SOURCE_FEATURE_INVENTORY_MISMATCH');
-  }
-  const conditions = document.acceptance.map(a => a.id);
-  unique(features, 'feature'); unique(conditions, 'acceptance');
-  const carried = carriedForwardFeatures(document, context, inventoryValid ? inventory.features : [], now, errors);
-  const covered = (ids, expected, label) => {
-    if (expected.some(id => !carried.has(id) && !ids.includes(id)) || ids.some(id => !features.includes(id))) errors.push(`FEATURE_COVERAGE ${label}`);
-  };
-  const tddIds = document.tdd.map(t => t.acceptanceId);
-  unique(tddIds, 'tdd');
-  if (conditions.some(id => !tddIds.includes(id)) || tddIds.some(id => !conditions.includes(id))) errors.push('TDD_ACCEPTANCE_COVERAGE');
+  return validateTestLevelEvidence(document, context);
+}
+
+// 재설계 3회 검수는 v1 회차 규칙을 그대로 쓴다. 회차를 기록했다면 횟수와 상관없이 순서·독립성·해결 여부를 확인한다.
+function checkReviewRounds(document, { redesign, coreFeatures, carried, inventoryIds, times, errors }) {
   const ui = document.productKind === 'ui';
-  if (context.requireUi !== false && !ui) errors.push('UI_REQUIRED');
-  if (ui && (document.iterations.length < policy.uiReview.rounds || core.length === 0)) errors.push('THREE_UI_ROUNDS_REQUIRED');
-  if (!ui && document.iterations.length !== 0) errors.push('SERVICE_WITH_UI_ROUNDS');
+  if (!ui && document.reviewRounds.length !== 0) errors.push('SERVICE_WITH_UI_ROUNDS');
+  if (redesign && (document.reviewRounds.length < ROUNDS || coreFeatures.length === 0)) errors.push('THREE_UI_ROUNDS_REQUIRED');
+  const covered = (ids, label) => {
+    if (coreFeatures.some(id => !carried.has(id) && !ids.includes(id)) || ids.some(id => !inventoryIds.has(id))) errors.push(`FEATURE_COVERAGE ${label}`);
+  };
   let previousEnd = 0;
-  document.iterations.forEach((round, index) => {
+  document.reviewRounds.forEach((round, index) => {
     if (round.number !== index + 1) errors.push('ROUND_SEQUENCE');
     times(round, `round-${round.number}`);
     if (Date.parse(round.plannedAt) < previousEnd) errors.push('ROUND_OVERLAP');
     previousEnd = Date.parse(round.completedAt);
-    if (round.reviewer.trim().toLowerCase() === document.implementer.trim().toLowerCase()) errors.push('INDEPENDENT_REVIEW_REQUIRED');
-    covered(round.functional.featureIds, core, `functional-${round.number}`);
-    covered(round.ux.featureIds, core, `ux-${round.number}`);
+    if (sameName(round.reviewer, document.implementer)) errors.push('INDEPENDENT_REVIEW_REQUIRED');
+    covered(round.functional.featureIds, `functional-${round.number}`);
+    covered(round.ux.featureIds, `ux-${round.number}`);
     for (const aspect of ['functional', 'ux']) {
       const result = round[aspect];
-      if (result.status !== 'passed' && (index === document.iterations.length - 1 || !result.resolutionEvidence)) errors.push(`UNRESOLVED_REVIEW ${round.number}-${aspect}`);
+      if (result.status !== 'passed' && (index === document.reviewRounds.length - 1 || !result.resolutionEvidence)) errors.push(`UNRESOLVED_REVIEW ${round.number}-${aspect}`);
     }
-    if (round.number > policy.uiReview.rounds) {
-      const approvals = [document.additionalIterationApproval, ...(document.additionalIterationApprovals ?? [])];
-      if (!approvals.some(approval => approval && approval.maxRound >= round.number && Number.isFinite(Date.parse(approval.approvedAt)) && Date.parse(approval.approvedAt) <= Date.parse(round.plannedAt))) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
+    if (round.number > ROUNDS) {
+      const approval = document.additionalIterationApproval;
+      if (!approval || approval.maxRound < round.number || !Number.isFinite(Date.parse(approval.approvedAt)) || Date.parse(approval.approvedAt) > Date.parse(round.plannedAt)) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
     }
   });
-  const e2e = document.e2e;
-  times(e2e, 'e2e');
-  // 같은 후보의 통과한 빌드 직전 E2E는 배포 직전에도 쓴다(phaseReuse). 배포 직전 실행이 빌드 직전을 대신하지는 않는다.
-  const phaseServes = e2e.phase === context.phase || (context.phase === 'before-deploy' && e2e.phase === 'before-build');
-  if (!phaseServes || e2e.sourceSha !== context.sourceSha) errors.push('E2E_CANDIDATE_OR_PHASE_MISMATCH');
-  if (Date.parse(e2e.plannedAt) < previousEnd) errors.push('E2E_BEFORE_REVIEW_FINISHED');
-  if (now - Date.parse(e2e.completedAt) > MAX_E2E_AGE_MS) errors.push('E2E_EXPIRED');
-  if (context.configurationFingerprint && e2e.environment.configurationFingerprint !== context.configurationFingerprint) errors.push('CONFIGURATION_CHANGED');
-  if (ui && e2e.environment.kind === 'service-runtime') errors.push('UI_RUNTIME_REQUIRED');
-  if (!ui && e2e.environment.kind !== 'service-runtime') errors.push('SERVICE_RUNTIME_REQUIRED');
-  unique(e2e.scenarios.map(s => s.id), 'scenario');
-  covered(e2e.scenarios.flatMap(s => s.featureIds), features, 'e2e-all-implemented-features');
-  return { ok: errors.length === 0, errors };
+}
+
+// context.plans[designId] = { approved, plan }: approvedCommit이 후보의 조상이고 그 커밋에서 읽은 계획일 때만 approved다.
+// context.changes[baseline] = 기준 태그부터 후보까지 바뀐 파일 목록, 비교할 수 없으면 null.
+function validateTestLevelEvidence(document, context) {
+  const errors = [];
+  if (!checkSchema(document)) {
+    return { ok: false, errors: [...new Set(checkSchema.errors.map(e => `EVIDENCE_SCHEMA ${e.instancePath || '/'}: ${e.keyword}`))] };
+  }
+  const { target, phase } = context;
+  const now = Date.parse(context.now ?? new Date().toISOString());
+  if (!Number.isFinite(now)) errors.push('INVALID_CURRENT_TIME');
+  if (!PHASES.includes(phase)) errors.push('INVALID_PHASE');
+  for (const key of ['repository', 'sourceSha', 'target']) {
+    if (document[key] !== context[key]) errors.push(`CANDIDATE_MISMATCH ${key}`);
+  }
+  const unique = (values, label) => {
+    if (new Set(values).size !== values.length) errors.push(`DUPLICATE ${label}`);
+  };
+  const times = (value, label) => {
+    const plan = Date.parse(value.plannedAt), start = Date.parse(value.startedAt), end = Date.parse(value.completedAt);
+    const ordered = [plan, start, end].every(Number.isFinite) && plan <= start && start <= end && end <= now;
+    if (!ordered) errors.push(`EXECUTION_ORDER ${label}`);
+    return ordered;
+  };
+
+  const conditions = document.acceptance.map(a => a.id);
+  const tddIds = document.tdd.map(t => t.acceptanceId);
+  unique(conditions, 'acceptance'); unique(tddIds, 'tdd');
+  if (conditions.some(id => !tddIds.includes(id)) || tddIds.some(id => !conditions.includes(id))) errors.push('TDD_ACCEPTANCE_COVERAGE');
+  const ui = document.productKind === 'ui';
+  if (context.requireUi !== false && !ui) errors.push('UI_REQUIRED');
+
+  const inventory = context.featureInventory;
+  const inventoryValid = validInventory(inventory);
+  if (!inventoryValid) errors.push('SOURCE_FEATURE_INVENTORY_REQUIRED');
+  const features = inventoryValid ? inventory.features : [];
+  const inventoryIds = new Set(features.map(f => f.id));
+
+  unique(document.designs.map(d => d.id), 'design');
+  const plans = [];
+  for (const design of document.designs) {
+    // 계획은 그 설계와 같은 폴더의 test-plan.json이어야 한다. 다른 설계의 계획을 끌어다 쓰지 못하게 한다.
+    if (!sameFolder(design)) { errors.push(`TEST_PLAN_DESIGN_MISMATCH ${design.id}`); continue; }
+    const entry = context.plans?.[design.id];
+    if (!entry?.approved || !entry.plan) { errors.push(`TEST_PLAN_UNAPPROVED ${design.id}`); continue; }
+    const problems = inventoryValid ? testPlanProblems(entry.plan, inventory) : [];
+    if (problems.length > 0) { errors.push(...problems.map(problem => `TEST_PLAN_INVALID ${design.id} ${problem}`)); continue; }
+    plans.push(entry.plan);
+  }
+  const runs = document.runs;
+  unique(runs.map(r => r.id), 'run');
+  const completedAt = runs.length === 0 ? null : runs.map(r => r.completedAt).sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1);
+  if (!inventoryValid || plans.length !== document.designs.length) return { ok: false, errors: [...new Set(errors)], level: null, completedAt };
+
+  const merged = mergeTestPlans(plans);
+  const floor = computeFloor({ merged, inventory, changes: context.changes, target });
+  const level = highestLevel([merged.level, floor.level]);
+  const carried = carriedForwardFeatures(document, context, features, now, errors);
+  if (merged.foundationRerun) for (const id of carried) errors.push(`CARRY_FORWARD_FORBIDDEN ${id}`);
+  const usable = merged.foundationRerun ? new Set() : carried;
+  const changedScope = [...new Set([...merged.changedFeatures, ...floor.touched])];
+  for (const id of changedScope) if (carried.has(id)) errors.push(`CARRY_FORWARD_AFFECTED ${id}`);
+  const fullScope = [...new Set([...features.map(f => f.id).filter(id => !usable.has(id) || changedScope.includes(id)), ...changedScope])];
+
+  // 개발 환경 실행은 빌드 전부터, 실기기 실행은 제출·승격 직전부터 요구한다. 웹·서비스는 배포가 곧 출시다.
+  const releasePhase = phase === 'before-release' || (RELEASE_ONLY_TARGETS.includes(target) && phase === 'before-deploy');
+  const active = merged.environments.filter(env => env === 'dev' || releasePhase);
+
+  const valid = [];
+  for (const run of runs) {
+    const ordered = times(run, `run-${run.id}`);
+    unique(run.scenarios.map(s => s.id), `scenario ${run.id}`);
+    for (const id of new Set(run.scenarios.flatMap(s => s.featureIds))) if (!inventoryIds.has(id)) errors.push(`RUN_UNKNOWN_FEATURE ${run.id} ${id}`);
+    const device = DEVICE_ENVIRONMENTS.includes(environmentOf(run.kind));
+    if (ui && run.kind === 'service-runtime') errors.push(`UI_RUNTIME_REQUIRED ${run.id}`);
+    if (!ui && run.kind !== 'service-runtime') errors.push(`SERVICE_RUNTIME_REQUIRED ${run.id}`);
+    const fresh = now - Date.parse(run.completedAt) <= MAX_RUN_AGE_MS;
+    if (!fresh) errors.push(`RUN_EXPIRED ${run.id}`);
+    if (run.sourceSha !== context.sourceSha) errors.push(`RUN_CANDIDATE_MISMATCH ${run.id}`);
+    // 설정 지문은 검증 중인 마켓의 실기기 실행에만 대조한다. 개발 환경은 테스트용 대체 구현을 쓴다.
+    if (device && context.configurationFingerprint && run.target === target && run.configurationFingerprint !== context.configurationFingerprint) errors.push(`CONFIGURATION_CHANGED ${run.id}`);
+    if (sameName(run.executor, document.implementer) && (level === 'L3' || (level === 'L2' && device))) errors.push(`INDEPENDENT_RUN_REQUIRED ${run.id}`);
+    if (ordered && fresh && run.sourceSha === context.sourceSha) valid.push(run);
+  }
+  const covers = (env, feature) => valid.some(run => environmentOf(run.kind) === env && run.scenarios.some(s => s.featureIds.includes(feature)));
+
+  const planned = new Set();
+  for (const env of active) for (const feature of merged.level === 'L3' ? fullScope : changedScope) {
+    planned.add(`${env} ${feature}`);
+    if (!covers(env, feature)) errors.push(`RUN_COVERAGE ${env} ${feature}`);
+  }
+  if (floor.regression) for (const env of active) for (const feature of fullScope) {
+    if (!planned.has(`${env} ${feature}`) && !covers(env, feature)) errors.push(`TEST_LEVEL_BELOW_FLOOR regression ${feature} ${env}`);
+  }
+  if (releasePhase) for (const feature of floor.foundationFloor) {
+    if (!floor.platforms.some(env => covers(env, feature))) errors.push(`TEST_LEVEL_BELOW_FLOOR foundation ${feature} ${floor.platforms.join('|')}`);
+  }
+
+  const coreFeatures = features.filter(f => f.core).map(f => f.id).filter(id => !usable.has(id));
+  checkReviewRounds(document, { redesign: merged.redesign, coreFeatures, carried: new Set(), inventoryIds, times, errors });
+
+  if (releasePhase) {
+    if (!merged.markets.includes(target)) errors.push(`RELEASE_NOT_AUTHORIZED market ${target}`);
+    if (merged.until === 'test-track') errors.push('RELEASE_NOT_AUTHORIZED until test-track');
+    // Play production 승격은 승인된 단계적 출시 비율을 넘지 못한다. 비율을 주지 않으면 완전 출시(1)다.
+    const rollout = context.rollout ?? 1;
+    if (target === 'google-play' && !(rollout <= merged.rollout)) errors.push(`RELEASE_NOT_AUTHORIZED rollout ${rollout} > ${merged.rollout}`);
+  }
+  const unresolved = [...new Set(errors)];
+  return { ok: unresolved.length === 0, errors: unresolved, level, completedAt };
 }
 
 const EVIDENCE_ARCHIVE_TAG = 'development-evidence';
 
-const baselineShas = document => checkSchema(document) ? [...new Set((document.carriedForward ?? []).map(item => item.baselineSha))] : [];
+const baselineShas = document => Array.isArray(document?.carriedForward)
+  ? [...new Set(document.carriedForward.map(item => item?.baselineSha).filter(sha => SHA_PATTERN.test(sha ?? '')))] : [];
+const readableDesigns = document => document?.schemaVersion === 2 && Array.isArray(document.designs)
+  ? document.designs.filter(d => typeof d?.id === 'string' && SHA_PATTERN.test(d.approvedCommit ?? '') && PLAN_PATH.test(d.testPlan ?? '') && sameFolder(d)) : [];
+const planBaselines = plans => [...new Set(Object.values(plans).map(entry => entry.plan?.baseline)
+  .filter(ref => typeof ref === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(ref)))];
+const parseJson = text => { try { return JSON.parse(text); } catch { return null; } };
+
+function decodeContents(file) {
+  if (file?.encoding !== 'base64' || typeof file.content !== 'string' || !(file.size <= MAX_FILE_BYTES)) return null;
+  return parseJson(Buffer.from(file.content, 'base64').toString('utf8'));
+}
 
 async function readRemoteInventory(repository, ref, request) {
   const inventoryFile = await githubJson(`/repos/${repository}/contents/${INVENTORY_PATH}?ref=${ref}`, request);
@@ -145,18 +211,56 @@ function parseNameStatus(output) {
   return entries;
 }
 
-function readLocalBaselines(document, sourceSha) {
-  const git = (...args) => spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  const baselines = {};
-  if (!/^[a-f0-9]{40}$/u.test(sourceSha ?? '')) return baselines;
+const git = (...args) => spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+const isAncestor = (ref, sourceSha) => git('merge-base', '--is-ancestor', ref, sourceSha).status === 0;
+function localChangedFiles(ref, sourceSha) {
+  const commit = git('rev-parse', '--verify', '--quiet', `${ref}^{commit}`);
+  if (commit.status !== 0 || !isAncestor(commit.stdout.trim(), sourceSha)) return null;
+  const diff = git('diff', '--name-status', '--find-renames', '-z', commit.stdout.trim(), sourceSha);
+  return diff.status === 0 ? withinCompareLimit(parseNameStatus(diff.stdout))?.flat() ?? null : null;
+}
+
+function readLocalContext(document, sourceSha) {
+  const baselines = {}, plans = {}, changes = {};
+  if (!SHA_PATTERN.test(sourceSha ?? '')) return { baselines, plans, changes };
   for (const baselineSha of baselineShas(document)) {
-    const diff = git('merge-base', '--is-ancestor', baselineSha, sourceSha).status === 0 ? git('diff', '--name-status', '--find-renames', '-z', baselineSha, sourceSha) : null;
     const inventory = git('show', `${baselineSha}:${INVENTORY_PATH}`);
-    let parsed = null;
-    try { parsed = inventory.status === 0 ? JSON.parse(inventory.stdout) : null; } catch { parsed = null; }
-    baselines[baselineSha] = { changedFiles: diff?.status === 0 ? withinCompareLimit(parseNameStatus(diff.stdout))?.flat() ?? null : null, inventory: parsed };
+    baselines[baselineSha] = { changedFiles: localChangedFiles(baselineSha, sourceSha), inventory: inventory.status === 0 ? parseJson(inventory.stdout) : null };
   }
-  return baselines;
+  for (const design of readableDesigns(document)) {
+    const approved = isAncestor(design.approvedCommit, sourceSha);
+    const file = approved ? git('show', `${design.approvedCommit}:${design.testPlan}`) : null;
+    plans[design.id] = { approved, plan: file?.status === 0 && Buffer.byteLength(file.stdout) <= MAX_FILE_BYTES ? parseJson(file.stdout) : null };
+  }
+  for (const baseline of planBaselines(plans)) changes[baseline] = localChangedFiles(baseline, sourceSha);
+  return { baselines, plans, changes };
+}
+
+// 기준 커밋·태그나 그 시점 파일이 없으면(404) 판정 불가로 두어 다시 실행하게 한다. 그 밖의 조회 실패는 그대로 멈춘다.
+const unlessMissing = error => { if (error?.status === 404) return null; throw error; };
+async function remoteChangedFiles(repository, ref, sourceSha, request) {
+  const compare = await githubJson(`/repos/${repository}/compare/${encodeURIComponent(ref)}...${sourceSha}`, request).catch(unlessMissing);
+  const files = ['ahead', 'identical'].includes(compare?.status) && Array.isArray(compare.files) ? withinCompareLimit(compare.files) : null;
+  return files?.flatMap(f => [f.filename, f.previous_filename].filter(Boolean)) ?? null;
+}
+
+async function readRemoteContext(document, repository, sourceSha, request) {
+  const baselines = {}, plans = {}, changes = {};
+  for (const baselineSha of baselineShas(document)) {
+    baselines[baselineSha] = {
+      changedFiles: await remoteChangedFiles(repository, baselineSha, sourceSha, request),
+      inventory: await readRemoteInventory(repository, baselineSha, request).catch(unlessMissing),
+    };
+  }
+  for (const design of readableDesigns(document)) {
+    const compare = await githubJson(`/repos/${repository}/compare/${design.approvedCommit}...${sourceSha}`, request).catch(unlessMissing);
+    const approved = ['ahead', 'identical'].includes(compare?.status);
+    const path = design.testPlan.split('/').map(encodeURIComponent).join('/');
+    const file = approved ? await githubJson(`/repos/${repository}/contents/${path}?ref=${design.approvedCommit}`, request).catch(unlessMissing) : null;
+    plans[design.id] = { approved, plan: decodeContents(file) };
+  }
+  for (const baseline of planBaselines(plans)) changes[baseline] = await remoteChangedFiles(repository, baseline, sourceSha, request);
+  return { baselines, plans, changes };
 }
 
 /**
@@ -181,7 +285,7 @@ export async function verifyReleaseDevelopmentEvidence(options) {
   }
   if (options.exceptionId) return verifyReleaseException(options);
   const { repository, tag, sourceSha, target, phase, token, env = process.env, fetchImpl = globalThis.fetch } = options;
-  if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(repository ?? '') || !/^[a-f0-9]{40}$/u.test(sourceSha ?? '') || !['before-build', 'before-deploy'].includes(phase) || !['apps-in-toss', 'google-play', 'app-store', 'web', 'service'].includes(target) || !tag) throw new Error('INVALID_EVIDENCE_CONTEXT');
+  if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(repository ?? '') || !SHA_PATTERN.test(sourceSha ?? '') || !PHASES.includes(phase) || !TARGETS.includes(target) || !tag) throw new Error('INVALID_EVIDENCE_CONTEXT');
   const request = { token, env, fetchImpl };
   const release = tag === EVIDENCE_ARCHIVE_TAG
     ? await findEvidenceArchive(repository, request)
@@ -190,39 +294,30 @@ export async function verifyReleaseDevelopmentEvidence(options) {
   const nameFor = assetPhase => tag === EVIDENCE_ARCHIVE_TAG
     ? `development-evidence.${sourceSha}.${target}.${assetPhase}.json`
     : `development-evidence.${target}.${assetPhase}.json`;
-  // 배포 직전 보고서가 따로 없으면 같은 후보의 빌드 직전 보고서를 읽는다(phaseReuse).
-  const candidates = phase === 'before-deploy' ? [nameFor('before-deploy'), nameFor('before-build')] : [nameFor(phase)];
+  // 나중 단계 보고서가 따로 없으면 같은 후보의 앞 단계 보고서를 읽는다(before-release → before-deploy → before-build).
+  const fallback = policy.phases.assetFallback;
+  const candidates = fallback.slice(fallback.indexOf(phase)).map(nameFor);
   const assetName = candidates.find(name => assets.some(asset => asset.name === name)) ?? candidates[0];
   const matches = assets.filter(asset => asset.name === assetName);
   if (matches.length !== 1) throw new Error(`REQUIRED_DEVELOPMENT_EVIDENCE_MISSING ${candidates.join(' | ')}`);
   const asset = matches[0];
-  if (!Number.isSafeInteger(asset.id) || asset.id <= 0 || asset.size > 2 * 1024 * 1024) throw new Error('INVALID_EVIDENCE_ASSET');
+  if (!Number.isSafeInteger(asset.id) || asset.id <= 0 || asset.size > MAX_FILE_BYTES) throw new Error('INVALID_EVIDENCE_ASSET');
   const bytes = await githubDownload(`/repos/${repository}/releases/assets/${asset.id}`, request);
-  if (bytes.length > 2 * 1024 * 1024) throw new Error('EVIDENCE_ASSET_TOO_LARGE');
+  if (bytes.length > MAX_FILE_BYTES) throw new Error('EVIDENCE_ASSET_TOO_LARGE');
   let document;
   try { document = JSON.parse(bytes.toString('utf8')); }
   catch { throw new Error('INVALID_EVIDENCE_JSON'); }
   const featureInventory = await readRemoteInventory(repository, sourceSha, request);
-  const baselines = {};
-  // 기준 커밋이나 그 시점 기능 목록이 없으면(404) 로컬 검증처럼 판정 불가로 두어 다시 실행하게 한다.
-  const unlessMissing = error => { if (error?.status === 404) return null; throw error; };
-  for (const baselineSha of baselineShas(document)) {
-    const compare = await githubJson(`/repos/${repository}/compare/${baselineSha}...${sourceSha}`, request).catch(unlessMissing);
-    const files = ['ahead', 'identical'].includes(compare?.status) && Array.isArray(compare.files) ? withinCompareLimit(compare.files) : null;
-    baselines[baselineSha] = {
-      changedFiles: files?.flatMap(f => [f.filename, f.previous_filename].filter(Boolean)) ?? null,
-      inventory: await readRemoteInventory(repository, baselineSha, request).catch(unlessMissing),
-    };
-  }
-  const result = validateDevelopmentEvidence(document, { ...options, featureInventory, baselines });
+  const remote = await readRemoteContext(document, repository, sourceSha, request);
+  const result = validateDevelopmentEvidence(document, { ...options, featureInventory, ...remote });
   if (!result.ok) throw new Error(result.errors.join('\n'));
-  return { ...result, assetId: asset.id, completedAt: document.e2e.completedAt };
+  return { ...result, assetId: asset.id, completedAt: document.schemaVersion === 1 ? document.e2e.completedAt : result.completedAt };
 }
 
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   const args = new Map();
   const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'configuration-fingerprint',
-    'internal-testflight-bootstrap-id', 'release-exception-id', 'verifier-sha', 'report', 'release-binding', 'artifact-receipt', 'artifact-file',
+    'rollout', 'internal-testflight-bootstrap-id', 'release-exception-id', 'verifier-sha', 'report', 'release-binding', 'artifact-receipt', 'artifact-file',
     'exception-file', 'preflight', 'risk-notes-file', 'original-evidence-dir', 'xcode-build-number', 'app-repository', 'after']);
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i]?.replace(/^--/u, '');
@@ -230,6 +325,11 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
     args.set(key, argv[i + 1]);
   }
   const context = { repository: args.get('repo') ?? env.GITHUB_REPOSITORY, sourceSha: args.get('sha'), target: args.get('target'), phase: args.get('phase'), configurationFingerprint: args.get('configuration-fingerprint'), requireUi: args.get('target') !== 'service' };
+  if (args.has('rollout')) {
+    const rollout = Number(args.get('rollout'));
+    if (!/^(0(\.\d+)?|1(\.0+)?)$/u.test(args.get('rollout')) || !(rollout > 0 && rollout <= 1)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
+    context.rollout = rollout;
+  }
   if (args.has('internal-testflight-bootstrap-id')) {
     if (args.has('release-exception-id') || args.has('file') || args.has('preflight') || args.has('exception-file')) throw new Error('INVALID_EVIDENCE_ARGUMENT');
     const { verifyInternalTestflightBootstrap } = await import('./internal-testflight-bootstrap.mjs');
@@ -261,20 +361,22 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
     return result;
   }
   if (['verifier-sha', 'report', 'release-binding', 'artifact-receipt', 'artifact-file', 'exception-file', 'preflight', 'risk-notes-file', 'original-evidence-dir', 'xcode-build-number', 'app-repository'].some(key => args.has(key))) throw new Error('RELEASE_EXCEPTION_ID_REQUIRED');
+  if (!PHASES.includes(context.phase) || !TARGETS.includes(context.target)) throw new Error('INVALID_EVIDENCE_CONTEXT');
   let result;
   if (args.has('file')) {
     const document = JSON.parse(readFileSync(args.get('file'), 'utf8'));
     const featureInventory = JSON.parse(readFileSync(args.get('feature-inventory') ?? INVENTORY_PATH, 'utf8'));
-    const baselines = readLocalBaselines(document, context.sourceSha);
-    result = { ...validateDevelopmentEvidence(document, { ...context, featureInventory, baselines }), completedAt: document?.e2e?.completedAt };
+    const local = readLocalContext(document, context.sourceSha);
+    const validated = validateDevelopmentEvidence(document, { ...context, featureInventory, ...local });
+    result = { ...validated, completedAt: document?.schemaVersion === 1 ? document?.e2e?.completedAt : validated.completedAt };
   } else {
     result = await verifyReleaseDevelopmentEvidence({ ...context, tag: args.get('tag') ?? EVIDENCE_ARCHIVE_TAG, env });
   }
   if (!result.ok) throw new Error(result.errors.join('\n'));
   const after = args.get('after');
-  if (after !== undefined && (!Number.isFinite(Date.parse(after)) || Date.parse(result.completedAt) < Date.parse(after))) throw new Error('EVIDENCE_COMPLETION_BEFORE_BUILD');
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `completed_at=${result.completedAt}\n`);
-  process.stdout.write(`개발 검수 근거 통과: ${context.target} ${context.phase} ${context.sourceSha}\n`);
+  if (after !== undefined && (!Number.isFinite(Date.parse(after)) || !(Date.parse(result.completedAt) >= Date.parse(after)))) throw new Error('EVIDENCE_COMPLETION_BEFORE_BUILD');
+  if (env.GITHUB_OUTPUT && result.completedAt) appendFileSync(env.GITHUB_OUTPUT, `completed_at=${result.completedAt}\n`);
+  process.stdout.write(`개발 검수 근거 통과${result.level ? `(${result.level})` : ''}: ${context.target} ${context.phase} ${context.sourceSha}\n`);
 
   return result;
 }
