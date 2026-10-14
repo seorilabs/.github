@@ -43,4 +43,4 @@ macOS와 private 저장소의 Xcode Cloud로 나눈다.
 
 ## 개발 워크플로우
 
-[실행 규칙과 템플릿](docs/agent-governance/development-workflow.md) · [계약](contracts/development-workflow.yaml) · [승인 설계](docs/design/2026-10-08-development-workflow/design.md). `/plan` 전체 작업 정리 뒤 사람의 설계 승인을 받고 구현한다. UI 독립 검수 3회와 빌드·배포 직전 E2E는 PR·CI·마켓 QA와 별도다.
+[실행 규칙과 템플릿](docs/agent-governance/development-workflow.md) · [계약](contracts/development-workflow.yaml) · [승인 설계](docs/design/2026-10-08-development-workflow/design.md). `/plan` 전체 작업 정리 뒤 사람이 설계와 테스트 계획(등급 L1~L3·실행 환경·출시 범위)을 한 번 승인하고 구현한다. 등급별 실행과 빌드·배포·출시 직전 근거 검증은 PR·CI·마켓 QA와 별도다.

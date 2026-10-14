@@ -306,4 +306,4 @@ jobs:
 
 ## 개발 검수 근거
 
-[개발 워크플로우](../../docs/agent-governance/development-workflow.md)의 승인 설계·TDD·UI 독립 검수 3회와 단계별 Editor E2E를 적용한다. RN·Godot 마켓 경로는 before-build/before-deploy 자산을 새로 읽어 exact SHA·마켓·회차·기능·시간을 검증한다. build-only는 before-build, Play 승격은 before-deploy가 필요하다. Godot Pages는 push-to-main 자동 배포를 하지 않으며 명시 dispatch/tag에서 단계별 근거를 확인한다. 근거 누락은 의도된 차단이다.
+[개발 워크플로우](../../docs/agent-governance/development-workflow.md)의 승인 설계·테스트 계획·TDD와 등급별 실행 근거를 적용한다. RN·Godot 마켓 경로는 before-build/before-deploy 자산과 승인 커밋의 계획을 새로 읽어 exact SHA·하한·실행 범위·시간을 검증한다. build-only는 before-build, Play 테스트 트랙 승격은 before-deploy, production 승격은 before-release가 필요하다. Godot Pages는 push-to-main 자동 배포를 하지 않으며 명시 dispatch/tag에서 단계별 근거를 확인한다. 근거 누락은 의도된 차단이다.

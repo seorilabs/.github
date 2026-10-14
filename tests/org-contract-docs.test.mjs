@@ -19,6 +19,8 @@ const JSON_SCHEMAS = [
   "contracts/app.schema.json",
   "contracts/development-workflow.schema.json",
   "contracts/development-evidence.schema.json",
+  "contracts/development-evidence-v1.schema.json",
+  "contracts/test-plan.schema.json",
   "contracts/autonomous-issue-policy.schema.json",
   "contracts/credential-consumer.schema.json",
   "contracts/google-play-account-routing.schema.json",
@@ -47,6 +49,7 @@ const YAML_CONTRACTS = [
   "profiles/react-native.yaml",
 ];
 const YAML_SCHEMA_VERSIONS = new Map([
+  ["contracts/development-workflow.yaml", 2],
   ["contracts/autonomous-issue-policy.yaml", 4],
   ["contracts/release-version-authority.yaml", 3],
   ["contracts/release-policy.yaml", 2],
