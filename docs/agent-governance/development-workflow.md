@@ -297,3 +297,13 @@ node scripts/release/verify-google-play-promotion.mjs \
 Jomul의 고정 `v1.1.2` 태그 한 건에 대한 사람 승인 예외는 [중앙 PR #238](https://github.com/seorilabs/.github/pull/238)로 적용했다. Google Play·App Store 심사 접수 뒤 승인 목록과 전용 호환 경로를 제거했다. 기존 26 통과/4 차단, 미실행 E2E·장비 검수 생략 원본은 [jomul #200](https://github.com/seorilabs/jomul/issues/200)에 보존하며 검증 성공으로 바꾸지 않는다. 이 종료가 공개 출시를 승인하지는 않는다.
 
 정상 검증의 Xcode Cloud `completed_at`과 `--after`는 실행 기록의 마지막 완료 시각과 빌드 전 완료 시각을 대조하는 일반 지원으로 유지한다. 기존 Reascend grant 검증·철회·산출물 검증은 그대로 적용한다.
+
+## 첫 내부 TestFlight 검수 시점 예외
+
+> 등급제에서는 iOS 실기기 실행을 TestFlight 빌드에서 하고 `before-release`에서 확인하므로, 계획에 `ios`를 두면 이 예외 없이 같은 순서로 진행한다. 이 절과 장치는 예외 장치 삭제(설계 [2026-10-14-test-levels](../design/2026-10-14-test-levels/design.md) 순서 3) 때 함께 정리 대상으로 검토한다.
+
+Spiritgate 1.1.0의 기존 App Store profile에는 USB 설치 권한이 없어, [승인된 제안](../design/2026-10-14-spiritgate-internal-testflight/design.md)의 첫 내부 TestFlight 한 건에만 iPhone 기반 검수 시점을 설치 뒤로 옮긴다. `internalTestflightBootstrap`의 중앙 reviewed grant와 명시적 `--internal-testflight-bootstrap-id` 입력이 필요하다. 기본 정상 검증 실패를 자동 우회하지 않는다. 현재 등록 목록이 비어 있으면 모든 ID는 차단된다.
+
+같은 후보·설정·28기능 inventory·원본 실패/부분/차단·독립 UI4·실제 Editor 전체 E2E·Android 기반 검수·원문 승인·168시간을 결속한다. 두 단계에서 검토된 중앙 소스와 최신 grant의 불변/철회, 실제 working tree, Apple의 app/product/workflow/수동 태그/첫 CI run을 확인한다. before-deploy는 기존 프로덕션 profile bytes와 실제 서명 앱·버전·SDK/privacy·같은 before-build 영수증이 필요하다. 원래 iPhone 미검수는 `deferred`, 제품 E2E는 `blocked`, 판단은 `human_exception`으로 보존한다.
+
+Apple의 단일 archive action은 `INTERNAL_ONLY`여야 한다. 처리된 빌드 역시 `INTERNAL_ONLY`와 VALID, 같은 성공 CI run의 build 관계를 확인한 뒤 기존 내부 그룹에만 연결한다. 내부 예외 결과는 외부 TestFlight·App Review·공개 gate가 아니다. 실제 iPhone와 전체 기능 E2E·정상 중앙 검증을 완료한 뒤 공개용 새 archive를 진행한다. 등록은 실제 근거가 확정된 별도 reviewed grant를 요구하고, 새 후보·다른 source/run·만료·철회·조회 실패는 차단한다.

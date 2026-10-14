@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "features": [
+    {
+      "id": "startup-preparation",
+      "core": true
+    },
+    {
+      "id": "startup-read-failure-retry",
+      "core": true
+    },
+    {
+      "id": "existing-save-preservation",
+      "core": true
+    },
+    {
+      "id": "consent-allow-deny-once",
+      "core": true,
+      "foundation": true,
+      "paths": [
+        "src/platform/godot_consent_adapter.gd",
+        "src/platform/godot_platform.gd",
+        "src/platform/platform_runtime_config.gd",
+        "src/platform/platform_analytics_adapter.gd",
+        "autoload/platform.gd",
+        "src/ui/privacy_settings_panel.gd",
+        "src/ui/title_screen.gd",
+        "src/startup/preparation.gd",
+        "project.godot",
+        "export_presets.cfg",
+        "addons/seorilabs_platform/**",
+        "addons/admob/**",
+        "xcode-cloud/**",
+        "play-store/google-play.config.json",
+        "app-store/app-store.config.json",
+        "assets/i18n/**",
+        "autoload/locale_manager.gd",
+        "src/ui/main_menu.gd"
+      ]
+    },
+    {
+      "id": "optional-services-timeout",
+      "core": true,
+      "foundation": true,
+      "paths": [
+        "src/platform/godot_platform.gd",
+        "src/platform/godot_admob_ads.gd",
+        "autoload/platform.gd",
+        "src/startup/preparation.gd",
+        "project.godot",
+        "export_presets.cfg",
+        "addons/seorilabs_platform/**",
+        "addons/admob/**",
+        "xcode-cloud/**",
+        "play-store/google-play.config.json",
+        "app-store/app-store.config.json",
+        "assets/i18n/**",
+        "autoload/locale_manager.gd",
+        "src/ui/main_menu.gd"
+      ]
+    },
+    {
+      "id": "seven-locales-persistence",
+      "core": true
+    },
+    {
+      "id": "hero-selection-unlock",
+      "core": true
+    },
+    {
+      "id": "difficulty-selection",
+      "core": true
+    },
+    {
+      "id": "permanent-upgrades",
+      "core": true
+    },
+    {
+      "id": "gameplay-tutorial",
+      "core": true
+    },
+    {
+      "id": "hero-move-target-facing",
+      "core": true
+    },
+    {
+      "id": "hero-basic-attack-timing",
+      "core": true
+    },
+    {
+      "id": "hero-five-skills",
+      "core": true
+    },
+    {
+      "id": "hero-death-revive",
+      "core": true
+    },
+    {
+      "id": "enemy-eight-types",
+      "core": true
+    },
+    {
+      "id": "boss-three-phase-two",
+      "core": true
+    },
+    {
+      "id": "twenty-three-waves-endless",
+      "core": true
+    },
+    {
+      "id": "gate-health-defense",
+      "core": true
+    },
+    {
+      "id": "combat-rewards-level-allocation",
+      "core": true
+    },
+    {
+      "id": "shop-buy-sell-inventory",
+      "core": true
+    },
+    {
+      "id": "forge-combination-relics",
+      "core": true
+    },
+    {
+      "id": "pause-resume-exit-results",
+      "core": true
+    },
+    {
+      "id": "records-meta-currency",
+      "core": true
+    },
+    {
+      "id": "sdk-session-shared-retry-identity",
+      "core": true,
+      "foundation": true,
+      "paths": [
+        "src/platform/godot_platform.gd",
+        "src/platform/platform_runtime_config.gd",
+        "autoload/platform.gd",
+        "project.godot",
+        "export_presets.cfg",
+        "addons/seorilabs_platform/**",
+        "addons/admob/**",
+        "xcode-cloud/**",
+        "play-store/google-play.config.json",
+        "app-store/app-store.config.json",
+        "assets/i18n/**",
+        "autoload/locale_manager.gd",
+        "src/ui/main_menu.gd"
+      ]
+    },
+    {
+      "id": "rewarded-ad-earned-ssv-idempotency",
+      "core": true,
+      "foundation": true,
+      "paths": [
+        "src/platform/godot_admob_ads.gd",
+        "src/platform/godot_platform.gd",
+        "autoload/platform.gd",
+        "src/game/game.gd",
+        "src/ui/revive_prompt.gd",
+        "autoload/profile.gd",
+        "project.godot",
+        "export_presets.cfg",
+        "addons/seorilabs_platform/**",
+        "addons/admob/**",
+        "xcode-cloud/**",
+        "play-store/google-play.config.json",
+        "app-store/app-store.config.json",
+        "assets/i18n/**",
+        "autoload/locale_manager.gd",
+        "src/ui/main_menu.gd"
+      ]
+    },
+    {
+      "id": "sound-reduced-motion",
+      "core": false
+    },
+    {
+      "id": "touch-safe-area-long-text",
+      "core": true
+    },
+    {
+      "id": "pixel-all-actors-directions-actions",
+      "core": true
+    }
+  ]
+}

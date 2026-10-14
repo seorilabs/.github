@@ -1,0 +1,185 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "repository",
+    "releaseTag",
+    "packageName",
+    "sourceSha",
+    "configurationFingerprint",
+    "androidConfigurationFingerprint",
+    "productTreeSha256",
+    "evidenceSha256",
+    "approvalFile",
+    "approvalSha256",
+    "inventorySha256",
+    "approvedAt",
+    "expiresAt",
+    "revoked",
+    "provider",
+    "evidenceAsset",
+    "originalObservationAssets",
+    "workingOverrides",
+    "profileSha256"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "first-internal-testflight"
+    },
+    "id": {
+      "const": "spiritgate-1.1.0-first-internal"
+    },
+    "repository": {
+      "const": "seorilabs/spiritgate-defenders"
+    },
+    "releaseTag": {
+      "const": "v1.1.0"
+    },
+    "packageName": {
+      "const": "com.seorilabs.spiritgatedefenders"
+    },
+    "sourceSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "configurationFingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "androidConfigurationFingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "productTreeSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "evidenceSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "approvalFile": {
+      "type": "string",
+      "pattern": "^docs/design/2026-10-14-spiritgate-internal-testflight/approval\\.json$"
+    },
+    "approvalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "inventorySha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "approvedAt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expiresAt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "revoked": {
+      "type": "boolean"
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "appId",
+        "productId",
+        "workflowId"
+      ],
+      "properties": {
+        "appId": {
+          "const": "6792205995"
+        },
+        "productId": {
+          "const": "E5C1A24C-AA05-41B0-B2F6-F1BF0B92D7DB"
+        },
+        "workflowId": {
+          "const": "45B83B98-ABE4-48C1-83FC-09CF3F79651E"
+        }
+      }
+    },
+    "evidenceAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sha256"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "originalObservationAssets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "sha256"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "workingOverrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "before-build",
+        "before-deploy"
+      ],
+      "properties": {
+        "before-build": {
+          "type": "object",
+          "maxProperties": 0
+        },
+        "before-deploy": {
+          "type": "object",
+          "maxProperties": 2,
+          "propertyNames": {
+            "enum": [
+              "project.godot",
+              "xcode-cloud/SpiritgateDefenders.xcodeproj/project.pbxproj"
+            ]
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "profileSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/seorilabs/.github/contracts/internal-testflight-bootstrap-grant.schema.json"
+}
