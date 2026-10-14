@@ -142,3 +142,175 @@ test('actual deployment requires a successful internal before-build receipt',()=
   const f=deploymentFixture();Object.assign(f.context.beforeBuildReceipt,changes);assert.equal(run(f).ok,false);
  }
 });
+
+function sixRoundFixture(){
+ const f=fiveRoundFixture(),g=f.context.grant,historySource='8'.repeat(40),historyConfig='9'.repeat(64);
+ g.approvedUiRounds=6;
+ g.ui6ApprovalFile='docs/design/2026-10-15-spiritgate-ui6/approval.json';
+ const prior=JSON.parse(f.context.additionalUiApprovalBytes);
+ prior.sourceSha=null;prior.configurationFingerprint=null;
+ f.context.additionalUiApprovalBytes=jsonBytes(prior);g.additionalUiApprovalSha256=digest(f.context.additionalUiApprovalBytes);
+ f.doc.editor.iterations[4].sourceSha=historySource;
+ for(const aspect of ['functional','ux']) Object.assign(f.doc.editor.iterations[4][aspect],{status:'failed',resolutionEvidence:'https://example.com/ui6-resolution'});
+ f.context.ui5SourceSnapshotBytes=jsonBytes({sourceSha:historySource,trackedCount:3048,unexpectedDifferences:[]});
+ f.context.ui5ConfigurationBytes=jsonBytes({projection:{sourceSha:historySource,sourceAfter:digest(f.context.ui5SourceSnapshotBytes),runtimeKind:'godot-editor',nativeMarketFingerprint:null},fingerprint:historyConfig});
+ g.historicalUi5={sourceSha:historySource,configurationFingerprint:historyConfig,sourceSnapshotAsset:{id:125,sha256:digest(f.context.ui5SourceSnapshotBytes)},configurationAsset:{id:126,sha256:digest(f.context.ui5ConfigurationBytes)}};
+ g.originalObservationAssets.push(g.historicalUi5.sourceSnapshotAsset,g.historicalUi5.configurationAsset);
+ f.doc.originalObservations.push({name:'ui5-source-after.json',sha256:g.historicalUi5.sourceSnapshotAsset.sha256},{name:'ui5-configuration-final.json',sha256:g.historicalUi5.configurationAsset.sha256});
+ const sixth=structuredClone(f.doc.editor.iterations[3]);
+ Object.assign(sixth,{number:6,sourceSha:SHA,plannedAt:'2026-10-08T05:50:00Z',startedAt:'2026-10-08T05:51:00Z',completedAt:'2026-10-08T06:00:00Z'});
+ f.doc.editor.iterations.push(sixth);
+ f.doc.editor.additionalIterationApprovals.push({approverKind:'human',approver:'owner',approvedAt:'2026-10-08T05:45:00Z',maxRound:6,evidence:g.ui6ApprovalFile});
+ const proposal=Buffer.from('approved one UI6; preserve UI5 source/configuration/failures; 180 plus one 30; no extension');
+ f.context.ui6ProposalBytes=proposal;
+ f.context.ui6ApprovalBytes=jsonBytes({...prior,designId:'SGD-UI6-TF-110-v1',approvedUiRounds:6,sourceSha:SHA,configurationFingerprint:FP,approvalRecordedAt:'2026-10-08T05:45:00Z',userApprovalVerbatim:'UI6·중앙 최소 보정·제한 Claude 리뷰를 제안한 범위로 승인한다.',proposalSha256:digest(proposal),previousUiApprovalSha256:g.additionalUiApprovalSha256,previousUiSourceSnapshotSha256:g.historicalUi5.sourceSnapshotAsset.sha256,previousUiConfigurationSha256:g.historicalUi5.configurationAsset.sha256});
+ g.ui6ApprovalSha256=digest(f.context.ui6ApprovalBytes);
+ Object.assign(f.doc.editor.e2e,{plannedAt:'2026-10-08T06:05:00Z',startedAt:'2026-10-08T06:06:00Z',completedAt:'2026-10-08T06:10:00Z'});
+ f.context.evidenceBytes=jsonBytes(f.doc);g.evidenceSha256=digest(f.context.evidenceBytes);
+ return f;
+}
+test('UI6 binds its new candidate and preserves the separately approved failed UI5 snapshot',()=>{
+ const f=sixRoundFixture(),r=run(f);
+ assert.equal(r.ok,true,JSON.stringify(r.errors));assert.equal(r.approvedUiRounds,6);
+ assert.equal(r.ui6ApprovalSha256,f.context.grant.ui6ApprovalSha256);
+ assert.equal(f.doc.editor.iterations[4].sourceSha,'8'.repeat(40));assert.equal(f.doc.editor.iterations[4].functional.status,'failed');
+ assert.equal(f.doc.editor.additionalIterationApproval.maxRound,4);assert.equal(f.doc.editor.additionalIterationApprovals[0].maxRound,5);
+ assert.equal(f.context.grant.expiresAt,'2026-10-15T05:00:00Z');assert.equal(r.nativeQaWaived,false);assert.equal(r.productE2eStatus,'blocked');
+});
+for(const [name,change] of [
+ ['missing UI6 approval',f=>{delete f.context.ui6ApprovalBytes;}],
+ ['changed UI6 proposal',f=>{f.context.ui6ProposalBytes=Buffer.from('unapproved scope');}],
+ ['missing UI5 original approval',f=>{delete f.context.additionalUiApprovalBytes;}],
+ ['changed UI5 original proposal',f=>{f.context.additionalUiProposalBytes=Buffer.from('edited history');}],
+ ['missing UI5 source bytes',f=>{delete f.context.ui5SourceSnapshotBytes;}],
+ ['changed UI5 source bytes',f=>{f.context.ui5SourceSnapshotBytes=jsonBytes({sourceSha:SHA});}],
+ ['changed UI5 configuration bytes',f=>{f.context.ui5ConfigurationBytes=jsonBytes({fingerprint:FP});}],
+ ['UI5 recast as current candidate',f=>{f.doc.editor.iterations[4].sourceSha=SHA;}],
+ ['UI5 snapshot not retained as original',f=>{f.context.grant.originalObservationAssets.pop();f.doc.originalObservations.pop();}],
+ ['UI5 failure without resolution',f=>{delete f.doc.editor.iterations[4].functional.resolutionEvidence;}],
+ ['missing UI4 history',f=>{f.doc.editor.iterations.splice(3,1);}],
+ ['missing UI5 history',f=>{f.doc.editor.iterations.splice(4,1);}],
+ ['missing UI4 approval',f=>{f.doc.editor.additionalIterationApproval=null;}],
+ ['missing separate UI5 Editor approval',f=>{f.doc.editor.additionalIterationApprovals.shift();}],
+ ['missing separate UI6 Editor approval',f=>{f.doc.editor.additionalIterationApprovals.pop();}],
+ ['UI6 current source drift',f=>{f.doc.editor.iterations[5].sourceSha='7'.repeat(40);}],
+ ['UI6 functional failure',f=>{f.doc.editor.iterations[5].functional.status='failed';}],
+ ['UI6 UX failure',f=>{f.doc.editor.iterations[5].ux.status='failed';}],
+ ['unapproved UI7',f=>{f.doc.editor.iterations.push({...f.doc.editor.iterations[5],number:7});f.context.grant.approvedUiRounds=7;}],
+ ['UI6 public phase',f=>{f.context.phase='before-release';}],
+ ['UI6 missing Android foundation',f=>{f.doc.android.features.pop();}],
+ ['UI6 original expiry exceeded',f=>{f.context.now='2026-10-15T05:00:01Z';}],
+])test(`rejects ${name}`,()=>{
+ const f=sixRoundFixture();change(f);f.context.evidenceBytes=jsonBytes(f.doc);f.context.grant.evidenceSha256=digest(f.context.evidenceBytes);assert.equal(run(f).ok,false,name);
+});
+for(const [name,changes] of [
+ ['UI6 approval source drift',{sourceSha:'7'.repeat(40)}],
+ ['UI6 approval configuration drift',{configurationFingerprint:'7'.repeat(64)}],
+ ['UI6 starts before approval',{approvalRecordedAt:'2026-10-08T05:52:00Z'}],
+ ['UI6 original timing approval changed',{originalTimingApprovalSha256:'7'.repeat(64)}],
+ ['UI6 previous approval hash replaced',{previousUiApprovalSha256:'7'.repeat(64)}],
+ ['UI6 previous source hash replaced',{previousUiSourceSnapshotSha256:'7'.repeat(64)}],
+ ['UI6 previous configuration hash replaced',{previousUiConfigurationSha256:'7'.repeat(64)}],
+ ['UI6 original deadline extended',{extendOriginal168Hours:true}],
+ ['UI6 second recheck authorized',{issueRecheckMaximumCount:2}],
+])test(`rejects ${name} even with newly hash-bound bytes`,()=>{
+ const f=sixRoundFixture(),approval=JSON.parse(f.context.ui6ApprovalBytes);Object.assign(approval,changes);
+ f.context.ui6ApprovalBytes=jsonBytes(approval);f.context.grant.ui6ApprovalSha256=digest(f.context.ui6ApprovalBytes);assert.equal(run(f).ok,false,name);
+});
+for(const round of [4,5,6])test(`UI6 cannot waive round ${round}'s existing 210-minute budget`,()=>{
+ const f=sixRoundFixture();f.doc.editor.iterations[round-1].completedAt='2026-10-08T10:00:00Z';
+ f.context.evidenceBytes=jsonBytes(f.doc);f.context.grant.evidenceSha256=digest(f.context.evidenceBytes);const result=run(f);
+ assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_APPROVED_UI_BUDGET'),JSON.stringify(result.errors));
+});
+function rebindUi5Snapshot(f){
+ const g=f.context.grant,h=g.historicalUi5;
+ for(const [key,bytes] of [['sourceSnapshotAsset',f.context.ui5SourceSnapshotBytes],['configurationAsset',f.context.ui5ConfigurationBytes]]){
+  const old=h[key].sha256;h[key].sha256=digest(bytes);
+  f.doc.originalObservations.find(a=>a.sha256===old).sha256=h[key].sha256;
+ }
+ const approval=JSON.parse(f.context.ui6ApprovalBytes);
+ approval.previousUiSourceSnapshotSha256=h.sourceSnapshotAsset.sha256;approval.previousUiConfigurationSha256=h.configurationAsset.sha256;
+ f.context.ui6ApprovalBytes=jsonBytes(approval);g.ui6ApprovalSha256=digest(f.context.ui6ApprovalBytes);
+ f.context.evidenceBytes=jsonBytes(f.doc);g.evidenceSha256=digest(f.context.evidenceBytes);
+}
+for(const [name,change] of [
+ ['UI5 source snapshot source mismatch',(s,c)=>{s.sourceSha=SHA;}],
+ ['UI5 configuration source mismatch',(s,c)=>{c.projection.sourceSha=SHA;}],
+ ['UI5 configuration fingerprint mismatch',(s,c)=>{c.fingerprint=FP;}],
+ ['UI5 configuration source bytes mismatch',(s,c)=>{c.projection.sourceAfter='1'.repeat(64);}],
+ ['UI5 configuration runtime mismatch',(s,c)=>{c.projection.runtimeKind='headless';}],
+])test(`rejects ${name} after reviewed hash references are rebound`,()=>{
+ const f=sixRoundFixture(),source=JSON.parse(f.context.ui5SourceSnapshotBytes),configuration=JSON.parse(f.context.ui5ConfigurationBytes);change(source,configuration);
+ f.context.ui5SourceSnapshotBytes=jsonBytes(source);f.context.ui5ConfigurationBytes=jsonBytes(configuration);rebindUi5Snapshot(f);
+ const result=run(f);assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_UI5_SNAPSHOT_SCOPE'),JSON.stringify(result.errors));
+});
+test('a previously candidate-bound UI5 approval must still match its own historical snapshot',()=>{
+ for(const [sourceSha,configurationFingerprint,expected] of [['8'.repeat(40),'9'.repeat(64),true],[SHA,'9'.repeat(64),false],['8'.repeat(40),FP,false]]){
+  const f=sixRoundFixture(),a=JSON.parse(f.context.additionalUiApprovalBytes);Object.assign(a,{sourceSha,configurationFingerprint});
+  f.context.additionalUiApprovalBytes=jsonBytes(a);f.context.grant.additionalUiApprovalSha256=digest(f.context.additionalUiApprovalBytes);
+  const sixth=JSON.parse(f.context.ui6ApprovalBytes);sixth.previousUiApprovalSha256=f.context.grant.additionalUiApprovalSha256;
+  f.context.ui6ApprovalBytes=jsonBytes(sixth);f.context.grant.ui6ApprovalSha256=digest(f.context.ui6ApprovalBytes);
+  assert.equal(run(f).ok,expected);
+ }
+});
+test('UI6 cannot move UI5 approval later than the original UI5 plan',()=>{
+ const f=sixRoundFixture(),a=JSON.parse(f.context.additionalUiApprovalBytes);a.approvalRecordedAt='2026-10-08T05:35:00Z';
+ f.context.additionalUiApprovalBytes=jsonBytes(a);f.context.grant.additionalUiApprovalSha256=digest(f.context.additionalUiApprovalBytes);
+ f.doc.editor.additionalIterationApprovals[0].approvedAt=a.approvalRecordedAt;
+ const sixth=JSON.parse(f.context.ui6ApprovalBytes);sixth.previousUiApprovalSha256=f.context.grant.additionalUiApprovalSha256;
+ f.context.ui6ApprovalBytes=jsonBytes(sixth);f.context.grant.ui6ApprovalSha256=digest(f.context.ui6ApprovalBytes);
+ f.context.evidenceBytes=jsonBytes(f.doc);f.context.grant.evidenceSha256=digest(f.context.evidenceBytes);
+ const result=run(f);assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_UI5_APPROVAL_TIME'));
+});
+test('UI6-only fields are rejected by the grant schema even with matching four- or five-round histories',()=>{
+ const ui6=sixRoundFixture().context.grant;
+ for(const approvedUiRounds of [4,5]){
+  const f=approvedUiRounds===4 ? fixture() : fiveRoundFixture();
+  f.context.grant.approvedUiRounds=approvedUiRounds;
+  assert.equal(f.doc.editor.iterations.length,approvedUiRounds);assert.equal(run(f).ok,true);
+  Object.assign(f.context.grant,{ui6ApprovalFile:ui6.ui6ApprovalFile,ui6ApprovalSha256:ui6.ui6ApprovalSha256,historicalUi5:ui6.historicalUi5});
+  assert.deepEqual(run(f).errors,['TESTFLIGHT_BOOTSTRAP_REQUIRED']);
+ }
+});
+
+for(const aspect of ['functional','ux']) for(const status of ['failed','blocked'])test(`final UI6 ${aspect} ${status} cannot pass with resolution evidence`,()=>{
+ const f=sixRoundFixture();Object.assign(f.doc.editor.iterations[5][aspect],{status,resolutionEvidence:'https://example.com/claimed-resolution'});
+ f.context.evidenceBytes=jsonBytes(f.doc);f.context.grant.evidenceSha256=digest(f.context.evidenceBytes);
+ const result=run(f);assert.equal(result.ok,false);
+ assert.ok(result.errors.includes(`TESTFLIGHT_EDITOR UNRESOLVED_REVIEW 6-${aspect}`),JSON.stringify(result.errors));
+});
+test('UI6 approval time is rejected even when both approval records agree on the late time',()=>{
+ const f=sixRoundFixture(),a=JSON.parse(f.context.ui6ApprovalBytes);a.approvalRecordedAt='2026-10-08T05:52:00Z';
+ f.context.ui6ApprovalBytes=jsonBytes(a);f.context.grant.ui6ApprovalSha256=digest(f.context.ui6ApprovalBytes);
+ f.doc.editor.additionalIterationApprovals[1].approvedAt=a.approvalRecordedAt;
+ f.context.evidenceBytes=jsonBytes(f.doc);f.context.grant.evidenceSha256=digest(f.context.evidenceBytes);
+ const result=run(f);assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_UI6_APPROVAL_TIME'),JSON.stringify(result.errors));
+ assert.ok(!result.errors.includes('TESTFLIGHT_UI6_EDITOR_APPROVAL'),JSON.stringify(result.errors));
+});
+test('reviewed original assets reject unexpected keys before any whole-object equality comparison',()=>{
+ const f=sixRoundFixture();assert.equal(run(f).ok,true);
+ f.context.grant.originalObservationAssets=f.context.grant.originalObservationAssets.map(a=>structuredClone(a));
+ assert.equal(run(f).ok,true,'distinct object references remain valid');
+ f.context.grant.originalObservationAssets[1].name='extra-key';
+ assert.deepEqual(run(f).errors,['TESTFLIGHT_BOOTSTRAP_REQUIRED']);
+});
+test('reviewed UI1 to UI4 retain their own original candidates and resolved failures',()=>{
+ const f=sixRoundFixture();
+ for(let i=0;i<4;i++){
+  f.doc.editor.iterations[i].sourceSha=String(i+1).repeat(40);
+  for(const aspect of ['functional','ux']) Object.assign(f.doc.editor.iterations[i][aspect],{status:'failed',resolutionEvidence:'https://example.com/later-actual-resolution'});
+ }
+ f.context.evidenceBytes=jsonBytes(f.doc);f.context.grant.evidenceSha256=digest(f.context.evidenceBytes);
+ assert.equal(run(f).ok,true);
+ f.doc.editor.iterations[0].sourceSha='7'.repeat(40);
+ const result=run(f);assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_EVIDENCE_CHANGED'));
+});
+for(const key of ['ui5SourceSnapshotBytes','ui5ConfigurationBytes','additionalUiApprovalBytes'])test(`JSON null ${key} fails closed without escaping the validator`,()=>{
+ const f=sixRoundFixture();f.context[key]=Buffer.from('null');
+ if(key==='additionalUiApprovalBytes'){
+  f.context.grant.additionalUiApprovalSha256=digest(f.context.additionalUiApprovalBytes);
+  const approval=JSON.parse(f.context.ui6ApprovalBytes);approval.previousUiApprovalSha256=f.context.grant.additionalUiApprovalSha256;
+  f.context.ui6ApprovalBytes=jsonBytes(approval);f.context.grant.ui6ApprovalSha256=digest(f.context.ui6ApprovalBytes);
+ }else rebindUi5Snapshot(f);
+ let result;assert.doesNotThrow(()=>{result=run(f);});assert.equal(result.ok,false);
+});
