@@ -109,3 +109,15 @@ test('local CLI reads the approved plan and the baseline diff from the product r
   } finally { rmSync(dir, { recursive: true, force: true }); }
   assert.equal(NOW.length > 0, true);
 });
+
+test('the CLI takes the requested rollout and rejects malformed values', () => {
+  const cli = value => spawnSync(process.execPath, ['scripts/release/verify-development-evidence.mjs', '--repo', 'seorilabs/example', '--tag', 'v1.0.0',
+    '--sha', SHA, '--target', 'google-play', '--phase', 'before-release', '--rollout', value], { encoding: 'utf8', env: { ...process.env, GH_TOKEN: '', GITHUB_TOKEN: '' } });
+  for (const value of ['0', '1.5', 'abc', '-0.1', '0.1e1']) assert.match(cli(value).stderr, /INVALID_EVIDENCE_ARGUMENT/u, value);
+  for (const value of ['0.1', '1', '1.0']) assert.doesNotMatch(cli(value).stderr, /INVALID_EVIDENCE_ARGUMENT/u, value);
+});
+test('Release verifier compares the promotion rollout with the approved plan', async () => {
+  const api = fakeGitHub({ testPlan: plan({ release: { markets: ['google-play'], until: 'public', rollout: 0.2 } }) });
+  assert.equal((await verify(api, { phase: 'before-release', rollout: 0.2 })).ok, true);
+  await assert.rejects(verify(api, { phase: 'before-release' }), /RELEASE_NOT_AUTHORIZED rollout 1 > 0.2/u);
+});

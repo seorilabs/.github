@@ -57,7 +57,8 @@ test('build-only and track promotion keep their own required phase', () => {
   // production 승격은 출시 단계 검사, 테스트 트랙 사이의 승격은 업로드 단계 검사다.
   assert.equal(gate.env.TO_TRACK, '${{ inputs.to_track }}');
   assert.match(gate.run, /\[ "\$TO_TRACK" = production \] && phase=before-release/u);
-  assert.match(gate.run, /--phase "\$phase"/u);
+  assert.match(gate.run, /--phase "\$phase" --rollout "\$\{ROLLOUT:-1\}"/u);
+  assert.equal(gate.env.ROLLOUT, '${{ inputs.rollout }}');
   assert.equal(gate.if, undefined); assert.equal(gate['continue-on-error'], undefined);
 });
 test('Xcode Cloud start verifies the exact tag candidate before the mutation', () => {

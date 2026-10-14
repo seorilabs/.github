@@ -97,7 +97,7 @@
 | `before-release` | Play production 승격 workflow, App Store·앱인토스 심사 제출 직전 로컬 실행 | 계획의 모든 실행(실기기 포함)과 하한, 출시 범위(`release.markets`에 대상 마켓, `until`이 `test-track`이 아님) |
 | `web`·`service`의 `before-deploy` | 공개 배포 workflow | 모든 실행과 출시 범위(테스트 채널이 없다) |
 
-Play의 테스트 트랙 사이 승격은 `before-deploy`, production 승격은 `before-release`로 검사한다. App Store·앱인토스 심사 제출은 중앙 workflow가 하지 않으므로 실행자가 제출 직전에 `--phase before-release`를 실행한다.
+Play의 테스트 트랙 사이 승격은 `before-deploy`, production 승격은 `before-release`로 검사한다. 승격 workflow는 `rollout` 입력(비면 완전 출시 1)을 검증기에 넘기고, 승인된 계획의 비율보다 크면 막는다. 여러 계획이 묶이면 가장 작은 비율이 상한이다. App Store·앱인토스 심사 제출은 중앙 workflow가 하지 않으므로 실행자가 제출 직전에 `--phase before-release`를 실행한다.
 
 ### 영향 없는 기반 기능
 
@@ -172,7 +172,8 @@ node scripts/release/verify-development-evidence.mjs \
 | `TEST_LEVEL_BELOW_FLOOR <rule> <feature> <env>` | 바뀐 파일로 올라간 하한을 실행이 채우지 못했고 승인된 낮춤도 없음. 실행을 더하면 된다 |
 | `RUN_EXPIRED`, `RUN_CANDIDATE_MISMATCH`, `EXECUTION_ORDER` | 168시간 초과, 다른 SHA, 시각 순서 오류 |
 | `INDEPENDENT_RUN_REQUIRED <run>` | L2 실기기 실행 또는 L3 실행을 구현자가 함 |
-| `RELEASE_NOT_AUTHORIZED` | 대상 마켓이 계획에 없거나 끝 지점이 `test-track` |
+| `RELEASE_NOT_AUTHORIZED` | 대상 마켓이 계획에 없음, 끝 지점이 `test-track`, Play 승격 비율이 승인한 `release.rollout`(생략 시 1)보다 큼 |
+| `TEST_PLAN_DESIGN_MISMATCH <design>` | `testPlan`이 그 설계 문서와 같은 `docs/design/<id>/` 폴더에 있지 않음 |
 
 첨부 내용만으로 실제 플레이나 사람 승인을 증명하지 않는다. 작성자와 독립 검수자는 승인·실행·접근 가능한 증거를 확인할 책임이 있다.
 

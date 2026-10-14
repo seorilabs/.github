@@ -227,7 +227,7 @@ test('AC-9 several approved plans merge to the strictest scope', () => {
   assert.equal(mergeTestPlans([plan({ release: { markets: ['web'] } })]).until, 'public');
 });
 test('AC-9 the merged plan drives the verification of every design', () => {
-  const second = { ...evidence().designs[0], id: 'D-2', testPlan: 'docs/design/2026-10-14-second/test-plan.json' };
+  const second = { ...evidence().designs[0], id: 'D-2', document: 'docs/design/2026-10-14-second/design.md', testPlan: 'docs/design/2026-10-14-second/test-plan.json' };
   const ctx = context({ phase: 'before-release', changes: { 'v1.0.0': ['src/settings/a.ts'], 'v1.0.1': [] }, plans: {
     [DESIGN]: { approved: true, plan: plan() },
     'D-2': { approved: true, plan: plan({ level: 'L2', changedFeatures: ['create'], environments: ['android'], baseline: 'v1.0.1', release: { markets: ['google-play'], until: 'review-submitted' } }) },
@@ -323,4 +323,23 @@ test('the result reports the latest run completion for the build bound', () => {
   assert.equal(check(document, context()).completedAt, '2026-10-14T05:20:00Z');
   assert.equal(check(evidence({ runs: [] }), withPlan({ level: 'L2', environments: ['android'] })).completedAt, null);
   assert.equal(SHA.length, 40);
+});
+
+// 리뷰 반영: 승인된 단계적 출시 비율과 설계·계획 폴더 결속
+test('a production promotion cannot exceed the approved staged rollout', () => {
+  const ctx = withPlan({ release: { markets: ['google-play'], until: 'public', rollout: 0.1 } }, { phase: 'before-release' });
+  assert.deepEqual(check(evidence(), { ...ctx, rollout: 0.1 }).errors, []);
+  assert.deepEqual(check(evidence(), { ...ctx, rollout: 0.05 }).errors, []);
+  assert.ok(errorsOf(evidence(), { ...ctx, rollout: 0.5 }).includes('RELEASE_NOT_AUTHORIZED rollout 0.5 > 0.1'));
+  assert.ok(errorsOf(evidence(), ctx).includes('RELEASE_NOT_AUTHORIZED rollout 1 > 0.1'));
+  assert.deepEqual(check(evidence(), { ...ctx, phase: 'before-deploy' }).errors, []);
+  assert.deepEqual(check(evidence(), withPlan({}, { phase: 'before-release' })).errors, []);
+});
+test('merged plans keep the most conservative rollout', () => {
+  assert.equal(mergeTestPlans([plan({ release: { markets: ['google-play'], rollout: 0.2 } }), plan()]).rollout, 0.2);
+  assert.equal(mergeTestPlans([plan()]).rollout, 1);
+});
+test('a design must use the test plan in its own folder', () => {
+  const document = evidence(); document.designs[0].testPlan = 'docs/design/2026-10-01-other/test-plan.json';
+  assert.ok(errorsOf(document, context()).includes(`TEST_PLAN_DESIGN_MISMATCH ${DESIGN}`));
 });

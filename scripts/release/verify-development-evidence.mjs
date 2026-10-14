@@ -25,6 +25,7 @@ const SHA_PATTERN = /^[a-f0-9]{40}$/u;
 const PLAN_PATH = /^docs\/design\/[^/]+\/test-plan\.json$/u;
 
 const withinCompareLimit = files => files.length < COMPARE_FILE_LIMIT ? files : null;
+const sameFolder = design => design.testPlan === `${String(design.document).split('/').slice(0, 3).join('/')}/test-plan.json`;
 const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 export function validateDevelopmentEvidence(document, context) {
@@ -104,6 +105,8 @@ function validateTestLevelEvidence(document, context) {
   unique(document.designs.map(d => d.id), 'design');
   const plans = [];
   for (const design of document.designs) {
+    // 계획은 그 설계와 같은 폴더의 test-plan.json이어야 한다. 다른 설계의 계획을 끌어다 쓰지 못하게 한다.
+    if (!sameFolder(design)) { errors.push(`TEST_PLAN_DESIGN_MISMATCH ${design.id}`); continue; }
     const entry = context.plans?.[design.id];
     if (!entry?.approved || !entry.plan) { errors.push(`TEST_PLAN_UNAPPROVED ${design.id}`); continue; }
     const problems = inventoryValid ? testPlanProblems(entry.plan, inventory) : [];
@@ -165,6 +168,9 @@ function validateTestLevelEvidence(document, context) {
   if (releasePhase) {
     if (!merged.markets.includes(target)) errors.push(`RELEASE_NOT_AUTHORIZED market ${target}`);
     if (merged.until === 'test-track') errors.push('RELEASE_NOT_AUTHORIZED until test-track');
+    // Play production 승격은 승인된 단계적 출시 비율을 넘지 못한다. 비율을 주지 않으면 완전 출시(1)다.
+    const rollout = context.rollout ?? 1;
+    if (target === 'google-play' && !(rollout <= merged.rollout)) errors.push(`RELEASE_NOT_AUTHORIZED rollout ${rollout} > ${merged.rollout}`);
   }
   const unresolved = [...new Set(errors)];
   return { ok: unresolved.length === 0, errors: unresolved, level, completedAt };
@@ -175,7 +181,7 @@ const EVIDENCE_ARCHIVE_TAG = 'development-evidence';
 const baselineShas = document => Array.isArray(document?.carriedForward)
   ? [...new Set(document.carriedForward.map(item => item?.baselineSha).filter(sha => SHA_PATTERN.test(sha ?? '')))] : [];
 const readableDesigns = document => document?.schemaVersion === 2 && Array.isArray(document.designs)
-  ? document.designs.filter(d => typeof d?.id === 'string' && SHA_PATTERN.test(d.approvedCommit ?? '') && PLAN_PATH.test(d.testPlan ?? '')) : [];
+  ? document.designs.filter(d => typeof d?.id === 'string' && SHA_PATTERN.test(d.approvedCommit ?? '') && PLAN_PATH.test(d.testPlan ?? '') && sameFolder(d)) : [];
 const planBaselines = plans => [...new Set(Object.values(plans).map(entry => entry.plan?.baseline)
   .filter(ref => typeof ref === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(ref)))];
 const parseJson = text => { try { return JSON.parse(text); } catch { return null; } };
@@ -311,7 +317,7 @@ export async function verifyReleaseDevelopmentEvidence(options) {
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   const args = new Map();
   const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'configuration-fingerprint',
-    'internal-testflight-bootstrap-id', 'release-exception-id', 'verifier-sha', 'report', 'release-binding', 'artifact-receipt', 'artifact-file',
+    'rollout', 'internal-testflight-bootstrap-id', 'release-exception-id', 'verifier-sha', 'report', 'release-binding', 'artifact-receipt', 'artifact-file',
     'exception-file', 'preflight', 'risk-notes-file', 'original-evidence-dir', 'xcode-build-number', 'app-repository', 'after']);
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i]?.replace(/^--/u, '');
@@ -319,6 +325,11 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
     args.set(key, argv[i + 1]);
   }
   const context = { repository: args.get('repo') ?? env.GITHUB_REPOSITORY, sourceSha: args.get('sha'), target: args.get('target'), phase: args.get('phase'), configurationFingerprint: args.get('configuration-fingerprint'), requireUi: args.get('target') !== 'service' };
+  if (args.has('rollout')) {
+    const rollout = Number(args.get('rollout'));
+    if (!/^(0(\.\d+)?|1(\.0+)?)$/u.test(args.get('rollout')) || !(rollout > 0 && rollout <= 1)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
+    context.rollout = rollout;
+  }
   if (args.has('internal-testflight-bootstrap-id')) {
     if (args.has('release-exception-id') || args.has('file') || args.has('preflight') || args.has('exception-file')) throw new Error('INVALID_EVIDENCE_ARGUMENT');
     const { verifyInternalTestflightBootstrap } = await import('./internal-testflight-bootstrap.mjs');

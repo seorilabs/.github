@@ -65,6 +65,8 @@ export function mergeTestPlans(plans) {
     regressionOverride: everyPlan(p => p.floorOverrides.some(o => o.rule === 'regression')),
     markets: union(plans.flatMap(p => p.release.markets)),
     until: UNTIL[Math.min(...plans.map(p => UNTIL.indexOf(p.release.until ?? policy.release.defaultUntil)))],
+    // Play 단계적 출시 비율. 생략은 완전 출시(1)이며 묶인 계획 중 가장 작은 비율까지만 승인된 것으로 본다.
+    rollout: Math.min(...plans.map(p => p.release.rollout ?? 1)),
   };
 }
 
