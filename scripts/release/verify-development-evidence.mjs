@@ -174,6 +174,11 @@ async function findEvidenceArchive(repository, request) {
 }
 
 export async function verifyReleaseDevelopmentEvidence(options) {
+  if (options.bootstrapId) {
+    if (options.exceptionId) throw new Error('MIXED_RELEASE_EXCEPTIONS');
+    const { verifyInternalTestflightBootstrap } = await import('./internal-testflight-bootstrap.mjs');
+    return verifyInternalTestflightBootstrap(options);
+  }
   if (options.exceptionId) return verifyReleaseException(options);
   const { repository, tag, sourceSha, target, phase, token, env = process.env, fetchImpl = globalThis.fetch } = options;
   if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(repository ?? '') || !/^[a-f0-9]{40}$/u.test(sourceSha ?? '') || !['before-build', 'before-deploy'].includes(phase) || !['apps-in-toss', 'google-play', 'app-store', 'web', 'service'].includes(target) || !tag) throw new Error('INVALID_EVIDENCE_CONTEXT');
@@ -217,7 +222,7 @@ export async function verifyReleaseDevelopmentEvidence(options) {
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   const args = new Map();
   const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'configuration-fingerprint',
-    'release-exception-id', 'verifier-sha', 'report', 'release-binding', 'artifact-receipt', 'artifact-file',
+    'internal-testflight-bootstrap-id', 'release-exception-id', 'verifier-sha', 'report', 'release-binding', 'artifact-receipt', 'artifact-file',
     'exception-file', 'preflight', 'risk-notes-file', 'original-evidence-dir', 'xcode-build-number', 'app-repository', 'after']);
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i]?.replace(/^--/u, '');
@@ -225,6 +230,16 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
     args.set(key, argv[i + 1]);
   }
   const context = { repository: args.get('repo') ?? env.GITHUB_REPOSITORY, sourceSha: args.get('sha'), target: args.get('target'), phase: args.get('phase'), configurationFingerprint: args.get('configuration-fingerprint'), requireUi: args.get('target') !== 'service' };
+  if (args.has('internal-testflight-bootstrap-id')) {
+    if (args.has('release-exception-id') || args.has('file') || args.has('preflight') || args.has('exception-file')) throw new Error('INVALID_EVIDENCE_ARGUMENT');
+    const { verifyInternalTestflightBootstrap } = await import('./internal-testflight-bootstrap.mjs');
+    const result = await verifyInternalTestflightBootstrap({ ...context, tag: args.get('tag'), env,
+      bootstrapId: args.get('internal-testflight-bootstrap-id'), verifierSha: args.get('verifier-sha'),
+      appRepository: args.get('app-repository'), artifactFile: args.get('artifact-file'), artifactReceipt: args.get('artifact-receipt') });
+    if (args.has('report')) writeFileSync(args.get('report'), `${JSON.stringify(result, null, 2)}\n`);
+    process.stdout.write(`검수 시점 예외 human_exception: 내부 TestFlight 한 건; 제품 E2E blocked\n`);
+    return result;
+  }
   if (args.has('release-exception-id')) {
     if (args.has('file') || (args.has('preflight') && args.get('preflight') !== 'true')) throw new Error('INVALID_EVIDENCE_ARGUMENT');
     let result;

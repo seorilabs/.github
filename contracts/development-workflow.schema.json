@@ -372,6 +372,86 @@
           ]
         }
       }
+    },
+    "internalTestflightBootstrap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "grantSchema",
+        "optIn",
+        "scope",
+        "approvalTrust",
+        "originalVerdicts",
+        "decisionStatus",
+        "productE2eStatus",
+        "maxAgeHours",
+        "candidateLimit",
+        "buildUploadLimit",
+        "phases",
+        "nativeQaWaived",
+        "publicReleaseRequires",
+        "revocation",
+        "grantRegistry"
+      ],
+      "properties": {
+        "schema": {
+          "const": "contracts/internal-testflight-bootstrap.schema.json"
+        },
+        "grantSchema": {
+          "const": "contracts/internal-testflight-bootstrap-grant.schema.json"
+        },
+        "optIn": {
+          "const": "explicit-reviewed-internal-testflight-id"
+        },
+        "scope": {
+          "const": "first-internal-testflight-only"
+        },
+        "approvalTrust": {
+          "const": "immutable-reviewed-central-grant"
+        },
+        "originalVerdicts": {
+          "const": "preserve"
+        },
+        "decisionStatus": {
+          "const": "human_exception"
+        },
+        "productE2eStatus": {
+          "const": "blocked"
+        },
+        "maxAgeHours": {
+          "const": 168
+        },
+        "candidateLimit": {
+          "const": 1
+        },
+        "buildUploadLimit": {
+          "const": 1
+        },
+        "phases": {
+          "const": [
+            "before-build",
+            "before-deploy"
+          ]
+        },
+        "nativeQaWaived": {
+          "const": false
+        },
+        "publicReleaseRequires": {
+          "const": "normal-verifier-and-actual-iphone-whole-e2e"
+        },
+        "revocation": {
+          "const": "read-current-central-grant-every-phase"
+        },
+        "grantRegistry": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^contracts/internal-testflight-bootstrap/[a-z0-9.-]+\\.json$"
+          }
+        }
+      }
     }
   }
 }
