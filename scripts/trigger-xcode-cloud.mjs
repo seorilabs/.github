@@ -5,7 +5,6 @@ import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import { resolveGitHubTagCommit } from "./release/resolve-github-tag-commit.mjs";
 import { verifyReleaseDevelopmentEvidence } from "./release/verify-development-evidence.mjs";
-import { verifyXcodeLaunchRequest } from "./release/verify-release-exception.mjs";
 
 const API_BASE = "https://api.appstoreconnect.apple.com";
 
@@ -117,20 +116,13 @@ export function parseArgs(argv) {
   // 빌드를 실제로 시작하지 않고 제품·workflow·태그 ref 해석까지만 한다. 배선을 바꾼 뒤
   // 진짜 빌드를 태우지 않고 확인할 수 있어야 한다.
   const start = (values.get("--start") ?? "true") !== "false";
-  const exceptionId = values.get("--release-exception-id") ?? "";
-  const configurationFingerprint = values.get("--configuration-fingerprint") ?? "";
-  const verifierSha = values.get("--verifier-sha") ?? "";
-  if (exceptionId && (!/^[a-f0-9]{64}$/.test(configurationFingerprint) || !/^[a-f0-9]{40}$/.test(verifierSha))) {
-    throw new Error("출시 예외에는 마켓 설정 지문과 실제 중앙 검증기 SHA가 필요합니다.");
-  }
   if (!/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(tag)) {
     throw new Error(`release tag는 vX.Y.Z 형식이어야 합니다: ${tag || "empty"}`);
   }
   if (!bundleId) {
     throw new Error("--bundle-id가 필요합니다.");
   }
-  return { tag, bundleId, workflowName, start, ...(exceptionId ? { exceptionId, configurationFingerprint, verifierSha,
-    reportPath: values.get("--report") ?? "" } : {}) };
+  return { tag, bundleId, workflowName, start };
 }
 
 async function appStoreConnect(path, token, init = {}) {
@@ -153,7 +145,7 @@ async function appStoreConnect(path, token, init = {}) {
 }
 
 async function main() {
-  const { tag, bundleId, workflowName, start, exceptionId, configurationFingerprint, verifierSha, reportPath } = parseArgs(process.argv.slice(2));
+  const { tag, bundleId, workflowName, start } = parseArgs(process.argv.slice(2));
   const token = makeAppStoreConnectToken({
     keyId: requiredEnv("APP_STORE_CONNECT_API_KEY_ID"),
     issuerId: requiredEnv("APP_STORE_CONNECT_ISSUER_ID"),
@@ -179,14 +171,8 @@ async function main() {
     const repository = requiredEnv("GITHUB_REPOSITORY");
     const githubToken = process.env.GH_TOKEN || requiredEnv("GITHUB_TOKEN");
     const candidate = await resolveGitHubTagCommit({ repository, ref: tag, token: githubToken });
-    const verification = await verifyXcodeReleaseEvidence({ repository, tag, sourceSha: candidate.sourceSha,
-      target: "app-store", phase: "before-build", token: githubToken,
-      ...(exceptionId ? { exceptionId, configurationFingerprint, verifierSha,
-        launchRequest: { provider: "app-store-connect", productId, workflowId, repositoryId, referenceId, bundleId,
-          referenceKind: "TAG", referenceName: tag } } : {}) }, reportPath);
-    if (exceptionId) {
-      console.log(`출시 판정 ${verification.decisionStatus}; 제품 E2E blocked`);
-    }
+    await verifyReleaseDevelopmentEvidence({ repository, tag, sourceSha: candidate.sourceSha,
+      target: "app-store", phase: "before-build", token: githubToken });
     const run = await appStoreConnect("/v1/ciBuildRuns", token, {
       method: "POST",
       body: JSON.stringify({
@@ -221,21 +207,6 @@ async function main() {
       ? `Xcode Cloud 빌드 트리거 완료: tag=${tag}, build=${buildNumber || "pending"}`
       : `Xcode Cloud 배선 확인 완료(빌드 미시작): tag=${tag}, product=${productId}, workflow=${workflowId}`,
   );
-}
-
-export async function verifyXcodeReleaseEvidence(options, reportPath,
-  verify = options.exceptionId ? verifyXcodeLaunchRequest : verifyReleaseDevelopmentEvidence) {
-  let result;
-  try { result = await verify(options); }
-  catch (error) {
-    if (options.exceptionId && reportPath) fs.writeFileSync(reportPath, `${JSON.stringify({ ok: false,
-      decisionStatus: "rejected", productE2eStatus: "blocked", repository: options.repository, sourceSha: options.sourceSha,
-      target: options.target, phase: options.phase, scope: "xcode-launch-request", actualCiVerification: "pending-ci-hook",
-      error: error.message }, null, 2)}\n`);
-    throw error;
-  }
-  if (options.exceptionId && reportPath) fs.writeFileSync(reportPath, `${JSON.stringify(result, null, 2)}\n`);
-  return result;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

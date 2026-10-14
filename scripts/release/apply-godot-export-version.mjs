@@ -3,7 +3,6 @@
 // export_presets.cfg와 project.godot은 version authority가 아니라 주입 대상이며,
 // 실제 반영 여부는 build 이후 artifact readback에서 다시 검증한다.
 import { readFileSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 
 import {
   ReleaseAuthorityError,
@@ -54,18 +53,7 @@ function main() {
   const preset = pick(args, 'preset', 'GODOT_EXPORT_PRESET');
 
   const original = readFileSync(presetsPath, 'utf8');
-  const exceptionId = pick(args, 'release-exception-id', 'RELEASE_EXCEPTION_ID');
-  const canonicalizeComments = exceptionId === 'match-picture-1.1.7';
-  if (canonicalizeComments) {
-    const grant = JSON.parse(readFileSync(new URL('../../contracts/release-exceptions/match-picture-1.1.7.json', import.meta.url), 'utf8'));
-    const hash = createHash('sha256').update(original).digest('hex');
-    if (platform !== 'iOS' || preset !== 'iOS' || binding.tag !== grant.releaseTag
-      || process.env.GITHUB_REPOSITORY !== grant.repository || process.env.GITHUB_SHA !== binding.sourceSha
-      || grant.revoked || hash !== grant.executionConfiguration['app-store'].sourceFiles['godot/export_presets.cfg']) {
-      throw new ReleaseAuthorityError('artifact-provenance-mismatch', 'RELEASE_EXCEPTION_COMMENT_SCOPE_CHANGED');
-    }
-  }
-  const patched = applyGodotExportVersion(original, { platform, binding, preset, canonicalizeComments });
+  const patched = applyGodotExportVersion(original, { platform, binding, preset });
   writeFileSync(presetsPath, patched, 'utf8');
 
   // 앱이 실행 중 읽는 application/config/version 도 같은 태그 값으로 맞춘다.

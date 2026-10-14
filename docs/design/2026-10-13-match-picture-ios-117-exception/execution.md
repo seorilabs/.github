@@ -1,6 +1,6 @@
 # MP-IOS-117-R1 v1 실행 기록
 
-사람이 승인한 설계는 commit `783b0e932798e11d96bae8380b39c2ebe84c9ac1`의 design.md이며 본문 bytes를 바꾸지 않는다. [원문 승인 receipt](../../../contracts/release-exceptions/match-picture-1.1.7.approval.json)는 최초 확인 가능한 수신 기록 시각과 실제 사용자 문구를 보존한다.
+사람이 승인한 설계는 commit `783b0e932798e11d96bae8380b39c2ebe84c9ac1`의 design.md이며 본문 bytes를 바꾸지 않는다. [원문 승인 receipt](https://github.com/seorilabs/.github/blob/0963a4ed06d9129f633fc554d1b5de49a7600714/contracts/release-exceptions/match-picture-1.1.7.approval.json)는 최초 확인 가능한 수신 기록 시각과 실제 사용자 문구를 보존한다.
 
 ## 대안·주요 결정
 

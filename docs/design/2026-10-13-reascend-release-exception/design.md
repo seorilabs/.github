@@ -1,10 +1,12 @@
 # Reascend 1.1.0의 사람 승인 출시 예외
 
+상태: 대체됨 — 2026-10-14 [변경 등급별 테스트 계획](../2026-10-14-test-levels/design.md) 적용 때 예외 장치와 grant를 지웠다.
+
 2026-10-12T22:39:42.421196+00:00에 사용자가 다음 범위를 승인했다.
 
 > 1.1.0 후보 전용 예외 설계와 중앙·앱 파이프라인 변경, 남은 미확인 위험까지 승인. 추가 결제 테스트 없이 빌드·심사·공개까지 진행해.
 
-승인 설계 원문 SHA-256은 `a81b4a86f9b2bb17adb17dd2848c9d06bcf0ec3f02c3922f364f0d627d6dbd53`이다. [공개용 승인 receipt](../../../contracts/release-exceptions/reascend-1.1.0.approval.json)는 원문·시각·범위와 private 원본의 해시를 보존한다. 기존 [실행 티켓 seorilabs/reascend#506](https://github.com/seorilabs/reascend/issues/506)에 연결한다. 중앙 구현 기준은 최신 `48904de70de90628e4ebaa408f629bf5afe5702f`이며, 승인 당시 `992d2af` 이후 추가된 30일 기반 기능 근거 승계는 수정하지 않는다.
+승인 설계 원문 SHA-256은 `a81b4a86f9b2bb17adb17dd2848c9d06bcf0ec3f02c3922f364f0d627d6dbd53`이다. [공개용 승인 receipt](https://github.com/seorilabs/.github/blob/0963a4ed06d9129f633fc554d1b5de49a7600714/contracts/release-exceptions/reascend-1.1.0.approval.json)는 원문·시각·범위와 private 원본의 해시를 보존한다. 기존 [실행 티켓 seorilabs/reascend#506](https://github.com/seorilabs/reascend/issues/506)에 연결한다. 중앙 구현 기준은 최신 `48904de70de90628e4ebaa408f629bf5afe5702f`이며, 승인 당시 `992d2af` 이후 추가된 30일 기반 기능 근거 승계는 수정하지 않는다.
 
 ## 문제와 승인 범위
 

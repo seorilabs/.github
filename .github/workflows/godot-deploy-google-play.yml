@@ -11,21 +11,6 @@ name: Godot Deploy Google Play (reusable)
 on:
   workflow_call:
     inputs:
-      release_exception_id:
-        description: "검토된 단일 릴리스 예외 ID. 비우면 기존 전체 PASS 근거만 허용."
-        required: false
-        default: ""
-        type: string
-      configuration_fingerprint:
-        description: "예외를 사용할 때 필수인 실제 마켓 설정 SHA-256."
-        required: false
-        default: ""
-        type: string
-      release_verifier_sha:
-        description: "예외에서만 사용하는 검토·병합된 중앙 검증기 40hex SHA. main 철회 조회는 계속 수행."
-        required: false
-        default: ""
-        type: string
       release_tag:
         required: false
         default: ""
@@ -160,38 +145,13 @@ jobs:
           node-version: "24"
           check-latest: false
 
-      - name: Validate release exception verifier pin
-        if: ${{ inputs.release_exception_id != '' || inputs.release_verifier_sha != '' }}
-        shell: bash
-        env:
-          RELEASE_EXCEPTION_ID: ${{ inputs.release_exception_id }}
-          RELEASE_VERIFIER_SHA: ${{ inputs.release_verifier_sha }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          [[ -n "$RELEASE_EXCEPTION_ID" && "$RELEASE_VERIFIER_SHA" =~ ^[a-f0-9]{40}$ ]] || {
-            echo "RELEASE_EXCEPTION_VERIFIER_PIN_REQUIRED" >&2
-            exit 1
-          }
-          # main workflow 자체가 검사한다. pin의 checkout/npm/코드는 아직 실행하지 않는다.
-          node --input-type=module <<'NODE'
-          const sha = process.env.RELEASE_VERIFIER_SHA;
-          const response = await fetch(`https://api.github.com/repos/seorilabs/.github/compare/${sha}...main`, {
-            headers: { authorization: `Bearer ${process.env.GH_TOKEN}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' }
-          });
-          if (!response.ok) throw new Error('RELEASE_EXCEPTION_VERIFIER_NOT_REVIEWED_ON_MAIN');
-          const result = await response.json();
-          if (!['ahead', 'identical'].includes(result.status) || result.base_commit?.sha !== sha)
-            throw new Error('RELEASE_EXCEPTION_VERIFIER_NOT_REVIEWED_ON_MAIN');
-          NODE
-
-      # 일반 경로는 main. 예외는 검토된 정확한 구현을 쓰고, 검증기가 최신 main의
-      # ancestor 여부와 grant 철회를 별도로 조회하므로 무관 main 변경에 묶이지 않는다.
+      # 버전 authority 구현은 org 정본에만 둔다. caller 저장소 스크립트를 신뢰하지 않기 위해
+      # 중앙 저장소 main에서 정본을 받아 실행한다.
       - name: Checkout release version authority
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: seorilabs/.github
-          ref: ${{ inputs.release_exception_id != '' && inputs.release_verifier_sha || 'main' }}
+          ref: main
           path: .seorilabs-release-authority
           persist-credentials: false
 
@@ -270,24 +230,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
-          RELEASE_EXCEPTION_ID: ${{ inputs.release_exception_id }}
-          CONFIGURATION_FINGERPRINT: ${{ inputs.configuration_fingerprint }}
-          SEORI_EXCEPTION_PACKAGE_NAME: ${{ inputs.package_name }}
-          SEORI_EXCEPTION_TRACK: ${{ inputs.track }}
-          SEORI_EXCEPTION_RELEASE_STATUS: ${{ inputs.release_status }}
-          FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
         run: |
           set -euo pipefail
-          args=()
-          if [ -n "$RELEASE_EXCEPTION_ID" ]; then
-            args+=(--release-exception-id "$RELEASE_EXCEPTION_ID" --configuration-fingerprint "$CONFIGURATION_FINGERPRINT"
-              --verifier-sha "$(git -C .seorilabs-release-authority rev-parse HEAD)"
-              --app-repository "$GITHUB_WORKSPACE"
-              --report "$RUNNER_TEMP/release-verification.before-build.json")
-          fi
           node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
             --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
-            --target google-play --phase before-build "${args[@]}"
+            --target google-play --phase before-build
 
       - name: Resolve AAB name
         id: meta
@@ -630,36 +577,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
-          RELEASE_EXCEPTION_ID: ${{ inputs.release_exception_id }}
-          CONFIGURATION_FINGERPRINT: ${{ inputs.configuration_fingerprint }}
-          SEORI_EXCEPTION_PACKAGE_NAME: ${{ inputs.package_name }}
-          SEORI_EXCEPTION_TRACK: ${{ inputs.track }}
-          SEORI_EXCEPTION_RELEASE_STATUS: ${{ inputs.release_status }}
-          FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
-          VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
         run: |
           set -euo pipefail
-          args=()
-          if [ -n "$RELEASE_EXCEPTION_ID" ]; then
-            args+=(--release-exception-id "$RELEASE_EXCEPTION_ID" --configuration-fingerprint "$CONFIGURATION_FINGERPRINT"
-              --verifier-sha "$(git -C .seorilabs-release-authority rev-parse HEAD)"
-              --app-repository "$GITHUB_WORKSPACE"
-              --report "$RUNNER_TEMP/release-verification.before-deploy.json"
-              --release-binding "$RUNNER_TEMP/release-binding.json"
-              --artifact-receipt "$RUNNER_TEMP/release-artifact-receipt.txt" --artifact-file "$VERIFIED_AAB_PATH")
-          fi
           node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
             --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
-            --target google-play --phase before-deploy "${args[@]}"
-
-      - name: Preserve release exception verdicts
-        if: ${{ always() && inputs.release_exception_id != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1; existing workflow pin
-        with:
-          name: release-verification-google-play
-          path: ${{ runner.temp }}/release-verification.*.json
-          if-no-files-found: error
-          retention-days: 3
+            --target google-play --phase before-deploy
 
       - name: Upload to Google Play
         if: ${{ inputs.upload }}
@@ -710,32 +632,6 @@ jobs:
           )
           [ -n "$RELEASE_NOTES_JSON" ] && args+=(--release-notes-json "$RELEASE_NOTES_JSON")
           python3 .seorilabs-release-authority/scripts/release/upload-google-play-aab.py "${args[@]}"
-
-      - name: Package promotion evidence
-        if: ${{ inputs.upload && inputs.release_exception_id != '' }}
-        shell: bash
-        env:
-          VERIFIED_AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
-          PROMOTION_EVIDENCE_DIRECTORY: ${{ runner.temp }}/promotion-evidence
-          PROMOTION_EVIDENCE_ZIP: ${{ runner.temp }}/promotion-evidence.zip
-        run: |
-          set -euo pipefail
-          mkdir -p "$PROMOTION_EVIDENCE_DIRECTORY"
-          cp "$VERIFIED_AAB_PATH" "$PROMOTION_EVIDENCE_DIRECTORY/app.aab"
-          cp "$RUNNER_TEMP/release-binding.json" "$PROMOTION_EVIDENCE_DIRECTORY/release-binding.json"
-          cp "$RUNNER_TEMP/release-artifact-receipt.txt" "$PROMOTION_EVIDENCE_DIRECTORY/release-artifact-receipt.txt"
-          cp "$RUNNER_TEMP/release-verification.before-build.json" "$PROMOTION_EVIDENCE_DIRECTORY/before-build.json"
-          cp "$RUNNER_TEMP/release-verification.before-deploy.json" "$PROMOTION_EVIDENCE_DIRECTORY/before-deploy.json"
-          node .seorilabs-release-authority/scripts/release/create-promotion-evidence.mjs
-
-      - name: Preserve promotion evidence bundle
-        if: ${{ inputs.upload && inputs.release_exception_id != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1; existing workflow pin
-        with:
-          name: reascend-1.1.0-google-play-promotion-evidence
-          path: ${{ runner.temp }}/promotion-evidence.zip
-          if-no-files-found: error
-          retention-days: 3
 
       - name: Summary
         shell: bash

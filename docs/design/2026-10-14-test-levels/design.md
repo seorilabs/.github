@@ -291,6 +291,7 @@ TDD: AC-1~AC-10은 실패 테스트를 먼저 작성한다. AC-11·12는 삭제�
 - 2026-10-14 17:20 KST 대화에서 사용자 승인: “승인”. 대상은 검토용 커밋 `7c117d4`의 이 문서(SHA-256 `81ac8d2d1cbceb794c128ad07f441e6b4fb2eaa38dd4755ba45208283ff492ec`)다. 최신 main 위로 옮긴 `9fcec84`도 같은 bytes다.
 - 같은 대화의 범위 조정(승인 직후): Match Symbols는 그 저장소 세션이 진행한다. 이 작업은 앱 저장소(`match-picture-app`, `reascend`)를 바꾸지 않고 중앙 `.github`와 `~/.agent`만 진행한다. 위 Match Symbols 1.1.7 L1 계획은 승인된 계획 내용으로 남겨 그 세션이 사용한다.
 - 순서 3(예외 장치 삭제)은 앱 caller와 Xcode 훅이 예외 입력을 쓰지 않게 된 뒤에 올린다. 그 전까지 예외 장치는 중앙에 남는다.
+- 2026-10-14 후속 결정(사용자 선택 "앱 예외만 지금 (권장)"): 앱 릴리스 예외는 caller 정리([reascend#514](https://github.com/seorilabs/reascend/pull/514), [match-picture-app#118](https://github.com/seorilabs/match-picture-app/pull/118)) 뒤 바로 지운다. Reascend Xcode 훅은 중앙을 고정 커밋으로 받아 영향이 없다. Spiritgate 첫 내부 TestFlight 예외는 v1 근거로 검사하고 진행 중이므로 2026-10-22 이후 v1 분기와 함께 지운다([#249](https://github.com/seorilabs/.github/issues/249)).
 
 ### 승인 후 확인한 상태 (2026-10-14 17:30 KST, App Store Connect 읽기)
 
