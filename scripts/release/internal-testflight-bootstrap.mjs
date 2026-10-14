@@ -63,7 +63,7 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
         ? validateBootstrapHistoricalUi5(grant,context)
         : validateBootstrapAdditionalUiApproval(grant,context.additionalUiApprovalBytes,context.additionalUiProposalBytes);
       const approvals=document.editor?.additionalIterationApprovals ?? [];
-      reject(approvals.some(a=>a.maxRound===5 && a.approvedAt===additional.approvalRecordedAt && a.evidence===grant.additionalUiApprovalFile),'TESTFLIGHT_UI5_EDITOR_APPROVAL');
+      reject(approvals.some(a=>a.maxRound===5 && a.approvedAt===additional.approvalRecordedAt.replace(/\+00:00$/u,'Z') && a.evidence===grant.additionalUiApprovalFile),'TESTFLIGHT_UI5_EDITOR_APPROVAL');
       const recorded=Date.parse(additional.approvalRecordedAt);
       reject(Number.isFinite(recorded) && approved<=recorded && recorded<=now && recorded<=Date.parse(document.editor?.iterations?.[4]?.plannedAt),'TESTFLIGHT_UI5_APPROVAL_TIME');
       if(approvedUiRounds===6){

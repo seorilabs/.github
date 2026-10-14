@@ -314,3 +314,49 @@ for(const key of ['ui5SourceSnapshotBytes','ui5ConfigurationBytes','additionalUi
  }else rebindUi5Snapshot(f);
  let result;assert.doesNotThrow(()=>{result=run(f);});assert.equal(result.ok,false);
 });
+
+const canonicalUi5ApprovalBytes=readFileSync(new URL('../docs/design/2026-10-14-spiritgate-ui5/approval.json',import.meta.url));
+const canonicalUi5Approval=JSON.parse(canonicalUi5ApprovalBytes);
+function ui5UtcReceiptFixture(approvedUiRounds=6){
+ const f=approvedUiRounds===5 ? fiveRoundFixture() : sixRoundFixture(),g=f.context.grant;
+ const approval=JSON.parse(f.context.additionalUiApprovalBytes);
+ approval.approvalRecordedAt=canonicalUi5Approval.approvalRecordedAt;
+ f.context.additionalUiApprovalBytes=jsonBytes(approval);g.additionalUiApprovalSha256=digest(f.context.additionalUiApprovalBytes);
+ f.doc.editor.additionalIterationApprovals[0].approvedAt=approval.approvalRecordedAt.replace(/\+00:00$/u,'Z');
+ Object.assign(f.doc.editor.iterations[4],{plannedAt:'2026-10-14T11:10:00Z',startedAt:'2026-10-14T11:11:00Z',completedAt:'2026-10-14T11:20:00Z'});
+ if(approvedUiRounds===6){
+  const sixth=JSON.parse(f.context.ui6ApprovalBytes);
+  sixth.approvalRecordedAt='2026-10-14T22:39:56Z';sixth.previousUiApprovalSha256=g.additionalUiApprovalSha256;
+  f.context.ui6ApprovalBytes=jsonBytes(sixth);g.ui6ApprovalSha256=digest(f.context.ui6ApprovalBytes);
+  f.doc.editor.additionalIterationApprovals[1].approvedAt=sixth.approvalRecordedAt;
+  Object.assign(f.doc.editor.iterations[5],{plannedAt:'2026-10-14T22:45:00Z',startedAt:'2026-10-14T22:46:00Z',completedAt:'2026-10-14T22:50:00Z'});
+ }
+ Object.assign(f.doc.editor.e2e,{plannedAt:'2026-10-14T23:00:00Z',startedAt:'2026-10-14T23:01:00Z',completedAt:'2026-10-14T23:10:00Z'});
+ f.context.now='2026-10-15T00:00:00Z';f.context.evidenceBytes=jsonBytes(f.doc);g.evidenceSha256=digest(f.context.evidenceBytes);
+ return f;
+}
+for(const approvedUiRounds of [5,6])test(`UI${approvedUiRounds} accepts the real canonical UI5 UTC-offset timestamp as the exact same Z value`,()=>{
+ assert.equal(digest(canonicalUi5ApprovalBytes),'7c5029587d363c4d42d1a1444f298292eeadae9bc558bf3bc5473fdb4c69e795');
+ assert.equal(canonicalUi5Approval.approvalRecordedAt,'2026-10-14T10:56:24.262911+00:00');
+ const f=ui5UtcReceiptFixture(approvedUiRounds),r=run(f);
+ assert.equal(r.ok,true,JSON.stringify(r.errors));
+ assert.equal(f.context.grant.expiresAt,'2026-10-15T05:00:00Z');
+});
+for(const [name,approvedAt] of [
+ ['different second','2026-10-14T10:56:25.262911Z'],
+ ['one microsecond difference','2026-10-14T10:56:24.262912Z'],
+ ['fraction truncated to milliseconds','2026-10-14T10:56:24.262Z'],
+ ['fraction trailing byte added','2026-10-14T10:56:24.2629110Z'],
+])test(`UI5 UTC receipt rejects ${name}`,()=>{
+ const f=ui5UtcReceiptFixture();f.doc.editor.additionalIterationApprovals[0].approvedAt=approvedAt;
+ f.context.evidenceBytes=jsonBytes(f.doc);f.context.grant.evidenceSha256=digest(f.context.evidenceBytes);
+ const r=run(f);assert.equal(r.ok,false);assert.ok(r.errors.includes('TESTFLIGHT_UI5_EDITOR_APPROVAL'),JSON.stringify(r.errors));
+});
+test('UI5 UTC receipt does not normalize other offsets even when they describe the same instant',()=>{
+ const f=ui5UtcReceiptFixture(),a=JSON.parse(f.context.additionalUiApprovalBytes);
+ a.approvalRecordedAt='2026-10-14T11:56:24.262911+01:00';
+ f.context.additionalUiApprovalBytes=jsonBytes(a);f.context.grant.additionalUiApprovalSha256=digest(f.context.additionalUiApprovalBytes);
+ const sixth=JSON.parse(f.context.ui6ApprovalBytes);sixth.previousUiApprovalSha256=f.context.grant.additionalUiApprovalSha256;
+ f.context.ui6ApprovalBytes=jsonBytes(sixth);f.context.grant.ui6ApprovalSha256=digest(f.context.ui6ApprovalBytes);
+ const r=run(f);assert.equal(r.ok,false);assert.ok(r.errors.includes('TESTFLIGHT_UI5_EDITOR_APPROVAL'),JSON.stringify(r.errors));
+});
