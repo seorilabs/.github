@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "human_additional_ui_approval",
+  "designId": "SGD-UI6-TF-110-v1",
+  "repository": "seorilabs/spiritgate-defenders",
+  "version": "1.1.0",
+  "objective": "one_additional_ui_round",
+  "approvedUiRounds": 6,
+  "approvalRecordedAt": "2026-10-14T22:39:56Z",
+  "timeSource": "first UTC observation after direct user message; message timestamp not supplied",
+  "userApprovalVerbatim": "UI6·중앙 최소 보정·제한 Claude 리뷰를 제안한 범위로 승인한다. Backoffice 로그인도 완료했다. 기한 내 내부 1.1.0 TestFlight를 끝내고, 예외 제거 후 v2·L3 검수와 E2E를 통과해 양대 마켓 1.1.1 글로벌 출시까지 계속 진행해.",
+  "proposalSha256": "08fe7332a1d24758f6800d56c7b6837d5af93165a11a155447202b70b9f5a886",
+  "originalTimingApprovalSha256": "8f9ea1fd82ad34ad4bee5853ef2f48851e2121d87852a273b5010f9efd15ba7d",
+  "previousUiApprovalSha256": "7c5029587d363c4d42d1a1444f298292eeadae9bc558bf3bc5473fdb4c69e795",
+  "previousUiSourceSnapshotSha256": "55a9b0de273528e0ef55dc6dd3cece7b5d7a23994564b6bc78c7db98789b084c",
+  "previousUiConfigurationSha256": "fe854e663be5eb6207efc39e436c3363ad025866b0b259f4a7c668f8fee4f105",
+  "executionMinutes": 180,
+  "issueRecheckMaximumCount": 1,
+  "issueRecheckMinutes": 30,
+  "totalMinutes": 210,
+  "extendOriginal168Hours": false,
+  "sourceSha": null,
+  "configurationFingerprint": null,
+  "candidateBindingStatus": "pending actual UI6, whole E2E and Android evidence; no grant registered",
+  "reviewMaximumRequestsPerPr": 2,
+  "reviewExclusions": [
+    "credentials",
+    "PixelLab raw responses",
+    "personal data",
+    "runtime logs"
+  ]
+}
