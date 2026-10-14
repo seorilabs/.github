@@ -1,6 +1,6 @@
 # Reascend iOS 1.1.1 후보 예외
 
-- 상태: 사람 승인 후 구현. 원문 승인: “Android 1.1.0·iOS 1.1.1 전환 설계 승인 (권장)”.
+- 상태: 대체됨 — 2026-10-14 [변경 등급별 테스트 계획](../2026-10-14-test-levels/design.md) 적용 때 예외 장치와 grant를 지웠다. 이전 상태: 사람 승인 후 구현. 원문 승인: “Android 1.1.0·iOS 1.1.1 전환 설계 승인 (권장)”.
 - 범위: Android `v1.1.0`/versionCode 21/심사 제출 4는 유지하고 iOS만 `v1.1.1`로 진행한다.
 - 원인: Xcode Cloud 빌드 17의 `/var` 심볼릭 링크 prefix에서 npm workspace 해석이 lock과 어긋난다. 같은 중앙 package/lock을 실제 경로에서 설치하면 성공한다. Apple은 `TMPDIR` 설정을 시스템 예약 변수라 거절했다.
 - 앱 수정: [Reascend PR #512](https://github.com/seorilabs/reascend/pull/512)의 임시 폴더 실제 경로 정규화. 중앙 SHA·압축 파일 해시는 이 전용 grant가 병합된 최종 커밋으로 연결한다. 기존 버전 발급 helper는 보존한다.

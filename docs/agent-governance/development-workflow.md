@@ -181,110 +181,6 @@ node scripts/release/verify-development-evidence.mjs \
 
 `schemaVersion: 1` 근거(UI 3회 + 전체 Editor E2E)는 계약의 `legacyEvidence.acceptedUntil`(2026-10-22T00:00:00Z)까지 이전 규칙으로 검증한다. 출시 직전 단계에서는 v1 근거를 배포 직전 근거로 본다. 그 시각 이후에는 `EVIDENCE_V1_RETIRED`로 거절하며, 이후 v1 분기([development-evidence-v1.mjs](../../scripts/release/development-evidence-v1.mjs), [v1 schema](../../contracts/development-evidence-v1.schema.json))를 지우는 PR을 올린다.
 
-## 명시적으로 승인한 한 릴리스의 예외
-
-> 이 절은 [변경 등급별 테스트 계획](../design/2026-10-14-test-levels/design.md)의 순서 3에서 예외 장치와 함께 지운다. 새 grant는 추가하지 않는다. 실기기 생략 같은 결정은 승인된 테스트 계획의 `floorOverrides`로 남긴다.
-
-[release-exception.schema.json](../../contracts/release-exception.schema.json)은 [일반 v1 PASS 근거](../../contracts/development-evidence-v1.schema.json)와 별도다. 예외는 E2E 통과가 아니라 위험을 사람이 수용한 출시 판단이며 `decisionStatus:human_exception`, `productE2eStatus:blocked`를 출력한다. `--release-exception-id`를 명시하지 않으면 기존 검증만 수행한다. 빈 근거·자동 fallback·환경변수로 검증기를 끄는 경로는 없다.
-
-[grant schema](../../contracts/release-exception-grant.schema.json)는 필수값·알 수 없는 필드·168시간 상한을 검사한다. `development-workflow` v1의 `releaseExceptions`는 선택적 확장이므로 기존 v1 문서를 거절하지 않는다. 현재 중앙 정본에는 registry를 유지한다.
-
-현재 검토된 grant는 `seorilabs/reascend`의 양쪽 `v1.1.0`과 iOS만의 `v1.1.1`이다. [1.1.0 승인 설계](../design/2026-10-13-reascend-release-exception/design.md), [grant](../../contracts/release-exceptions/reascend-1.1.0.json), [공개용 원문 승인](../../contracts/release-exceptions/reascend-1.1.0.approval.json), [원래 26기능 판정](../../contracts/release-exceptions/reascend-1.1.0.observations.json)을 결속한다. [iOS 1.1.1 설계](../design/2026-10-13-reascend-ios-111-exception/design.md)와 [전용 grant](../../contracts/release-exceptions/reascend-1.1.1.json)는 macOS 임시 경로 오류의 최소 소스 수정만 허용하며, 기존 판정·위험·168시간 만료 시각을 보존한다. Android 1.1.0 태그·심사와 grant는 유지한다. local home 경로·대화 식별자는 공개 receipt에 넣지 않고 private 원본의 해시만 연결한다. 향후 grant 추가는 조직 계약 변경과 사람 승인·필수 코드 리뷰를 거쳐야 한다. runtime manifest의 `approver:human` 같은 자기 선언은 승인으로 인정하지 않는다.
-
-마켓별 최종 source SHA, 비밀값 없는 실제 설정 SHA-256, 검증기 SHA, 기준 제품 tree와 26기능 inventory, 원문 승인/설계/관측 판정 해시, 최대 168시간을 확인한다. 실제 전체 E2E를 실행하지 않았다면 실행 시각을 만들거나 승인 시각을 E2E 완료 시각으로 쓰지 않는다. 기존 scoped PASS/partial/unknown/blocked를 보존하며, 실제 통과한 기반 기능의 30일 승계와 이번 사람 예외를 혼동하지 않는다.
-
-기준부터 후보까지 `.github/workflows/deploy-google-play.yml`·`xcode-cloud/ci_scripts/verify_development_evidence.sh` 두 파일만 바뀔 수 있다. Git recursive tree 전체를 읽어 두 파일 외 blob/모드/submodule의 동일성과 inventory 원문 해시를 비교한다. truncated 조회는 실패다. 두 파일 변경으로 새 SHA가 생기면 그 SHA에 manifest를 결속하며, 이전 UI8를 새 후보의 전체 PASS로 바꾸지 않는다.
-
-다음 자산을 같은 `v1.1.0` GitHub Release에 붙인다. GitHub Release 공개 상태와 마켓 공개는 별개다. draft 자산의 조회에는 push 권한이 필요할 수 있으며 조회 불가면 중단한다.
-
-```text
-release-exception.google-play.json
-release-exception.app-store.json
-release-exception.approval.json
-release-risk-notes.md
-release-exception.original-ui-review-8.md
-release-exception.original-final-e2e-result.json
-```
-
-[manifest 예제](templates/release-exception.example.json)의 반복 숫자는 placeholder이며 실제 실행값으로 교체한다. `sourceSha`, `verifierSha`, 마켓별 `configurationFingerprint`, `productTreeSha256`은 실행자가 계산한다. 제품 tree digest는 허용 두 파일을 제외한 recursive tree의 non-tree 항목을 path의 Unicode 순서로 정렬한 `[{path,type,mode,sha}]`를 `JSON.stringify`한 SHA-256이다. [위험 기록 예제](templates/release-risk-notes.example.md)의 정확한 bytes를 해시해 `riskNotesSha256`에 넣는다. 관측 판정과 승인 bytes는 중앙 원본과 같아야 한다.
-
-두 원본 보고서는 기존 파일의 정확한 bytes를 위 자산명으로 첨부한다. 각 실제 phase에서 다운로드해 검토된 관측 기록의 해시와 비교한다. 누락·변조는 중단하며 이전 실행 시각을 갱신하지 않는다. 비공개 원본의 사용자 경로는 공개 중앙 저장소의 테스트 fixture에 복사하지 않는다.
-
-태그 발급 전 검사에는 `releaseBinding:null`을 쓴다. `CI`, `GITHUB_ACTIONS`, `CI_XCODE_CLOUD` 실행에서는 이 preflight를 거절한다. 이는 `preflight_ready`이며 빌드·업로드를 허가하지 않는다. source가 이미 원격에서 조회돼야 하고 현재 main의 grant도 조회 가능해야 한다.
-
-```bash
-node scripts/release/verify-development-evidence.mjs \
-  --repo seorilabs/reascend --tag v1.1.0 --sha <final-sha> \
-  --target google-play --phase before-build \
-  --release-exception-id reascend-1.1.0 --configuration-fingerprint <market-sha256> \
-  --verifier-sha <reviewed-central-sha> --preflight true \
-  --exception-file /path/to/actual-manifest.json --risk-notes-file /path/to/actual-risk-notes.md \
-  --original-evidence-dir /path/to/original-report-assets \
-  --report /path/to/preflight.json
-```
-
-공식 태그 발급 뒤 `releaseBinding`에 실제 annotated tag object SHA와 태그 message 원문의 SHA-256을 채운다. 실제 phase는 Release 자산을 다시 읽고 공식 receipt의 source/version/authority를 검증한다. 모든 phase에서 최신 중앙 main의 같은 grant를 조회해 철회·승인 핵심값 변경을 확인한다. 조회 불가나 `revoked:true`면 고정 pin의 검증기도 실패한다. 중앙의 무관 커밋만 바뀌면 grant 내용이 같으므로 이 조회는 막지 않는다.
-
-before-build에는 아직 없는 artifact를 요구하지 않는다. before-deploy에는 Android의 공식 release binding, artifact receipt, 실제 AAB 파일이 필요하다. iOS는 변경하지 않은 고정 helper `53c0819ec0976a48c7e8302234bcfc408f0a1e0b`가 만든 binding, 실제 서명 앱 Info.plist와 `CI_BUILD_NUMBER`를 대조한다. CLI에 넘긴 번호도 실제 CI 환경의 같은 값이어야 한다. iOS archive의 CI 번호와 공식 태그 receipt의 encoded 번호는 구별한다. 이 provenance는 grant와 판정 리포트에 `declared-protected-consumer-pin`으로 기록한다. 소비자 코드는 제품 tree 검사로 보호하지만 기존 임시 helper는 phase 전에 삭제되므로 해당 phase에서 helper bytes를 다시 읽었다고 주장하지 않는다. iOS artifact 해시는 실제 Info.plist bytes이며 `kind:xcode-app-info-plist`로 범위를 표시한다. 전체 archive 해시가 아니다. 기존 post-xcodebuild의 서명·archive·bundle 검사도 계속 요구한다.
-
-```bash
-# 실제 before-build: preflight 인자 없이 Release 자산을 읽는다.
-node scripts/release/verify-development-evidence.mjs \
-  --repo seorilabs/reascend --tag v1.1.0 --sha <final-sha> \
-  --target google-play --phase before-build \
-  --release-exception-id reascend-1.1.0 --configuration-fingerprint <market-sha256> \
-  --verifier-sha <reviewed-central-sha> --app-repository /path/to/exact-app-checkout \
-  --report /path/to/before-build.json
-
-# Android before-deploy에는 기존 공식 도구로 생성·검증한 산출물을 추가한다.
-# 위 공통 인자 + --phase before-deploy
-# --release-binding /path/to/release-binding.json
-# --artifact-receipt /path/to/release-artifact-receipt.txt --artifact-file /path/to/verified.aab
-
-# iOS before-deploy에는 고정 helper의 실제 binding과 서명 앱 plist를 추가한다.
-# 위 공통 인자 + --target app-store --phase before-deploy
-# --release-binding /path/to/.seori-release-binding.json
-# --artifact-file /path/to/signed.app/Info.plist --xcode-build-number <actual-CI_BUILD_NUMBER>
-```
-
-검토된 grant에는 마켓별 실제 설정 지문과 등록 Firebase bytes, 생성 runtime, `build.env`·generator, AdMob 입력·주입 후 `project.godot`/`data/ad_units.json` 해시를 고정한다. 실제 CI phase는 `--app-repository`의 파일과 실제 workflow/CI 환경에서 package·internal track·completed status·upload·Godot·export preset·build/prepare/audit script·analytics·Xcode scheme/project/tag를 읽어 대조한다. 등록 설정의 내용은 출력하지 않고 해시만 남긴다.
-
-before-build는 실제 준비 스크립트보다 앞에 있다. 보호된 generator와 등록 Firebase CI bytes를 격리 디렉터리에서 실행한 예상 runtime을 확인하고 `generated-from-ci-input`으로 기록한다. 이미 소비된 runtime이라고 하지 않는다. before-deploy는 실제 생성된 runtime·Firebase 사본과 주입 후 광고 파일을 읽어 `actual-runtime-file`로 기록한다. 운영 서버 설정은 중앙 CI의 권한 밖이므로 검토된 snapshot과 실행자의 빌드 전후 직접 재조회가 필요하다. 중앙 해시 대조를 fresh 운영 조회라고 표시하지 않는다.
-
-검증기의 40hex 입력도 단독으로 신뢰하지 않는다. Git checkout은 실제 HEAD와 직접 사용 tracked bytes를 대조하며, `.git` 없는 Xcode codeload는 같은 GitHub revision의 검증기·authority·schema·registry·grant·승인·관측·package lock 원문과 로컬 bytes를 독립 대조한다. 해당 SHA가 현재 main의 ancestor여야 한다. npm CI로 lock의 의존성을 설치하며 파일 증명은 `verifierProof`에 남긴다. Android 예외는 `release_verifier_sha`를 명시해 같은 구현에 authority checkout을 고정하고, 정상 경로는 계속 main을 사용한다. 최신 main의 grant 철회는 pin과 별개로 매 phase 조회한다.
-
-Xcode 기동 요청은 실제 CI의 입력을 갖지 않는다. trigger 내부 `verifyXcodeLaunchRequest`는 공통 Release/source/승인 검증 후 ASC에서 선택한 provider·product·workflow·repository·TAG ref를 확인한다. `scope:xcode-launch-request`, `actualCiVerification:pending-ci-hook`, `executionConfiguration:null`을 출력하며 실제 CI 통과로 취급하지 않는다. 외부 CLI의 skip flag는 없고, `CI_XCODE_CLOUD=TRUE`인 실제 hook은 이 경계를 사용할 수 없다. 실제 hook의 before-build/before-deploy는 `scope:actual-ci-phase`의 전체 입력 검사를 실행한다. 거절도 요청된 JSON 보고서에 기록하고 원래 오류를 다시 던진다.
-
-Android Actions 보고서·산출물 보존 기간은 기존 3일을 유지한다. 실제 internal 업로드가 성공한 같은 job이 AAB·공식 binding·receipt·두 실제 CI 판정·주입 설정 해시를 `promotion-evidence.zip` 하나로 묶고, 명세와 원본 ZIP의 SHA256을 원격 job 로그 한 줄에 기록한다. 실행자는 Actions 다운로드 묶음 안의 **이 원본 inner ZIP**을 재압축하지 않고 private Release 운영 자산에 복사한다. 원격 성공 run/attempt/job와 로그를 읽지 못하면 Release 자기선언이나 로컬 CI 환경 복제로 대체하지 않는다.
-
-기존 `promote-google-play`는 일반 PASS 계약을 유지한다. 이번 수동 Console/API 공개 승격 직전에는 별도 `verify-google-play-promotion.mjs`를 실행한다. 이 경계는 `promotion-recheck`/`reused-successful-ci`이며 실제 CI phase를 새로 실행했다고 기록하지 않는다. 같은 후보·마켓 설정·26개 원래 판정·168시간 예외·태그·최신 중앙 철회를 다시 검증하고, 원격 CI의 reusable workflow SHA가 현재 main의 ancestor인지와 검토 pin의 workflow bytes가 같은지 확인한다. workflow SHA와 verifier checkout pin은 서로 다른 역할이며 값이 달라도 bytes가 같아야 한다. 원격 job 로그의 원본 ZIP·명세 해시와 보존한 실제 bytes, 두 CI 보고서의 실제 입력/주입 해시, 같은 공식 AAB/receipt를 결속한 뒤 **기존 read edit의 Play internal track GET**으로 `completed`인 같은 versionCode를 확인한다. 토큰과 edit ID는 환경 변수에서만 읽고 출력하지 않는다. edit 발급/삭제·승격 자체는 검증기의 기능이 아니다. 운영 서버 설정의 fresh readback과 동일 projection 확인은 기존 등록 운영 identity를 쓰는 실행자 경계로 계속 별도 보존한다.
-
-Android dispatch는 `--ref v1.1.0`을 명시한다. 입력의 `release_tag`만 지정하고 실행 ref를 main에 두면 main 이동 후 run의 `head_sha`와 고정 후보가 달라져 승격 경계가 거절한다.
-
-```sh
-gh workflow run deploy-google-play.yml --repo seorilabs/reascend --ref v1.1.0 \
-  -f release_tag=v1.1.0 -f release_exception_id=reascend-1.1.0 \
-  -f release_verifier_sha="$RELEASE_VERIFIER_SHA" \
-  -f configuration_fingerprint="$GOOGLE_PLAY_CONFIGURATION_FINGERPRINT" \
-  -f upload=true -f track=internal -f release_status=completed
-```
-
-실행자는 Actions가 보관한 inner ZIP을 `release-exception.google-play.promotion-evidence.zip`으로 Release에 보존하고 로컬로 다시 받아 다음 명령을 공개 승격 직전에 실행한다. `GH_TOKEN`, `GOOGLE_PLAY_ACCESS_TOKEN`, `GOOGLE_PLAY_READ_EDIT_ID`는 기존 identity의 환경 변수로 준비하고 인자·로그에 값을 넣지 않는다. 성공 보고서를 Release 운영 자산에 보존한 뒤 같은 versionCode만 승격한다.
-
-```sh
-node scripts/release/verify-google-play-promotion.mjs \
-  --repo seorilabs/reascend --tag v1.1.0 --sha "$RELEASE_SOURCE_SHA" \
-  --release-exception-id reascend-1.1.0 --verifier-sha "$RELEASE_VERIFIER_SHA" \
-  --configuration-fingerprint "$GOOGLE_PLAY_CONFIGURATION_FINGERPRINT" \
-  --ci-run-id "$SUCCESSFUL_RUN_ID" --ci-run-attempt "$SUCCESSFUL_RUN_ATTEMPT" \
-  --evidence-bundle release-exception.google-play.promotion-evidence.zip \
-  --report promotion-recheck.json
-```
-
-검증기는 상태·원래 판정·승인 해시·후보·설정·태그·artifact를 JSON으로 보존한다. 예외에서 기존 ‘개발 검수 근거 통과’ 문구를 쓰지 않는다. Android caller와 Xcode hook/trigger는 계속 중앙 검증기를 실행한다. 예외 만료·철회·후보/설정 변경·해당 릴리스 종료 시 manifest를 닫고 다시 사용하지 않는다. 중앙 일반 지원은 검토된 계약으로 유지하며 임시 우회를 제거할 때까지 방치하는 방식은 사용하지 않는다.
-
-서명, 상품·가격·지급·한도, 판매자·유료 계약·정산, 국가 정책·연령/확률 공시, 마켓 심사·승인·공개·실서비스 조회는 면제하지 않는다. 사용자용 마켓 문구와 별도로 릴리스의 운영 위험 기록에 미확인 항목과 판정 리포트를 남긴다.
-
 ## 자율 처리와 적용
 
 자율 이슈 계약 v4는 승인 설계 없는 항목의 **설계 작성**과 **코드 구현**을 구분한다. 접수·근거 조사·설계 초안과 테스트 계획 초안은 가능하지만 구현 전 사람 검토를 기다린다. 해당 항목에 승인 대기를 기록하고 다른 미시도 적격 항목으로 진행한다. 승인된 범위에서는 TDD·계획한 실행·PR·CI·병합을 계속하고, 승인된 계획에 `release`가 있으면 그 끝 지점까지 진행한다. 계획한 환경을 그 실행 환경에서 쓸 수 없으면 정지 조건 3으로 멈춘다. 기존 lease, 우선순위, 동시 처리 1개를 유지한다. 기존 v2/v3 의미로 자동 구현하지 않는다.
@@ -293,15 +189,17 @@ node scripts/release/verify-google-play-promotion.mjs \
 
 릴리스 계약 v2는 public/private Apple 실행 경로와 필수 개발 검수 gate를 명시한다. 계약 ID `org-v1`은 기존 앱 manifest의 조직 정책 식별자로 유지하며, 읽는 계약의 schemaVersion은 2로 고정해 구분한다. 오래된 executor 필드의 의미를 조용히 재사용하지 않는다.
 
-## 기존 고정 태그의 Jomul v1.1.2 예외 이력
+## 종료한 릴리스 예외 이력
 
 Jomul의 고정 `v1.1.2` 태그 한 건에 대한 사람 승인 예외는 [중앙 PR #238](https://github.com/seorilabs/.github/pull/238)로 적용했다. Google Play·App Store 심사 접수 뒤 승인 목록과 전용 호환 경로를 제거했다. 기존 26 통과/4 차단, 미실행 E2E·장비 검수 생략 원본은 [jomul #200](https://github.com/seorilabs/jomul/issues/200)에 보존하며 검증 성공으로 바꾸지 않는다. 이 종료가 공개 출시를 승인하지는 않는다.
 
-정상 검증의 Xcode Cloud `completed_at`과 `--after`는 실행 기록의 마지막 완료 시각과 빌드 전 완료 시각을 대조하는 일반 지원으로 유지한다. 기존 Reascend grant 검증·철회·산출물 검증은 그대로 적용한다.
+Reascend `v1.1.0`·`v1.1.1`과 Match Symbols iOS `v1.1.7`의 릴리스 예외는 등급제 적용([설계](../design/2026-10-14-test-levels/design.md) 순서 3)에서 검증기·grant·배포 workflow 입력을 함께 지웠다. 승인 설계는 `docs/design/2026-10-13-*`에, grant와 승인 receipt는 [삭제 직전 커밋](https://github.com/seorilabs/.github/tree/0963a4ed06d9129f633fc554d1b5de49a7600714/contracts/release-exceptions)에 남는다. 새 릴리스 예외 grant는 만들지 않고, 실기기 생략 같은 결정은 승인된 테스트 계획의 `floorOverrides`로 남긴다.
+
+정상 검증의 Xcode Cloud `completed_at`과 `--after`는 실행 기록의 마지막 완료 시각과 빌드 전 완료 시각을 대조하는 일반 지원으로 유지한다.
 
 ## 첫 내부 TestFlight 검수 시점 예외
 
-> 등급제에서는 iOS 실기기 실행을 TestFlight 빌드에서 하고 `before-release`에서 확인하므로, 계획에 `ios`를 두면 이 예외 없이 같은 순서로 진행한다. 이 절과 장치는 예외 장치 삭제(설계 [2026-10-14-test-levels](../design/2026-10-14-test-levels/design.md) 순서 3) 때 함께 정리 대상으로 검토한다.
+> 등급제에서는 iOS 실기기 실행을 TestFlight 빌드에서 하고 `before-release`에서 확인하므로, 계획에 `ios`를 두면 이 예외 없이 같은 순서로 진행한다. 이 장치는 Editor 근거를 v1으로 검사하므로 v1 근거가 끝나는 2026-10-22 이후 v1 분기와 함께 지운다([#249](https://github.com/seorilabs/.github/issues/249)). 새 grant는 그 전 첫 내부 TestFlight 한 건에만 쓴다.
 
 Spiritgate 1.1.0의 기존 App Store profile에는 USB 설치 권한이 없어, [승인된 제안](../design/2026-10-14-spiritgate-internal-testflight/design.md)의 첫 내부 TestFlight 한 건에만 iPhone 기반 검수 시점을 설치 뒤로 옮긴다. `internalTestflightBootstrap`의 중앙 reviewed grant와 명시적 `--internal-testflight-bootstrap-id` 입력이 필요하다. 기본 정상 검증 실패를 자동 우회하지 않는다. 현재 등록 목록이 비어 있으면 모든 ID는 차단된다.
 

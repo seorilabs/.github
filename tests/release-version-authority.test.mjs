@@ -1597,15 +1597,14 @@ test('워크플로우의 exact tag 해석 블록은 동명 branch와 비정상 �
   }
 });
 
-test('일반 릴리즈는 중앙 main을 사용하고 승인된 Godot 예외만 정확한 검토 SHA를 사용한다', () => {
+test('모든 릴리즈 경로가 org 정본 authority를 main에서 호출한다', () => {
   for (const name of RELEASE_WORKFLOWS) {
     const text = workflowText(name);
 
     assert.match(text, /repository: seorilabs\/\.github/u, name);
     const workflow = parse(text);
     const checkout = Object.values(workflow.jobs).flatMap(job => job.steps ?? []).find(step => step.with?.repository === 'seorilabs/.github');
-    assert.equal(checkout.with.ref, ['godot-deploy-google-play.yml', 'godot-deploy-app-store.yml'].includes(name)
-      ? "${{ inputs.release_exception_id != '' && inputs.release_verifier_sha || 'main' }}" : 'main', name);
+    assert.equal(checkout.with.ref, 'main', name);
     assert.match(text, /path: \.seorilabs-release-authority/u, name);
     assert.match(text, /persist-credentials: false/u, name);
     assert.match(

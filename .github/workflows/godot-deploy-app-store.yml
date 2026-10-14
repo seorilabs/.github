@@ -17,20 +17,6 @@ on:
         required: false
         default: ""
         type: string
-      release_exception_id:
-        description: "검토된 한 릴리스의 사람 승인 예외. 비우면 일반 E2E 검증을 유지한다."
-        required: false
-        default: ""
-        type: string
-      configuration_fingerprint:
-        required: false
-        default: ""
-        type: string
-      release_verifier_sha:
-        description: "예외 검증기의 검토된 중앙 main ancestor SHA."
-        required: false
-        default: ""
-        type: string
       bundle_id:
         description: "App Store Connect bundle identifier. 검증된 archive identity와 같아야 한다."
         required: false
@@ -174,11 +160,6 @@ jobs:
       POST_EXPORT_VALIDATION_SCRIPT: ${{ inputs.post_export_validation_script }}
       SHOULD_UPLOAD: ${{ inputs.upload }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-      RELEASE_EXCEPTION_ID: ${{ inputs.release_exception_id }}
-      CONFIGURATION_FINGERPRINT: ${{ inputs.configuration_fingerprint }}
-      RELEASE_VERIFIER_SHA: ${{ inputs.release_verifier_sha }}
-      SEORI_EXCEPTION_BUNDLE_ID: ${{ inputs.bundle_id }}
-      SEORI_EXCEPTION_SCHEME: ${{ inputs.scheme }}
 
     steps:
       - name: Checkout
@@ -194,35 +175,13 @@ jobs:
           node-version: "24"
           check-latest: false
 
-      - name: Require reviewed exception verifier before executing its source
-        if: ${{ inputs.release_exception_id != '' || inputs.release_verifier_sha != '' || inputs.configuration_fingerprint != '' }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          [ "$RELEASE_EXCEPTION_ID" = match-picture-1.1.7 ] || { echo '검토된 hosted iOS 예외가 필요합니다.' >&2; exit 1; }
-          [[ "$RELEASE_VERIFIER_SHA" =~ ^[a-f0-9]{40}$ ]] && [[ "$CONFIGURATION_FINGERPRINT" =~ ^[a-f0-9]{64}$ ]] || exit 1
-          node --input-type=module <<'JS'
-          import { writeFileSync } from 'node:fs';
-          const sha = process.env.RELEASE_VERIFIER_SHA;
-          const response = await fetch(`https://api.github.com/repos/seorilabs/.github/compare/${sha}...main`, {
-            headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' },
-            signal: AbortSignal.timeout(30000),
-          });
-          if (!response.ok) throw new Error('검증기 main ancestry 조회 실패');
-          const result = await response.json();
-          if (!['ahead', 'identical'].includes(result.status) || result.base_commit?.sha !== sha) throw new Error('검토된 main ancestry가 아니다');
-          writeFileSync(`${process.env.RUNNER_TEMP}/verifier-ancestry.json`, JSON.stringify({ sha, status: result.status }));
-          JS
-
       # 버전 authority 구현은 org 정본에만 둔다. caller 저장소 스크립트를 신뢰하지 않기 위해
       # 중앙 저장소 main에서 정본을 받아 실행한다.
       - name: Checkout release version authority
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: seorilabs/.github
-          ref: ${{ inputs.release_exception_id != '' && inputs.release_verifier_sha || 'main' }}
+          ref: main
           path: .seorilabs-release-authority
           persist-credentials: false
 
@@ -303,16 +262,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
-          SEORI_ANALYTICS_SECRET_PRESENT: ${{ secrets.GODOT_ANALYTICS_CONFIG_JSON_BASE64 != '' }}
         run: |
           set -euo pipefail
-          args=(--repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" --target app-store --phase before-build)
-          if [ -n "$RELEASE_EXCEPTION_ID" ]; then
-            args+=(--release-exception-id "$RELEASE_EXCEPTION_ID" --configuration-fingerprint "$CONFIGURATION_FINGERPRINT" \
-              --verifier-sha "$RELEASE_VERIFIER_SHA" --app-repository "$GITHUB_WORKSPACE" \
-              --report "$RUNNER_TEMP/release-exception.app-store.before-build.json")
-          fi
-          node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs "${args[@]}"
+          node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
+            --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
+            --target app-store --phase before-build
 
       - name: Resolve archive identity
         id: meta
@@ -431,8 +385,7 @@ jobs:
             --platform iOS \
             --preset "$IOS_EXPORT_PRESET" \
             --presets "$PROJECT_DIR/export_presets.cfg" \
-            --project "$PROJECT_DIR/project.godot" \
-            --release-exception-id "$RELEASE_EXCEPTION_ID"
+            --project "$PROJECT_DIR/project.godot"
 
       - name: Export Xcode project
         shell: bash
@@ -632,42 +585,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
-          SEORI_ANALYTICS_SECRET_PRESENT: ${{ secrets.GODOT_ANALYTICS_CONFIG_JSON_BASE64 != '' }}
-          ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
         run: |
           set -euo pipefail
-          args=(--repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" --target app-store --phase before-deploy)
-          if [ -n "$RELEASE_EXCEPTION_ID" ]; then
-            app_plist="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 2 -name 'Info.plist' | head -n 1)"
-            args+=(--release-exception-id "$RELEASE_EXCEPTION_ID" --configuration-fingerprint "$CONFIGURATION_FINGERPRINT" \
-              --verifier-sha "$RELEASE_VERIFIER_SHA" --app-repository "$GITHUB_WORKSPACE" \
-              --report "$RUNNER_TEMP/release-exception.app-store.before-deploy.json" \
-              --release-binding "$RUNNER_TEMP/release-binding.json" --artifact-receipt "$RUNNER_TEMP/release-artifact-receipt.txt" \
-              --artifact-file "$app_plist")
-          fi
-          node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs "${args[@]}"
-
-      - name: Require all verified exception reports before preservation
-        if: ${{ inputs.release_exception_id != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for file in release-exception.app-store.before-build.json release-exception.app-store.before-deploy.json release-binding.json release-artifact-receipt.txt archive-info.json; do
-            [ -s "$RUNNER_TEMP/$file" ] || { echo "필수 예외 보고서가 없습니다: $file" >&2; exit 1; }
-          done
-
-      - name: Preserve verified exception reports before upload
-        if: ${{ inputs.release_exception_id != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-exception-app-store-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/release-exception.app-store.*.json
-            ${{ runner.temp }}/release-binding.json
-            ${{ runner.temp }}/release-artifact-receipt.txt
-            ${{ runner.temp }}/archive-info.json
-          if-no-files-found: error
-          retention-days: 3
+          node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
+            --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
+            --target app-store --phase before-deploy
 
       - name: Export and upload to App Store Connect
         if: ${{ inputs.upload }}
@@ -730,19 +652,6 @@ jobs:
           name: godot-app-store-archive-${{ steps.release.outputs.apple_marketing_version }}-${{ steps.release.outputs.apple_build_number }}
           path: ${{ steps.meta.outputs.archive_path }}
           if-no-files-found: error
-          retention-days: 3
-
-      - name: Preserve failed exception reports
-        if: ${{ failure() && inputs.release_exception_id != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-exception-app-store-failed-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/release-exception.app-store.*.json
-            ${{ runner.temp }}/release-binding.json
-            ${{ runner.temp }}/release-artifact-receipt.txt
-            ${{ runner.temp }}/archive-info.json
-          if-no-files-found: warn
           retention-days: 3
 
       - name: Remove signing keychain

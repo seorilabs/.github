@@ -8,7 +8,6 @@ import { carriedForwardFeatures } from './carry-forward.mjs';
 import { validateLegacyEvidence } from './development-evidence-v1.mjs';
 import { computeFloor, DEVICE_ENVIRONMENTS, environmentOf, highestLevel, mergeTestPlans, policy, RELEASE_ONLY_TARGETS,
   testPlanProblems, validInventory } from './test-plan.mjs';
-import { verifyReleaseException } from './verify-release-exception.mjs';
 
 const schema = JSON.parse(readFileSync(new URL('../../contracts/development-evidence.schema.json', import.meta.url), 'utf8'));
 const checkSchema = new Ajv2020({ allErrors: true }).compile(schema);
@@ -279,11 +278,9 @@ async function findEvidenceArchive(repository, request) {
 
 export async function verifyReleaseDevelopmentEvidence(options) {
   if (options.bootstrapId) {
-    if (options.exceptionId) throw new Error('MIXED_RELEASE_EXCEPTIONS');
     const { verifyInternalTestflightBootstrap } = await import('./internal-testflight-bootstrap.mjs');
     return verifyInternalTestflightBootstrap(options);
   }
-  if (options.exceptionId) return verifyReleaseException(options);
   const { repository, tag, sourceSha, target, phase, token, env = process.env, fetchImpl = globalThis.fetch } = options;
   if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(repository ?? '') || !SHA_PATTERN.test(sourceSha ?? '') || !PHASES.includes(phase) || !TARGETS.includes(target) || !tag) throw new Error('INVALID_EVIDENCE_CONTEXT');
   const request = { token, env, fetchImpl };
@@ -317,8 +314,7 @@ export async function verifyReleaseDevelopmentEvidence(options) {
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   const args = new Map();
   const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'configuration-fingerprint',
-    'rollout', 'internal-testflight-bootstrap-id', 'release-exception-id', 'verifier-sha', 'report', 'release-binding', 'artifact-receipt', 'artifact-file',
-    'exception-file', 'preflight', 'risk-notes-file', 'original-evidence-dir', 'xcode-build-number', 'app-repository', 'after']);
+    'rollout', 'internal-testflight-bootstrap-id', 'verifier-sha', 'report', 'artifact-receipt', 'artifact-file', 'app-repository', 'after']);
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i]?.replace(/^--/u, '');
     if (!argv[i]?.startsWith('--') || !allowed.has(key) || !argv[i + 1] || argv[i + 1].startsWith('--') || args.has(key)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
@@ -331,7 +327,7 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
     context.rollout = rollout;
   }
   if (args.has('internal-testflight-bootstrap-id')) {
-    if (args.has('release-exception-id') || args.has('file') || args.has('preflight') || args.has('exception-file')) throw new Error('INVALID_EVIDENCE_ARGUMENT');
+    if (args.has('file')) throw new Error('INVALID_EVIDENCE_ARGUMENT');
     const { verifyInternalTestflightBootstrap } = await import('./internal-testflight-bootstrap.mjs');
     const result = await verifyInternalTestflightBootstrap({ ...context, tag: args.get('tag'), env,
       bootstrapId: args.get('internal-testflight-bootstrap-id'), verifierSha: args.get('verifier-sha'),
@@ -340,27 +336,7 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
     process.stdout.write(`검수 시점 예외 human_exception: 내부 TestFlight 한 건; 제품 E2E blocked\n`);
     return result;
   }
-  if (args.has('release-exception-id')) {
-    if (args.has('file') || (args.has('preflight') && args.get('preflight') !== 'true')) throw new Error('INVALID_EVIDENCE_ARGUMENT');
-    let result;
-    try {
-      result = await verifyReleaseDevelopmentEvidence({ ...context, tag: args.get('tag'), env,
-        exceptionId: args.get('release-exception-id'), verifierSha: args.get('verifier-sha'),
-        releaseBindingFile: args.get('release-binding'), artifactReceiptFile: args.get('artifact-receipt'), artifactFile: args.get('artifact-file'),
-        exceptionFile: args.get('exception-file'), riskNotesFile: args.get('risk-notes-file'), preflightOnly: args.get('preflight') === 'true',
-        originalEvidenceDir: args.get('original-evidence-dir'),
-        xcodeBuildNumber: args.get('xcode-build-number'), appRepository: args.get('app-repository') });
-    } catch (error) {
-      if (args.has('report')) writeFileSync(args.get('report'), `${JSON.stringify({ ok: false, decisionStatus: 'rejected',
-        productE2eStatus: 'blocked', repository: context.repository, sourceSha: context.sourceSha, target: context.target,
-        phase: context.phase, error: error.message }, null, 2)}\n`);
-      throw error;
-    }
-    if (args.has('report')) writeFileSync(args.get('report'), `${JSON.stringify(result, null, 2)}\n`);
-    process.stdout.write(`출시 판정 ${result.decisionStatus}: ${context.target} ${context.phase} ${context.sourceSha}; 제품 E2E blocked\n`);
-    return result;
-  }
-  if (['verifier-sha', 'report', 'release-binding', 'artifact-receipt', 'artifact-file', 'exception-file', 'preflight', 'risk-notes-file', 'original-evidence-dir', 'xcode-build-number', 'app-repository'].some(key => args.has(key))) throw new Error('RELEASE_EXCEPTION_ID_REQUIRED');
+  if (['verifier-sha', 'report', 'artifact-receipt', 'artifact-file', 'app-repository'].some(key => args.has(key))) throw new Error('INTERNAL_TESTFLIGHT_BOOTSTRAP_ID_REQUIRED');
   if (!PHASES.includes(context.phase) || !TARGETS.includes(context.target)) throw new Error('INVALID_EVIDENCE_CONTEXT');
   let result;
   if (args.has('file')) {

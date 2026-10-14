@@ -170,20 +170,6 @@ autonomousImplementation:
   approvedDesignRequired: true
   missingApproval: draft-design-and-continue-next-unattempted
   releaseScope: approved-test-plan-release
-releaseExceptions:
-  schema: contracts/release-exception.schema.json
-  optIn: explicit-reviewed-exception-id
-  approvalTrust: immutable-reviewed-central-grant
-  originalVerdicts: preserve
-  decisionStatus: human_exception
-  productE2eStatus: blocked
-  maxAgeHours: 168
-  phases: [before-build, before-deploy]
-  beforeBuildArtifactRequired: false
-  beforeDeployArtifactRequired: true
-  revocation: read-current-central-grant-every-phase
-  crossCandidateMarketReleaseReuse: forbidden
-  grantRegistry: [contracts/release-exceptions/reascend-1.1.0.json, contracts/release-exceptions/reascend-1.1.1.json, contracts/release-exceptions/match-picture-1.1.7.json]
 internalTestflightBootstrap:
   schema: contracts/internal-testflight-bootstrap.schema.json
   grantSchema: contracts/internal-testflight-bootstrap-grant.schema.json
