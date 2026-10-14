@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "kind": "human_additional_ui_approval",
+  "designId": "SGD-UI5-TF-110-v1",
+  "repository": "seorilabs/spiritgate-defenders",
+  "version": "1.1.0",
+  "objective": "one_additional_ui_round",
+  "approvedUiRounds": 5,
+  "approvalRecordedAt": "2026-10-14T10:56:24.262911+00:00",
+  "timeSource": "receipt creation UTC; human message timestamp unavailable",
+  "userApprovalVerbatim": "UI5·중앙 최소 보정·제한 리뷰 승인",
+  "proposalSha256": "79990dc322c4c5bbb29232b35a209219e99d56af60f52ad517eb99200fa4cb10",
+  "originalTimingApprovalSha256": "8f9ea1fd82ad34ad4bee5853ef2f48851e2121d87852a273b5010f9efd15ba7d",
+  "executionMinutes": 180,
+  "issueRecheckMaximumCount": 1,
+  "issueRecheckMinutes": 30,
+  "totalMinutes": 210,
+  "extendOriginal168Hours": false,
+  "sourceSha": null,
+  "configurationFingerprint": null,
+  "candidateBindingStatus": "pending actual UI5, whole E2E and Android evidence; no grant registered",
+  "reviewMaximumRequestsPerPr": 2,
+  "reviewExclusions": [
+    "credentials",
+    "PixelLab raw responses",
+    "personal data",
+    "runtime logs"
+  ]
+}

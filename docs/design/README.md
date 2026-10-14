@@ -12,3 +12,5 @@
 | 2026-10-14 | [변경 등급별 테스트 계획과 앞단 승인 v1 — 사람 승인](2026-10-14-test-levels/design.md) | 대화 승인(검토용 커밋 7c117d4, 승인 기록은 문서 안) | PR 본문에 기록 | 중앙 검증기·계약 테스트 결과 |
 
 설계 최신 원본과 승인 커밋을 구분한다. 기존 승인 문서를 임의로 이동하거나 본문을 복제하지 않는다.
+
+| 2026-10-14 | [Spiritgate UI5 별도 승인 결속](2026-10-14-spiritgate-ui5/design.md) | [원문 승인](2026-10-14-spiritgate-ui5/approval.json) · 제품 제안62415abe | [Spiritgate240](https://github.com/seorilabs/spiritgate-defenders/issues/240) | 중앙 거절 검사·전체 회귀; 실제 제품 UI5는 독립 실행 |

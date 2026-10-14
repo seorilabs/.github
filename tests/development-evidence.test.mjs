@@ -58,6 +58,20 @@ test('service E2E does not require fabricated UI rounds', () => {
   assert.equal(validateDevelopmentEvidence(d, { ...context, requireUi: true }).ok, false);
 });
 
+test('a separate UI5 approval keeps the original UI4 approval and checks each round time', () => {
+  const d = validEvidence();
+  d.iterations.push({ ...structuredClone(d.iterations[2]), number: 4, plannedAt: '2026-10-08T04:00:00Z', startedAt: '2026-10-08T04:01:00Z', completedAt: '2026-10-08T04:10:00Z' });
+  d.iterations.push({ ...structuredClone(d.iterations[2]), number: 5, plannedAt: '2026-10-08T05:00:00Z', startedAt: '2026-10-08T05:01:00Z', completedAt: '2026-10-08T05:10:00Z' });
+  d.additionalIterationApproval = { approverKind: 'human', approver: 'owner', approvedAt: '2026-10-08T03:50:00Z', maxRound: 4, evidence: 'https://example.com/ui4' };
+  d.additionalIterationApprovals = [{ approverKind: 'human', approver: 'owner', approvedAt: '2026-10-08T04:20:00Z', maxRound: 5, evidence: 'https://example.com/ui5' }];
+  assert.equal(validateDevelopmentEvidence(d, context).ok, true);
+  d.additionalIterationApprovals[0].approvedAt = '2026-10-08T05:02:00Z';
+  assert.equal(validateDevelopmentEvidence(d, context).ok, false);
+  d.additionalIterationApprovals[0].approvedAt = '2026-10-08T04:20:00Z';
+  d.additionalIterationApproval = null;
+  assert.equal(validateDevelopmentEvidence(d, context).ok, false);
+});
+
 test('a failed earlier review retains its finding and subsequent resolution evidence', () => {
   const d = validEvidence();
   d.iterations[0].functional.status = 'failed';

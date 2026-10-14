@@ -178,8 +178,57 @@
     "profileSha256": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
+    },
+    "approvedUiRounds": {
+      "enum": [
+        4,
+        5
+      ]
+    },
+    "additionalUiApprovalFile": {
+      "const": "docs/design/2026-10-14-spiritgate-ui5/approval.json"
+    },
+    "additionalUiApprovalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/seorilabs/.github/contracts/internal-testflight-bootstrap-grant.schema.json"
+  "$id": "https://github.com/seorilabs/.github/contracts/internal-testflight-bootstrap-grant.schema.json",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "approvedUiRounds": {
+            "const": 5
+          }
+        },
+        "required": [
+          "approvedUiRounds"
+        ]
+      },
+      "then": {
+        "required": [
+          "additionalUiApprovalFile",
+          "additionalUiApprovalSha256"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "additionalUiApprovalFile"
+              ]
+            },
+            {
+              "required": [
+                "additionalUiApprovalSha256"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
 }
