@@ -31,6 +31,54 @@ function fixture() {
   return {doc,context};
 }
 const run = f => validate(f.doc,f.context);
+function fiveRoundFixture() {
+ const f=fixture(),g=f.context.grant;
+ g.approvedUiRounds=5;
+ g.additionalUiApprovalFile='docs/design/2026-10-14-spiritgate-ui5/approval.json';
+ const fifth=structuredClone(f.doc.editor.iterations[3]);
+ Object.assign(fifth,{number:5,plannedAt:'2026-10-08T05:30:00Z',startedAt:'2026-10-08T05:31:00Z',completedAt:'2026-10-08T05:40:00Z'});
+ f.doc.editor.iterations.push(fifth);
+ // UI4의 승인 시각과 maxRound를 고치지 않고 UI5 승인을 별도로 보존한다.
+ f.doc.editor.additionalIterationApprovals=[{approverKind:'human',approver:'owner',approvedAt:'2026-10-08T05:20:00Z',maxRound:5,evidence:g.additionalUiApprovalFile}];
+ const proposalBytes=Buffer.from('approved one UI5; 180 minutes plus one 30-minute recheck; no deadline extension');
+ const additional={kind:'human_additional_ui_approval',designId:'SGD-UI5-TF-110-v1',repository:g.repository,version:'1.1.0',objective:'one_additional_ui_round',approvedUiRounds:5,sourceSha:SHA,configurationFingerprint:FP,approvalRecordedAt:'2026-10-08T05:20:00Z',userApprovalVerbatim:'UI5·중앙 최소 보정·제한 리뷰 승인',proposalSha256:digest(proposalBytes),originalTimingApprovalSha256:g.approvalSha256,executionMinutes:180,issueRecheckMaximumCount:1,issueRecheckMinutes:30,totalMinutes:210,extendOriginal168Hours:false};
+ f.context.additionalUiApprovalBytes=jsonBytes(additional);
+ f.context.additionalUiProposalBytes=proposalBytes;
+ g.additionalUiApprovalSha256=digest(f.context.additionalUiApprovalBytes);
+ f.context.evidenceBytes=jsonBytes(f.doc);g.evidenceSha256=digest(f.context.evidenceBytes);
+ return f;
+}
+test('separately reviewed UI5 preserves UI4 approval and original expiry',()=>{
+ const f=fiveRoundFixture(),r=run(f);
+ assert.equal(r.ok,true,JSON.stringify(r.errors));
+ assert.equal(r.approvedUiRounds,5);
+ assert.equal(f.doc.editor.additionalIterationApproval.maxRound,4);
+ assert.equal(f.context.grant.expiresAt,'2026-10-15T05:00:00Z');
+});
+for(const [name,change] of [
+ ['unreviewed UI5 approval',f=>{delete f.context.additionalUiApprovalBytes;}],
+ ['changed UI5 original approval bytes',f=>{f.context.additionalUiApprovalBytes=Buffer.from('{}');}],
+ ['changed UI5 approved proposal',f=>{f.context.additionalUiProposalBytes=Buffer.from('replacement');}],
+ ['unapproved sixth round',f=>{f.doc.editor.iterations.push({...structuredClone(f.doc.editor.iterations[4]),number:6});}],
+ ['UI5 under a four-round grant',f=>{f.context.grant.approvedUiRounds=4;}],
+ ['UI4 omitted from five-round history',f=>{f.doc.editor.iterations.splice(3,1);}],
+ ['missing separate Editor UI5 approval',f=>{delete f.doc.editor.additionalIterationApprovals;}],
+ ['UI5 functional failure',f=>{f.doc.editor.iterations[4].functional.status='failed';}],
+ ['UI5 over 210 minutes',f=>{f.doc.editor.iterations[4].completedAt='2026-10-08T09:02:00Z';f.doc.editor.e2e.plannedAt='2026-10-08T09:05:00Z';f.doc.editor.e2e.startedAt='2026-10-08T09:06:00Z';f.doc.editor.e2e.completedAt='2026-10-08T09:10:00Z';}],
+])test(`rejects ${name}`,()=>{
+ const f=fiveRoundFixture();change(f);f.context.evidenceBytes=jsonBytes(f.doc);f.context.grant.evidenceSha256=digest(f.context.evidenceBytes);assert.equal(run(f).ok,false,name);
+});
+for(const [name,changes] of [
+ ['UI5 source drift',{sourceSha:'1'.repeat(40)}],
+ ['UI5 configuration drift',{configurationFingerprint:'2'.repeat(64)}],
+ ['UI5 starts before approval',{approvalRecordedAt:'2026-10-08T05:32:00Z'}],
+ ['UI5 original timing approval replaced',{originalTimingApprovalSha256:'3'.repeat(64)}],
+ ['UI5 deadline extended',{extendOriginal168Hours:true}],
+ ['UI5 recheck count increased',{issueRecheckMaximumCount:2}],
+])test(`rejects ${name} even when new bytes are hash-bound`,()=>{
+ const f=fiveRoundFixture(),approval=JSON.parse(f.context.additionalUiApprovalBytes);Object.assign(approval,changes);
+ f.context.additionalUiApprovalBytes=jsonBytes(approval);f.context.grant.additionalUiApprovalSha256=digest(f.context.additionalUiApprovalBytes);assert.equal(run(f).ok,false,name);
+});
 test('internal-only timing approval preserves iPhone blocked status and permits only the first internal build',()=>{
  const f=fixture(),r=run(f);assert.equal(r.ok,true,JSON.stringify(r.errors));assert.equal(r.decisionStatus,'human_exception');assert.equal(r.productE2eStatus,'blocked');assert.equal(r.scope,'internal_testflight_only');assert.equal(r.buildNumber,42);
 });

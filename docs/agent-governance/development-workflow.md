@@ -211,3 +211,7 @@ Spiritgate 1.1.0의 기존 App Store profile에는 USB 설치 권한이 없어, 
 같은 후보·설정·28기능 inventory·원본 실패/부분/차단·독립 UI4·실제 Editor 전체 E2E·Android 기반 검수·원문 승인·168시간을 결속한다. 두 단계에서 검토된 중앙 소스와 최신 grant의 불변/철회, 실제 working tree, Apple의 app/product/workflow/수동 태그/첫 CI run을 확인한다. before-deploy는 기존 프로덕션 profile bytes와 실제 서명 앱·버전·SDK/privacy·같은 before-build 영수증이 필요하다. 원래 iPhone 미검수는 `deferred`, 제품 E2E는 `blocked`, 판단은 `human_exception`으로 보존한다.
 
 Apple의 단일 archive action은 `INTERNAL_ONLY`여야 한다. 처리된 빌드 역시 `INTERNAL_ONLY`와 VALID, 같은 성공 CI run의 build 관계를 확인한 뒤 기존 내부 그룹에만 연결한다. 내부 예외 결과는 외부 TestFlight·App Review·공개 gate가 아니다. 실제 iPhone와 전체 기능 E2E·정상 중앙 검증을 완료한 뒤 공개용 새 archive를 진행한다. 등록은 실제 근거가 확정된 별도 reviewed grant를 요구하고, 새 후보·다른 source/run·만료·철회·조회 실패는 차단한다.
+
+### 별도 승인된 UI5 기록
+
+[승인된 UI5 설계](../design/2026-10-14-spiritgate-ui5/design.md)에 따라 첫 내부 grant의 `approvedUiRounds`는4 또는5이며 실제 기록 수와 같아야 한다. 5는 별도 승인·정확한 제안·후보·설정·원래 시점 예외 승인 hash를 중앙 검토본과 최신main에 결속한다. 기존 UI4 단일 승인 시각을 고치지 않고 `additionalIterationApprovals`에 새 승인을 보존한다. 승인전 실행·UI6·168시간 연장·원본 실패 은폐를 허용하지 않으며, 등록 목록이 비어 있으면 실행은 여전히 차단된다.

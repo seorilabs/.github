@@ -102,8 +102,8 @@ export function validateDevelopmentEvidence(document, context) {
       if (result.status !== 'passed' && (index === document.iterations.length - 1 || !result.resolutionEvidence)) errors.push(`UNRESOLVED_REVIEW ${round.number}-${aspect}`);
     }
     if (round.number > policy.uiReview.rounds) {
-      const approval = document.additionalIterationApproval;
-      if (!approval || approval.maxRound < round.number || !Number.isFinite(Date.parse(approval.approvedAt)) || Date.parse(approval.approvedAt) > Date.parse(round.plannedAt)) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
+      const approvals = [document.additionalIterationApproval, ...(document.additionalIterationApprovals ?? [])];
+      if (!approvals.some(approval => approval && approval.maxRound >= round.number && Number.isFinite(Date.parse(approval.approvedAt)) && Date.parse(approval.approvedAt) <= Date.parse(round.plannedAt))) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
     }
   });
   const e2e = document.e2e;

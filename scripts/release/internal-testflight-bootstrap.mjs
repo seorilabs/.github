@@ -52,9 +52,19 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
   reject(context.verifierProof?.verified === true && context.verifierProof.reviewedOnCurrentMain === true,'TESTFLIGHT_REVIEWED_VERIFIER');
   const editor = validateDevelopmentEvidence(document.editor,{...context,featureInventory:inventory,requireUi:true});
   if (!editor.ok) errors.push(...editor.errors.map(e=>`TESTFLIGHT_EDITOR ${e}`));
-  reject(document.editor?.iterations?.length === 4 && document.editor?.e2e?.environment?.kind === 'godot-editor','TESTFLIGHT_UI4_EDITOR_REQUIRED');
-  const fourth=document.editor?.iterations?.[3];
-  reject(Date.parse(fourth?.completedAt)-Date.parse(fourth?.startedAt) <= 210*60000,'TESTFLIGHT_UI4_BUDGET');
+  const approvedUiRounds=grant.approvedUiRounds ?? 4;
+  reject(document.editor?.iterations?.length === approvedUiRounds && document.editor?.e2e?.environment?.kind === 'godot-editor','TESTFLIGHT_APPROVED_UI_EDITOR_REQUIRED');
+  const last=document.editor?.iterations?.[approvedUiRounds-1];
+  reject(Date.parse(last?.completedAt)-Date.parse(last?.startedAt) <= 210*60000,'TESTFLIGHT_APPROVED_UI_BUDGET');
+  if(approvedUiRounds===5){
+    try{
+      const additional=validateBootstrapAdditionalUiApproval(grant,context.additionalUiApprovalBytes,context.additionalUiProposalBytes);
+      const approvals=document.editor?.additionalIterationApprovals ?? [];
+      reject(approvals.some(a=>a.maxRound===5 && a.approvedAt===additional.approvalRecordedAt && a.evidence===grant.additionalUiApprovalFile),'TESTFLIGHT_UI5_EDITOR_APPROVAL');
+      const recorded=Date.parse(additional.approvalRecordedAt);
+      reject(Number.isFinite(recorded) && approved<=recorded && recorded<=now && recorded<=Date.parse(last?.plannedAt),'TESTFLIGHT_UI5_APPROVAL_TIME');
+    }catch(error){errors.push(error.message);}
+  }
   const foundation=(inventory?.features ?? []).filter(f=>f.foundation === true).map(f=>f.id);
   const android=document.android,ios=document.ios;
   reject(android?.sourceSha === context.sourceSha && android.target === 'google-play' && android.configurationFingerprint === grant.androidConfigurationFingerprint
@@ -81,12 +91,14 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
   return {ok:true,errors:[],decisionStatus:'human_exception',productE2eStatus:'blocked',scope:'internal_testflight_only',repository:REPO,
     sourceSha:context.sourceSha,target:'app-store',phase:context.phase,configurationFingerprint:context.configurationFingerprint,
     grantSha256:context.grantSha256,completedAt:document.editor.e2e.completedAt,verifiedAt:new Date(now).toISOString(),
-    buildId:provider.buildId,buildNumber:provider.buildNumber,androidStatus:'passed',iosStatus:'deferred',nativeQaWaived:false};
+    buildId:provider.buildId,buildNumber:provider.buildNumber,androidStatus:'passed',iosStatus:'deferred',nativeQaWaived:false,
+    approvedUiRounds,additionalUiApprovalSha256:approvedUiRounds===5 ? grant.additionalUiApprovalSha256 : null};
 }
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const policyPath='contracts/development-workflow.yaml';
 const proposalPath='docs/design/2026-10-14-spiritgate-internal-testflight/approved-proposal.md';
+const ui5ProposalPath='docs/design/2026-10-14-spiritgate-ui5/approved-proposal.md';
 const grantPaths=parse(readFileSync(join(root,policyPath),'utf8')).internalTestflightBootstrap?.grantRegistry ?? [];
 const fail=code=>{throw new Error(code);};
 const safePath=path=>typeof path==='string' && /^[A-Za-z0-9._/-]+$/u.test(path) && !path.split('/').includes('..') && !isAbsolute(path);
@@ -102,6 +114,19 @@ export function validateBootstrapApprovalProposal(approvalBytes,proposalBytes){
   if(!Buffer.isBuffer(proposalBytes) || !DIGEST.test(approval.proposalSha256 ?? '') || bootstrapDigest(proposalBytes)!==approval.proposalSha256) fail('TESTFLIGHT_APPROVED_PROPOSAL_CHANGED');
 }
 
+export function validateBootstrapAdditionalUiApproval(grant,approvalBytes,proposalBytes){
+  if(!Buffer.isBuffer(approvalBytes) || !DIGEST.test(grant.additionalUiApprovalSha256 ?? '') || bootstrapDigest(approvalBytes)!==grant.additionalUiApprovalSha256) fail('TESTFLIGHT_UI5_APPROVAL_CHANGED');
+  let approval;try{approval=JSON.parse(approvalBytes);}catch{fail('TESTFLIGHT_INVALID_UI5_APPROVAL');}
+  validateBootstrapApprovalProposal(approvalBytes,proposalBytes);
+  if(approval.kind!=='human_additional_ui_approval' || approval.designId!=='SGD-UI5-TF-110-v1' || approval.repository!==REPO || approval.version!=='1.1.0'
+    || approval.objective!=='one_additional_ui_round' || approval.approvedUiRounds!==5 || approval.sourceSha!==grant.sourceSha
+    || approval.configurationFingerprint!==grant.configurationFingerprint || approval.originalTimingApprovalSha256!==grant.approvalSha256
+    || typeof approval.userApprovalVerbatim!=='string' || !approval.userApprovalVerbatim.trim()
+    || approval.executionMinutes!==180 || approval.issueRecheckMaximumCount!==1 || approval.issueRecheckMinutes!==30 || approval.totalMinutes!==210
+    || approval.extendOriginal168Hours!==false) fail('TESTFLIGHT_UI5_APPROVAL_SCOPE');
+  return approval;
+}
+
 // 임의 파일 경로를 ID로 바꿔 넘길 수 없다. 중앙 main에서 검토한 등록만 쓴다.
 async function reviewedBootstrap(id,verifierSha,request){
   const path=grantPaths.find(p=>p===`contracts/internal-testflight-bootstrap/${id}.json`);
@@ -113,7 +138,8 @@ async function reviewedBootstrap(id,verifierSha,request){
     'scripts/release/verify-release-exception.mjs','scripts/release/hosted-godot-ios-exception.mjs',
     'scripts/release/release-promotion-evidence.mjs','scripts/release/tag-version-authority.mjs',
     'contracts/development-evidence.schema.json','contracts/release-exception.schema.json','contracts/release-exception-grant.schema.json',
-    'contracts/hosted-godot-ios-exception-grant.schema.json','contracts/internal-testflight-bootstrap.schema.json','contracts/internal-testflight-bootstrap-grant.schema.json'];
+    'contracts/hosted-godot-ios-exception-grant.schema.json','contracts/internal-testflight-bootstrap.schema.json','contracts/internal-testflight-bootstrap-grant.schema.json',
+    ...(grant.approvedUiRounds===5 ? [grant.additionalUiApprovalFile,ui5ProposalPath] : [])];
   await Promise.all(sources.map(async path=>{
     const remote=await readRemote('seorilabs/.github',path,verifierSha,request);
     if(!readFileSync(join(root,path)).equals(remote)) fail('TESTFLIGHT_VERIFIER_BYTES_CHANGED');
@@ -131,7 +157,16 @@ async function reviewedBootstrap(id,verifierSha,request){
   const [latestApproval,latestProposal]=await Promise.all([
     readRemote('seorilabs/.github',grant.approvalFile,'main',request),readRemote('seorilabs/.github',proposalPath,'main',request)]);
   if(!approvalBytes.equals(latestApproval) || !proposalBytes.equals(latestProposal)) fail('TESTFLIGHT_APPROVED_PROPOSAL_CHANGED');
-  return {grant,approvalBytes,grantSha256:bootstrapDigest(bytes),verifierProof:{verified:true,revision:verifierSha,reviewedOnCurrentMain:true}};
+  let additionalUi={};
+  if(grant.approvedUiRounds===5){
+    const additionalUiApprovalBytes=readFileSync(join(root,grant.additionalUiApprovalFile)),additionalUiProposalBytes=readFileSync(join(root,ui5ProposalPath));
+    validateBootstrapAdditionalUiApproval(grant,additionalUiApprovalBytes,additionalUiProposalBytes);
+    const [latestAdditionalApproval,latestAdditionalProposal]=await Promise.all([
+      readRemote('seorilabs/.github',grant.additionalUiApprovalFile,'main',request),readRemote('seorilabs/.github',ui5ProposalPath,'main',request)]);
+    if(!additionalUiApprovalBytes.equals(latestAdditionalApproval) || !additionalUiProposalBytes.equals(latestAdditionalProposal)) fail('TESTFLIGHT_UI5_REVOKED_OR_CHANGED');
+    additionalUi={additionalUiApprovalBytes,additionalUiProposalBytes};
+  }
+  return {grant,approvalBytes,...additionalUi,grantSha256:bootstrapDigest(bytes),verifierProof:{verified:true,revision:verifierSha,reviewedOnCurrentMain:true}};
 }
 
 export function verifyBootstrapWorkingTree(repository,grant,phase){

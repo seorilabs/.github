@@ -522,6 +522,13 @@
           }
         }
       }
+    },
+    "additionalIterationApprovals": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/properties/additionalIterationApproval/oneOf/1"
+      }
     }
   }
 }
