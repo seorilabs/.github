@@ -16,14 +16,14 @@ function fixture() {
   editor.features = inventory.features.map(({id,core})=>({id,core}));
   for (const r of editor.iterations) for (const kind of ['functional','ux']) r[kind].featureIds = inventory.features.filter(f=>f.core).map(f=>f.id);
   editor.e2e.environment = {kind:'godot-editor', configurationFingerprint:FP, isolatedData:'owned-test-fixture'};
-  editor.e2e.scenarios[0].featureIds = ids;
+  editor.e2e.scenarios[0].featureIds = [...ids];
   const fourth = structuredClone(editor.iterations[2]);
   Object.assign(fourth,{number:4,plannedAt:'2026-10-08T04:00:00Z',startedAt:'2026-10-08T04:01:00Z',completedAt:'2026-10-08T04:10:00Z'});
   editor.iterations.push(fourth);
   editor.additionalIterationApproval = {approverKind:'human',approver:'owner',approvedAt:'2026-10-08T03:50:00Z',maxRound:4,evidence:'https://example.com/approval'};
   const doc = {schemaVersion:1,id:'spiritgate-1.1.0-first-internal',scope:'internal_testflight_only',editor,
     android:{sourceSha:SHA,target:'google-play',configurationFingerprint:'c'.repeat(64),deviceKind:'physical-android',artifactSha256:'d'.repeat(64),plannedAt:'2026-10-08T05:00:00Z',startedAt:'2026-10-08T05:05:00Z',completedAt:'2026-10-08T05:20:00Z',features:foundation.map(id=>({id,status:'passed',evidence:['https://example.com/device']}))},
-    ios:{sourceSha:SHA,target:'app-store',status:'deferred',reason:'existing App Store profile requires internal TestFlight installation',featureIds:foundation},
+    ios:{sourceSha:SHA,target:'app-store',status:'deferred',reason:'existing App Store profile requires internal TestFlight installation',featureIds:[...foundation]},
     originalObservations:[{name:'prior-ui-and-native-observations.json',sha256:'e'.repeat(64)}]};
   const approvalBytes=jsonBytes({kind:'human_testflight_timing_approval',repository:editor.repository,version:'1.1.0',objective:'first_internal_testflight_qa',candidateLimit:1,buildUploadLimit:1,maxAgeHours:168,approvalRecordedAt:'2026-10-08T05:00:00Z',userApprovalVerbatim:'first internal TestFlight timing approval',iphoneQa:'deferred until internal installation; not waived',newAppleResourcesAllowed:false,publicReleaseRequires:'normal validator, actual iPhone QA and whole E2E'});
   const grant={schemaVersion:1,kind:'first-internal-testflight',id:doc.id,repository:editor.repository,releaseTag:'v1.1.0',packageName:'com.seorilabs.spiritgatedefenders',sourceSha:SHA,profileSha256:'5'.repeat(64),approvalFile:'docs/design/2026-10-14-spiritgate-internal-testflight/approval.json',evidenceAsset:{id:123,sha256:digest(jsonBytes(doc))},originalObservationAssets:[{id:124,sha256:'e'.repeat(64)}],workingOverrides:{'before-build':{},'before-deploy':{}},configurationFingerprint:FP,androidConfigurationFingerprint:doc.android.configurationFingerprint,productTreeSha256:'f'.repeat(64),evidenceSha256:digest(jsonBytes(doc)),approvalSha256:digest(approvalBytes),inventorySha256:digest(inventoryBytes),approvedAt:'2026-10-08T05:00:00Z',expiresAt:'2026-10-15T05:00:00Z',revoked:false,provider:{appId:'6792205995',productId:'E5C1A24C-AA05-41B0-B2F6-F1BF0B92D7DB',workflowId:'45B83B98-ABE4-48C1-83FC-09CF3F79651E'}};
@@ -69,3 +69,20 @@ const cases=[
 ];
 for(const [name,change] of cases) test(`rejects ${name}`,()=>{const f=fixture();change(f);f.context.evidenceBytes=jsonBytes(f.doc);f.context.grant.evidenceSha256=digest(f.context.evidenceBytes);assert.equal(run(f).ok,false,name);});
 test('a caller cannot edit the approved evidence after the central grant was reviewed',()=>{const f=fixture();f.doc.android.features[0].evidence.push('https://example.com/replacement');assert.equal(run(f).ok,false);});
+
+test('malformed nested Editor evidence returns rejection instead of throwing',()=>{
+ const f=fixture();f.doc.editor={iterations:[{},{},{},{}]};f.context.evidenceBytes=jsonBytes(f.doc);f.context.grant.evidenceSha256=digest(f.context.evidenceBytes);
+ assert.equal(run(f).ok,false);
+});
+function deploymentFixture(){
+ const f=fixture(),p=f.context.providerProof;f.context.phase='before-deploy';f.context.grantSha256='6'.repeat(64);
+ f.context.artifactProof={verified:true,sourceSha:SHA,buildId:p.buildId,buildNumber:p.buildNumber,bundleId:f.context.grant.packageName,version:'1.1.0',sha256:'7'.repeat(64)};
+ f.context.beforeBuildReceipt={ok:true,phase:'before-build',decisionStatus:'human_exception',productE2eStatus:'blocked',nativeQaWaived:false,scope:'internal_testflight_only',sourceSha:SHA,buildId:p.buildId,buildNumber:p.buildNumber,configurationFingerprint:FP,grantSha256:f.context.grantSha256};
+ return f;
+}
+test('actual deployment requires a successful internal before-build receipt',()=>{
+ const positive=run(deploymentFixture());assert.equal(positive.ok,true,JSON.stringify(positive.errors));
+ for(const changes of [{ok:false},{phase:'before-deploy'},{decisionStatus:'passed'},{productE2eStatus:'passed'},{nativeQaWaived:true}]){
+  const f=deploymentFixture();Object.assign(f.context.beforeBuildReceipt,changes);assert.equal(run(f).ok,false);
+ }
+});

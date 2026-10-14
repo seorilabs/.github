@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { bootstrapDigest, validateBootstrapAppleObservation as validate, validateBootstrapProcessedBuild,
-  verifyBootstrapWorkingTree, verifyInternalTestflightBootstrap, validateBootstrapSigningEntitlements, readBootstrapPlist, validateBootstrapProfileSigner } from '../scripts/release/internal-testflight-bootstrap.mjs';
+  verifyBootstrapWorkingTree, verifyInternalTestflightBootstrap, validateBootstrapSigningEntitlements, readBootstrapPlist, validateBootstrapProfileSigner, validateBootstrapApprovalProposal } from '../scripts/release/internal-testflight-bootstrap.mjs';
 import { runDevelopmentEvidenceCli } from '../scripts/release/verify-development-evidence.mjs';
 const SHA='a'.repeat(40), BUNDLE='com.seorilabs.spiritgatedefenders';
 const provider={appId:'6792205995',productId:'E5C1A24C-AA05-41B0-B2F6-F1BF0B92D7DB',workflowId:'45B83B98-ABE4-48C1-83FC-09CF3F79651E'};
@@ -88,4 +88,11 @@ test('Apple profile Data and Date parse, and only its listed signing certificate
  assert.throws(()=>validateBootstrapProfileSigner(profile,Buffer.from('development-certificate')));
  assert.throws(()=>validateBootstrapProfileSigner({},Buffer.from('certificate')));
  assert.throws(()=>readBootstrapPlist(Buffer.from('invalid profile')));
+});
+
+test('human approval binds the exact proposal bytes and rejects later edits',()=>{
+ const proposal=Buffer.from('approved bounded proposal'),approval=Buffer.from(JSON.stringify({proposalSha256:bootstrapDigest(proposal)}));
+ validateBootstrapApprovalProposal(approval,proposal);
+ assert.throws(()=>validateBootstrapApprovalProposal(approval,Buffer.from('expanded scope')));
+ assert.throws(()=>validateBootstrapApprovalProposal(Buffer.from('{}'),proposal));
 });

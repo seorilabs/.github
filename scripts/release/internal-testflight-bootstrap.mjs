@@ -52,7 +52,7 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
   reject(context.verifierProof?.verified === true && context.verifierProof.reviewedOnCurrentMain === true,'TESTFLIGHT_REVIEWED_VERIFIER');
   const editor = validateDevelopmentEvidence(document.editor,{...context,featureInventory:inventory,requireUi:true});
   if (!editor.ok) errors.push(...editor.errors.map(e=>`TESTFLIGHT_EDITOR ${e}`));
-  reject(document.editor?.iterations?.length === 4 && document.editor.e2e.environment.kind === 'godot-editor','TESTFLIGHT_UI4_EDITOR_REQUIRED');
+  reject(document.editor?.iterations?.length === 4 && document.editor?.e2e?.environment?.kind === 'godot-editor','TESTFLIGHT_UI4_EDITOR_REQUIRED');
   const fourth=document.editor?.iterations?.[3];
   reject(Date.parse(fourth?.completedAt)-Date.parse(fourth?.startedAt) <= 210*60000,'TESTFLIGHT_UI4_BUDGET');
   const foundation=(inventory?.features ?? []).filter(f=>f.foundation === true).map(f=>f.id);
@@ -72,7 +72,8 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
     reject(artifact?.verified === true && artifact.sourceSha === context.sourceSha && artifact.buildId === provider?.buildId
       && artifact.buildNumber === provider?.buildNumber && artifact.bundleId === BUNDLE && artifact.version === '1.1.0'
       && DIGEST.test(artifact.sha256 ?? ''),'TESTFLIGHT_ACTUAL_ARTIFACT_REQUIRED');
-    reject(previous?.scope === 'internal_testflight_only' && previous.sourceSha === context.sourceSha && previous.buildId === provider?.buildId
+    reject(previous?.ok === true && previous.phase === 'before-build' && previous.decisionStatus === 'human_exception'
+      && previous.productE2eStatus === 'blocked' && previous.nativeQaWaived === false && previous.scope === 'internal_testflight_only' && previous.sourceSha === context.sourceSha && previous.buildId === provider?.buildId
       && previous.buildNumber === provider?.buildNumber && previous.configurationFingerprint === context.configurationFingerprint
       && previous.grantSha256 === context.grantSha256,'TESTFLIGHT_SAME_BUILD_RECEIPT');
   }
@@ -85,6 +86,7 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const policyPath='contracts/development-workflow.yaml';
+const proposalPath='docs/design/2026-10-14-spiritgate-internal-testflight/approved-proposal.md';
 const grantPaths=parse(readFileSync(join(root,policyPath),'utf8')).internalTestflightBootstrap?.grantRegistry ?? [];
 const fail=code=>{throw new Error(code);};
 const safePath=path=>typeof path==='string' && /^[A-Za-z0-9._/-]+$/u.test(path) && !path.split('/').includes('..') && !isAbsolute(path);
@@ -95,13 +97,18 @@ const readRemote=async(repository,path,ref,request)=>{
 };
 const git=(dir,...args)=>execFileSync('git',['-C',dir,...args],{maxBuffer:64*1024*1024,stdio:['ignore','pipe','pipe']});
 
+export function validateBootstrapApprovalProposal(approvalBytes,proposalBytes){
+  let approval;try{approval=JSON.parse(approvalBytes);}catch{fail('TESTFLIGHT_INVALID_APPROVAL');}
+  if(!Buffer.isBuffer(proposalBytes) || !DIGEST.test(approval.proposalSha256 ?? '') || bootstrapDigest(proposalBytes)!==approval.proposalSha256) fail('TESTFLIGHT_APPROVED_PROPOSAL_CHANGED');
+}
+
 // 임의 파일 경로를 ID로 바꿔 넘길 수 없다. 중앙 main에서 검토한 등록만 쓴다.
 async function reviewedBootstrap(id,verifierSha,request){
   const path=grantPaths.find(p=>p===`contracts/internal-testflight-bootstrap/${id}.json`);
   if(!path || !safePath(path) || !SHA.test(verifierSha ?? '')) fail('TESTFLIGHT_REVIEWED_GRANT_REQUIRED');
   const bytes=readFileSync(join(root,path)),grant=JSON.parse(bytes);
   if(!validGrant(grant) || grant.id!==id || grant.revoked) fail('TESTFLIGHT_GRANT');
-  const sources=[policyPath,'contracts/development-workflow.schema.json',path,grant.approvalFile,'package.json','package-lock.json',
+  const sources=[policyPath,'contracts/development-workflow.schema.json',path,grant.approvalFile,proposalPath,'package.json','package-lock.json',
     'scripts/github-rest.mjs','scripts/trigger-xcode-cloud.mjs','scripts/release/resolve-github-tag-commit.mjs','scripts/release/internal-testflight-bootstrap.mjs','scripts/release/verify-development-evidence.mjs',
     'scripts/release/verify-release-exception.mjs','scripts/release/hosted-godot-ios-exception.mjs',
     'scripts/release/release-promotion-evidence.mjs','scripts/release/tag-version-authority.mjs',
@@ -119,6 +126,11 @@ async function reviewedBootstrap(id,verifierSha,request){
   if(!bytes.equals(latest) || JSON.parse(latest).revoked) fail('TESTFLIGHT_GRANT_REVOKED_OR_CHANGED');
   const approvalBytes=readFileSync(join(root,grant.approvalFile));
   if(bootstrapDigest(approvalBytes)!==grant.approvalSha256) fail('TESTFLIGHT_APPROVAL_CHANGED');
+  const proposalBytes=readFileSync(join(root,proposalPath));
+  validateBootstrapApprovalProposal(approvalBytes,proposalBytes);
+  const [latestApproval,latestProposal]=await Promise.all([
+    readRemote('seorilabs/.github',grant.approvalFile,'main',request),readRemote('seorilabs/.github',proposalPath,'main',request)]);
+  if(!approvalBytes.equals(latestApproval) || !proposalBytes.equals(latestProposal)) fail('TESTFLIGHT_APPROVED_PROPOSAL_CHANGED');
   return {grant,approvalBytes,grantSha256:bootstrapDigest(bytes),verifierProof:{verified:true,revision:verifierSha,reviewedOnCurrentMain:true}};
 }
 
