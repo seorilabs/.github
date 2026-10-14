@@ -55,7 +55,8 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
   const approvedUiRounds=grant.approvedUiRounds ?? 4;
   reject(document.editor?.iterations?.length === approvedUiRounds && document.editor?.e2e?.environment?.kind === 'godot-editor','TESTFLIGHT_APPROVED_UI_EDITOR_REQUIRED');
   const last=document.editor?.iterations?.[approvedUiRounds-1];
-  reject(Date.parse(last?.completedAt)-Date.parse(last?.startedAt) <= 210*60000,'TESTFLIGHT_APPROVED_UI_BUDGET');
+  const extra=(document.editor?.iterations ?? []).slice(3,approvedUiRounds);
+  reject(extra.length===approvedUiRounds-3 && extra.every(round=>Date.parse(round?.completedAt)-Date.parse(round?.startedAt) <= 210*60000),'TESTFLIGHT_APPROVED_UI_BUDGET');
   if(approvedUiRounds===5){
     try{
       const additional=validateBootstrapAdditionalUiApproval(grant,context.additionalUiApprovalBytes,context.additionalUiProposalBytes);

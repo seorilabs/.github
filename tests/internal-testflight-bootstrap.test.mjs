@@ -55,6 +55,14 @@ test('separately reviewed UI5 preserves UI4 approval and original expiry',()=>{
  assert.equal(f.doc.editor.additionalIterationApproval.maxRound,4);
  assert.equal(f.context.grant.expiresAt,'2026-10-15T05:00:00Z');
 });
+test('a separate UI5 approval cannot waive the original UI4 210-minute budget',()=>{
+ const f=fiveRoundFixture();
+ f.doc.editor.iterations[3].completedAt='2026-10-08T09:00:00Z';
+ Object.assign(f.doc.editor.iterations[4],{plannedAt:'2026-10-08T09:05:00Z',startedAt:'2026-10-08T09:06:00Z',completedAt:'2026-10-08T09:15:00Z'});
+ Object.assign(f.doc.editor.e2e,{plannedAt:'2026-10-08T09:20:00Z',startedAt:'2026-10-08T09:21:00Z',completedAt:'2026-10-08T09:25:00Z'});
+ f.context.evidenceBytes=jsonBytes(f.doc);f.context.grant.evidenceSha256=digest(f.context.evidenceBytes);
+ assert.equal(run(f).ok,false);
+});
 for(const [name,change] of [
  ['unreviewed UI5 approval',f=>{delete f.context.additionalUiApprovalBytes;}],
  ['changed UI5 original approval bytes',f=>{f.context.additionalUiApprovalBytes=Buffer.from('{}');}],
