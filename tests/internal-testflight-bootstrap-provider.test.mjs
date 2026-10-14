@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { bootstrapDigest, validateBootstrapAppleObservation as validate, validateBootstrapProcessedBuild,
-  verifyBootstrapWorkingTree, verifyInternalTestflightBootstrap } from '../scripts/release/internal-testflight-bootstrap.mjs';
+  verifyBootstrapWorkingTree, verifyInternalTestflightBootstrap, validateBootstrapSigningEntitlements } from '../scripts/release/internal-testflight-bootstrap.mjs';
 import { runDevelopmentEvidenceCli } from '../scripts/release/verify-development-evidence.mjs';
 const SHA='a'.repeat(40), BUNDLE='com.seorilabs.spiritgatedefenders';
 const provider={appId:'6792205995',productId:'E5C1A24C-AA05-41B0-B2F6-F1BF0B92D7DB',workflowId:'45B83B98-ABE4-48C1-83FC-09CF3F79651E'};
@@ -62,7 +62,20 @@ test('actual working bytes and untracked export resources cannot drift from the 
   assert.equal(verifyBootstrapWorkingTree(root,g,'before-build').executionVerified,true);
   writeFileSync(join(root,'project.godot'),'prepared');assert.throws(()=>verifyBootstrapWorkingTree(root,g,'before-build'));
   assert.equal(verifyBootstrapWorkingTree(root,g,'before-deploy').executionVerified,true);
-  mkdirSync(join(root,'src'));writeFileSync(join(root,'src','unapproved.gd'),'extends Node');assert.throws(()=>verifyBootstrapWorkingTree(root,g,'before-deploy'));rmSync(join(root,'src'),{recursive:true});
+  mkdirSync(join(root,'src'));writeFileSync(join(root,'.git','info','exclude'),'src/\nextra.tscn\n');writeFileSync(join(root,'src','unapproved.gd'),'extends Node');assert.throws(()=>verifyBootstrapWorkingTree(root,g,'before-deploy'));rmSync(join(root,'src'),{recursive:true});writeFileSync(join(root,'extra.tscn'),'[gd_scene format=3]');assert.throws(()=>verifyBootstrapWorkingTree(root,g,'before-deploy'));rmSync(join(root,'extra.tscn'));
+  for(const extra of ['hidden.gd','extra.sh','xcode-cloud/ci_scripts/hidden.sh']){
+   mkdirSync(join(root,extra,'..'),{recursive:true});writeFileSync(join(root,extra),'unapproved');assert.throws(()=>verifyBootstrapWorkingTree(root,g,'before-deploy'));rmSync(join(root,extra));
+  }
+  mkdirSync(join(root,'.godot'),{recursive:true});writeFileSync(join(root,'.godot','cache'),'generated');
+  mkdirSync(join(root,'xcode-cloud','SpiritgateDefenders'),{recursive:true});writeFileSync(join(root,'xcode-cloud','SpiritgateDefenders','Info.plist'),'generated');
+  assert.throws(()=>verifyBootstrapWorkingTree(root,g,'before-build'));
+  assert.equal(verifyBootstrapWorkingTree(root,g,'before-deploy').executionVerified,true);
   writeFileSync(join(root,'project.godot'),'tampered');assert.throws(()=>verifyBootstrapWorkingTree(root,g,'before-deploy'));
  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('signed app entitlements bind distribution identity to the intended app',()=>{
+ const valid={'application-identifier':`HCDUXX4Z3X.${BUNDLE}`,'com.apple.developer.team-identifier':'HCDUXX4Z3X','get-task-allow':false};
+ validateBootstrapSigningEntitlements(valid);
+ for(const changed of [{...valid,'application-identifier':`HCDUXX4Z3X.other`},{...valid,'com.apple.developer.team-identifier':'OTHERTEAM'}, {...valid,'get-task-allow':true},{}]) assert.throws(()=>validateBootstrapSigningEntitlements(changed));
 });

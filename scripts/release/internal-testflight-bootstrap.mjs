@@ -101,7 +101,7 @@ async function reviewedBootstrap(id,verifierSha,request){
   const bytes=readFileSync(join(root,path)),grant=JSON.parse(bytes);
   if(!validGrant(grant) || grant.id!==id || grant.revoked) fail('TESTFLIGHT_GRANT');
   const sources=[policyPath,'contracts/development-workflow.schema.json',path,grant.approvalFile,'package.json','package-lock.json',
-    'scripts/github-rest.mjs','scripts/release/internal-testflight-bootstrap.mjs','scripts/release/verify-development-evidence.mjs',
+    'scripts/github-rest.mjs','scripts/trigger-xcode-cloud.mjs','scripts/release/resolve-github-tag-commit.mjs','scripts/release/internal-testflight-bootstrap.mjs','scripts/release/verify-development-evidence.mjs',
     'scripts/release/verify-release-exception.mjs','scripts/release/hosted-godot-ios-exception.mjs',
     'scripts/release/release-promotion-evidence.mjs','scripts/release/tag-version-authority.mjs',
     'contracts/development-evidence.schema.json','contracts/release-exception.schema.json','contracts/release-exception-grant.schema.json',
@@ -136,9 +136,13 @@ export function verifyBootstrapWorkingTree(repository,grant,phase){
     const actual=createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
     if(overrides[path] ? bootstrapDigest(bytes)!==overrides[path] : actual!==expected) fail('TESTFLIGHT_WORKING_FILE_CHANGED');
   }
-  // export가 포함하는 제품 폴더의 추가 파일도 원래 후보로 간주하지 않는다.
-  const extras=git(dir,'ls-files','--others','--exclude-standard','-z').toString().split('\0').filter(Boolean);
-  if(extras.some(p=>/^(src|autoload|scenes|assets|addons)\//u.test(p))) fail('TESTFLIGHT_UNTRACKED_PRODUCT_FILE');
+  // .gitignore에 숨긴 코드도 검사한다. 생성 위치만 허용하고 전체 폴더 예외는 두지 않는다.
+  const extras=git(dir,'ls-files','--others','-z').toString().split('\0').filter(Boolean);
+  const generated=p=>p.startsWith('.godot/') || p.startsWith('build/logs/')
+    || /^addons\/seorilabs_platform\/.+\.uid$/u.test(p)
+    || (phase==='before-deploy' && (/^xcode-cloud\/(?:MoltenVK\.xcframework|SpiritgateDefenders|SpiritgateDefenders\.xcframework|libgodot_camera\.visionos\.(?:debug|release)\.xcframework)\//u.test(p)
+      || ['xcode-cloud/PrivacyInfo.xcprivacy','xcode-cloud/SpiritgateDefenders.pck'].includes(p)));
+  if(extras.some(p=>!generated(p))) fail('TESTFLIGHT_UNTRACKED_PRODUCT_FILE');
   return {productTreeSha256:bootstrapDigest(tree),executionVerified:true};
 }
 
@@ -224,7 +228,7 @@ export async function verifyInternalTestflightBootstrap(options){
   const inventoryBytes=await readRemote(REPO,'docs/qa/feature-inventory.json',grant.sourceSha,request);
   const tree=verifyBootstrapWorkingTree(options.appRepository,grant,options.phase);
   const providerProof=await bootstrapProvider(grant,env,request.fetchImpl);
-  const context={...options,...reviewed,...tree,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof};
+  const context={...options,...reviewed,...tree,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof,now:new Date().toISOString()};
   // Signed artifact and prior phase receipt are required by the before-deploy validator.
   if(options.phase==='before-deploy'){
     if(!options.artifactFile || !options.artifactReceipt) fail('TESTFLIGHT_ACTUAL_ARTIFACT_REQUIRED');
@@ -240,11 +244,20 @@ function plistJson(file,bytes){
   try{return JSON.parse(execFileSync('/usr/bin/plutil',['-convert','json','-o','-',bytes?'-':file],{input:bytes,maxBuffer:8*1024*1024,stdio:['pipe','pipe','pipe']}));}
   catch{fail('TESTFLIGHT_PLIST_INVALID');}
 }
+export function validateBootstrapSigningEntitlements(entitlements){
+  if(entitlements?.['application-identifier']!==`HCDUXX4Z3X.${BUNDLE}`
+    || entitlements['com.apple.developer.team-identifier']!=='HCDUXX4Z3X'
+    || entitlements['get-task-allow']!==false) fail('TESTFLIGHT_SIGNED_ENTITLEMENTS_INVALID');
+}
 export function inspectBootstrapArtifact(directory,provider,grant,repository){
   const app=realpathSync(directory),stat=lstatSync(directory);
   if(!stat.isDirectory() || stat.isSymbolicLink() || !app.endsWith('.app')) fail('TESTFLIGHT_SIGNED_APP_DIRECTORY_REQUIRED');
-  try{execFileSync('codesign',['--verify','--deep','--strict',app],{stdio:'pipe',timeout:30000});}
+  try{execFileSync('codesign',['--verify','--deep','--strict','-R','anchor apple generic and certificate leaf[subject.OU] = "HCDUXX4Z3X"',app],{stdio:'pipe',timeout:30000});}
   catch{fail('TESTFLIGHT_SIGNATURE_INVALID');}
+  let signedEntitlements;
+  try{signedEntitlements=plistJson(null,execFileSync('codesign',['--display','--entitlements',':-',app],{maxBuffer:8*1024*1024,stdio:['ignore','pipe','pipe'],timeout:10000}));}
+  catch{fail('TESTFLIGHT_SIGNED_ENTITLEMENTS_INVALID');}
+  validateBootstrapSigningEntitlements(signedEntitlements);
   const info=plistJson(join(app,'Info.plist'));
   const profileBytes=readFileSync(join(app,'embedded.mobileprovision'));
   if(bootstrapDigest(profileBytes)!==grant.profileSha256) fail('TESTFLIGHT_EXISTING_PROFILE_REQUIRED');
