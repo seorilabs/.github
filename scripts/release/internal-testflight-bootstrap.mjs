@@ -1,8 +1,9 @@
 // 첫 내부 TestFlight의 검수 시점만 옮긴다. 공개 출시·제품 E2E 통과 판정이 아니다.
-import { readFileSync, lstatSync, readdirSync, readlinkSync, realpathSync } from 'node:fs';
+import { readFileSync, lstatSync, readdirSync, readlinkSync, realpathSync, mkdtempSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 import { parse } from 'yaml';
 import { githubJson, githubPaginate, githubDownload } from '../github-rest.mjs';
 import Ajv2020 from 'ajv/dist/2020.js';
@@ -240,9 +241,16 @@ export async function verifyInternalTestflightBootstrap(options){
   return result;
 }
 
-function plistJson(file,bytes){
-  try{return JSON.parse(execFileSync('/usr/bin/plutil',['-convert','json','-o','-',bytes?'-':file],{input:bytes,maxBuffer:8*1024*1024,stdio:['pipe','pipe','pipe']}));}
+export function readBootstrapPlist(bytes){
+  // Apple 프로필의 Data/Date도 보존한다. plutil의 JSON 변환은 Data를 거부한다.
+  const parser='import sys,plistlib,json,base64,datetime\ndef encode(v):\n if isinstance(v,bytes): return base64.b64encode(v).decode("ascii")\n if isinstance(v,(datetime.datetime,datetime.date)): return v.isoformat()\n raise TypeError("unsupported plist value")\njson.dump(plistlib.loads(sys.stdin.buffer.read()),sys.stdout,default=encode)';
+  try{return JSON.parse(execFileSync('python3',['-c',parser],{input:bytes,maxBuffer:8*1024*1024,stdio:['pipe','pipe','pipe']}));}
   catch{fail('TESTFLIGHT_PLIST_INVALID');}
+}
+const plistJson=(file,bytes)=>readBootstrapPlist(bytes ?? readFileSync(file));
+export function validateBootstrapProfileSigner(profile,certificate){
+  if(!Buffer.isBuffer(certificate) || !certificate.length || !Array.isArray(profile?.DeveloperCertificates)
+    || !profile.DeveloperCertificates.some(c=>typeof c==='string' && Buffer.from(c,'base64').equals(certificate))) fail('TESTFLIGHT_PROFILE_SIGNER_MISMATCH');
 }
 export function validateBootstrapSigningEntitlements(entitlements){
   if(entitlements?.['application-identifier']!==`HCDUXX4Z3X.${BUNDLE}`
@@ -252,7 +260,7 @@ export function validateBootstrapSigningEntitlements(entitlements){
 export function inspectBootstrapArtifact(directory,provider,grant,repository){
   const app=realpathSync(directory),stat=lstatSync(directory);
   if(!stat.isDirectory() || stat.isSymbolicLink() || !app.endsWith('.app')) fail('TESTFLIGHT_SIGNED_APP_DIRECTORY_REQUIRED');
-  try{execFileSync('codesign',['--verify','--deep','--strict','-R','anchor apple generic and certificate leaf[subject.OU] = "HCDUXX4Z3X"',app],{stdio:'pipe',timeout:30000});}
+  try{execFileSync('codesign',['--verify','--deep','--strict','-R','=anchor apple generic and certificate leaf[subject.OU] = "HCDUXX4Z3X"',app],{stdio:'pipe',timeout:30000});}
   catch{fail('TESTFLIGHT_SIGNATURE_INVALID');}
   let signedEntitlements;
   try{signedEntitlements=plistJson(null,execFileSync('codesign',['--display','--entitlements',':-',app],{maxBuffer:8*1024*1024,stdio:['ignore','pipe','pipe'],timeout:10000}));}
@@ -265,6 +273,13 @@ export function inspectBootstrapArtifact(directory,provider,grant,repository){
   try{decoded=execFileSync('security',['cms','-D','-i',join(app,'embedded.mobileprovision')],{maxBuffer:8*1024*1024,stdio:'pipe',timeout:10000});}
   catch{fail('TESTFLIGHT_PROFILE_INVALID');}
   const profile=plistJson(null,decoded);
+  const certificateDir=mkdtempSync(join(tmpdir(),'spiritgate-signature-'));
+  try{
+    const prefix=join(certificateDir,'certificate-');
+    execFileSync('codesign',['--display','--extract-certificates',prefix,app],{stdio:'pipe',timeout:10000});
+    validateBootstrapProfileSigner(profile,readFileSync(`${prefix}0`));
+  }catch{fail('TESTFLIGHT_PROFILE_SIGNER_MISMATCH');}
+  finally{rmSync(certificateDir,{recursive:true,force:true});}
   if(info.CFBundleIdentifier!==BUNDLE || info.CFBundleShortVersionString!=='1.1.0' || String(info.CFBundleVersion)!==String(provider.buildNumber)
     || info.MinimumOSVersion!=='15.0' || !equal(info.UIDeviceFamily,[1]) || info.GADApplicationIdentifier!=='ca-app-pub-9932778305312246~7188570270'
     || !info.NSUserTrackingUsageDescription || !Array.isArray(info.SKAdNetworkItems) || !info.SKAdNetworkItems.length

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { bootstrapDigest, validateBootstrapAppleObservation as validate, validateBootstrapProcessedBuild,
-  verifyBootstrapWorkingTree, verifyInternalTestflightBootstrap, validateBootstrapSigningEntitlements } from '../scripts/release/internal-testflight-bootstrap.mjs';
+  verifyBootstrapWorkingTree, verifyInternalTestflightBootstrap, validateBootstrapSigningEntitlements, readBootstrapPlist, validateBootstrapProfileSigner } from '../scripts/release/internal-testflight-bootstrap.mjs';
 import { runDevelopmentEvidenceCli } from '../scripts/release/verify-development-evidence.mjs';
 const SHA='a'.repeat(40), BUNDLE='com.seorilabs.spiritgatedefenders';
 const provider={appId:'6792205995',productId:'E5C1A24C-AA05-41B0-B2F6-F1BF0B92D7DB',workflowId:'45B83B98-ABE4-48C1-83FC-09CF3F79651E'};
@@ -78,4 +78,14 @@ test('signed app entitlements bind distribution identity to the intended app',()
  const valid={'application-identifier':`HCDUXX4Z3X.${BUNDLE}`,'com.apple.developer.team-identifier':'HCDUXX4Z3X','get-task-allow':false};
  validateBootstrapSigningEntitlements(valid);
  for(const changed of [{...valid,'application-identifier':`HCDUXX4Z3X.other`},{...valid,'com.apple.developer.team-identifier':'OTHERTEAM'}, {...valid,'get-task-allow':true},{}]) assert.throws(()=>validateBootstrapSigningEntitlements(changed));
+});
+
+test('Apple profile Data and Date parse, and only its listed signing certificate is accepted',()=>{
+ const bytes=execFileSync('python3',['-c','import plistlib,datetime,sys;sys.stdout.buffer.write(plistlib.dumps({"DeveloperCertificates":[b"distribution-certificate"],"ExpirationDate":datetime.datetime(2027,1,1)},fmt=plistlib.FMT_BINARY))']);
+ const profile=readBootstrapPlist(bytes);
+ assert.equal(profile.ExpirationDate,'2027-01-01T00:00:00');
+ validateBootstrapProfileSigner(profile,Buffer.from('distribution-certificate'));
+ assert.throws(()=>validateBootstrapProfileSigner(profile,Buffer.from('development-certificate')));
+ assert.throws(()=>validateBootstrapProfileSigner({},Buffer.from('certificate')));
+ assert.throws(()=>readBootstrapPlist(Buffer.from('invalid profile')));
 });
