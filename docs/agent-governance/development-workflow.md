@@ -209,4 +209,8 @@ Apple의 단일 archive action은 `INTERNAL_ONLY`여야 한다. 처리된 빌드
 
 ### 별도 승인된 UI5 기록
 
-[승인된 UI5 설계](../design/2026-10-14-spiritgate-ui5/design.md)에 따라 첫 내부 grant의 `approvedUiRounds`는4 또는5이며 실제 기록 수와 같아야 한다. 5는 별도 승인·정확한 제안·후보·설정·원래 시점 예외 승인 hash를 중앙 검토본과 최신main에 결속한다. 기존 UI4 단일 승인 시각을 고치지 않고 `additionalIterationApprovals`에 새 승인을 보존한다. 승인전 실행·UI6·168시간 연장·원본 실패 은폐를 허용하지 않으며, 등록 목록이 비어 있으면 실행은 여전히 차단된다.
+[승인된 UI5 설계](../design/2026-10-14-spiritgate-ui5/design.md)에 따라 첫 내부 grant의 `approvedUiRounds`는4 또는5이며 실제 기록 수와 같아야 한다. 5는 별도 승인·정확한 제안·후보·설정·원래 시점 예외 승인 hash를 중앙 검토본과 최신main에 결속한다. 기존 UI4 단일 승인 시각을 고치지 않고 `additionalIterationApprovals`에 새 승인을 보존한다. 승인전 실행·UI5 승인만으로 UI6 실행·168시간 연장·원본 실패 은폐를 허용하지 않으며, 등록 목록이 비어 있으면 실행은 여전히 차단된다.
+
+### 별도 승인된 UI6 기록
+
+[승인된 UI6 설계](../design/2026-10-15-spiritgate-ui6/design.md)는 정확한6회만 추가한다. 기존4/5회 경로의 후보·설정 비교는 유지한다. 6회는 `ui6ApprovalFile`·`ui6ApprovalSha256`와 정확한 제안, 현재 후보·설정에 별도로 결속한다. UI5 원문 승인·제안과 실제 `historicalUi5`의 source/configuration 자산 bytes를 보존해 과거 후보를 새 후보로 소급 변경하지 않는다. UI6 승인은 UI5 승인·source snapshot·configuration hash도 참조한다. 원래4/5회 승인 시각·실패·예산을 보존하고 4·5·6회 각각210분 상한, 최신 기능/UX·실제 Editor 전체 E2E·Android 기반4·기존168시간을 검사한다. UI7·실기기 면제·공개 예외는 추가하지 않는다. registry가 비어 있으면 검증기 지원만으로 실행은 허용되지 않는다.

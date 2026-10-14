@@ -182,7 +182,8 @@
     "approvedUiRounds": {
       "enum": [
         4,
-        5
+        5,
+        6
       ]
     },
     "additionalUiApprovalFile": {
@@ -191,6 +192,69 @@
     "additionalUiApprovalSha256": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
+    },
+    "ui6ApprovalFile": {
+      "const": "docs/design/2026-10-15-spiritgate-ui6/approval.json"
+    },
+    "ui6ApprovalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "historicalUi5": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceSha",
+        "configurationFingerprint",
+        "sourceSnapshotAsset",
+        "configurationAsset"
+      ],
+      "properties": {
+        "sourceSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "configurationFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceSnapshotAsset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "sha256"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        },
+        "configurationAsset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "sha256"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
+      }
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -200,7 +264,10 @@
       "if": {
         "properties": {
           "approvedUiRounds": {
-            "const": 5
+            "enum": [
+              5,
+              6
+            ]
           }
         },
         "required": [
@@ -224,6 +291,46 @@
             {
               "required": [
                 "additionalUiApprovalSha256"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "approvedUiRounds": {
+            "const": 6
+          }
+        },
+        "required": [
+          "approvedUiRounds"
+        ]
+      },
+      "then": {
+        "required": [
+          "ui6ApprovalFile",
+          "ui6ApprovalSha256",
+          "historicalUi5"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "ui6ApprovalFile"
+              ]
+            },
+            {
+              "required": [
+                "ui6ApprovalSha256"
+              ]
+            },
+            {
+              "required": [
+                "historicalUi5"
               ]
             }
           ]

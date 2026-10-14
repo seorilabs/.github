@@ -57,13 +57,22 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
   const last=document.editor?.iterations?.[approvedUiRounds-1];
   const extra=(document.editor?.iterations ?? []).slice(3,approvedUiRounds);
   reject(extra.length===approvedUiRounds-3 && extra.every(round=>Date.parse(round?.completedAt)-Date.parse(round?.startedAt) <= 210*60000),'TESTFLIGHT_APPROVED_UI_BUDGET');
-  if(approvedUiRounds===5){
+  if(approvedUiRounds>=5){
     try{
-      const additional=validateBootstrapAdditionalUiApproval(grant,context.additionalUiApprovalBytes,context.additionalUiProposalBytes);
+      const additional=approvedUiRounds===6
+        ? validateBootstrapHistoricalUi5(grant,context)
+        : validateBootstrapAdditionalUiApproval(grant,context.additionalUiApprovalBytes,context.additionalUiProposalBytes);
       const approvals=document.editor?.additionalIterationApprovals ?? [];
       reject(approvals.some(a=>a.maxRound===5 && a.approvedAt===additional.approvalRecordedAt && a.evidence===grant.additionalUiApprovalFile),'TESTFLIGHT_UI5_EDITOR_APPROVAL');
       const recorded=Date.parse(additional.approvalRecordedAt);
-      reject(Number.isFinite(recorded) && approved<=recorded && recorded<=now && recorded<=Date.parse(last?.plannedAt),'TESTFLIGHT_UI5_APPROVAL_TIME');
+      reject(Number.isFinite(recorded) && approved<=recorded && recorded<=now && recorded<=Date.parse(document.editor?.iterations?.[4]?.plannedAt),'TESTFLIGHT_UI5_APPROVAL_TIME');
+      if(approvedUiRounds===6){
+        const sixth=validateBootstrapUi6Approval(grant,context.ui6ApprovalBytes,context.ui6ProposalBytes);
+        const ui6At=Date.parse(sixth.approvalRecordedAt);
+        reject(approvals.some(a=>a.maxRound===6 && a.approvedAt===sixth.approvalRecordedAt && a.evidence===grant.ui6ApprovalFile),'TESTFLIGHT_UI6_EDITOR_APPROVAL');
+        reject(Number.isFinite(ui6At) && recorded<=ui6At && ui6At<=now && ui6At<=Date.parse(last?.plannedAt),'TESTFLIGHT_UI6_APPROVAL_TIME');
+        reject(document.editor?.iterations?.[4]?.sourceSha===grant.historicalUi5.sourceSha && last?.sourceSha===grant.sourceSha,'TESTFLIGHT_UI6_HISTORY_SOURCE');
+      }
     }catch(error){errors.push(error.message);}
   }
   const foundation=(inventory?.features ?? []).filter(f=>f.foundation === true).map(f=>f.id);
@@ -93,13 +102,15 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
     sourceSha:context.sourceSha,target:'app-store',phase:context.phase,configurationFingerprint:context.configurationFingerprint,
     grantSha256:context.grantSha256,completedAt:document.editor.e2e.completedAt,verifiedAt:new Date(now).toISOString(),
     buildId:provider.buildId,buildNumber:provider.buildNumber,androidStatus:'passed',iosStatus:'deferred',nativeQaWaived:false,
-    approvedUiRounds,additionalUiApprovalSha256:approvedUiRounds===5 ? grant.additionalUiApprovalSha256 : null};
+    approvedUiRounds,additionalUiApprovalSha256:approvedUiRounds>=5 ? grant.additionalUiApprovalSha256 : null,
+    ...(approvedUiRounds===6 ? {ui6ApprovalSha256:grant.ui6ApprovalSha256} : {})};
 }
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const policyPath='contracts/development-workflow.yaml';
 const proposalPath='docs/design/2026-10-14-spiritgate-internal-testflight/approved-proposal.md';
 const ui5ProposalPath='docs/design/2026-10-14-spiritgate-ui5/approved-proposal.md';
+const ui6ProposalPath='docs/design/2026-10-15-spiritgate-ui6/approved-proposal.md';
 const grantPaths=parse(readFileSync(join(root,policyPath),'utf8')).internalTestflightBootstrap?.grantRegistry ?? [];
 const fail=code=>{throw new Error(code);};
 const safePath=path=>typeof path==='string' && /^[A-Za-z0-9._/-]+$/u.test(path) && !path.split('/').includes('..') && !isAbsolute(path);
@@ -128,6 +139,39 @@ export function validateBootstrapAdditionalUiApproval(grant,approvalBytes,propos
   return approval;
 }
 
+function validateBootstrapHistoricalUi5(grant,context){
+  const history=grant.historicalUi5;
+  for(const [bytes,asset] of [[context.ui5SourceSnapshotBytes,history?.sourceSnapshotAsset],[context.ui5ConfigurationBytes,history?.configurationAsset]]){
+    if(!Buffer.isBuffer(bytes) || bootstrapDigest(bytes)!==asset?.sha256
+      || !grant.originalObservationAssets.some(a=>equal(a,asset))) fail('TESTFLIGHT_UI5_SNAPSHOT_CHANGED');
+  }
+  let source,configuration,approval;
+  try{source=JSON.parse(context.ui5SourceSnapshotBytes);configuration=JSON.parse(context.ui5ConfigurationBytes);approval=JSON.parse(context.additionalUiApprovalBytes);}
+  catch{fail('TESTFLIGHT_INVALID_UI5_SNAPSHOT');}
+  if(source.sourceSha!==history.sourceSha || configuration.projection?.sourceSha!==history.sourceSha
+    || configuration.projection?.sourceAfter!==history.sourceSnapshotAsset.sha256 || configuration.fingerprint!==history.configurationFingerprint
+    || configuration.projection?.runtimeKind!=='godot-editor'
+    || (approval.sourceSha!==null && approval.sourceSha!==history.sourceSha)
+    || (approval.configurationFingerprint!==null && approval.configurationFingerprint!==history.configurationFingerprint)) fail('TESTFLIGHT_UI5_SNAPSHOT_SCOPE');
+  // 미등록 UI5 승인 원문의 null 값은 소급 수정하지 않는다. 실제 후보/설정은 위 원본 snapshot bytes로 확인한다.
+  return validateBootstrapAdditionalUiApproval({...grant,sourceSha:approval.sourceSha,configurationFingerprint:approval.configurationFingerprint},context.additionalUiApprovalBytes,context.additionalUiProposalBytes);
+}
+
+function validateBootstrapUi6Approval(grant,approvalBytes,proposalBytes){
+  if(!Buffer.isBuffer(approvalBytes) || bootstrapDigest(approvalBytes)!==grant.ui6ApprovalSha256) fail('TESTFLIGHT_UI6_APPROVAL_CHANGED');
+  let approval;try{approval=JSON.parse(approvalBytes);}catch{fail('TESTFLIGHT_INVALID_UI6_APPROVAL');}
+  validateBootstrapApprovalProposal(approvalBytes,proposalBytes);
+  if(approval.kind!=='human_additional_ui_approval' || approval.designId!=='SGD-UI6-TF-110-v1' || approval.repository!==REPO || approval.version!=='1.1.0'
+    || approval.objective!=='one_additional_ui_round' || approval.approvedUiRounds!==6 || approval.sourceSha!==grant.sourceSha
+    || approval.configurationFingerprint!==grant.configurationFingerprint || approval.originalTimingApprovalSha256!==grant.approvalSha256
+    || approval.previousUiApprovalSha256!==grant.additionalUiApprovalSha256 || approval.previousUiSourceSnapshotSha256!==grant.historicalUi5.sourceSnapshotAsset.sha256
+    || approval.previousUiConfigurationSha256!==grant.historicalUi5.configurationAsset.sha256
+    || typeof approval.userApprovalVerbatim!=='string' || !approval.userApprovalVerbatim.trim()
+    || approval.executionMinutes!==180 || approval.issueRecheckMaximumCount!==1 || approval.issueRecheckMinutes!==30 || approval.totalMinutes!==210
+    || approval.extendOriginal168Hours!==false) fail('TESTFLIGHT_UI6_APPROVAL_SCOPE');
+  return approval;
+}
+
 // 임의 파일 경로를 ID로 바꿔 넘길 수 없다. 중앙 main에서 검토한 등록만 쓴다.
 async function reviewedBootstrap(id,verifierSha,request){
   const path=grantPaths.find(p=>p===`contracts/internal-testflight-bootstrap/${id}.json`);
@@ -140,7 +184,8 @@ async function reviewedBootstrap(id,verifierSha,request){
     'contracts/development-evidence.schema.json','contracts/development-evidence-v1.schema.json','contracts/test-plan.schema.json',
     'scripts/release/development-evidence-v1.mjs','scripts/release/test-plan.mjs','scripts/release/carry-forward.mjs',
     'contracts/internal-testflight-bootstrap.schema.json','contracts/internal-testflight-bootstrap-grant.schema.json',
-    ...(grant.approvedUiRounds===5 ? [grant.additionalUiApprovalFile,ui5ProposalPath] : [])];
+    ...(grant.approvedUiRounds>=5 ? [grant.additionalUiApprovalFile,ui5ProposalPath] : []),
+    ...(grant.approvedUiRounds===6 ? [grant.ui6ApprovalFile,ui6ProposalPath] : [])];
   await Promise.all(sources.map(async path=>{
     const remote=await readRemote('seorilabs/.github',path,verifierSha,request);
     if(!readFileSync(join(root,path)).equals(remote)) fail('TESTFLIGHT_VERIFIER_BYTES_CHANGED');
@@ -159,13 +204,21 @@ async function reviewedBootstrap(id,verifierSha,request){
     readRemote('seorilabs/.github',grant.approvalFile,'main',request),readRemote('seorilabs/.github',proposalPath,'main',request)]);
   if(!approvalBytes.equals(latestApproval) || !proposalBytes.equals(latestProposal)) fail('TESTFLIGHT_APPROVED_PROPOSAL_CHANGED');
   let additionalUi={};
-  if(grant.approvedUiRounds===5){
+  if(grant.approvedUiRounds>=5){
     const additionalUiApprovalBytes=readFileSync(join(root,grant.additionalUiApprovalFile)),additionalUiProposalBytes=readFileSync(join(root,ui5ProposalPath));
-    validateBootstrapAdditionalUiApproval(grant,additionalUiApprovalBytes,additionalUiProposalBytes);
+    if(grant.approvedUiRounds===5) validateBootstrapAdditionalUiApproval(grant,additionalUiApprovalBytes,additionalUiProposalBytes);
     const [latestAdditionalApproval,latestAdditionalProposal]=await Promise.all([
       readRemote('seorilabs/.github',grant.additionalUiApprovalFile,'main',request),readRemote('seorilabs/.github',ui5ProposalPath,'main',request)]);
     if(!additionalUiApprovalBytes.equals(latestAdditionalApproval) || !additionalUiProposalBytes.equals(latestAdditionalProposal)) fail('TESTFLIGHT_UI5_REVOKED_OR_CHANGED');
     additionalUi={additionalUiApprovalBytes,additionalUiProposalBytes};
+  }
+  if(grant.approvedUiRounds===6){
+    const ui6ApprovalBytes=readFileSync(join(root,grant.ui6ApprovalFile)),ui6ProposalBytes=readFileSync(join(root,ui6ProposalPath));
+    validateBootstrapUi6Approval(grant,ui6ApprovalBytes,ui6ProposalBytes);
+    const [latestApproval,latestProposal]=await Promise.all([
+      readRemote('seorilabs/.github',grant.ui6ApprovalFile,'main',request),readRemote('seorilabs/.github',ui6ProposalPath,'main',request)]);
+    if(!ui6ApprovalBytes.equals(latestApproval) || !ui6ProposalBytes.equals(latestProposal)) fail('TESTFLIGHT_UI6_REVOKED_OR_CHANGED');
+    Object.assign(additionalUi,{ui6ApprovalBytes,ui6ProposalBytes});
   }
   return {grant,approvalBytes,...additionalUi,grantSha256:bootstrapDigest(bytes),verifierProof:{verified:true,revision:verifierSha,reviewedOnCurrentMain:true}};
 }
@@ -273,11 +326,15 @@ export async function verifyInternalTestflightBootstrap(options){
   const evidenceBytes=await download(grant.evidenceAsset);
   if(evidenceBytes.length>2*1024*1024) fail('TESTFLIGHT_EVIDENCE_TOO_LARGE');
   const document=JSON.parse(evidenceBytes);
-  await Promise.all(grant.originalObservationAssets.map(download));
+  const originalBytes=await Promise.all(grant.originalObservationAssets.map(download));
+  const historicalUi5=grant.approvedUiRounds===6 ? {
+    ui5SourceSnapshotBytes:originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi5.sourceSnapshotAsset))],
+    ui5ConfigurationBytes:originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi5.configurationAsset))],
+  } : {};
   const inventoryBytes=await readRemote(REPO,'docs/qa/feature-inventory.json',grant.sourceSha,request);
   const tree=verifyBootstrapWorkingTree(options.appRepository,grant,options.phase);
   const providerProof=await bootstrapProvider(grant,env,request.fetchImpl);
-  const context={...options,...reviewed,...tree,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof,now:new Date().toISOString()};
+  const context={...options,...reviewed,...tree,...historicalUi5,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof,now:new Date().toISOString()};
   // Signed artifact and prior phase receipt are required by the before-deploy validator.
   if(options.phase==='before-deploy'){
     if(!options.artifactFile || !options.artifactReceipt) fail('TESTFLIGHT_ACTUAL_ARTIFACT_REQUIRED');
