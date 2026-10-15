@@ -67,17 +67,24 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
       const recorded=Date.parse(additional.approvalRecordedAt);
       reject(Number.isFinite(recorded) && approved<=recorded && recorded<=now && recorded<=Date.parse(document.editor?.iterations?.[4]?.plannedAt),'TESTFLIGHT_UI5_APPROVAL_TIME');
       if(approvedUiRounds>=6){
-        const sixth=approvedUiRounds===7 ? validateBootstrapHistoricalUi6(grant,context,document.editor.iterations[5])
+        const sixth=approvedUiRounds>=7 ? validateBootstrapHistoricalUi6(grant,context,document.editor.iterations[5])
           : validateBootstrapUi6Approval(grant,context.ui6ApprovalBytes,context.ui6ProposalBytes);
         const ui6At=Date.parse(sixth.approvalRecordedAt);
         reject(approvals.some(a=>a.maxRound===6 && a.approvedAt===sixth.approvalRecordedAt && a.evidence===grant.ui6ApprovalFile),'TESTFLIGHT_UI6_EDITOR_APPROVAL');
         reject(Number.isFinite(ui6At) && recorded<=ui6At && ui6At<=now && ui6At<=Date.parse(document.editor.iterations[5]?.plannedAt),'TESTFLIGHT_UI6_APPROVAL_TIME');
-        reject(document.editor?.iterations?.[4]?.sourceSha===grant.historicalUi5.sourceSha && document.editor.iterations[5]?.sourceSha===(approvedUiRounds===7 ? grant.historicalUi6.sourceSha : grant.sourceSha),'TESTFLIGHT_UI6_HISTORY_SOURCE');
-        if(approvedUiRounds===7){
-          const seventh=validateBootstrapUi7Approval(grant,context.ui7ApprovalBytes,context.ui7ProposalBytes),ui7At=Date.parse(seventh.approvalRecordedAt);
+        reject(document.editor?.iterations?.[4]?.sourceSha===grant.historicalUi5.sourceSha && document.editor.iterations[5]?.sourceSha===(approvedUiRounds>=7 ? grant.historicalUi6.sourceSha : grant.sourceSha),'TESTFLIGHT_UI6_HISTORY_SOURCE');
+        if(approvedUiRounds>=7){
+          const seventh=approvedUiRounds===8 ? validateBootstrapHistoricalUi7(grant,context,document.editor.iterations[6])
+            : validateBootstrapUi7Approval(grant,context.ui7ApprovalBytes,context.ui7ProposalBytes),ui7At=Date.parse(seventh.approvalRecordedAt);
           reject(approvals.some(a=>a.maxRound===7 && a.approvedAt===utc(seventh.approvalRecordedAt) && a.evidence===grant.ui7ApprovalFile),'TESTFLIGHT_UI7_EDITOR_APPROVAL');
-          reject(Number.isFinite(ui7At) && ui6At<=ui7At && ui7At<=now && ui7At<=Date.parse(last?.plannedAt),'TESTFLIGHT_UI7_APPROVAL_TIME');
-          reject(last?.sourceSha===grant.sourceSha,'TESTFLIGHT_UI7_SOURCE');
+          reject(Number.isFinite(ui7At) && ui6At<=ui7At && ui7At<=now && ui7At<=Date.parse(document.editor.iterations[6]?.plannedAt),'TESTFLIGHT_UI7_APPROVAL_TIME');
+          reject(document.editor.iterations[6]?.sourceSha===(approvedUiRounds===8 ? grant.historicalUi7.sourceSha : grant.sourceSha),'TESTFLIGHT_UI7_SOURCE');
+          if(approvedUiRounds===8){
+            const eighth=validateBootstrapUi8Approval(grant,context.ui8ApprovalBytes,context.ui8ProposalBytes),ui8At=Date.parse(eighth.approvalRecordedAt);
+            reject(approvals.some(a=>a.maxRound===8 && a.approvedAt===utc(eighth.approvalRecordedAt) && a.evidence===grant.ui8ApprovalFile),'TESTFLIGHT_UI8_EDITOR_APPROVAL');
+            reject(Number.isFinite(ui8At) && ui7At<=ui8At && ui8At<=now && ui8At<=Date.parse(last?.plannedAt),'TESTFLIGHT_UI8_APPROVAL_TIME');
+            reject(last?.sourceSha===grant.sourceSha,'TESTFLIGHT_UI8_SOURCE');
+          }
         }
       }
     }catch(error){errors.push(error.message);}
@@ -111,7 +118,8 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
     buildId:provider.buildId,buildNumber:provider.buildNumber,androidStatus:'passed',iosStatus:'deferred',nativeQaWaived:false,
     approvedUiRounds,additionalUiApprovalSha256:approvedUiRounds>=5 ? grant.additionalUiApprovalSha256 : null,
     ...(approvedUiRounds>=6 ? {ui6ApprovalSha256:grant.ui6ApprovalSha256} : {}),
-    ...(approvedUiRounds===7 ? {ui7ApprovalSha256:grant.ui7ApprovalSha256} : {})};
+    ...(approvedUiRounds>=7 ? {ui7ApprovalSha256:grant.ui7ApprovalSha256} : {}),
+    ...(approvedUiRounds===8 ? {ui8ApprovalSha256:grant.ui8ApprovalSha256} : {})};
 }
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
@@ -121,6 +129,8 @@ const ui5ProposalPath='docs/design/2026-10-14-spiritgate-ui5/approved-proposal.m
 const ui6ProposalPath='docs/design/2026-10-15-spiritgate-ui6/approved-proposal.md';
 const ui7ProposalPath='docs/design/2026-10-15-spiritgate-ui7/approved-proposal.md';
 const ui7HumanApprovalPath='docs/design/2026-10-15-spiritgate-ui7/human-approval.json';
+const ui8ProposalPath='docs/design/2026-10-15-spiritgate-ui8/approved-proposal.md';
+const ui8HumanApprovalPath='docs/design/2026-10-15-spiritgate-ui8/human-approval.json';
 const utc=value=>typeof value==='string' ? value.replace(/\+00:00$/u,'Z') : null;
 const grantPaths=parse(readFileSync(join(root,policyPath),'utf8')).internalTestflightBootstrap?.grantRegistry ?? [];
 const fail=code=>{throw new Error(code);};
@@ -240,6 +250,103 @@ function validateBootstrapUi7Approval(grant,approvalBytes,proposalBytes){
   return approval;
 }
 
+const ui7HistoricalAssets=[
+  ['sourceSnapshotAsset','ui7SourceSnapshotBytes','source-before.json'],['configurationAsset','ui7ConfigurationBytes','configuration.json'],
+  ['executionStartAsset','ui7ExecutionStartBytes','execution-start.json'],['mainIntegrityAsset','ui7MainIntegrityBytes','inspection/source-during-after-main-observations.json'],
+  ['transitionAsset','ui7TransitionBytes','correction-53bec059-copy-receipt.json'],['recheckConfigurationAsset','ui7RecheckConfigurationBytes','recheck-53bec059/configuration.json'],
+  ['recheckExecutionStartAsset','ui7RecheckExecutionStartBytes','recheck-53bec059/execution-start.json'],['recheckClockAsset','ui7RecheckClockBytes','recheck-53bec059/clock-clarification.json'],
+  ['recheckIntegrityAsset','ui7RecheckIntegrityBytes','recheck-53bec059/final-snapshot-receipt.json'],['resultAsset','ui7ResultBytes','ui7-result.json'],
+  ['cleanupAsset','ui7CleanupBytes','recheck-53bec059/process-cleanup-receipt.json'],['manifestAsset','ui7ManifestBytes','ui7-evidence-manifest.json'],
+];
+function validateBootstrapHistoricalUi7(grant,context,round){
+  const h=grant.historicalUi7,objects=[];
+  for(const [asset,key] of ui7HistoricalAssets){
+    const bytes=context[key];
+    if(!Buffer.isBuffer(bytes) || bootstrapDigest(bytes)!==h[asset].sha256 || !grant.originalObservationAssets.some(a=>equal(a,h[asset]))) fail('TESTFLIGHT_UI7_SNAPSHOT_CHANGED');
+    let value;try{value=JSON.parse(bytes);}catch{fail('TESTFLIGHT_INVALID_UI7_SNAPSHOT');}
+    if(!value || typeof value!=='object' || Array.isArray(value)) fail('TESTFLIGHT_INVALID_UI7_SNAPSHOT');
+    objects.push(value);
+  }
+  const [source,configuration,start,integrity,transition,reconfiguration,restart,clock,finalIntegrity,result,cleanup,manifest]=objects;
+  let approval;try{approval=JSON.parse(context.ui7ApprovalBytes);}catch{fail('TESTFLIGHT_INVALID_UI7_APPROVAL');}
+  if(!approval || typeof approval!=='object' || Array.isArray(approval)) fail('TESTFLIGHT_INVALID_UI7_APPROVAL');
+  if([source,configuration,start,integrity,result.main].some(v=>v?.sourceSha!==h.sourceSha)
+    || [reconfiguration,restart,finalIntegrity,result.recheck].some(v=>v?.sourceSha!==h.recheckSourceSha)
+    || h.sourceSha===h.recheckSourceSha || configuration.fingerprint!==h.configurationFingerprint
+    || start.configurationFingerprint!==h.configurationFingerprint || start.configurationFileSha256!==h.configurationAsset.sha256
+    || reconfiguration.fingerprint!==h.recheckConfigurationFingerprint || reconfiguration.originalFingerprint!==h.configurationFingerprint
+    || restart.configurationSha256!==h.recheckConfigurationAsset.sha256
+    || [configuration,reconfiguration].some(v=>v.runtimeKind!=='godot-editor' || v.nativeMarketFingerprint!==null)
+    || (approval.sourceSha!==null && approval.sourceSha!==h.sourceSha)
+    || (approval.configurationFingerprint!==null && approval.configurationFingerprint!==h.configurationFingerprint)) fail('TESTFLIGHT_UI7_SNAPSHOT_SCOPE');
+  const files=source.files,changes=transition.filesCopied,project=configuration.sourceProjectSha256;
+  const declared=(list,sourceKey,qaKey,cfg)=>Array.isArray(list) && list.length===1 && list[0]?.path==='project.godot'
+    && typeof project==='string' && DIGEST.test(project) && list[0][sourceKey]===project
+    && Array.isArray(cfg.configs) && cfg.configs.some(c=>typeof c.sha256==='string' && DIGEST.test(c.sha256) && c.sha256===list[0][qaKey]);
+  if(!Array.isArray(files) || !files.length || !files.every(f=>safePath(f.path) && typeof f.sha256==='string' && DIGEST.test(f.sha256) && Number.isSafeInteger(f.bytes) && f.bytes>=0)
+    || new Set(files.map(f=>f.path)).size!==files.length || files.find(f=>f.path==='project.godot')?.sha256!==project
+    || integrity.filesChecked!==files.length || !equal(integrity.missing,[]) || !declared(integrity.trackedDifferences,'sourceSha256','currentSha256',configuration)
+    || transition.sourceOriginal!==h.sourceSha || transition.sourceCorrected!==h.recheckSourceSha || !Array.isArray(changes) || !changes.length
+    || new Set(changes.map(c=>c.path)).size!==changes.length || !changes.every(c=>{
+      const old=files.find(f=>f.path===c.path);
+      return safePath(c.path) && c.path!=='project.godot' && (old ? c.old?.sha256===old.sha256 && c.old?.bytes===old.bytes : c.old===null)
+        && typeof c.new?.sha256==='string' && DIGEST.test(c.new.sha256) && Number.isSafeInteger(c.new?.bytes) && c.new.bytes>=0;
+    }) || transition.trackedFilesChecked!==files.length+changes.filter(c=>c.old===null).length
+    || !equal(transition.missing,[]) || !declared(transition.trackedDifferences,'sourceSha256','qaSha256',reconfiguration)
+    || transition.declaredQaHelpersUnchanged!==true || transition.runStartedByThisScript!==false || transition.recheckClockSetByThisScript!==false || transition.originalFailureHistoryModified!==false
+    || reconfiguration.sourceProjectSha256!==project || finalIntegrity.sourceFilesChecked!==transition.trackedFilesChecked || !equal(finalIntegrity.missing,[])
+    || !declared(finalIntegrity.declaredTrackedDifference,'source','qa',reconfiguration)
+    || !reconfiguration.helperHashes || !Object.keys(reconfiguration.helperHashes).length || !Object.entries(reconfiguration.helperHashes).every(([path,hash])=>typeof hash==='string' && DIGEST.test(hash) && finalIntegrity.helperHashes?.[path]?.expected===hash && finalIntegrity.helperHashes[path].actual===hash)
+    || finalIntegrity.globalEditorSettingsUnchanged!==true || finalIntegrity.profileUnchanged!==true
+    || finalIntegrity.originalAutomaticRejectionsPreserved!==true || finalIntegrity.newRun!==false || finalIntegrity.uiInput!==false) fail('TESTFLIGHT_UI7_SOURCE_HISTORY');
+  const counts=result.main?.counts;
+  if(result.round!==7 || result.verdict!=='fail-and-incomplete' || result.approvalConsumed!==true
+    || !counts || !['pass','fail','unknown'].every(k=>Number.isSafeInteger(counts[k]) && counts[k]>=0) || counts.pass+counts.fail+counts.unknown!==28 || counts.fail===0 || counts.unknown===0
+    || result.recheck?.count!==1 || result.recheck.complete28NewSource!=='notcompleted' || result.recheck.complete168NewSource!=='notcompleted' || result.recheck.smallHeroCardUx!=='fail'
+    || round?.functional?.status==='passed' || round?.ux?.status==='passed'
+    || result.cleanup?.status!=='completed-with-exact-user-approval' || result.cleanup.processAbsentAfter!==true || result.cleanup.uiInput!==false || result.cleanup.newRun!==false
+    || result.cleanup.originalStopRejectionAndRootSigtermRejectionPreserved!==true
+    || cleanup.processAbsentAfter!==true || cleanup.signalSent!==true || cleanup.uiInputSent!==false || cleanup.newProcessStarted!==false
+    || !Number.isSafeInteger(cleanup.pid) || cleanup.pid<=0 || result.cleanup.pid!==cleanup.pid) fail('TESTFLIGHT_UI7_FAILURE_HISTORY');
+  const began=Date.parse(start.startedAt),mainEnd=Date.parse(result.main.completedAt),intent=Date.parse(restart.runClickIntentAt),marker=Date.parse(restart.startedAt),stopped=Date.parse(cleanup.at),completed=Date.parse(result.completedAt),deadline=Date.parse(clock.effectiveDeadline);
+  if(![began,mainEnd,intent,marker,stopped,completed,deadline].every(Number.isFinite)
+    || !(began<=Date.parse(integrity.at) && Date.parse(integrity.at)<=mainEnd && mainEnd<=Date.parse(transition.at) && Date.parse(transition.at)<=intent && intent<=marker && marker<=stopped && stopped<=Date.parse(finalIntegrity.at) && Date.parse(finalIntegrity.at)<=completed && completed<=deadline)
+    || Date.parse(start.mainDeadlineAt)-began!==180*60000 || Date.parse(start.absoluteDeadlineAt)-began!==210*60000 || mainEnd>Date.parse(start.mainDeadlineAt) || deadline>Date.parse(start.absoluteDeadlineAt)
+    || start.uiRound!==7 || start.recheckCount!==0 || start.mainMinutes!==180 || start.problemRecheckLimit!==1 || start.problemRecheckMaxMinutes!==30 || restart.uiRound!==7 || restart.recheckCount!==1 || restart.restartsAllowed!==0
+    || utc(restart.plannedAt)!==utc(result.main.completedAt) || utc(restart.absoluteOuterDeadline)!==utc(start.absoluteDeadlineAt)
+    || utc(clock.intentAt)!==utc(restart.runClickIntentAt) || utc(clock.effectiveStart)!==utc(restart.runClickIntentAt) || utc(clock.actualMarkerAt)!==utc(restart.startedAt)
+    || Date.parse(restart.deadline)-marker!==30*60000 || deadline-intent!==30*60000
+    || utc(result.main.startedAt)!==utc(start.startedAt) || utc(result.main.deadline)!==utc(start.mainDeadlineAt)
+    || utc(result.recheck.effectiveStart)!==utc(clock.effectiveStart) || utc(result.recheck.actualRuntimeMarkerAt)!==utc(restart.startedAt) || utc(result.recheck.effectiveDeadline)!==utc(clock.effectiveDeadline)
+    || utc(result.recheck.actualProcessTerminatedAt)!==utc(cleanup.at) || utc(finalIntegrity.actualProcessTerminatedAt)!==utc(cleanup.at) || utc(result.cleanup.terminatedAt)!==utc(cleanup.at)
+    || utc(result.recheck.completedAt)!==utc(result.completedAt) || utc(result.reportedAt)!==utc(result.completedAt)
+    || round?.plannedAt!==utc(start.plannedAt) || round?.startedAt!==utc(start.startedAt) || round?.completedAt!==utc(result.completedAt)) fail('TESTFLIGHT_UI7_ORIGINAL_TIME');
+  if(manifest.result!=='FAIL/INCOMPLETE' || !Array.isArray(manifest.files) || manifest.fileCount!==manifest.files.length
+    || new Set(manifest.files.map(f=>f.path)).size!==manifest.files.length || !Number.isFinite(Date.parse(manifest.at)) || Date.parse(manifest.at)<completed
+    || !ui7HistoricalAssets.filter(([asset])=>asset!=='manifestAsset').every(([asset,key,path])=>manifest.files.some(f=>f.path===path && f.sha256===h[asset].sha256 && f.bytes===context[key].length))
+    || !['failure-drag-unlock/failure.json','inspection/revive-prompt-pt-small/finding.json','failure-revive-ad-cancel-overlay/failure.json','recheck-53bec059/small-hero-menu-finding.json'].every(path=>manifest.files.some(f=>f.path===path && typeof f.sha256==='string' && DIGEST.test(f.sha256) && f.bytes>0))) fail('TESTFLIGHT_UI7_MANIFEST');
+  // UI7 승인 원문의 미등록 null과 원래/수정 후보 실패를 보존한다. UI8 통과로 소급 합산하지 않는다.
+  return validateBootstrapUi7Approval({...grant,sourceSha:approval.sourceSha,configurationFingerprint:approval.configurationFingerprint},context.ui7ApprovalBytes,context.ui7ProposalBytes);
+}
+
+function validateBootstrapUi8Approval(grant,approvalBytes,proposalBytes){
+  if(!Buffer.isBuffer(approvalBytes) || bootstrapDigest(approvalBytes)!==grant.ui8ApprovalSha256) fail('TESTFLIGHT_UI8_APPROVAL_CHANGED');
+  let a;try{a=JSON.parse(approvalBytes);}catch{fail('TESTFLIGHT_INVALID_UI8_APPROVAL');}
+  if(!a || typeof a!=='object' || Array.isArray(a)) fail('TESTFLIGHT_INVALID_UI8_APPROVAL');
+  validateBootstrapApprovalProposal(approvalBytes,proposalBytes);
+  if(a.kind!=='human_additional_ui_approval' || a.designId!=='SGD-UI8-TF-110-v1' || a.repository!==REPO || a.version!=='1.1.0'
+    || a.objective!=='one_additional_ui_round' || a.approvedUiRounds!==8 || a.sourceSha!==grant.sourceSha || a.configurationFingerprint!==grant.configurationFingerprint
+    || a.originalTimingApprovalSha256!==grant.approvalSha256 || a.previousUiApprovalSha256!==grant.ui7ApprovalSha256
+    || ![a.originalApprovalSha256,a.originalProposalSha256].every(v=>typeof v==='string' && DIGEST.test(v))
+    || !a.previousUiObservationSha256 || !sameIds(Object.keys(a.previousUiObservationSha256),ui7HistoricalAssets.map(([asset])=>asset))
+    || !ui7HistoricalAssets.every(([asset])=>typeof a.previousUiObservationSha256[asset]==='string' && DIGEST.test(a.previousUiObservationSha256[asset]) && a.previousUiObservationSha256[asset]===grant.historicalUi7[asset].sha256)
+    || typeof a.userApprovalVerbatim!=='string' || !a.userApprovalVerbatim.trim()
+    || a.executionMinutes!==180 || a.issueRecheckMaximumCount!==1 || a.issueRecheckMinutes!==30 || a.totalMinutes!==210
+    || a.inputDiagnosticMaximumCount!==1 || a.inputDiagnosticMinutes!==15 || a.inputDiagnosticIncludedInExecutionMinutes!==true
+    || a.extendOriginal168Hours!==false) fail('TESTFLIGHT_UI8_APPROVAL_SCOPE');
+  return a;
+}
+
 // 임의 파일 경로를 ID로 바꿔 넘길 수 없다. 중앙 main에서 검토한 등록만 쓴다.
 async function reviewedBootstrap(id,verifierSha,request){
   const path=grantPaths.find(p=>p===`contracts/internal-testflight-bootstrap/${id}.json`);
@@ -254,7 +361,8 @@ async function reviewedBootstrap(id,verifierSha,request){
     'contracts/internal-testflight-bootstrap.schema.json','contracts/internal-testflight-bootstrap-grant.schema.json',
     ...(grant.approvedUiRounds>=5 ? [grant.additionalUiApprovalFile,ui5ProposalPath] : []),
     ...(grant.approvedUiRounds>=6 ? [grant.ui6ApprovalFile,ui6ProposalPath] : []),
-    ...(grant.approvedUiRounds===7 ? [grant.ui7ApprovalFile,ui7ProposalPath,ui7HumanApprovalPath] : [])];
+    ...(grant.approvedUiRounds>=7 ? [grant.ui7ApprovalFile,ui7ProposalPath,ui7HumanApprovalPath] : []),
+    ...(grant.approvedUiRounds===8 ? [grant.ui8ApprovalFile,ui8ProposalPath,ui8HumanApprovalPath] : [])];
   await Promise.all(sources.map(async path=>{
     const remote=await readRemote('seorilabs/.github',path,verifierSha,request);
     if(!readFileSync(join(root,path)).equals(remote)) fail('TESTFLIGHT_VERIFIER_BYTES_CHANGED');
@@ -289,15 +397,25 @@ async function reviewedBootstrap(id,verifierSha,request){
     if(!ui6ApprovalBytes.equals(latestApproval) || !ui6ProposalBytes.equals(latestProposal)) fail('TESTFLIGHT_UI6_REVOKED_OR_CHANGED');
     Object.assign(additionalUi,{ui6ApprovalBytes,ui6ProposalBytes});
   }
-  if(grant.approvedUiRounds===7){
+  if(grant.approvedUiRounds>=7){
     const ui7ApprovalBytes=readFileSync(join(root,grant.ui7ApprovalFile)),ui7ProposalBytes=readFileSync(join(root,ui7ProposalPath));
-    validateBootstrapUi7Approval(grant,ui7ApprovalBytes,ui7ProposalBytes);
+    if(grant.approvedUiRounds===7) validateBootstrapUi7Approval(grant,ui7ApprovalBytes,ui7ProposalBytes);
     const [latestApproval,latestProposal,latestHuman]=await Promise.all([
       readRemote('seorilabs/.github',grant.ui7ApprovalFile,'main',request),readRemote('seorilabs/.github',ui7ProposalPath,'main',request),readRemote('seorilabs/.github',ui7HumanApprovalPath,'main',request)]);
     const humanBytes=readFileSync(join(root,ui7HumanApprovalPath));
     if(!ui7ApprovalBytes.equals(latestApproval) || !ui7ProposalBytes.equals(latestProposal) || !humanBytes.equals(latestHuman)
       || bootstrapDigest(humanBytes)!==JSON.parse(ui7ApprovalBytes).humanApprovalSha256) fail('TESTFLIGHT_UI7_REVOKED_OR_CHANGED');
     Object.assign(additionalUi,{ui7ApprovalBytes,ui7ProposalBytes});
+  }
+  if(grant.approvedUiRounds===8){
+    const ui8ApprovalBytes=readFileSync(join(root,grant.ui8ApprovalFile)),ui8ProposalBytes=readFileSync(join(root,ui8ProposalPath));
+    validateBootstrapUi8Approval(grant,ui8ApprovalBytes,ui8ProposalBytes);
+    const [latestApproval,latestProposal,latestHuman]=await Promise.all([
+      readRemote('seorilabs/.github',grant.ui8ApprovalFile,'main',request),readRemote('seorilabs/.github',ui8ProposalPath,'main',request),readRemote('seorilabs/.github',ui8HumanApprovalPath,'main',request)]);
+    const humanBytes=readFileSync(join(root,ui8HumanApprovalPath));
+    if(!ui8ApprovalBytes.equals(latestApproval) || !ui8ProposalBytes.equals(latestProposal) || !humanBytes.equals(latestHuman)
+      || bootstrapDigest(humanBytes)!==JSON.parse(ui8ApprovalBytes).humanApprovalSha256) fail('TESTFLIGHT_UI8_REVOKED_OR_CHANGED');
+    Object.assign(additionalUi,{ui8ApprovalBytes,ui8ProposalBytes});
   }
   return {grant,approvalBytes,...additionalUi,grantSha256:bootstrapDigest(bytes),verifierProof:{verified:true,revision:verifierSha,reviewedOnCurrentMain:true}};
 }
@@ -410,14 +528,16 @@ export async function verifyInternalTestflightBootstrap(options){
     ui5SourceSnapshotBytes:originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi5.sourceSnapshotAsset))],
     ui5ConfigurationBytes:originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi5.configurationAsset))],
   } : {};
-  const historicalUi6=grant.approvedUiRounds===7 ? Object.fromEntries([
+  const historicalUi6=grant.approvedUiRounds>=7 ? Object.fromEntries([
     ['ui6SourceSnapshotBytes','sourceSnapshotAsset'],['ui6ConfigurationBytes','configurationAsset'],['ui6ExecutionStartBytes','executionStartAsset'],
     ['ui6FailedSegmentBytes','failedSegmentAsset'],['ui6FailureBytes','failureAsset']]
     .map(([key,asset])=>[key,originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi6[asset]))]])) : {};
+  const historicalUi7=grant.approvedUiRounds===8 ? Object.fromEntries(ui7HistoricalAssets
+    .map(([asset,key])=>[key,originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi7[asset]))]])) : {};
   const inventoryBytes=await readRemote(REPO,'docs/qa/feature-inventory.json',grant.sourceSha,request);
   const tree=verifyBootstrapWorkingTree(options.appRepository,grant,options.phase);
   const providerProof=await bootstrapProvider(grant,env,request.fetchImpl);
-  const context={...options,...reviewed,...tree,...historicalUi5,...historicalUi6,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof,now:new Date().toISOString()};
+  const context={...options,...reviewed,...tree,...historicalUi5,...historicalUi6,...historicalUi7,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof,now:new Date().toISOString()};
   // Signed artifact and prior phase receipt are required by the before-deploy validator.
   if(options.phase==='before-deploy'){
     if(!options.artifactFile || !options.artifactReceipt) fail('TESTFLIGHT_ACTUAL_ARTIFACT_REQUIRED');
