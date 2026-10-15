@@ -80,9 +80,9 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
           reject(Number.isFinite(ui7At) && ui6At<=ui7At && ui7At<=now && ui7At<=Date.parse(document.editor.iterations[6]?.plannedAt),'TESTFLIGHT_UI7_APPROVAL_TIME');
           reject(document.editor.iterations[6]?.sourceSha===(approvedUiRounds===8 ? grant.historicalUi7.sourceSha : grant.sourceSha),'TESTFLIGHT_UI7_SOURCE');
           if(approvedUiRounds===8){
-            const eighth=validateBootstrapUi8Approval(grant,context.ui8ApprovalBytes,context.ui8ProposalBytes),ui8At=Date.parse(eighth.approvalRecordedAt);
+            const eighth=validateBootstrapUi8Approval(grant,context.ui8ApprovalBytes,context.ui8ProposalBytes,context.ui8HumanApprovalBytes),ui8At=Date.parse(eighth.approvalRecordedAt);
             reject(approvals.some(a=>a.maxRound===8 && a.approvedAt===utc(eighth.approvalRecordedAt) && a.evidence===grant.ui8ApprovalFile),'TESTFLIGHT_UI8_EDITOR_APPROVAL');
-            reject(Number.isFinite(ui8At) && ui7At<=ui8At && ui8At<=now && ui8At<=Date.parse(last?.plannedAt),'TESTFLIGHT_UI8_APPROVAL_TIME');
+            reject(Number.isFinite(ui8At) && ui7At<=ui8At && Date.parse(seventh.historicalRecordedAt)<=ui8At && ui8At<=now && ui8At<=Date.parse(last?.plannedAt),'TESTFLIGHT_UI8_APPROVAL_TIME');
             reject(last?.sourceSha===grant.sourceSha,'TESTFLIGHT_UI8_SOURCE');
           }
         }
@@ -307,7 +307,8 @@ function validateBootstrapHistoricalUi7(grant,context,round){
     || result.cleanup?.status!=='completed-with-exact-user-approval' || result.cleanup.processAbsentAfter!==true || result.cleanup.uiInput!==false || result.cleanup.newRun!==false
     || result.cleanup.originalStopRejectionAndRootSigtermRejectionPreserved!==true
     || cleanup.processAbsentAfter!==true || cleanup.signalSent!==true || cleanup.uiInputSent!==false || cleanup.newProcessStarted!==false
-    || !Number.isSafeInteger(cleanup.pid) || cleanup.pid<=0 || result.cleanup.pid!==cleanup.pid) fail('TESTFLIGHT_UI7_FAILURE_HISTORY');
+    || !Number.isSafeInteger(cleanup.pid) || cleanup.pid<=0 || result.cleanup.pid!==cleanup.pid
+    || restart.marker?.pid!==cleanup.pid || restart.marker?.sourceSha!==h.recheckSourceSha) fail('TESTFLIGHT_UI7_FAILURE_HISTORY');
   const began=Date.parse(start.startedAt),mainEnd=Date.parse(result.main.completedAt),intent=Date.parse(restart.runClickIntentAt),marker=Date.parse(restart.startedAt),stopped=Date.parse(cleanup.at),completed=Date.parse(result.completedAt),deadline=Date.parse(clock.effectiveDeadline);
   if(![began,mainEnd,intent,marker,stopped,completed,deadline].every(Number.isFinite)
     || !(began<=Date.parse(integrity.at) && Date.parse(integrity.at)<=mainEnd && mainEnd<=Date.parse(transition.at) && Date.parse(transition.at)<=intent && intent<=marker && marker<=stopped && stopped<=Date.parse(finalIntegrity.at) && Date.parse(finalIntegrity.at)<=completed && completed<=deadline)
@@ -322,18 +323,21 @@ function validateBootstrapHistoricalUi7(grant,context,round){
     || utc(result.recheck.completedAt)!==utc(result.completedAt) || utc(result.reportedAt)!==utc(result.completedAt)
     || round?.plannedAt!==utc(start.plannedAt) || round?.startedAt!==utc(start.startedAt) || round?.completedAt!==utc(result.completedAt)) fail('TESTFLIGHT_UI7_ORIGINAL_TIME');
   if(manifest.result!=='FAIL/INCOMPLETE' || !Array.isArray(manifest.files) || manifest.fileCount!==manifest.files.length
-    || new Set(manifest.files.map(f=>f.path)).size!==manifest.files.length || !Number.isFinite(Date.parse(manifest.at)) || Date.parse(manifest.at)<completed
+    || new Set(manifest.files.map(f=>f.path)).size!==manifest.files.length || !Number.isFinite(Date.parse(manifest.at)) || Date.parse(manifest.at)<completed || Date.parse(manifest.at)>deadline
     || !ui7HistoricalAssets.filter(([asset])=>asset!=='manifestAsset').every(([asset,key,path])=>manifest.files.some(f=>f.path===path && f.sha256===h[asset].sha256 && f.bytes===context[key].length))
     || !['failure-drag-unlock/failure.json','inspection/revive-prompt-pt-small/finding.json','failure-revive-ad-cancel-overlay/failure.json','recheck-53bec059/small-hero-menu-finding.json'].every(path=>manifest.files.some(f=>f.path===path && typeof f.sha256==='string' && DIGEST.test(f.sha256) && f.bytes>0))) fail('TESTFLIGHT_UI7_MANIFEST');
   // UI7 승인 원문의 미등록 null과 원래/수정 후보 실패를 보존한다. UI8 통과로 소급 합산하지 않는다.
-  return validateBootstrapUi7Approval({...grant,sourceSha:approval.sourceSha,configurationFingerprint:approval.configurationFingerprint},context.ui7ApprovalBytes,context.ui7ProposalBytes);
+  return {...validateBootstrapUi7Approval({...grant,sourceSha:approval.sourceSha,configurationFingerprint:approval.configurationFingerprint},context.ui7ApprovalBytes,context.ui7ProposalBytes),historicalRecordedAt:manifest.at};
 }
 
-function validateBootstrapUi8Approval(grant,approvalBytes,proposalBytes){
+function validateBootstrapUi8Approval(grant,approvalBytes,proposalBytes,humanBytes){
   if(!Buffer.isBuffer(approvalBytes) || bootstrapDigest(approvalBytes)!==grant.ui8ApprovalSha256) fail('TESTFLIGHT_UI8_APPROVAL_CHANGED');
   let a;try{a=JSON.parse(approvalBytes);}catch{fail('TESTFLIGHT_INVALID_UI8_APPROVAL');}
   if(!a || typeof a!=='object' || Array.isArray(a)) fail('TESTFLIGHT_INVALID_UI8_APPROVAL');
   validateBootstrapApprovalProposal(approvalBytes,proposalBytes);
+  if(!Buffer.isBuffer(humanBytes) || bootstrapDigest(humanBytes)!==a.humanApprovalSha256) fail('TESTFLIGHT_UI8_HUMAN_APPROVAL_CHANGED');
+  let human;try{human=JSON.parse(humanBytes);}catch{fail('TESTFLIGHT_INVALID_UI8_HUMAN_APPROVAL');}
+  if(!human || typeof human!=='object' || Array.isArray(human) || human.originalApprovalSha256!==a.originalApprovalSha256 || human.originalProposalSha256!==a.originalProposalSha256) fail('TESTFLIGHT_UI8_HUMAN_APPROVAL_SCOPE');
   if(a.kind!=='human_additional_ui_approval' || a.designId!=='SGD-UI8-TF-110-v1' || a.repository!==REPO || a.version!=='1.1.0'
     || a.objective!=='one_additional_ui_round' || a.approvedUiRounds!==8 || a.sourceSha!==grant.sourceSha || a.configurationFingerprint!==grant.configurationFingerprint
     || a.originalTimingApprovalSha256!==grant.approvalSha256 || a.previousUiApprovalSha256!==grant.ui7ApprovalSha256
@@ -409,13 +413,12 @@ async function reviewedBootstrap(id,verifierSha,request){
   }
   if(grant.approvedUiRounds===8){
     const ui8ApprovalBytes=readFileSync(join(root,grant.ui8ApprovalFile)),ui8ProposalBytes=readFileSync(join(root,ui8ProposalPath));
-    validateBootstrapUi8Approval(grant,ui8ApprovalBytes,ui8ProposalBytes);
+    const ui8HumanApprovalBytes=readFileSync(join(root,ui8HumanApprovalPath));
+    validateBootstrapUi8Approval(grant,ui8ApprovalBytes,ui8ProposalBytes,ui8HumanApprovalBytes);
     const [latestApproval,latestProposal,latestHuman]=await Promise.all([
       readRemote('seorilabs/.github',grant.ui8ApprovalFile,'main',request),readRemote('seorilabs/.github',ui8ProposalPath,'main',request),readRemote('seorilabs/.github',ui8HumanApprovalPath,'main',request)]);
-    const humanBytes=readFileSync(join(root,ui8HumanApprovalPath));
-    if(!ui8ApprovalBytes.equals(latestApproval) || !ui8ProposalBytes.equals(latestProposal) || !humanBytes.equals(latestHuman)
-      || bootstrapDigest(humanBytes)!==JSON.parse(ui8ApprovalBytes).humanApprovalSha256) fail('TESTFLIGHT_UI8_REVOKED_OR_CHANGED');
-    Object.assign(additionalUi,{ui8ApprovalBytes,ui8ProposalBytes});
+    if(!ui8ApprovalBytes.equals(latestApproval) || !ui8ProposalBytes.equals(latestProposal) || !ui8HumanApprovalBytes.equals(latestHuman)) fail('TESTFLIGHT_UI8_REVOKED_OR_CHANGED');
+    Object.assign(additionalUi,{ui8ApprovalBytes,ui8ProposalBytes,ui8HumanApprovalBytes});
   }
   return {grant,approvalBytes,...additionalUi,grantSha256:bootstrapDigest(bytes),verifierProof:{verified:true,revision:verifierSha,reviewedOnCurrentMain:true}};
 }

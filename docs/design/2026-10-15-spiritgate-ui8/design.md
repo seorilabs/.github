@@ -33,6 +33,12 @@ manifest는 직접 다운로드하는 원본 JSON 자산이며 나머지11개 �
 
 [중앙 L1/dev 테스트 계획](test-plan.json)은 validator의 순수 합성 fixture만 대상으로 한다. service/public은 중앙 PR 반영을 뜻하고, 제품의 승인된 전체28·L3·실기기 범위를 줄이지 않는다. 8회 허용 RED → 최소 구현 GREEN → malformed/hash/order/expiry/missing history/소급 PASS 공격 회귀 → 전체 중앙 검사·pack·actionlint·diff를 수행한다. 제품 실행 PASS로 보고하지 않는다.
 
+## 품질·대안·결정
+
+품질 기준은 실패 시 거절, 정확한 원본 bytes/hash와 source/config 비교, 두 시계/정확 PID 종료의 교차 대조, 기존4~7/정상v2 회귀 보존이다. 공개 최소 영수증의 원본 출처 hash도 canonical 승인 값과 직접 대조한다. UI8 승인 시각은 참조한 UI7 최종 manifest 이후여야 하며 manifest 작성/해시도 원래 재확인 예산 안에 들어야 한다. 실제 원본과 공개 projection, 합성 검사와 제품 실행을 구분한다.
+
+회차 수만 늘리거나 UI7을 새 후보 PASS로 덮는 대안은 원래 실패·후보/시간을 잃으므로 제외했다. 기존 회차를 일반적인 새 호환 계층으로 바꾸지 않고8 경로에만 typed historicalUi7을 추가한다. 정상v2 변경·UI9·시간 연장·기존 검증 하한 완화는 선택하지 않았다.
+
 ## 검토·운영·되돌리기
 
 격리 feature 브랜치의 한국어 Ready PR과 필수 검사 후 최종 코드 diff만 도구 없는 Claude 읽기 전용 리뷰로 전송한다. 자동 Copilot 포함 요청2회가 상한이며 세 번째는 없다. 실제 UI8 Run 전 source/QA설정 freeze를 받은 뒤 최종 승인 결속을 확정하고 리뷰한다. 실제 grant 등록은 이후 별도 검토 PR이다. 되돌리기는 PR로 수행하며 이전 원문을 지우지 않는다.
