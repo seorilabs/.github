@@ -343,3 +343,67 @@ test('a design must use the test plan in its own folder', () => {
   const document = evidence(); document.designs[0].testPlan = 'docs/design/2026-10-01-other/test-plan.json';
   assert.ok(errorsOf(document, context()).includes(`TEST_PLAN_DESIGN_MISMATCH ${DESIGN}`));
 });
+
+// 순수 validator fixture다. 제품 UI/기기 실행·사람 승인 원본을 대신하지 않는다.
+function separateUiApprovalsFixture(){
+ const ctx=withPlan({redesign:true,level:'L3'}),document=evidence({runs:[fullDev()],reviewRounds:rounds()});
+ document.additionalIterationApproval=null;document.additionalIterationApprovals=[];
+ for(const [number,minute,approvedMinute]of [[4,'00','03:50'],[5,'20','04:15'],[6,'30','04:28'],[7,'40','04:38']]){
+  const round=structuredClone(document.reviewRounds[2]);
+  Object.assign(round,{number,plannedAt:`2026-10-14T04:${minute}:00Z`,startedAt:`2026-10-14T04:${String(Number(minute)+1).padStart(2,'0')}:00Z`,completedAt:`2026-10-14T04:${String(Number(minute)+10).padStart(2,'0')}:00Z`});
+  if(number<7)for(const aspect of ['functional','ux'])Object.assign(round[aspect],{status:'failed',resolutionEvidence:'https://example.com/later-synthetic-resolution'});
+  document.reviewRounds.push(round);
+  document.additionalIterationApprovals.push({approverKind:'human',approver:'owner',approvedAt:`2026-10-14T${approvedMinute}:00Z`,maxRound:number,evidence:`https://example.com/ui${number}-approval`});
+ }
+ return {document,ctx};
+}
+test('v2 separate approvals preserve each round original time and cap',()=>{
+ const {document,ctx}=separateUiApprovalsFixture();const before=structuredClone(document.additionalIterationApprovals);
+ assert.deepEqual(check(document,ctx).errors,[]);assert.equal(check(document,ctx).level,'L3');assert.deepEqual(document.additionalIterationApprovals,before);
+ assert.equal(document.reviewRounds[3].functional.status,'failed');assert.equal(document.reviewRounds[5].ux.status,'failed');
+});
+test('v2 separate approvals are independent of array order',()=>{const {document,ctx}=separateUiApprovalsFixture();document.additionalIterationApprovals.reverse();assert.deepEqual(check(document,ctx).errors,[]);});
+for(const number of [4,5,6,7]){
+ test(`v2 separate approvals reject missing round ${number} authorization`,()=>{const {document,ctx}=separateUiApprovalsFixture();document.additionalIterationApprovals.splice(number-4,1);assert.ok(errorsOf(document,ctx).includes('EXTRA_ROUND_APPROVAL_REQUIRED'));});
+ test(`v2 separate approvals reject round ${number} authorization after its plan`,()=>{const {document,ctx}=separateUiApprovalsFixture();document.additionalIterationApprovals[number-4].approvedAt=document.reviewRounds[number-1].startedAt;assert.ok(errorsOf(document,ctx).includes('EXTRA_ROUND_APPROVAL_REQUIRED'));});
+}
+test('v2 latest approval alone cannot retroactively authorize earlier rounds',()=>{const {document,ctx}=separateUiApprovalsFixture();document.additionalIterationApprovals=[document.additionalIterationApprovals[3]];assert.deepEqual(errorsOf(document,ctx),['EXTRA_ROUND_APPROVAL_REQUIRED']);});
+test('v2 earliest truthful approval cannot authorize later rounds outside its cap',()=>{const {document,ctx}=separateUiApprovalsFixture();document.additionalIterationApprovals=[document.additionalIterationApprovals[0]];assert.deepEqual(errorsOf(document,ctx),['EXTRA_ROUND_APPROVAL_REQUIRED']);});
+test('v2 maxRound remains an upper bound for a genuine prior approval',()=>{
+ for(const plural of [false,true]){
+  const {document,ctx}=separateUiApprovalsFixture(),approval={...document.additionalIterationApprovals[0],maxRound:7};
+  if(plural)document.additionalIterationApprovals=[approval];else{delete document.additionalIterationApprovals;document.additionalIterationApproval=approval;}
+  assert.deepEqual(check(document,ctx).errors,[]);
+ }
+});
+for(const [name,change]of [
+ ['non-null single plus plural',d=>{d.additionalIterationApproval={...d.additionalIterationApprovals[0]};}],
+ ['empty array',d=>{d.additionalIterationApprovals=[];}],['null array',d=>{d.additionalIterationApprovals=null;}],['object instead of array',d=>{d.additionalIterationApprovals={};}],
+ ['null item',d=>{d.additionalIterationApprovals[0]=null;}],['array item',d=>{d.additionalIterationApprovals[0]=[];}],['string item',d=>{d.additionalIterationApprovals[0]='approved';}],
+ ['missing single nullable field',d=>{delete d.additionalIterationApproval;}],['missing approval time',d=>{delete d.additionalIterationApprovals[0].approvedAt;}],
+ ['non-human approval',d=>{d.additionalIterationApprovals[0].approverKind='agent';}],['unknown approval field',d=>{d.additionalIterationApprovals[0].scope='all';}],
+ ['string cap',d=>{d.additionalIterationApprovals[0].maxRound='4';}],['cap below four',d=>{d.additionalIterationApprovals[0].maxRound=3;}],['non-UTC receipt format',d=>{d.additionalIterationApprovals[0].approvedAt='2026-10-14T03:50:00+00:00';}],
+])test(`v2 separate approval schema rejects ${name}`,()=>{const {document,ctx}=separateUiApprovalsFixture();change(document);const errors=errorsOf(document,ctx);assert.ok(errors.some(e=>e.startsWith('EVIDENCE_SCHEMA')),JSON.stringify(errors));});
+for(const [name,change]of [
+ ['identical entry',a=>({...a})],['conflicting time',a=>({...a,approvedAt:'2026-10-14T04:39:00Z'})],['conflicting evidence',a=>({...a,evidence:'https://example.com/other-approval'})],
+])test(`v2 separate approvals reject a duplicate cap with ${name}`,()=>{const {document,ctx}=separateUiApprovalsFixture();document.additionalIterationApprovals.push(change(document.additionalIterationApprovals[3]));assert.ok(errorsOf(document,ctx).includes('DUPLICATE additional-iteration-approval-maxRound'));});
+test('v2 separate approvals reject an invalid unused timestamp instead of silently ignoring it',()=>{const {document,ctx}=separateUiApprovalsFixture();document.additionalIterationApprovals.push({...document.additionalIterationApprovals[3],maxRound:8,approvedAt:'2026-99-14T04:38:00Z'});assert.ok(errorsOf(document,ctx).includes('INVALID_ADDITIONAL_ITERATION_APPROVAL_TIME'));});
+for(const aspect of ['functional','ux'])test(`v2 separate approvals retain unresolved historical ${aspect} rejection`,()=>{const {document,ctx}=separateUiApprovalsFixture();delete document.reviewRounds[4][aspect].resolutionEvidence;assert.ok(errorsOf(document,ctx).includes(`UNRESOLVED_REVIEW 5-${aspect}`));});
+for(const aspect of ['functional','ux'])test(`v2 separate approvals cannot waive final ${aspect} failure with a resolution link`,()=>{const {document,ctx}=separateUiApprovalsFixture();Object.assign(document.reviewRounds[6][aspect],{status:'failed',resolutionEvidence:'https://example.com/claimed'});assert.ok(errorsOf(document,ctx).includes(`UNRESOLVED_REVIEW 7-${aspect}`));});
+test('v2 separate approvals retain non-overlap and independent reviewer requirements',()=>{
+ for(const [change,expected]of [[d=>{d.reviewRounds[6].plannedAt='2026-10-14T04:30:00Z';},'ROUND_OVERLAP'],[d=>{d.reviewRounds[6].reviewer='author-agent';},'INDEPENDENT_REVIEW_REQUIRED']]){
+  const {document,ctx}=separateUiApprovalsFixture();change(document);assert.ok(errorsOf(document,ctx).includes(expected));
+ }
+});
+test('v2 separate approvals retain the 168-hour run age and public release scope',()=>{
+ const {document,ctx}=separateUiApprovalsFixture();assert.ok(errorsOf(document,{...ctx,now:'2026-10-22T06:00:00Z'}).includes('RUN_EXPIRED dev-full'));
+ ctx.phase='before-release';ctx.plans[DESIGN].plan.release.until='test-track';assert.ok(errorsOf(document,ctx).includes('RELEASE_NOT_AUTHORIZED until test-track'));
+});
+for(const approvedAt of ['2026-02-30T04:38:00Z','2026-02-29T04:38:00Z','2026-04-31T04:38:00Z','2026-10-13T24:00:00Z'])test(`v2 separate approvals reject malformed calendar ${approvedAt}`,()=>{
+ const {document,ctx}=separateUiApprovalsFixture();document.additionalIterationApprovals[3].approvedAt=approvedAt;
+ assert.ok(errorsOf(document,ctx).includes('INVALID_ADDITIONAL_ITERATION_APPROVAL_TIME'));
+});
+for(const approvedAt of ['2024-02-29T04:38:00Z','2026-10-14T04:38:00Z','2026-10-14T04:38:00.123456Z','2026-10-14T04:38:00.123456789Z'])test(`v2 separate approvals preserve valid calendar and fractional format ${approvedAt}`,()=>{
+ const {document,ctx}=separateUiApprovalsFixture();document.additionalIterationApprovals[3].approvedAt=approvedAt;
+ assert.deepEqual(check(document,ctx).errors,[]);assert.equal(document.additionalIterationApprovals[3].approvedAt,approvedAt);
+});

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "level": "L1",
+  "baseline": "20aae2bfb0923a464e6fe7d36e7c797c8019b34c",
+  "changedFeatures": [
+    "normal-v2-additional-ui-approval-chain"
+  ],
+  "environments": [
+    "dev"
+  ],
+  "redesign": false,
+  "foundationRerun": false,
+  "floorOverrides": [],
+  "release": {
+    "markets": [
+      "service"
+    ],
+    "until": "public",
+    "rollout": 1
+  }
+}

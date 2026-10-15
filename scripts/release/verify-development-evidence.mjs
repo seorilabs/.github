@@ -44,6 +44,14 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
   const covered = (ids, label) => {
     if (coreFeatures.some(id => !carried.has(id) && !ids.includes(id)) || ids.some(id => !inventoryIds.has(id))) errors.push(`FEATURE_COVERAGE ${label}`);
   };
+  const approvals = document.additionalIterationApprovals ?? [document.additionalIterationApproval].filter(Boolean);
+  if (document.additionalIterationApprovals) {
+    if (new Set(approvals.map(approval => approval.maxRound)).size !== approvals.length) errors.push('DUPLICATE additional-iteration-approval-maxRound');
+    if (approvals.some(approval => {
+      const parsed = Date.parse(approval.approvedAt);
+      return !Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 19) !== approval.approvedAt.slice(0, 19);
+    })) errors.push('INVALID_ADDITIONAL_ITERATION_APPROVAL_TIME');
+  }
   let previousEnd = 0;
   document.reviewRounds.forEach((round, index) => {
     if (round.number !== index + 1) errors.push('ROUND_SEQUENCE');
@@ -58,8 +66,7 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
       if (result.status !== 'passed' && (index === document.reviewRounds.length - 1 || !result.resolutionEvidence)) errors.push(`UNRESOLVED_REVIEW ${round.number}-${aspect}`);
     }
     if (round.number > ROUNDS) {
-      const approval = document.additionalIterationApproval;
-      if (!approval || approval.maxRound < round.number || !Number.isFinite(Date.parse(approval.approvedAt)) || Date.parse(approval.approvedAt) > Date.parse(round.plannedAt)) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
+      if (!approvals.some(approval => approval.maxRound >= round.number && Number.isFinite(Date.parse(approval.approvedAt)) && Date.parse(approval.approvedAt) <= Date.parse(round.plannedAt))) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
     }
   });
 }
