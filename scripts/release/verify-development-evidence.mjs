@@ -47,7 +47,10 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
   const approvals = document.additionalIterationApprovals ?? [document.additionalIterationApproval].filter(Boolean);
   if (document.additionalIterationApprovals) {
     if (new Set(approvals.map(approval => approval.maxRound)).size !== approvals.length) errors.push('DUPLICATE additional-iteration-approval-maxRound');
-    if (approvals.some(approval => !Number.isFinite(Date.parse(approval.approvedAt)))) errors.push('INVALID_ADDITIONAL_ITERATION_APPROVAL_TIME');
+    if (approvals.some(approval => {
+      const parsed = Date.parse(approval.approvedAt);
+      return !Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 19) !== approval.approvedAt.slice(0, 19);
+    })) errors.push('INVALID_ADDITIONAL_ITERATION_APPROVAL_TIME');
   }
   let previousEnd = 0;
   document.reviewRounds.forEach((round, index) => {

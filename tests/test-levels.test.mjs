@@ -399,3 +399,11 @@ test('v2 separate approvals retain the 168-hour run age and public release scope
  const {document,ctx}=separateUiApprovalsFixture();assert.ok(errorsOf(document,{...ctx,now:'2026-10-22T06:00:00Z'}).includes('RUN_EXPIRED dev-full'));
  ctx.phase='before-release';ctx.plans[DESIGN].plan.release.until='test-track';assert.ok(errorsOf(document,ctx).includes('RELEASE_NOT_AUTHORIZED until test-track'));
 });
+for(const approvedAt of ['2026-02-30T04:38:00Z','2026-02-29T04:38:00Z','2026-04-31T04:38:00Z','2026-10-13T24:00:00Z'])test(`v2 separate approvals reject malformed calendar ${approvedAt}`,()=>{
+ const {document,ctx}=separateUiApprovalsFixture();document.additionalIterationApprovals[3].approvedAt=approvedAt;
+ assert.ok(errorsOf(document,ctx).includes('INVALID_ADDITIONAL_ITERATION_APPROVAL_TIME'));
+});
+for(const approvedAt of ['2024-02-29T04:38:00Z','2026-10-14T04:38:00Z','2026-10-14T04:38:00.123456Z','2026-10-14T04:38:00.123456789Z'])test(`v2 separate approvals preserve valid calendar and fractional format ${approvedAt}`,()=>{
+ const {document,ctx}=separateUiApprovalsFixture();document.additionalIterationApprovals[3].approvedAt=approvedAt;
+ assert.deepEqual(check(document,ctx).errors,[]);assert.equal(document.additionalIterationApprovals[3].approvedAt,approvedAt);
+});
