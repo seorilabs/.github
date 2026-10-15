@@ -601,3 +601,142 @@ test('UI8 approval may follow the exact original manifest boundary',()=>{const f
 test('UI7 final hashing may finish exactly at the original recheck cap',()=>{const f=eightRoundFixture(),m=JSON.parse(f.context.ui7ManifestBytes);m.at='2026-10-08T07:12:00Z';f.context.ui7ManifestBytes=jsonBytes(m);rebindUi7AssetOnly(f,'manifestAsset','ui7ManifestBytes');assert.equal(run(f).ok,true);});
 test('historical file role names do not authenticate a commit prefix; all JSON source claims must match',()=>{const f=eightRoundFixture();assert.equal(f.context.grant.historicalUi7.recheckSourceSha,'5'.repeat(40));assert.equal(run(f).ok,true);alterUi7(f,'ui7RecheckIntegrityBytes',v=>{v.sourceSha='6'.repeat(40);});assert.ok(run(f).errors.includes('TESTFLIGHT_UI7_SNAPSHOT_SCOPE'));});
 test('UI7 cleanup must terminate the exact process from the corrected Run marker',()=>{const f=eightRoundFixture(),c=JSON.parse(f.context.ui7CleanupBytes),r=JSON.parse(f.context.ui7ResultBytes);c.pid=456;r.cleanup.pid=456;f.context.ui7CleanupBytes=jsonBytes(c);f.context.ui7ResultBytes=jsonBytes(r);rebindUi7History(f);const result=run(f);assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_UI7_FAILURE_HISTORY'));});
+
+// 수동 UI9 지원의 합성 검증기 입력이다. 실제 사람 조작·제품 검수 결과가 아니다.
+const ui8Assets=[
+ ['sourceSnapshotAsset','ui8SourceSnapshotBytes','preparation/source-before.json'],['configurationAsset','ui8ConfigurationBytes','configuration.json'],
+ ['frozenManifestAsset','ui8FrozenManifestBytes','preparation/frozen-manifest.json'],['executionStartAsset','ui8ExecutionStartBytes','execution-start.json'],
+ ['sourceIntegrityAsset','ui8SourceIntegrityBytes','final-preserved/final-source-and-settings-check.json'],['resultAsset','ui8ResultBytes','ui8-result.json'],
+ ['cleanupAsset','ui8CleanupBytes','process-cleanup-receipt.json'],['manifestAsset','ui8ManifestBytes','ui8-evidence-manifest.json'],
+];
+function nineRoundFixture(){
+ const f=eightRoundFixture(),g=f.context.grant,source=g.sourceSha,fp=g.configurationFingerprint;
+ const project='1'.repeat(64),qa='2'.repeat(64),helper='3'.repeat(64),binary='4'.repeat(64),settings='5'.repeat(64),plan='6'.repeat(64);
+ const files=[{path:'project.godot',bytes:10,sha256:project},{path:'src/example.gd',bytes:20,sha256:'7'.repeat(64)}];
+ const declared=[{path:'project.godot',sourceSha256:project,qaSha256:qa}];
+ const cleanup={at:'2026-10-08T07:25:00Z',events:[{pid:123,signal:'SIGTERM',at:'2026-10-08T07:24:59Z',attempt:1},{pid:321,signal:'SIGTERM',at:'2026-10-08T07:24:59Z',attempt:1}],verifiedOwnedBefore:[{pid:123,kind:'diagnostic-game'},{pid:321,kind:'diagnostic-editor'}],requestedPidsAbsent:true,remainingRequestedPids:[],ownedAppProcessRowsAfter:[],noCuaQueryAfterTermination:true,noNewProcessStarted:true,noUiInputSent:true,productRunCount:0,diagnosticCount:1,counterClicks:0,scrollCalls:0};
+ const values={
+  ui8SourceSnapshotBytes:{sourceSha:source,files},
+  ui8ConfigurationBytes:{sourceSha:source,fingerprint:fp,nativeMarketFingerprint:null,trackedSourceCount:2,configs:[{sha256:qa}],helperHashes:{'probe.gd':helper},diagnosticFiles:{'probe.gd':helper,'project.godot':qa},binarySha256:binary,globalEditorSettingsAtDiagnosticBaselineSha256:settings,firstEditorLaunchOccurred:false},
+  ui8FrozenManifestBytes:{frozenAt:'2026-10-08T07:20:30Z',sourceSha:source,sourceTrackedFiles:2,trackedMissing:[],trackedDeclaredQaDifference:declared,configurationFingerprint:fp,configurationSha256:null,planSha256:plan,engineBinarySha256:binary,firstEditorLaunchOccurred:false,frozenHelpers:{'probe.gd':helper},frozenDiagnosticFiles:{'probe.gd':helper,'project.godot':qa}},
+  ui8ExecutionStartBytes:{round:8,sourceSha:source,plannedAt:'2026-10-08T07:20:00Z',startedAt:'2026-10-08T07:21:00Z',diagnosticDeadline:'2026-10-08T07:36:00Z',mainDeadline:'2026-10-08T10:21:00Z',outerDeadlineWithSingleRecheck:'2026-10-08T10:51:00Z',configurationSha256:null,configurationFingerprint:fp,planSha256:plan,clockStartsBeforeFirstDiagnosticEditorPopen:true,diagnosticCount:1,diagnosticRestartAllowed:false},
+  ui8SourceIntegrityBytes:{at:'2026-10-08T07:27:00Z',sourceSha:source,trackedChecked:2,missing:[],trackedDeclaredDifference:declared,helperHashes:{'probe.gd':{frozen:helper,actual:helper}},diagnosticHashesAfterEditorRun:[{path:'probe.gd',frozenSha256:helper,actualSha256:helper},{path:'project.godot',frozenSha256:qa,actualSha256:'a'.repeat(64)}],globalDiagnosticBaseline:settings,globalAfterUi8:settings,globalUnchangedDuringNewUi8Engine:true,binaryHashUnchanged:true,isolatedProductProfileAbsent:true},
+  ui8CleanupBytes:cleanup,
+  ui8ResultBytes:{round:8,sourceSha:source,status:'blocked',verdict:'FAIL/BLOCKED/INCOMPLETE',approvalConsumed:true,plannedAt:'2026-10-08T07:20:00Z',startedAt:'2026-10-08T07:21:00Z',diagnosticDeadline:'2026-10-08T07:36:00Z',mainDeadline:'2026-10-08T10:21:00Z',outerDeadline:'2026-10-08T10:51:00Z',reportedAt:'2026-10-08T07:30:00Z',completedAt:'2026-10-08T07:30:00Z',completedBeforeDiagnosticDeadline:true,clockNotReset:true,unusedBudgetCarryForward:false,diagnostic:{count:1,editorPid:321,gamePid:123,actualProbeButtonClicks:0,actualScrollCalls:0,actualCounter:0,noAlternativeHandleNamePidRouteOrRestart:true},productRunCount:0,featureCounts:{pass:0,fail:0,blocked:28},matrix:{expected:168,actualProductCellsCaptured:0,passed:0,status:'notrun-after-diagnostic-block'},problemRecheckCount:0,E2E:'notplanned/notrun',ui9:'notapproved/notrun',configuration:{frozenFingerprint:fp,sha256:null,nativeMarketFingerprint:null},processCleanup:cleanup},
+ };
+ for(const [key,value]of Object.entries(values))f.context[key]=jsonBytes(value);
+ g.historicalUi8={sourceSha:source,configurationFingerprint:fp};
+ for(const [i,[asset]]of ui8Assets.entries())g.historicalUi8[asset]={id:150+i,sha256:'0'.repeat(64)};
+ g.approvedUiRounds=9;g.ui9ApprovalFile='docs/design/2026-10-16-spiritgate-ui9/approval.json';
+ f.context.ui9ProposalBytes=Buffer.from('one human manual UI9 and independent agent evaluation; no diagnostic restart; unchanged signing and 180+30 minute limits');
+ const handoff={directedAt:'2026-10-08T07:45:00.123456Z',originalDirectiveSha256:'0'.repeat(64),sameRound:9,inputBefore:'human',inputAfter:'independent-agent',sourceSha:'9'.repeat(40),configurationFingerprint:'8'.repeat(64),sameStartedAt:'2026-10-08T07:41:00Z',mainDeadlineAt:'2026-10-08T10:41:00Z',absoluteMaximumAt:'2026-10-08T11:11:00Z',clockReset:false,frozenHelpersModified:false,newRun:false,authorInputCountsAsIndependentReview:false};
+ f.context.ui9HumanApprovalBytes=jsonBytes({approvedAt:'2026-10-08T07:35:00Z',originalApprovalSha256:'e'.repeat(64),originalProposalSha256:'f'.repeat(64),operatorHandoff:handoff});
+ const old=JSON.parse(f.context.ui8ApprovalBytes);
+ f.context.ui9ApprovalBytes=jsonBytes({...old,designId:'SGD-UI9-TF-110-v1',approvedUiRounds:9,sourceSha:'9'.repeat(40),configurationFingerprint:'8'.repeat(64),approvalRecordedAt:'2026-10-08T07:35:00+00:00',userApprovalVerbatim:'human manual UI9 followed by separately directed agent input; keep independent evaluation and all tests',humanApprovalSha256:digest(f.context.ui9HumanApprovalBytes),originalApprovalSha256:'e'.repeat(64),originalProposalSha256:'f'.repeat(64),proposalSha256:digest(f.context.ui9ProposalBytes),previousUiApprovalSha256:g.ui8ApprovalSha256,previousUiObservationSha256:{},inputMode:'human-then-agent',operatorHandoff:handoff,independentEvaluationRequired:true,inputDiagnosticMaximumCount:0,inputDiagnosticMinutes:0,inputDiagnosticIncludedInExecutionMinutes:true});
+ for(const aspect of ['functional','ux'])Object.assign(f.doc.editor.iterations[7][aspect],{status:'blocked',resolutionEvidence:'https://example.com/manual-nine-resolution'});
+ f.doc.editor.iterations[7].completedAt='2026-10-08T07:30:00Z';
+ const ninth=structuredClone(f.doc.editor.iterations[3]);Object.assign(ninth,{number:9,sourceSha:'9'.repeat(40),plannedAt:'2026-10-08T07:40:00Z',startedAt:'2026-10-08T07:41:00Z',completedAt:'2026-10-08T08:00:00Z',reviewer:'independent-observer'});f.doc.editor.iterations.push(ninth);
+ f.doc.editor.additionalIterationApprovals.push({approverKind:'human',approver:'owner',approvedAt:'2026-10-08T07:35:00Z',maxRound:9,evidence:g.ui9ApprovalFile});
+ for(const o of [g,f.context,f.doc.editor,f.doc.editor.e2e,f.doc.android,f.doc.ios,f.context.providerProof])o.sourceSha='9'.repeat(40);
+ for(const o of [g,f.context,f.doc.editor.e2e.environment])o.configurationFingerprint='8'.repeat(64);
+ Object.assign(f.doc.editor.e2e,{plannedAt:'2026-10-08T08:05:00Z',startedAt:'2026-10-08T08:06:00Z',completedAt:'2026-10-08T08:15:00Z'});
+ return rebindUi8History(f);
+}
+function rebindUi8History(f){
+ const h=f.context.grant.historicalUi8,a=JSON.parse(f.context.ui9ApprovalBytes);
+ for(const [asset]of ui8Assets){const old=h[asset].sha256;f.context.grant.originalObservationAssets=f.context.grant.originalObservationAssets.filter(x=>x.id!==h[asset].id);f.doc.originalObservations=f.doc.originalObservations.filter(x=>x.sha256!==old);}
+ const cfg=digest(f.context.ui8ConfigurationBytes);
+ for(const key of ['ui8FrozenManifestBytes','ui8ExecutionStartBytes']){const v=JSON.parse(f.context[key]);v.configurationSha256=cfg;f.context[key]=jsonBytes(v);}
+ const r=JSON.parse(f.context.ui8ResultBytes);r.configuration.sha256=cfg;f.context.ui8ResultBytes=jsonBytes(r);
+ const files=ui8Assets.filter(([asset])=>asset!=='manifestAsset').map(([,key,path])=>({path,bytes:f.context[key].length,sha256:digest(f.context[key])}));
+ f.context.ui8ManifestBytes=jsonBytes({at:'2026-10-08T07:31:00Z',sourceSha:h.sourceSha,round:8,verdict:'FAIL/BLOCKED',fileCount:files.length,files});
+ for(const [asset,key]of ui8Assets){h[asset].sha256=digest(f.context[key]);f.context.grant.originalObservationAssets.push(h[asset]);f.doc.originalObservations.push({name:key+'.json',sha256:h[asset].sha256});a.previousUiObservationSha256[asset]=h[asset].sha256;}
+ a.previousUiApprovalSha256=f.context.grant.ui8ApprovalSha256;f.context.ui9ApprovalBytes=jsonBytes(a);f.context.grant.ui9ApprovalSha256=digest(f.context.ui9ApprovalBytes);return refreshSeven(f);
+}
+test('UI9 draft binds initial human input and separately directed agent takeover while retaining blocked UI8',()=>{const f=nineRoundFixture(),r=run(f);assert.equal(r.ok,true,JSON.stringify(r.errors));assert.equal(r.approvedUiRounds,9);assert.equal(r.ui9ApprovalSha256,f.context.grant.ui9ApprovalSha256);assert.equal(r.nativeQaWaived,false);assert.equal(r.productE2eStatus,'blocked');assert.equal(JSON.parse(f.context.ui8ResultBytes).ui9,'notapproved/notrun');assert.equal(JSON.parse(f.context.ui9ApprovalBytes).approvalRecordedAt,'2026-10-08T07:35:00+00:00');assert.equal(JSON.parse(f.context.ui9ApprovalBytes).operatorHandoff.directedAt,'2026-10-08T07:45:00.123456Z');});
+function rebindUi8AssetOnly(f,asset,key){
+ const h=f.context.grant.historicalUi8,old=h[asset].sha256;
+ h[asset].sha256=digest(f.context[key]);f.doc.originalObservations.find(a=>a.sha256===old).sha256=h[asset].sha256;
+ const a=JSON.parse(f.context.ui9ApprovalBytes);a.previousUiObservationSha256[asset]=h[asset].sha256;f.context.ui9ApprovalBytes=jsonBytes(a);f.context.grant.ui9ApprovalSha256=digest(f.context.ui9ApprovalBytes);return refreshSeven(f);
+}
+function alterUi8(f,key,change){const v=JSON.parse(f.context[key]);change(v);f.context[key]=jsonBytes(v);return rebindUi8History(f);}
+for(const [asset,key]of ui8Assets){
+ test(`UI9 rejects missing historical ${asset}`,()=>{const f=nineRoundFixture();delete f.context[key];assert.ok(run(f).errors.includes('TESTFLIGHT_UI8_SNAPSHOT_CHANGED'));});
+ test(`UI9 rejects changed historical ${asset}`,()=>{const f=nineRoundFixture();f.context[key]=Buffer.from('{}');assert.ok(run(f).errors.includes('TESTFLIGHT_UI8_SNAPSHOT_CHANGED'));});
+ for(const invalid of ['null','[]','{'])test(`UI9 rejects fully rebound malformed ${asset} ${invalid}`,()=>{const f=nineRoundFixture();f.context[key]=Buffer.from(invalid);rebindUi8AssetOnly(f,asset,key);let r;assert.doesNotThrow(()=>{r=run(f);});assert.ok(r.errors.includes('TESTFLIGHT_INVALID_UI8_SNAPSHOT'),JSON.stringify(r.errors));});
+}
+for(const [key,change,code]of [
+ ['ui8ConfigurationBytes',v=>{v.nativeMarketFingerprint=FP;},'SNAPSHOT_SCOPE'],['ui8ConfigurationBytes',v=>{v.fingerprint=FP;},'SNAPSHOT_SCOPE'],
+ ['ui8ConfigurationBytes',v=>{v.firstEditorLaunchOccurred=true;},'SNAPSHOT_SCOPE'],['ui8FrozenManifestBytes',v=>{v.firstEditorLaunchOccurred=true;},'SNAPSHOT_SCOPE'],
+ ['ui8SourceSnapshotBytes',v=>{v.sourceSha=SHA;},'SNAPSHOT_SCOPE'],['ui8SourceIntegrityBytes',v=>{v.sourceSha=SHA;},'SNAPSHOT_SCOPE'],
+ ['ui8FrozenManifestBytes',v=>{v.planSha256=FP;},'SNAPSHOT_SCOPE'],['ui8ExecutionStartBytes',v=>{v.planSha256=FP;},'SNAPSHOT_SCOPE'],
+ ['ui8SourceIntegrityBytes',v=>{v.trackedChecked=3;},'SOURCE_HISTORY'],['ui8SourceIntegrityBytes',v=>{v.missing=['src/example.gd'];},'SOURCE_HISTORY'],
+ ['ui8SourceIntegrityBytes',v=>{v.trackedDeclaredDifference.push({path:'src/example.gd'});},'SOURCE_HISTORY'],
+ ['ui8SourceIntegrityBytes',v=>{v.helperHashes['probe.gd'].actual=FP;},'SOURCE_HISTORY'],['ui8FrozenManifestBytes',v=>{v.frozenHelpers['probe.gd']=FP;},'SOURCE_HISTORY'],
+ ['ui8SourceIntegrityBytes',v=>{v.diagnosticHashesAfterEditorRun[0].actualSha256=FP;},'SOURCE_HISTORY'],
+ ['ui8SourceIntegrityBytes',v=>{v.globalAfterUi8=FP;},'SOURCE_HISTORY'],['ui8SourceIntegrityBytes',v=>{v.binaryHashUnchanged=false;},'SOURCE_HISTORY'],
+ ['ui8ResultBytes',v=>{v.verdict='passed';},'FAILURE_HISTORY'],['ui8ResultBytes',v=>{v.productRunCount=1;},'FAILURE_HISTORY'],
+ ['ui8ResultBytes',v=>{v.featureCounts={pass:28,fail:0,blocked:0};},'FAILURE_HISTORY'],['ui8ResultBytes',v=>{v.matrix.passed=168;},'FAILURE_HISTORY'],
+ ['ui8ResultBytes',v=>{v.problemRecheckCount=1;},'FAILURE_HISTORY'],['ui8ResultBytes',v=>{v.ui9='approved';},'FAILURE_HISTORY'],
+ ['ui8ResultBytes',v=>{v.E2E='passed';},'FAILURE_HISTORY'],['ui8ResultBytes',v=>{v.diagnostic.count=2;},'FAILURE_HISTORY'],
+ ['ui8ResultBytes',v=>{v.diagnostic.actualProbeButtonClicks=10;},'FAILURE_HISTORY'],['ui8ResultBytes',v=>{v.diagnostic.gamePid=456;},'FAILURE_HISTORY'],
+ ['ui8CleanupBytes',v=>{v.noNewProcessStarted=false;},'FAILURE_HISTORY'],['ui8CleanupBytes',v=>{v.requestedPidsAbsent=false;},'FAILURE_HISTORY'],
+ ['ui8CleanupBytes',v=>{v.events[0].pid=456;},'FAILURE_HISTORY'],['ui8CleanupBytes',v=>{v.events[0].attempt=2;},'FAILURE_HISTORY'],
+ ['ui8ExecutionStartBytes',v=>{v.diagnosticDeadline='2026-10-08T07:37:00Z';},'ORIGINAL_TIME'],
+ ['ui8ExecutionStartBytes',v=>{v.mainDeadline='2026-10-08T10:22:00Z';},'ORIGINAL_TIME'],
+ ['ui8ExecutionStartBytes',v=>{v.outerDeadlineWithSingleRecheck='2026-10-08T10:52:00Z';},'ORIGINAL_TIME'],
+ ['ui8ExecutionStartBytes',v=>{v.diagnosticRestartAllowed=true;},'ORIGINAL_TIME'],['ui8ExecutionStartBytes',v=>{v.clockStartsBeforeFirstDiagnosticEditorPopen=false;},'ORIGINAL_TIME'],
+ ['ui8ResultBytes',v=>{v.clockNotReset=false;},'ORIGINAL_TIME'],['ui8ResultBytes',v=>{v.unusedBudgetCarryForward=true;},'ORIGINAL_TIME'],
+ ['ui8FrozenManifestBytes',v=>{v.frozenAt='2026-10-08T07:22:00Z';},'ORIGINAL_TIME'],
+])test(`UI9 rejects rebound UI8 semantic drift ${key}: ${change}`,()=>{const f=nineRoundFixture();alterUi8(f,key,change);const r=run(f);assert.equal(r.ok,false);assert.ok(r.errors.includes('TESTFLIGHT_UI8_'+code),JSON.stringify(r.errors));});
+for(const [name,change]of [
+ ['missing file',m=>{m.files.pop();m.fileCount=m.files.length;}],['wrong bytes',m=>{m.files[0].bytes++;}],
+ ['wrong digest',m=>{m.files[0].sha256=FP;}],['duplicate path',m=>{m.files.push(m.files[0]);m.fileCount++;}],
+ ['wrong file count',m=>{m.fileCount++;}],['promoted verdict',m=>{m.verdict='passed';}],
+])test(`UI9 rejects rebound historical manifest ${name}`,()=>{const f=nineRoundFixture(),m=JSON.parse(f.context.ui8ManifestBytes);change(m);f.context.ui8ManifestBytes=jsonBytes(m);rebindUi8AssetOnly(f,'manifestAsset','ui8ManifestBytes');assert.ok(run(f).errors.includes('TESTFLIGHT_UI8_MANIFEST'));});
+test('UI9 rejects final UI8 hashing outside the original diagnostic cap even before manual approval',()=>{const f=nineRoundFixture(),m=JSON.parse(f.context.ui8ManifestBytes);m.at='2026-10-08T07:36:00.001Z';f.context.ui8ManifestBytes=jsonBytes(m);rebindUi8AssetOnly(f,'manifestAsset','ui8ManifestBytes');assert.ok(run(f).errors.includes('TESTFLIGHT_UI8_ORIGINAL_TIME'));});
+test('UI9 requires original asset membership beyond matching direct digest',()=>{const f=nineRoundFixture(),a=f.context.grant.historicalUi8.cleanupAsset;f.context.grant.originalObservationAssets=f.context.grant.originalObservationAssets.filter(x=>x.id!==a.id);f.doc.originalObservations=f.doc.originalObservations.filter(x=>x.sha256!==a.sha256);refreshSeven(f);assert.ok(run(f).errors.includes('TESTFLIGHT_UI8_SNAPSHOT_CHANGED'));});
+for(const [name,change]of [
+ ['wrong current source',f=>{f.doc.editor.iterations[8].sourceSha=SHA;}],['old UI8 source promoted',f=>{f.doc.editor.iterations[7].sourceSha=f.context.sourceSha;}],
+ ['old UI8 failure promoted',f=>{f.doc.editor.iterations[7].functional.status='passed';}],['old UI8 resolution omitted',f=>{delete f.doc.editor.iterations[7].ux.resolutionEvidence;}],
+ ['old UI8 block changed to functional failure',f=>{f.doc.editor.iterations[7].functional.status='failed';}],
+ ['old UI8 completion shifted',f=>{f.doc.editor.iterations[7].completedAt='2026-10-08T07:29:00Z';}],['last UI9 UX failed',f=>{f.doc.editor.iterations[8].ux.status='failed';}],
+ ['E2E before round9',f=>{f.doc.editor.e2e.plannedAt='2026-10-08T07:59:00Z';}],['missing UI9 editor approval',f=>{f.doc.editor.additionalIterationApprovals.pop();}],
+ ['missing historical UI8',f=>{delete f.context.grant.historicalUi8;}],['missing UI9 approval bytes',f=>{delete f.context.ui9ApprovalBytes;}],
+ ['changed UI9 proposal',f=>{f.context.ui9ProposalBytes=Buffer.from('extended');}],['missing UI9 public human bytes',f=>{delete f.context.ui9HumanApprovalBytes;}],
+ ['later expiry',f=>{f.context.grant.expiresAt='2026-10-16T05:00:00Z';}],['public release',f=>{f.context.phase='before-release';}],
+ ['Android foundation missing',f=>{f.doc.android.features.pop();}],['unapproved tenth',f=>{f.context.grant.approvedUiRounds=10;}],
+])test(`UI9 preserves existing gates: ${name}`,()=>{const f=nineRoundFixture();change(f);refreshSeven(f);assert.equal(run(f).ok,false,name);});
+for(const [name,change,code]of [
+ ['pending configuration',{configurationFingerprint:null},'APPROVAL_SCOPE'],['wrong source',{sourceSha:SHA},'APPROVAL_SCOPE'],['wrong config',{configurationFingerprint:FP},'APPROVAL_SCOPE'],
+ ['agent input claimed',{inputMode:'agent'},'APPROVAL_SCOPE'],['evaluation waived',{independentEvaluationRequired:false},'APPROVAL_SCOPE'],
+ ['automatic diagnostic added',{inputDiagnosticMaximumCount:1},'APPROVAL_SCOPE'],['second recheck',{issueRecheckMaximumCount:2},'APPROVAL_SCOPE'],
+ ['longer total',{totalMinutes:211},'APPROVAL_SCOPE'],['extended freshness',{extendOriginal168Hours:true},'APPROVAL_SCOPE'],
+ ['wrong previous approval',{previousUiApprovalSha256:FP},'APPROVAL_SCOPE'],['missing old observation hashes',{previousUiObservationSha256:{}},'APPROVAL_SCOPE'],
+ ['arbitrary valid origin',{originalApprovalSha256:FP},'HUMAN_APPROVAL_SCOPE'],
+])test(`UI9 rejects rebound approval ${name}`,()=>{const f=nineRoundFixture(),a=JSON.parse(f.context.ui9ApprovalBytes);Object.assign(a,change);f.context.ui9ApprovalBytes=jsonBytes(a);f.context.grant.ui9ApprovalSha256=digest(f.context.ui9ApprovalBytes);assert.ok(run(f).errors.includes('TESTFLIGHT_UI9_'+code));});
+for(const at of ['2026-10-08T07:30:59Z','2026-10-08T07:40:01Z'])test(`UI9 exact approval precedes planning and follows historical hashing: ${at}`,()=>{const f=nineRoundFixture();changeUi9ApprovalTime(f,at);assert.ok(run(f).errors.includes('TESTFLIGHT_UI9_APPROVAL_TIME'));});
+test('UI9 preserves microseconds and only normalizes the UTC suffix',()=>{const f=nineRoundFixture();changeUi9ApprovalTime(f,'2026-10-08T07:35:00.123456+00:00');assert.equal(run(f).ok,true,JSON.stringify(run(f).errors));f.doc.editor.additionalIterationApprovals[4].approvedAt='2026-10-08T07:35:00.123457Z';refreshSeven(f);assert.ok(run(f).errors.includes('TESTFLIGHT_UI9_EDITOR_APPROVAL'));});
+test('UI9 fields do not widen the approved UI8 path',()=>{const f=eightRoundFixture(),n=nineRoundFixture().context.grant;Object.assign(f.context.grant,{ui9ApprovalFile:n.ui9ApprovalFile,ui9ApprovalSha256:n.ui9ApprovalSha256,historicalUi8:n.historicalUi8});assert.deepEqual(run(f).errors,['TESTFLIGHT_BOOTSTRAP_REQUIRED']);});
+for(const value of [null,{},[],{id:1,sha256:FP,extra:true}])test(`UI9 typed UI8 role rejects ${JSON.stringify(value)}`,()=>{const f=nineRoundFixture();f.context.grant.historicalUi8.resultAsset=value;assert.deepEqual(run(f).errors,['TESTFLIGHT_BOOTSTRAP_REQUIRED']);});
+test('UI9 draft preserves the prior immutable UI8 approval bytes',()=>{assert.equal(digest(readFileSync(new URL('../docs/design/2026-10-15-spiritgate-ui8/approval.json',import.meta.url))),'ff44dc33d1e6fcf23494b76722ea82cb79e91051cbc1b7699e110ccd2714ed10');});
+test('UI9 may keep the same product SHA as blocked UI8 while binding a separate manual QA configuration',()=>{const f=nineRoundFixture(),source=f.context.grant.historicalUi8.sourceSha;for(const o of [f.context.grant,f.context,f.doc.editor,f.doc.editor.e2e,f.doc.android,f.doc.ios,f.context.providerProof,f.doc.editor.iterations[8]])o.sourceSha=source;const a=JSON.parse(f.context.ui9ApprovalBytes),human=JSON.parse(f.context.ui9HumanApprovalBytes);a.sourceSha=source;a.operatorHandoff.sourceSha=source;human.operatorHandoff=a.operatorHandoff;f.context.ui9HumanApprovalBytes=jsonBytes(human);a.humanApprovalSha256=digest(f.context.ui9HumanApprovalBytes);f.context.ui9ApprovalBytes=jsonBytes(a);f.context.grant.ui9ApprovalSha256=digest(f.context.ui9ApprovalBytes);refreshSeven(f);assert.notEqual(f.context.configurationFingerprint,f.context.grant.historicalUi8.configurationFingerprint);assert.equal(run(f).ok,true,JSON.stringify(run(f).errors));});
+function changeUi9ApprovalTime(f,at){const a=JSON.parse(f.context.ui9ApprovalBytes),h=JSON.parse(f.context.ui9HumanApprovalBytes);a.approvalRecordedAt=at;h.approvedAt=at.replace(/\+00:00$/u,'Z');f.context.ui9HumanApprovalBytes=jsonBytes(h);a.humanApprovalSha256=digest(f.context.ui9HumanApprovalBytes);f.context.ui9ApprovalBytes=jsonBytes(a);f.context.grant.ui9ApprovalSha256=digest(f.context.ui9ApprovalBytes);f.doc.editor.additionalIterationApprovals[4].approvedAt=h.approvedAt;return refreshSeven(f);}
+function alterUi9Handoff(f,change){const a=JSON.parse(f.context.ui9ApprovalBytes),h=JSON.parse(f.context.ui9HumanApprovalBytes);change(a.operatorHandoff);h.operatorHandoff=a.operatorHandoff;f.context.ui9HumanApprovalBytes=jsonBytes(h);a.humanApprovalSha256=digest(f.context.ui9HumanApprovalBytes);f.context.ui9ApprovalBytes=jsonBytes(a);f.context.grant.ui9ApprovalSha256=digest(f.context.ui9ApprovalBytes);return refreshSeven(f);}
+for(const [name,change]of [
+ ['different round',h=>{h.sameRound=10;}],['agent-only past input',h=>{h.inputBefore='agent';}],['human-only after takeover',h=>{h.inputAfter='human';}],
+ ['missing takeover origin',h=>{delete h.originalDirectiveSha256;}],['first directive reused as takeover',h=>{h.originalDirectiveSha256='e'.repeat(64);}],
+ ['different source',h=>{h.sourceSha=SHA;}],['different configuration',h=>{h.configurationFingerprint=FP;}],
+ ['clock reset',h=>{h.clockReset=true;}],['helpers altered',h=>{h.frozenHelpersModified=true;}],['new run',h=>{h.newRun=true;}],
+ ['author input counted as independent',h=>{h.authorInputCountsAsIndependentReview=true;}],
+])test(`UI9 handoff rejects fully rebound ${name}`,()=>{const f=nineRoundFixture();alterUi9Handoff(f,change);assert.ok(run(f).errors.includes('TESTFLIGHT_UI9_HANDOFF_SCOPE'));});
+for(const [name,change]of [
+ ['before original start',h=>{h.directedAt='2026-10-08T07:40:59Z';}],['after final completion',h=>{h.directedAt='2026-10-08T08:00:00.001Z';}],
+ ['invalid directive time',h=>{h.directedAt='unknown';}],['new start',h=>{h.sameStartedAt='2026-10-08T07:41:00.000001Z';}],
+ ['extended main',h=>{h.mainDeadlineAt='2026-10-08T10:42:00Z';}],['extended outer',h=>{h.absoluteMaximumAt='2026-10-08T11:12:00Z';}],
+ ['microsecond main extension',h=>{h.mainDeadlineAt='2026-10-08T10:41:00.000001Z';}],['microsecond outer extension',h=>{h.absoluteMaximumAt='2026-10-08T11:11:00.000001Z';}],
+])test(`UI9 handoff preserves the exact existing clock: ${name}`,()=>{const f=nineRoundFixture();alterUi9Handoff(f,change);assert.ok(run(f).errors.includes('TESTFLIGHT_UI9_HANDOFF_TIME'));});
+test('UI9 handoff cannot replace the initial pre-planning approval with the later directive time',()=>{const f=nineRoundFixture();changeUi9ApprovalTime(f,'2026-10-08T07:45:00.123456Z');assert.ok(run(f).errors.includes('TESTFLIGHT_UI9_APPROVAL_TIME'));});
+for(const value of [undefined,null,[],{}])test(`UI9 rejects missing or malformed separate handoff ${JSON.stringify(value)}`,()=>{const f=nineRoundFixture(),a=JSON.parse(f.context.ui9ApprovalBytes),h=JSON.parse(f.context.ui9HumanApprovalBytes);a.operatorHandoff=value;h.operatorHandoff=value;f.context.ui9HumanApprovalBytes=jsonBytes(h);a.humanApprovalSha256=digest(f.context.ui9HumanApprovalBytes);f.context.ui9ApprovalBytes=jsonBytes(a);f.context.grant.ui9ApprovalSha256=digest(f.context.ui9ApprovalBytes);assert.ok(run(f).errors.includes('TESTFLIGHT_UI9_HANDOFF_SCOPE'));});
+test('UI9 requires the separate handoff receipt to match the canonical scope exactly',()=>{const f=nineRoundFixture(),a=JSON.parse(f.context.ui9ApprovalBytes);a.operatorHandoff.originalDirectiveSha256=FP;f.context.ui9ApprovalBytes=jsonBytes(a);f.context.grant.ui9ApprovalSha256=digest(f.context.ui9ApprovalBytes);assert.ok(run(f).errors.includes('TESTFLIGHT_UI9_HUMAN_APPROVAL_SCOPE'));});
+test('UI9 requires the initial receipt timestamp without losing microseconds',()=>{const f=nineRoundFixture(),h=JSON.parse(f.context.ui9HumanApprovalBytes),a=JSON.parse(f.context.ui9ApprovalBytes);h.approvedAt='2026-10-08T07:35:00.000001Z';f.context.ui9HumanApprovalBytes=jsonBytes(h);a.humanApprovalSha256=digest(f.context.ui9HumanApprovalBytes);f.context.ui9ApprovalBytes=jsonBytes(a);f.context.grant.ui9ApprovalSha256=digest(f.context.ui9ApprovalBytes);assert.ok(run(f).errors.includes('TESTFLIGHT_UI9_HUMAN_APPROVAL_SCOPE'));});

@@ -185,7 +185,8 @@
         5,
         6,
         7,
-        8
+        8,
+        9
       ]
     },
     "additionalUiApprovalFile": {
@@ -415,6 +416,63 @@
           "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
         }
       }
+    },
+    "ui9ApprovalFile": {
+      "const": "docs/design/2026-10-16-spiritgate-ui9/approval.json"
+    },
+    "ui9ApprovalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "historicalUi8": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceSha",
+        "configurationFingerprint",
+        "sourceSnapshotAsset",
+        "configurationAsset",
+        "frozenManifestAsset",
+        "executionStartAsset",
+        "sourceIntegrityAsset",
+        "resultAsset",
+        "cleanupAsset",
+        "manifestAsset"
+      ],
+      "properties": {
+        "sourceSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "configurationFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceSnapshotAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "configurationAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "frozenManifestAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "executionStartAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "sourceIntegrityAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "resultAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "cleanupAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "manifestAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        }
+      }
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -428,7 +486,8 @@
               5,
               6,
               7,
-              8
+              8,
+              9
             ]
           }
         },
@@ -466,7 +525,8 @@
             "enum": [
               6,
               7,
-              8
+              8,
+              9
             ]
           }
         },
@@ -509,7 +569,8 @@
           "approvedUiRounds": {
             "enum": [
               7,
-              8
+              8,
+              9
             ]
           }
         },
@@ -550,7 +611,10 @@
       "if": {
         "properties": {
           "approvedUiRounds": {
-            "const": 8
+            "enum": [
+              8,
+              9
+            ]
           }
         },
         "required": [
@@ -580,6 +644,46 @@
             {
               "required": [
                 "historicalUi7"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "approvedUiRounds": {
+            "const": 9
+          }
+        },
+        "required": [
+          "approvedUiRounds"
+        ]
+      },
+      "then": {
+        "required": [
+          "ui9ApprovalFile",
+          "ui9ApprovalSha256",
+          "historicalUi8"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "ui9ApprovalFile"
+              ]
+            },
+            {
+              "required": [
+                "ui9ApprovalSha256"
+              ]
+            },
+            {
+              "required": [
+                "historicalUi8"
               ]
             }
           ]

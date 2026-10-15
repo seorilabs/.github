@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "kind": "human_central_ui9_implementation_and_limited_review_approval",
+  "answer": "두 범위 승인",
+  "approvedAt": "2026-10-15T23:37:09.228686Z",
+  "messageTimestampOriginal": "2026-10-15T23:37:09.228Z",
+  "messageRawSha256": "65f9d2641d1b15ba8947086f002122abf25e712b688809e273ed629132f041dd",
+  "proposalSha256": "8883daa2692d5bc1880053ef8f9e7729d197b9db3379cd9d8b9cf3712a571e13",
+  "approvedPatchSha256": "a226b0c56ad4f665931adc7f23bdacd4eeb00654d39ebc117b5e94fc12eb3e7f",
+  "codeFiles": [
+    "contracts/internal-testflight-bootstrap-grant.schema.json",
+    "scripts/release/internal-testflight-bootstrap.mjs",
+    "tests/internal-testflight-bootstrap.test.mjs"
+  ],
+  "externalReview": {
+    "reviewer": "Claude Code",
+    "mode": "read-only",
+    "tools": [],
+    "payload": "final CODE-only diff of the three files",
+    "maximumRequestsIncludingAutomaticCopilot": 2,
+    "excluded": [
+      "credentials",
+      "PixelLab original responses",
+      "personal information",
+      "questions",
+      "execution logs",
+      "actual observations"
+    ]
+  },
+  "implementation": "Ready Korean PR, required checks, per-finding handling, squash merge when gates pass",
+  "ui9Expired": true,
+  "newRoundOrClockExtensionAuthorized": false,
+  "actualGrantOrBuildAuthorized": false,
+  "timestampSource": "exact user message create_time, microseconds preserved",
+  "messageRawSha256Definition": "Original user JSONL record bytes including its single terminating LF; not the extracted user content string.",
+  "extractedUserContentSha256": "66ecaafa63a72ce864f6f52ac23629e51235e0d0e84d263501729e1460c6e0e0"
+}

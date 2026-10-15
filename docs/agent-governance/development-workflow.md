@@ -220,3 +220,9 @@ Apple의 단일 archive action은 `INTERNAL_ONLY`여야 한다. 처리된 빌드
 ### 별도 승인된 UI7·UI8과 과거 실패 결속
 
 [UI7](../design/2026-10-15-spiritgate-ui7/design.md)·[UI8](../design/2026-10-15-spiritgate-ui8/design.md)은 각 별도 사람 승인과 정확한 제안·실제 source/configuration으로7·8회를 순서대로 허용한다. UI7 경로는 UI6 원본 실패5종, UI8 경로는 UI7 원래/수정 후보·설정과12개 원본 자산을 typed historicalUi7로 검증한다. UI7의 원문 null 승인·두 후보의 실패/미완료·원래180분/210분과 intent 기준 단1회30분 재확인·실제 종료를 유지하며 새 후보의 전체 PASS로 소급 합산하지 않는다. UI8의 별도 창 입력 진단1회15분은 본180분 안에 포함한다. 이전 회차와 마지막 검수·별도 E2E·Android·원래 만료·168시간·서명·iPhone·정상 v2/L3/공개 조건은 불변이며 registry가 비어 있으면 빌드를 허용하지 않는다. UI9나 시간 연장 승인은 포함하지 않는다.
+
+### 별도 UI9 승인과 같은 회차의 입력 인계
+
+[UI9 설계](../design/2026-10-16-spiritgate-ui9/design.md)는 과거 UI8의 차단·제품 실행0·원래 진단/본/총 시계·정확 PID 종료·manifest를 typed historicalUi8 원본8종에 결속한다. UI9의 최초 사전 승인과 같은 회차 도중의 별도 사람→독립 agent 입력 인계는 서로 다른 시각·원본 hash로 보존한다. 후보·QA 설정·시작·180/210분 마감·helper를 바꾸지 않으며 과거 사람 조작이나 저자 입력 확인을 독립 agent PASS로 소급하지 않는다. 별도 구현/리뷰 승인은 실행 승인 시각을 다시 쓰지 않는다.
+
+현재 UI9는 원래 마감이 지난 미완료 이력이다. 이 코드 지원은 재개·UI10·시간 연장·실제 PASS·grant 등록을 허용하지 않는다. 이전 승인/실패·마지막 기능/UX·별도90분 E2E·Android 기반4·원래 만료/168시간·한 Cloud/업로드·정확 서명·iPhone·정상v2/L3/공개 조건과 빈 registry를 유지한다.
