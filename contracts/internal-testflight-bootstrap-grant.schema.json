@@ -183,7 +183,8 @@
       "enum": [
         4,
         5,
-        6
+        6,
+        7
       ]
     },
     "additionalUiApprovalFile": {
@@ -255,6 +256,81 @@
           }
         }
       }
+    },
+    "ui7ApprovalFile": {
+      "const": "docs/design/2026-10-15-spiritgate-ui7/approval.json"
+    },
+    "ui7ApprovalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "historicalUi6": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceSha",
+        "configurationFingerprint",
+        "sourceSnapshotAsset",
+        "configurationAsset",
+        "executionStartAsset",
+        "failedSegmentAsset",
+        "failureAsset"
+      ],
+      "properties": {
+        "sourceSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "configurationFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceSnapshotAsset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "sha256"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        },
+        "configurationAsset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "sha256"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        },
+        "executionStartAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "failedSegmentAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "failureAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        }
+      }
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -266,7 +342,8 @@
           "approvedUiRounds": {
             "enum": [
               5,
-              6
+              6,
+              7
             ]
           }
         },
@@ -301,7 +378,10 @@
       "if": {
         "properties": {
           "approvedUiRounds": {
-            "const": 6
+            "enum": [
+              6,
+              7
+            ]
           }
         },
         "required": [
@@ -331,6 +411,46 @@
             {
               "required": [
                 "historicalUi5"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "approvedUiRounds": {
+            "const": 7
+          }
+        },
+        "required": [
+          "approvedUiRounds"
+        ]
+      },
+      "then": {
+        "required": [
+          "ui7ApprovalFile",
+          "ui7ApprovalSha256",
+          "historicalUi6"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "ui7ApprovalFile"
+              ]
+            },
+            {
+              "required": [
+                "ui7ApprovalSha256"
+              ]
+            },
+            {
+              "required": [
+                "historicalUi6"
               ]
             }
           ]
