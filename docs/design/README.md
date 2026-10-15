@@ -16,3 +16,5 @@
 | 2026-10-14 | [Spiritgate UI5 별도 승인 결속](2026-10-14-spiritgate-ui5/design.md) | [원문 승인](2026-10-14-spiritgate-ui5/approval.json) · 제품 제안62415abe | [Spiritgate240](https://github.com/seorilabs/spiritgate-defenders/issues/240) | 중앙 거절 검사·전체 회귀; 실제 제품 UI5는 독립 실행 |
 
 | 2026-10-15 | [Spiritgate UI6 별도 승인과 과거 snapshot 결속](2026-10-15-spiritgate-ui6/design.md) | [원문 승인](2026-10-15-spiritgate-ui6/approval.json) · 제안08fe7332 | [Spiritgate240](https://github.com/seorilabs/spiritgate-defenders/issues/240) · [중앙 실행 범위](2026-10-15-spiritgate-ui6/execution-ticket.md) | 중앙 TDD·회귀; 실제 제품 실행과 구분 |
+
+| 2026-10-15 | [Spiritgate UI7과 UI6 원본 실패 결속](2026-10-15-spiritgate-ui7/design.md) | [원문 승인](2026-10-15-spiritgate-ui7/human-approval.json) · 제안7d912748 | [Spiritgate240](https://github.com/seorilabs/spiritgate-defenders/issues/240) · [중앙 실행 범위](2026-10-15-spiritgate-ui7/execution-ticket.md) | 중앙 TDD·회귀; 실제 UI7 별도 |
