@@ -447,3 +447,29 @@ test('UI7 preserves the unchanged v1 retirement cutoff',()=>{const f=sevenRoundF
 test('UI7 preserves exact original UI5/UI6 approval and proposal bytes',()=>{
  for(const [file,hash]of [['docs/design/2026-10-14-spiritgate-ui5/approval.json','7c5029587d363c4d42d1a1444f298292eeadae9bc558bf3bc5473fdb4c69e795'],['docs/design/2026-10-15-spiritgate-ui6/approval.json','bb53a1c3cc53e8450e0e33b0055422c80c0d51fdb8a596eaa34a82a8ca64574b'],['docs/design/2026-10-15-spiritgate-ui6/approved-proposal.md','08fe7332a1d24758f6800d56c7b6837d5af93165a11a155447202b70b9f5a886'],['docs/design/2026-10-15-spiritgate-ui7/approved-proposal.md','7d912748e44416e4a14d702909509206857d71c781dd2a168aada97a850af0a7'],['docs/design/2026-10-15-spiritgate-ui7/human-approval.json','d864eac9157b66d4718419e282b75399fa7ae15feca3e71f8c48374fe841d070']])assert.equal(digest(readFileSync(new URL('../'+file,import.meta.url))),hash);
 });
+test('pending current UI7 approval cannot authorize a grant before the real configuration is bound',()=>{
+ const f=sevenRoundFixture();assert.equal(run(f).ok,true);
+ rebindUi7Approval(f,{configurationFingerprint:null});
+ const result=run(f);assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_UI7_APPROVAL_SCOPE'),JSON.stringify(result.errors));
+});
+test('UI7 rejects missing historical project digests even after every bytes hash is rebound',()=>{
+ const f=sevenRoundFixture(),h=f.context.grant.historicalUi6;
+ f.context.ui6SourceSnapshotBytes=jsonBytes({sourceSha:h.sourceSha,files:[{path:'other.gd'}]});
+ f.context.ui6ConfigurationBytes=jsonBytes({sourceSha:h.sourceSha,fingerprint:h.configurationFingerprint,runtimeKind:'godot-editor',nativeMarketFingerprint:null,configs:[{}]});
+ const end=JSON.parse(f.context.ui6FailedSegmentBytes);end.sourceChanges=[{path:'project.godot'}];f.context.ui6FailedSegmentBytes=jsonBytes(end);rebindUi6History(f);
+ const result=run(f);assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_UI6_SNAPSHOT_SCOPE'),JSON.stringify(result.errors));
+});
+for(const value of [null,'','a'.repeat(63),'g'.repeat(64)])test(`UI7 rejects malformed historical before/after digests ${value}`,()=>{
+ const f=sevenRoundFixture(),source=JSON.parse(f.context.ui6SourceSnapshotBytes),configuration=JSON.parse(f.context.ui6ConfigurationBytes),end=JSON.parse(f.context.ui6FailedSegmentBytes);
+ source.files[0].sha256=value;configuration.sourceProjectSha256=value;configuration.configs[0].sha256=value;end.sourceChanges[0].beforeSha256=value;end.sourceChanges[0].afterSha256=value;
+ f.context.ui6SourceSnapshotBytes=jsonBytes(source);f.context.ui6ConfigurationBytes=jsonBytes(configuration);f.context.ui6FailedSegmentBytes=jsonBytes(end);rebindUi6History(f);
+ const result=run(f);assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_UI6_SNAPSHOT_SCOPE'),JSON.stringify(result.errors));
+});
+test('UI7 overlapping historical run attack is rejected by the unchanged v1 ROUND_OVERLAP guard',()=>{
+ const f=sevenRoundFixture();rebindUi7Approval(f,{approvalRecordedAt:'2026-10-08T05:50:30+00:00'});f.doc.editor.additionalIterationApprovals[2].approvedAt='2026-10-08T05:50:30Z';
+ Object.assign(f.doc.editor.iterations[6],{plannedAt:'2026-10-08T05:51:30Z',startedAt:'2026-10-08T05:52:00Z',completedAt:'2026-10-08T06:30:00Z'});refreshSeven(f);
+ const result=run(f);assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_EDITOR ROUND_OVERLAP'),JSON.stringify(result.errors));assert.ok(!result.errors.includes('TESTFLIGHT_UI7_APPROVAL_TIME'));
+});
+test('UI7 missing Editor iterations fails closed under the existing v1 schema without escaping',()=>{
+ const f=sevenRoundFixture();delete f.doc.editor.iterations;refreshSeven(f);let result;assert.doesNotThrow(()=>{result=run(f);});assert.equal(result.ok,false);assert.ok(result.errors.some(e=>e.startsWith('TESTFLIGHT_EDITOR EVIDENCE_SCHEMA')),JSON.stringify(result.errors));
+});

@@ -201,9 +201,11 @@ function validateBootstrapHistoricalUi6(grant,context,round){
     || (approval.sourceSha!==null && approval.sourceSha!==h.sourceSha)
     || (approval.configurationFingerprint!==null && approval.configurationFingerprint!==h.configurationFingerprint)
     || !Array.isArray(source.files) || source.files.length!==end.sourceTrackedFiles
+    || typeof configuration.sourceProjectSha256!=='string' || !DIGEST.test(configuration.sourceProjectSha256)
     || source.files.find(f=>f.path==='project.godot')?.sha256!==configuration.sourceProjectSha256
     || !Array.isArray(end.sourceChanges) || end.sourceChanges.length!==1
     || end.sourceChanges[0]?.path!=='project.godot' || end.sourceChanges[0].beforeSha256!==configuration.sourceProjectSha256
+    || typeof end.sourceChanges[0].afterSha256!=='string' || !DIGEST.test(end.sourceChanges[0].afterSha256)
     || !Array.isArray(configuration.configs) || !configuration.configs.some(c=>c.sha256===end.sourceChanges[0].afterSha256)) fail('TESTFLIGHT_UI6_SNAPSHOT_SCOPE');
   if(end.wholeUi6Completed!==false || end.phaseResult!=='fail and incomplete' || failure.result!=='fail'
     || !Array.isArray(end.errors) || end.errors.length!==end.totalErrorCount || !Number.isSafeInteger(end.totalErrorCount) || end.totalErrorCount<1
