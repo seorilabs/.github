@@ -1,0 +1,27 @@
+{
+  "recordedAt": "2026-10-15T10:01:24.112573+00:00",
+  "source": "direct human question reply in current chat",
+  "questionItemId": "[\"request_user_input_async\",\"call_3b8a1253c0754cd3948c900f722a32da\",0]",
+  "answer": "v2 최소 보정·제한 리뷰·검사 후 병합 승인",
+  "designSha256": "eca0a077974942caaf52cc9f58e36eacd8c866ad9c38876edf2fd08756445c5c",
+  "testPlanSha256": "2f06b937b3bcdf7770de7dc87347c806ad1ec93985aa2271d3397d25ef5ef7c0",
+  "testScopeSha256": "40595d37aa4fdffebaef0800f6fce838f3de6355ec36fe8611b24687e7c1a828",
+  "baseCentralSha": "20aae2bfb0923a464e6fe7d36e7c797c8019b34c",
+  "scope": [
+    "normal v2 optional approval array with truthful original time and cap",
+    "existing single approval format preserved",
+    "minimum code and regression checks",
+    "new central Ready PR and checks followed by merge",
+    "final code-only read-only Claude review"
+  ],
+  "maximumReviewRequestsIncludingAutomaticCopilot": 2,
+  "excludedFromExternalReview": [
+    "credentials",
+    "PixelLab raw responses",
+    "personal information",
+    "execution logs"
+  ],
+  "newUiRoundsAuthorized": false,
+  "budgetOrDeadlineExtension": false,
+  "deviceOrE2eWaiver": false
+}
