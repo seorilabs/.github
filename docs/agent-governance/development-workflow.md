@@ -216,3 +216,7 @@ Apple의 단일 archive action은 `INTERNAL_ONLY`여야 한다. 처리된 빌드
 ### 별도 승인된 UI6 기록
 
 [승인된 UI6 설계](../design/2026-10-15-spiritgate-ui6/design.md)는 정확한6회만 추가한다. 기존4/5회 경로의 후보·설정 비교는 유지한다. 6회는 `ui6ApprovalFile`·`ui6ApprovalSha256`와 정확한 제안, 현재 후보·설정에 별도로 결속한다. UI5 원문 승인·제안과 실제 `historicalUi5`의 source/configuration 자산 bytes를 보존해 과거 후보를 새 후보로 소급 변경하지 않는다. UI6 승인은 UI5 승인·source snapshot·configuration hash도 참조한다. 원래4/5회 승인 시각·실패·예산을 보존하고 4·5·6회 각각210분 상한, 최신 기능/UX·실제 Editor 전체 E2E·Android 기반4·기존168시간을 검사한다. UI7·실기기 면제·공개 예외는 추가하지 않는다. registry가 비어 있으면 검증기 지원만으로 실행은 허용되지 않는다.
+
+### 별도 승인된 UI7·UI8과 과거 실패 결속
+
+[UI7](../design/2026-10-15-spiritgate-ui7/design.md)·[UI8](../design/2026-10-15-spiritgate-ui8/design.md)은 각 별도 사람 승인과 정확한 제안·실제 source/configuration으로7·8회를 순서대로 허용한다. UI7 경로는 UI6 원본 실패5종, UI8 경로는 UI7 원래/수정 후보·설정과12개 원본 자산을 typed historicalUi7로 검증한다. UI7의 원문 null 승인·두 후보의 실패/미완료·원래180분/210분과 intent 기준 단1회30분 재확인·실제 종료를 유지하며 새 후보의 전체 PASS로 소급 합산하지 않는다. UI8의 별도 창 입력 진단1회15분은 본180분 안에 포함한다. 이전 회차와 마지막 검수·별도 E2E·Android·원래 만료·168시간·서명·iPhone·정상 v2/L3/공개 조건은 불변이며 registry가 비어 있으면 빌드를 허용하지 않는다. UI9나 시간 연장 승인은 포함하지 않는다.

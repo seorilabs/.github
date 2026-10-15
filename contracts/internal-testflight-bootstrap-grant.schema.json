@@ -184,7 +184,8 @@
         4,
         5,
         6,
-        7
+        7,
+        8
       ]
     },
     "additionalUiApprovalFile": {
@@ -331,6 +332,89 @@
           "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
         }
       }
+    },
+    "ui8ApprovalFile": {
+      "const": "docs/design/2026-10-15-spiritgate-ui8/approval.json"
+    },
+    "ui8ApprovalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "historicalUi7": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceSha",
+        "configurationFingerprint",
+        "recheckSourceSha",
+        "recheckConfigurationFingerprint",
+        "sourceSnapshotAsset",
+        "configurationAsset",
+        "executionStartAsset",
+        "mainIntegrityAsset",
+        "transitionAsset",
+        "recheckConfigurationAsset",
+        "recheckExecutionStartAsset",
+        "recheckClockAsset",
+        "recheckIntegrityAsset",
+        "resultAsset",
+        "cleanupAsset",
+        "manifestAsset"
+      ],
+      "properties": {
+        "sourceSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "configurationFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "recheckSourceSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "recheckConfigurationFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceSnapshotAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "configurationAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "executionStartAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "mainIntegrityAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "transitionAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "recheckConfigurationAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "recheckExecutionStartAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "recheckClockAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "recheckIntegrityAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "resultAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "cleanupAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "manifestAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        }
+      }
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -343,7 +427,8 @@
             "enum": [
               5,
               6,
-              7
+              7,
+              8
             ]
           }
         },
@@ -380,7 +465,8 @@
           "approvedUiRounds": {
             "enum": [
               6,
-              7
+              7,
+              8
             ]
           }
         },
@@ -421,7 +507,10 @@
       "if": {
         "properties": {
           "approvedUiRounds": {
-            "const": 7
+            "enum": [
+              7,
+              8
+            ]
           }
         },
         "required": [
@@ -451,6 +540,46 @@
             {
               "required": [
                 "historicalUi6"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "approvedUiRounds": {
+            "const": 8
+          }
+        },
+        "required": [
+          "approvedUiRounds"
+        ]
+      },
+      "then": {
+        "required": [
+          "ui8ApprovalFile",
+          "ui8ApprovalSha256",
+          "historicalUi7"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "ui8ApprovalFile"
+              ]
+            },
+            {
+              "required": [
+                "ui8ApprovalSha256"
+              ]
+            },
+            {
+              "required": [
+                "historicalUi7"
               ]
             }
           ]
