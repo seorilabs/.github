@@ -1,0 +1,26 @@
+{
+  "recordedAt": "2026-10-15T09:24:12.777309+00:00",
+  "source": "direct human question reply in this chat",
+  "questionItemId": "[\"request_user_input_async\",\"call_7487250987814523b437bba5cbff2298\",0]",
+  "answer": "UI7·중앙 최소 보정·제한 리뷰 승인",
+  "approvedDesignSha256": "7d912748e44416e4a14d702909509206857d71c781dd2a168aada97a850af0a7",
+  "sourceSha": "89a4702d311e80b75de8bf11836e213ec9a7e94e",
+  "approvedUiRounds": 7,
+  "mainMinutes": 180,
+  "singleRecheckMinutes": 30,
+  "totalMinutes": 210,
+  "separateFinalEditorE2eMinutes": 90,
+  "originalExpiresAt": "2026-10-20T23:16:52.580641Z",
+  "limitedCentralClaudeReview": {
+    "codeDiffOnly": true,
+    "maximumIncludingAutomaticCopilot": 2,
+    "excluded": [
+      "credentials",
+      "PixelLab raw responses",
+      "personal information",
+      "execution logs"
+    ]
+  },
+  "nativeQaWaived": false,
+  "newCredentialsOrIamAuthorized": false
+}

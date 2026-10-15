@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "level": "L1",
+  "baseline": "8698b49a12ecacee0ed536da42915b1959d10edf",
+  "changedFeatures": [
+    "first-internal-testflight-ui7-validation"
+  ],
+  "environments": [
+    "dev"
+  ],
+  "redesign": false,
+  "foundationRerun": false,
+  "floorOverrides": [],
+  "release": {
+    "markets": [
+      "service"
+    ],
+    "until": "public"
+  }
+}

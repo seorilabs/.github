@@ -360,3 +360,116 @@ test('UI5 UTC receipt does not normalize other offsets even when they describe t
  f.context.ui6ApprovalBytes=jsonBytes(sixth);f.context.grant.ui6ApprovalSha256=digest(f.context.ui6ApprovalBytes);
  const r=run(f);assert.equal(r.ok,false);assert.ok(r.errors.includes('TESTFLIGHT_UI5_EDITOR_APPROVAL'),JSON.stringify(r.errors));
 });
+
+function sevenRoundFixture(){
+ const f=sixRoundFixture(),g=f.context.grant,historicalSource=SHA,historicalConfig=FP,current='7'.repeat(40),currentConfig='6'.repeat(64);
+ g.approvedUiRounds=7;g.ui7ApprovalFile='docs/design/2026-10-15-spiritgate-ui7/approval.json';
+ const sixth=JSON.parse(f.context.ui6ApprovalBytes);sixth.sourceSha=null;sixth.configurationFingerprint=null;
+ f.context.ui6ApprovalBytes=jsonBytes(sixth);g.ui6ApprovalSha256=digest(f.context.ui6ApprovalBytes);
+ for(const aspect of ['functional','ux'])Object.assign(f.doc.editor.iterations[5][aspect],{status:'blocked',resolutionEvidence:'https://example.com/ui7-resolution'});
+ f.doc.editor.iterations[5].completedAt='2026-10-08T06:01:00Z';
+ f.context.ui6SourceSnapshotBytes=jsonBytes({sourceSha:historicalSource,files:[{path:'project.godot',sha256:'1'.repeat(64),bytes:100}]});
+ f.context.ui6ConfigurationBytes=jsonBytes({sourceSha:historicalSource,fingerprint:historicalConfig,runtimeKind:'godot-editor',nativeMarketFingerprint:null,sourceProjectSha256:'1'.repeat(64),configs:[{sha256:'2'.repeat(64)}]});
+ f.context.ui6ExecutionStartBytes=jsonBytes({sourceSha:historicalSource,configurationFingerprint:historicalConfig,plannedAt:'2026-10-08T05:50:00+00:00',startedAt:'2026-10-08T05:51:00+00:00',mainDeadlineAt:'2026-10-08T08:51:00+00:00',absoluteDeadlineAt:'2026-10-08T09:21:00+00:00',mainMinutes:180,problemRecheckLimit:1,problemRecheckMaxMinutes:30});
+ f.context.ui6FailedSegmentBytes=jsonBytes({sourceSha:historicalSource,phaseResult:'fail and incomplete',wholeUi6Completed:false,originalFirstRun:'2026-10-08T05:51:00Z',mainDeadline:'2026-10-08T08:51:00Z',stopConfirmedByUtc:'2026-10-08T06:00:00Z',recordedAt:'2026-10-08T06:01:00+00:00',problemRecheckUsed:0,newCandidateRun:0,sourceTrackedFiles:1,sourceChanges:[{path:'project.godot',beforeSha256:'1'.repeat(64),afterSha256:'2'.repeat(64)}],errors:[{code:'fixture-error'}],totalErrorCount:1});
+ f.context.ui6FailureBytes=jsonBytes({sourceSha:historicalSource,result:'fail',originalStart:'2026-10-08T05:51:00Z',recordedAt:'2026-10-08T05:59:00+00:00',errors:[{code:'fixture-error'}],errorCount:1});
+ g.historicalUi6={sourceSha:historicalSource,configurationFingerprint:historicalConfig};
+ for(const [key,contextKey,id] of [['sourceSnapshotAsset','ui6SourceSnapshotBytes',127],['configurationAsset','ui6ConfigurationBytes',128],['executionStartAsset','ui6ExecutionStartBytes',129],['failedSegmentAsset','ui6FailedSegmentBytes',130],['failureAsset','ui6FailureBytes',131]]){
+  const asset={id,sha256:digest(f.context[contextKey])};g.historicalUi6[key]=asset;g.originalObservationAssets.push(asset);f.doc.originalObservations.push({name:contextKey+'.json',sha256:asset.sha256});
+ }
+ const seventh=structuredClone(f.doc.editor.iterations[3]);Object.assign(seventh,{number:7,sourceSha:current,plannedAt:'2026-10-08T06:20:00Z',startedAt:'2026-10-08T06:21:00Z',completedAt:'2026-10-08T06:40:00Z'});f.doc.editor.iterations.push(seventh);
+ f.doc.editor.additionalIterationApprovals.push({approverKind:'human',approver:'owner',approvedAt:'2026-10-08T06:15:00Z',maxRound:7,evidence:g.ui7ApprovalFile});
+ f.context.ui7ProposalBytes=Buffer.from('one UI7; preserve all UI6 originals; no extension or native waiver');
+ f.context.ui7ApprovalBytes=jsonBytes({...sixth,designId:'SGD-UI7-TF-110-v1',approvedUiRounds:7,sourceSha:current,configurationFingerprint:currentConfig,approvalRecordedAt:'2026-10-08T06:15:00+00:00',proposalSha256:digest(f.context.ui7ProposalBytes),previousUiApprovalSha256:g.ui6ApprovalSha256,previousUiSourceSnapshotSha256:g.historicalUi6.sourceSnapshotAsset.sha256,previousUiConfigurationSha256:g.historicalUi6.configurationAsset.sha256,previousUiExecutionStartSha256:g.historicalUi6.executionStartAsset.sha256,previousUiFailedSegmentSha256:g.historicalUi6.failedSegmentAsset.sha256,previousUiFailureSha256:g.historicalUi6.failureAsset.sha256});g.ui7ApprovalSha256=digest(f.context.ui7ApprovalBytes);
+ for(const object of [g,f.context,f.doc.editor,f.doc.editor.e2e,f.doc.android,f.doc.ios,f.context.providerProof])object.sourceSha=current;
+ for(const object of [g,f.context,f.doc.editor.e2e.environment])object.configurationFingerprint=currentConfig;
+ Object.assign(f.doc.editor.e2e,{plannedAt:'2026-10-08T06:45:00Z',startedAt:'2026-10-08T06:46:00Z',completedAt:'2026-10-08T06:55:00Z'});
+ return refreshSeven(f);
+}
+function refreshSeven(f){f.context.evidenceBytes=jsonBytes(f.doc);f.context.grant.evidenceSha256=digest(f.context.evidenceBytes);return f;}
+function rebindUi7Approval(f,changes){const a=JSON.parse(f.context.ui7ApprovalBytes);Object.assign(a,changes);f.context.ui7ApprovalBytes=jsonBytes(a);f.context.grant.ui7ApprovalSha256=digest(f.context.ui7ApprovalBytes);}
+function rebindUi6History(f){
+ const h=f.context.grant.historicalUi6,changes={};
+ for(const [key,contextKey,approvalKey]of [['sourceSnapshotAsset','ui6SourceSnapshotBytes','previousUiSourceSnapshotSha256'],['configurationAsset','ui6ConfigurationBytes','previousUiConfigurationSha256'],['executionStartAsset','ui6ExecutionStartBytes','previousUiExecutionStartSha256'],['failedSegmentAsset','ui6FailedSegmentBytes','previousUiFailedSegmentSha256'],['failureAsset','ui6FailureBytes','previousUiFailureSha256']]){
+  const old=h[key].sha256;h[key].sha256=digest(f.context[contextKey]);f.doc.originalObservations.find(a=>a.sha256===old).sha256=h[key].sha256;changes[approvalKey]=h[key].sha256;
+ }
+ rebindUi7Approval(f,changes);refreshSeven(f);
+}
+test('UI7 binds its own candidate and retains the immutable failed and incomplete UI6 observations',()=>{
+ const f=sevenRoundFixture(),result=run(f);assert.equal(result.ok,true,JSON.stringify(result.errors));assert.equal(result.approvedUiRounds,7);assert.equal(result.ui7ApprovalSha256,f.context.grant.ui7ApprovalSha256);assert.equal(result.ui6ApprovalSha256,f.context.grant.ui6ApprovalSha256);
+ assert.equal(f.doc.editor.iterations[5].sourceSha,SHA);assert.equal(f.doc.editor.iterations[5].functional.status,'blocked');assert.equal(JSON.parse(f.context.ui6ApprovalBytes).sourceSha,null);
+ assert.equal(JSON.parse(f.context.ui6FailedSegmentBytes).wholeUi6Completed,false);assert.equal(result.productE2eStatus,'blocked');assert.equal(result.nativeQaWaived,false);assert.equal(f.context.grant.expiresAt,'2026-10-15T05:00:00Z');
+});
+for(const [name,change]of [
+ ['missing UI7 approval',f=>{delete f.context.ui7ApprovalBytes;}],['changed UI7 proposal',f=>{f.context.ui7ProposalBytes=Buffer.from('expanded scope');}],
+ ['missing UI6 approval',f=>{delete f.context.ui6ApprovalBytes;}],['changed UI6 proposal',f=>{f.context.ui6ProposalBytes=Buffer.from('edited history');}],
+ ['missing historical UI6',f=>{delete f.context.grant.historicalUi6;}],['UI6 recast as current source',f=>{f.doc.editor.iterations[5].sourceSha=f.context.sourceSha;}],
+ ['UI6 promoted to functional PASS',f=>{f.doc.editor.iterations[5].functional.status='passed';}],['UI6 promoted to UX PASS',f=>{f.doc.editor.iterations[5].ux.status='passed';}],
+ ['UI6 first Run shifted',f=>{f.doc.editor.iterations[5].startedAt='2026-10-08T05:52:00Z';}],['UI6 observation end shifted',f=>{f.doc.editor.iterations[5].completedAt='2026-10-08T06:02:00Z';}],
+ ['UI6 missing resolution',f=>{delete f.doc.editor.iterations[5].functional.resolutionEvidence;}],['UI7 wrong source',f=>{f.doc.editor.iterations[6].sourceSha=SHA;}],
+ ['missing UI6 history',f=>{f.doc.editor.iterations.splice(5,1);}],['missing UI5 history',f=>{f.doc.editor.iterations.splice(4,1);}],
+ ['missing UI7 Editor approval',f=>{f.doc.editor.additionalIterationApprovals.pop();}],['missing UI6 Editor approval',f=>{f.doc.editor.additionalIterationApprovals.splice(1,1);}],
+ ['UI7 approval before UI6 approval',f=>{rebindUi7Approval(f,{approvalRecordedAt:'2026-10-08T05:44:00Z'});f.doc.editor.additionalIterationApprovals[2].approvedAt='2026-10-08T05:44:00Z';}],
+ ['UI7 plan before previous observation ended',f=>{f.doc.editor.iterations[6].plannedAt='2026-10-08T06:00:30Z';}],
+ ['UI7 E2E before UI7 ended',f=>{f.doc.editor.e2e.plannedAt='2026-10-08T06:39:00Z';}],
+ ['UI7 native foundation missing',f=>{f.doc.android.features.pop();}],['UI7 public submission',f=>{f.context.phase='before-release';}],
+ ['UI7 original expiry exceeded',f=>{f.context.now='2026-10-15T05:00:01Z';}],['UI7 original expiry extended',f=>{f.context.grant.expiresAt='2026-10-16T05:00:00Z';}],
+ ['UI8 without approval',f=>{f.context.grant.approvedUiRounds=8;f.doc.editor.iterations.push({...f.doc.editor.iterations[6],number:8});}],
+])test(`UI7 rejects ${name}`,()=>{const f=sevenRoundFixture();change(f);refreshSeven(f);assert.equal(run(f).ok,false,name);});
+for(const key of ['ui6SourceSnapshotBytes','ui6ConfigurationBytes','ui6ExecutionStartBytes','ui6FailedSegmentBytes','ui6FailureBytes']){
+ test(`UI7 rejects missing ${key}`,()=>{const f=sevenRoundFixture();delete f.context[key];assert.equal(run(f).ok,false);});
+ for(const invalid of ['null','{'])test(`UI7 fails closed for malformed ${key} ${invalid}`,()=>{const f=sevenRoundFixture();f.context[key]=Buffer.from(invalid);rebindUi6History(f);let result;assert.doesNotThrow(()=>{result=run(f);});assert.equal(result.ok,false);});
+ test(`UI7 rejects changed ${key} bytes`,()=>{const f=sevenRoundFixture();f.context[key]=Buffer.from('{}');assert.equal(run(f).ok,false);});
+}
+for(const [name,changes]of [
+ ['wrong current source',{sourceSha:SHA}],['wrong current configuration',{configurationFingerprint:FP}],['wrong previous approval',{previousUiApprovalSha256:'3'.repeat(64)}],
+ ['wrong previous source hash',{previousUiSourceSnapshotSha256:'3'.repeat(64)}],['wrong previous configuration hash',{previousUiConfigurationSha256:'3'.repeat(64)}],
+ ['wrong previous start hash',{previousUiExecutionStartSha256:'3'.repeat(64)}],['wrong previous segment hash',{previousUiFailedSegmentSha256:'3'.repeat(64)}],['wrong previous failure hash',{previousUiFailureSha256:'3'.repeat(64)}],
+ ['wrong timing approval',{originalTimingApprovalSha256:'3'.repeat(64)}],['deadline extension',{extendOriginal168Hours:true}],['second recheck',{issueRecheckMaximumCount:2}],['larger budget',{totalMinutes:211}],
+])test(`UI7 rejects ${name} even with rebound approval bytes`,()=>{const f=sevenRoundFixture();rebindUi7Approval(f,changes);assert.equal(run(f).ok,false);});
+for(const [key,change]of [
+ ['ui6SourceSnapshotBytes',v=>{v.sourceSha='3'.repeat(40);}],['ui6ConfigurationBytes',v=>{v.fingerprint='3'.repeat(64);}],
+ ['ui6ConfigurationBytes',v=>{v.runtimeKind='headless';}],['ui6ConfigurationBytes',v=>{v.sourceProjectSha256='3'.repeat(64);}],
+ ['ui6ExecutionStartBytes',v=>{v.mainDeadlineAt='2026-10-08T08:52:00+00:00';}],['ui6ExecutionStartBytes',v=>{v.absoluteDeadlineAt='2026-10-08T09:22:00+00:00';}],
+ ['ui6FailedSegmentBytes',v=>{v.wholeUi6Completed=true;}],['ui6FailedSegmentBytes',v=>{v.phaseResult='passed';}],
+ ['ui6FailedSegmentBytes',v=>{v.sourceChanges[0].beforeSha256='3'.repeat(64);}],['ui6FailedSegmentBytes',v=>{v.sourceChanges[0].afterSha256='3'.repeat(64);}],
+ ['ui6FailedSegmentBytes',v=>{v.sourceTrackedFiles=2;}],['ui6FailedSegmentBytes',v=>{v.totalErrorCount=0;}],['ui6FailedSegmentBytes',v=>{v.stopConfirmedByUtc='2026-10-08T05:40:00Z';}],
+ ['ui6FailureBytes',v=>{v.result='passed';}],['ui6FailureBytes',v=>{v.originalStart='2026-10-08T05:52:00Z';}],['ui6FailureBytes',v=>{v.errorCount=0;}],
+])test(`UI7 rejects rebound historical ${key} semantic drift: ${change}`,()=>{const f=sevenRoundFixture(),v=JSON.parse(f.context[key]);change(v);f.context[key]=jsonBytes(v);rebindUi6History(f);assert.equal(run(f).ok,false);});
+for(const round of [4,5,6,7])test(`UI7 retains round ${round} 210-minute cap`,()=>{const f=sevenRoundFixture();f.doc.editor.iterations[round-1].completedAt='2026-10-08T12:00:00Z';refreshSeven(f);assert.ok(run(f).errors.includes('TESTFLIGHT_APPROVED_UI_BUDGET'));});
+for(const aspect of ['functional','ux'])test(`final UI7 ${aspect} failure remains unresolved despite resolution evidence`,()=>{const f=sevenRoundFixture();Object.assign(f.doc.editor.iterations[6][aspect],{status:'failed',resolutionEvidence:'https://example.com/claimed'});refreshSeven(f);assert.ok(run(f).errors.includes(`TESTFLIGHT_EDITOR UNRESOLVED_REVIEW 7-${aspect}`));});
+test('UI7-only grant fields cannot be used with an otherwise valid UI6 history',()=>{const f=sixRoundFixture(),g=sevenRoundFixture().context.grant;assert.equal(run(f).ok,true);Object.assign(f.context.grant,{ui7ApprovalFile:g.ui7ApprovalFile,ui7ApprovalSha256:g.ui7ApprovalSha256,historicalUi6:g.historicalUi6});assert.deepEqual(run(f).errors,['TESTFLIGHT_BOOTSTRAP_REQUIRED']);});
+test('UI7 cannot move approval after its plan when both approval records agree',()=>{const f=sevenRoundFixture(),at='2026-10-08T06:22:00Z';rebindUi7Approval(f,{approvalRecordedAt:at});f.doc.editor.additionalIterationApprovals[2].approvedAt=at;refreshSeven(f);const r=run(f);assert.ok(r.errors.includes('TESTFLIGHT_UI7_APPROVAL_TIME'));assert.ok(!r.errors.includes('TESTFLIGHT_UI7_EDITOR_APPROVAL'));});
+test('UI7 rejects a one-microsecond receipt change without truncating the approval timestamp',()=>{const f=sevenRoundFixture();rebindUi7Approval(f,{approvalRecordedAt:'2026-10-08T06:15:00.123456+00:00'});f.doc.editor.additionalIterationApprovals[2].approvedAt='2026-10-08T06:15:00.123456Z';refreshSeven(f);assert.equal(run(f).ok,true);f.doc.editor.additionalIterationApprovals[2].approvedAt='2026-10-08T06:15:00.123457Z';refreshSeven(f);assert.ok(run(f).errors.includes('TESTFLIGHT_UI7_EDITOR_APPROVAL'));});
+for(const [sourceSha,configurationFingerprint,expected]of [[SHA,FP,true],['3'.repeat(40),FP,false],[SHA,'3'.repeat(64),false]])test(`UI7 preserves previously bound UI6 approval source/config: ${sourceSha}:${configurationFingerprint}`,()=>{const f=sevenRoundFixture(),a=JSON.parse(f.context.ui6ApprovalBytes);Object.assign(a,{sourceSha,configurationFingerprint});f.context.ui6ApprovalBytes=jsonBytes(a);f.context.grant.ui6ApprovalSha256=digest(f.context.ui6ApprovalBytes);rebindUi7Approval(f,{previousUiApprovalSha256:f.context.grant.ui6ApprovalSha256});assert.equal(run(f).ok,expected);});
+test('UI7 historical assets must also be retained in the verified original observation set',()=>{const f=sevenRoundFixture();f.context.grant.originalObservationAssets.pop();f.doc.originalObservations.pop();refreshSeven(f);assert.ok(run(f).errors.includes('TESTFLIGHT_UI6_SNAPSHOT_CHANGED'));});
+test('UI7 preserves the unchanged v1 retirement cutoff',()=>{const f=sevenRoundFixture();f.context.now='2026-10-22T00:00:00Z';assert.ok(run(f).errors.includes('TESTFLIGHT_EDITOR EVIDENCE_V1_RETIRED'));});
+test('UI7 preserves exact original UI5/UI6 approval and proposal bytes',()=>{
+ for(const [file,hash]of [['docs/design/2026-10-14-spiritgate-ui5/approval.json','7c5029587d363c4d42d1a1444f298292eeadae9bc558bf3bc5473fdb4c69e795'],['docs/design/2026-10-15-spiritgate-ui6/approval.json','bb53a1c3cc53e8450e0e33b0055422c80c0d51fdb8a596eaa34a82a8ca64574b'],['docs/design/2026-10-15-spiritgate-ui6/approved-proposal.md','08fe7332a1d24758f6800d56c7b6837d5af93165a11a155447202b70b9f5a886'],['docs/design/2026-10-15-spiritgate-ui7/approved-proposal.md','7d912748e44416e4a14d702909509206857d71c781dd2a168aada97a850af0a7'],['docs/design/2026-10-15-spiritgate-ui7/human-approval.json','d864eac9157b66d4718419e282b75399fa7ae15feca3e71f8c48374fe841d070']])assert.equal(digest(readFileSync(new URL('../'+file,import.meta.url))),hash);
+});
+test('pending current UI7 approval cannot authorize a grant before the real configuration is bound',()=>{
+ const f=sevenRoundFixture();assert.equal(run(f).ok,true);
+ rebindUi7Approval(f,{configurationFingerprint:null});
+ const result=run(f);assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_UI7_APPROVAL_SCOPE'),JSON.stringify(result.errors));
+});
+test('UI7 rejects missing historical project digests even after every bytes hash is rebound',()=>{
+ const f=sevenRoundFixture(),h=f.context.grant.historicalUi6;
+ f.context.ui6SourceSnapshotBytes=jsonBytes({sourceSha:h.sourceSha,files:[{path:'other.gd'}]});
+ f.context.ui6ConfigurationBytes=jsonBytes({sourceSha:h.sourceSha,fingerprint:h.configurationFingerprint,runtimeKind:'godot-editor',nativeMarketFingerprint:null,configs:[{}]});
+ const end=JSON.parse(f.context.ui6FailedSegmentBytes);end.sourceChanges=[{path:'project.godot'}];f.context.ui6FailedSegmentBytes=jsonBytes(end);rebindUi6History(f);
+ const result=run(f);assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_UI6_SNAPSHOT_SCOPE'),JSON.stringify(result.errors));
+});
+for(const value of [null,'','a'.repeat(63),'g'.repeat(64)])test(`UI7 rejects malformed historical before/after digests ${value}`,()=>{
+ const f=sevenRoundFixture(),source=JSON.parse(f.context.ui6SourceSnapshotBytes),configuration=JSON.parse(f.context.ui6ConfigurationBytes),end=JSON.parse(f.context.ui6FailedSegmentBytes);
+ source.files[0].sha256=value;configuration.sourceProjectSha256=value;configuration.configs[0].sha256=value;end.sourceChanges[0].beforeSha256=value;end.sourceChanges[0].afterSha256=value;
+ f.context.ui6SourceSnapshotBytes=jsonBytes(source);f.context.ui6ConfigurationBytes=jsonBytes(configuration);f.context.ui6FailedSegmentBytes=jsonBytes(end);rebindUi6History(f);
+ const result=run(f);assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_UI6_SNAPSHOT_SCOPE'),JSON.stringify(result.errors));
+});
+test('UI7 overlapping historical run attack is rejected by the unchanged v1 ROUND_OVERLAP guard',()=>{
+ const f=sevenRoundFixture();rebindUi7Approval(f,{approvalRecordedAt:'2026-10-08T05:50:30+00:00'});f.doc.editor.additionalIterationApprovals[2].approvedAt='2026-10-08T05:50:30Z';
+ Object.assign(f.doc.editor.iterations[6],{plannedAt:'2026-10-08T05:51:30Z',startedAt:'2026-10-08T05:52:00Z',completedAt:'2026-10-08T06:30:00Z'});refreshSeven(f);
+ const result=run(f);assert.equal(result.ok,false);assert.ok(result.errors.includes('TESTFLIGHT_EDITOR ROUND_OVERLAP'),JSON.stringify(result.errors));assert.ok(!result.errors.includes('TESTFLIGHT_UI7_APPROVAL_TIME'));
+});
+test('UI7 missing Editor iterations fails closed under the existing v1 schema without escaping',()=>{
+ const f=sevenRoundFixture();delete f.doc.editor.iterations;refreshSeven(f);let result;assert.doesNotThrow(()=>{result=run(f);});assert.equal(result.ok,false);assert.ok(result.errors.some(e=>e.startsWith('TESTFLIGHT_EDITOR EVIDENCE_SCHEMA')),JSON.stringify(result.errors));
+});

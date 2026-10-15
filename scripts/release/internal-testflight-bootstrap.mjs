@@ -59,19 +59,26 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
   reject(extra.length===approvedUiRounds-3 && extra.every(round=>Date.parse(round?.completedAt)-Date.parse(round?.startedAt) <= 210*60000),'TESTFLIGHT_APPROVED_UI_BUDGET');
   if(approvedUiRounds>=5){
     try{
-      const additional=approvedUiRounds===6
+      const additional=approvedUiRounds>=6
         ? validateBootstrapHistoricalUi5(grant,context)
         : validateBootstrapAdditionalUiApproval(grant,context.additionalUiApprovalBytes,context.additionalUiProposalBytes);
       const approvals=document.editor?.additionalIterationApprovals ?? [];
       reject(approvals.some(a=>a.maxRound===5 && a.approvedAt===additional.approvalRecordedAt.replace(/\+00:00$/u,'Z') && a.evidence===grant.additionalUiApprovalFile),'TESTFLIGHT_UI5_EDITOR_APPROVAL');
       const recorded=Date.parse(additional.approvalRecordedAt);
       reject(Number.isFinite(recorded) && approved<=recorded && recorded<=now && recorded<=Date.parse(document.editor?.iterations?.[4]?.plannedAt),'TESTFLIGHT_UI5_APPROVAL_TIME');
-      if(approvedUiRounds===6){
-        const sixth=validateBootstrapUi6Approval(grant,context.ui6ApprovalBytes,context.ui6ProposalBytes);
+      if(approvedUiRounds>=6){
+        const sixth=approvedUiRounds===7 ? validateBootstrapHistoricalUi6(grant,context,document.editor.iterations[5])
+          : validateBootstrapUi6Approval(grant,context.ui6ApprovalBytes,context.ui6ProposalBytes);
         const ui6At=Date.parse(sixth.approvalRecordedAt);
         reject(approvals.some(a=>a.maxRound===6 && a.approvedAt===sixth.approvalRecordedAt && a.evidence===grant.ui6ApprovalFile),'TESTFLIGHT_UI6_EDITOR_APPROVAL');
-        reject(Number.isFinite(ui6At) && recorded<=ui6At && ui6At<=now && ui6At<=Date.parse(last?.plannedAt),'TESTFLIGHT_UI6_APPROVAL_TIME');
-        reject(document.editor?.iterations?.[4]?.sourceSha===grant.historicalUi5.sourceSha && last?.sourceSha===grant.sourceSha,'TESTFLIGHT_UI6_HISTORY_SOURCE');
+        reject(Number.isFinite(ui6At) && recorded<=ui6At && ui6At<=now && ui6At<=Date.parse(document.editor.iterations[5]?.plannedAt),'TESTFLIGHT_UI6_APPROVAL_TIME');
+        reject(document.editor?.iterations?.[4]?.sourceSha===grant.historicalUi5.sourceSha && document.editor.iterations[5]?.sourceSha===(approvedUiRounds===7 ? grant.historicalUi6.sourceSha : grant.sourceSha),'TESTFLIGHT_UI6_HISTORY_SOURCE');
+        if(approvedUiRounds===7){
+          const seventh=validateBootstrapUi7Approval(grant,context.ui7ApprovalBytes,context.ui7ProposalBytes),ui7At=Date.parse(seventh.approvalRecordedAt);
+          reject(approvals.some(a=>a.maxRound===7 && a.approvedAt===utc(seventh.approvalRecordedAt) && a.evidence===grant.ui7ApprovalFile),'TESTFLIGHT_UI7_EDITOR_APPROVAL');
+          reject(Number.isFinite(ui7At) && ui6At<=ui7At && ui7At<=now && ui7At<=Date.parse(last?.plannedAt),'TESTFLIGHT_UI7_APPROVAL_TIME');
+          reject(last?.sourceSha===grant.sourceSha,'TESTFLIGHT_UI7_SOURCE');
+        }
       }
     }catch(error){errors.push(error.message);}
   }
@@ -103,7 +110,8 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
     grantSha256:context.grantSha256,completedAt:document.editor.e2e.completedAt,verifiedAt:new Date(now).toISOString(),
     buildId:provider.buildId,buildNumber:provider.buildNumber,androidStatus:'passed',iosStatus:'deferred',nativeQaWaived:false,
     approvedUiRounds,additionalUiApprovalSha256:approvedUiRounds>=5 ? grant.additionalUiApprovalSha256 : null,
-    ...(approvedUiRounds===6 ? {ui6ApprovalSha256:grant.ui6ApprovalSha256} : {})};
+    ...(approvedUiRounds>=6 ? {ui6ApprovalSha256:grant.ui6ApprovalSha256} : {}),
+    ...(approvedUiRounds===7 ? {ui7ApprovalSha256:grant.ui7ApprovalSha256} : {})};
 }
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
@@ -111,6 +119,9 @@ const policyPath='contracts/development-workflow.yaml';
 const proposalPath='docs/design/2026-10-14-spiritgate-internal-testflight/approved-proposal.md';
 const ui5ProposalPath='docs/design/2026-10-14-spiritgate-ui5/approved-proposal.md';
 const ui6ProposalPath='docs/design/2026-10-15-spiritgate-ui6/approved-proposal.md';
+const ui7ProposalPath='docs/design/2026-10-15-spiritgate-ui7/approved-proposal.md';
+const ui7HumanApprovalPath='docs/design/2026-10-15-spiritgate-ui7/human-approval.json';
+const utc=value=>typeof value==='string' ? value.replace(/\+00:00$/u,'Z') : null;
 const grantPaths=parse(readFileSync(join(root,policyPath),'utf8')).internalTestflightBootstrap?.grantRegistry ?? [];
 const fail=code=>{throw new Error(code);};
 const safePath=path=>typeof path==='string' && /^[A-Za-z0-9._/-]+$/u.test(path) && !path.split('/').includes('..') && !isAbsolute(path);
@@ -172,6 +183,63 @@ function validateBootstrapUi6Approval(grant,approvalBytes,proposalBytes){
   return approval;
 }
 
+function validateBootstrapHistoricalUi6(grant,context,round){
+  const h=grant.historicalUi6;
+  const pairs=[['ui6SourceSnapshotBytes','sourceSnapshotAsset'],['ui6ConfigurationBytes','configurationAsset'],
+    ['ui6ExecutionStartBytes','executionStartAsset'],['ui6FailedSegmentBytes','failedSegmentAsset'],['ui6FailureBytes','failureAsset']];
+  for(const [key,asset] of pairs){
+    if(!Buffer.isBuffer(context[key]) || bootstrapDigest(context[key])!==h[asset].sha256
+      || !grant.originalObservationAssets.some(a=>equal(a,h[asset]))) fail('TESTFLIGHT_UI6_SNAPSHOT_CHANGED');
+  }
+  let source,configuration,start,end,failure,approval;
+  try{[source,configuration,start,end,failure]=pairs.map(([key])=>JSON.parse(context[key]));approval=JSON.parse(context.ui6ApprovalBytes);}
+  catch{fail('TESTFLIGHT_INVALID_UI6_SNAPSHOT');}
+  if([source,configuration,start,end,failure,approval].some(v=>!v || typeof v!=='object' || Array.isArray(v))) fail('TESTFLIGHT_INVALID_UI6_SNAPSHOT');
+  if([source,configuration,start,end,failure].some(v=>v.sourceSha!==h.sourceSha)
+    || configuration.fingerprint!==h.configurationFingerprint || start.configurationFingerprint!==h.configurationFingerprint
+    || configuration.runtimeKind!=='godot-editor' || configuration.nativeMarketFingerprint!==null
+    || (approval.sourceSha!==null && approval.sourceSha!==h.sourceSha)
+    || (approval.configurationFingerprint!==null && approval.configurationFingerprint!==h.configurationFingerprint)
+    || !Array.isArray(source.files) || source.files.length!==end.sourceTrackedFiles
+    || typeof configuration.sourceProjectSha256!=='string' || !DIGEST.test(configuration.sourceProjectSha256)
+    || source.files.find(f=>f.path==='project.godot')?.sha256!==configuration.sourceProjectSha256
+    || !Array.isArray(end.sourceChanges) || end.sourceChanges.length!==1
+    || end.sourceChanges[0]?.path!=='project.godot' || end.sourceChanges[0].beforeSha256!==configuration.sourceProjectSha256
+    || typeof end.sourceChanges[0].afterSha256!=='string' || !DIGEST.test(end.sourceChanges[0].afterSha256)
+    || !Array.isArray(configuration.configs) || !configuration.configs.some(c=>c.sha256===end.sourceChanges[0].afterSha256)) fail('TESTFLIGHT_UI6_SNAPSHOT_SCOPE');
+  if(end.wholeUi6Completed!==false || end.phaseResult!=='fail and incomplete' || failure.result!=='fail'
+    || !Array.isArray(end.errors) || end.errors.length!==end.totalErrorCount || !Number.isSafeInteger(end.totalErrorCount) || end.totalErrorCount<1
+    || !Array.isArray(failure.errors) || failure.errors.length!==failure.errorCount || failure.errorCount!==end.totalErrorCount
+    || round?.functional?.status==='passed' || round?.ux?.status==='passed') fail('TESTFLIGHT_UI6_ORIGINAL_FAILURE');
+  const began=Date.parse(start.startedAt),stopped=Date.parse(end.stopConfirmedByUtc),recorded=Date.parse(end.recordedAt),found=Date.parse(failure.recordedAt);
+  if(![began,stopped,recorded,found].every(Number.isFinite) || !(began<=found && found<=stopped && stopped<=recorded)
+    || Date.parse(start.mainDeadlineAt)-began!==180*60000 || Date.parse(start.absoluteDeadlineAt)-began!==210*60000
+    || start.mainMinutes!==180 || start.problemRecheckLimit!==1 || start.problemRecheckMaxMinutes!==30
+    || end.problemRecheckUsed!==0 || end.newCandidateRun!==0
+    || utc(end.originalFirstRun)!==utc(start.startedAt) || utc(failure.originalStart)!==utc(start.startedAt)
+    || utc(end.mainDeadline)!==utc(start.mainDeadlineAt) || round?.plannedAt!==utc(start.plannedAt)
+    || round?.startedAt!==utc(start.startedAt) || round?.completedAt!==utc(end.recordedAt)) fail('TESTFLIGHT_UI6_ORIGINAL_TIME');
+  // 원래 UI6의 미등록 null 승인과 실패 관찰을 보존한다. 새 UI7의 후보/설정으로 소급 변경하지 않는다.
+  return validateBootstrapUi6Approval({...grant,sourceSha:approval.sourceSha,configurationFingerprint:approval.configurationFingerprint},context.ui6ApprovalBytes,context.ui6ProposalBytes);
+}
+
+function validateBootstrapUi7Approval(grant,approvalBytes,proposalBytes){
+  if(!Buffer.isBuffer(approvalBytes) || bootstrapDigest(approvalBytes)!==grant.ui7ApprovalSha256) fail('TESTFLIGHT_UI7_APPROVAL_CHANGED');
+  let approval;try{approval=JSON.parse(approvalBytes);}catch{fail('TESTFLIGHT_INVALID_UI7_APPROVAL');}
+  validateBootstrapApprovalProposal(approvalBytes,proposalBytes);
+  const h=grant.historicalUi6;
+  if(approval.kind!=='human_additional_ui_approval' || approval.designId!=='SGD-UI7-TF-110-v1' || approval.repository!==REPO || approval.version!=='1.1.0'
+    || approval.objective!=='one_additional_ui_round' || approval.approvedUiRounds!==7 || approval.sourceSha!==grant.sourceSha
+    || approval.configurationFingerprint!==grant.configurationFingerprint || approval.originalTimingApprovalSha256!==grant.approvalSha256
+    || approval.previousUiApprovalSha256!==grant.ui6ApprovalSha256 || approval.previousUiSourceSnapshotSha256!==h.sourceSnapshotAsset.sha256
+    || approval.previousUiConfigurationSha256!==h.configurationAsset.sha256 || approval.previousUiExecutionStartSha256!==h.executionStartAsset.sha256
+    || approval.previousUiFailedSegmentSha256!==h.failedSegmentAsset.sha256 || approval.previousUiFailureSha256!==h.failureAsset.sha256
+    || typeof approval.userApprovalVerbatim!=='string' || !approval.userApprovalVerbatim.trim()
+    || approval.executionMinutes!==180 || approval.issueRecheckMaximumCount!==1 || approval.issueRecheckMinutes!==30 || approval.totalMinutes!==210
+    || approval.extendOriginal168Hours!==false) fail('TESTFLIGHT_UI7_APPROVAL_SCOPE');
+  return approval;
+}
+
 // 임의 파일 경로를 ID로 바꿔 넘길 수 없다. 중앙 main에서 검토한 등록만 쓴다.
 async function reviewedBootstrap(id,verifierSha,request){
   const path=grantPaths.find(p=>p===`contracts/internal-testflight-bootstrap/${id}.json`);
@@ -185,7 +253,8 @@ async function reviewedBootstrap(id,verifierSha,request){
     'scripts/release/development-evidence-v1.mjs','scripts/release/test-plan.mjs','scripts/release/carry-forward.mjs',
     'contracts/internal-testflight-bootstrap.schema.json','contracts/internal-testflight-bootstrap-grant.schema.json',
     ...(grant.approvedUiRounds>=5 ? [grant.additionalUiApprovalFile,ui5ProposalPath] : []),
-    ...(grant.approvedUiRounds===6 ? [grant.ui6ApprovalFile,ui6ProposalPath] : [])];
+    ...(grant.approvedUiRounds>=6 ? [grant.ui6ApprovalFile,ui6ProposalPath] : []),
+    ...(grant.approvedUiRounds===7 ? [grant.ui7ApprovalFile,ui7ProposalPath,ui7HumanApprovalPath] : [])];
   await Promise.all(sources.map(async path=>{
     const remote=await readRemote('seorilabs/.github',path,verifierSha,request);
     if(!readFileSync(join(root,path)).equals(remote)) fail('TESTFLIGHT_VERIFIER_BYTES_CHANGED');
@@ -212,13 +281,23 @@ async function reviewedBootstrap(id,verifierSha,request){
     if(!additionalUiApprovalBytes.equals(latestAdditionalApproval) || !additionalUiProposalBytes.equals(latestAdditionalProposal)) fail('TESTFLIGHT_UI5_REVOKED_OR_CHANGED');
     additionalUi={additionalUiApprovalBytes,additionalUiProposalBytes};
   }
-  if(grant.approvedUiRounds===6){
+  if(grant.approvedUiRounds>=6){
     const ui6ApprovalBytes=readFileSync(join(root,grant.ui6ApprovalFile)),ui6ProposalBytes=readFileSync(join(root,ui6ProposalPath));
-    validateBootstrapUi6Approval(grant,ui6ApprovalBytes,ui6ProposalBytes);
+    if(grant.approvedUiRounds===6) validateBootstrapUi6Approval(grant,ui6ApprovalBytes,ui6ProposalBytes);
     const [latestApproval,latestProposal]=await Promise.all([
       readRemote('seorilabs/.github',grant.ui6ApprovalFile,'main',request),readRemote('seorilabs/.github',ui6ProposalPath,'main',request)]);
     if(!ui6ApprovalBytes.equals(latestApproval) || !ui6ProposalBytes.equals(latestProposal)) fail('TESTFLIGHT_UI6_REVOKED_OR_CHANGED');
     Object.assign(additionalUi,{ui6ApprovalBytes,ui6ProposalBytes});
+  }
+  if(grant.approvedUiRounds===7){
+    const ui7ApprovalBytes=readFileSync(join(root,grant.ui7ApprovalFile)),ui7ProposalBytes=readFileSync(join(root,ui7ProposalPath));
+    validateBootstrapUi7Approval(grant,ui7ApprovalBytes,ui7ProposalBytes);
+    const [latestApproval,latestProposal,latestHuman]=await Promise.all([
+      readRemote('seorilabs/.github',grant.ui7ApprovalFile,'main',request),readRemote('seorilabs/.github',ui7ProposalPath,'main',request),readRemote('seorilabs/.github',ui7HumanApprovalPath,'main',request)]);
+    const humanBytes=readFileSync(join(root,ui7HumanApprovalPath));
+    if(!ui7ApprovalBytes.equals(latestApproval) || !ui7ProposalBytes.equals(latestProposal) || !humanBytes.equals(latestHuman)
+      || bootstrapDigest(humanBytes)!==JSON.parse(ui7ApprovalBytes).humanApprovalSha256) fail('TESTFLIGHT_UI7_REVOKED_OR_CHANGED');
+    Object.assign(additionalUi,{ui7ApprovalBytes,ui7ProposalBytes});
   }
   return {grant,approvalBytes,...additionalUi,grantSha256:bootstrapDigest(bytes),verifierProof:{verified:true,revision:verifierSha,reviewedOnCurrentMain:true}};
 }
@@ -327,14 +406,18 @@ export async function verifyInternalTestflightBootstrap(options){
   if(evidenceBytes.length>2*1024*1024) fail('TESTFLIGHT_EVIDENCE_TOO_LARGE');
   const document=JSON.parse(evidenceBytes);
   const originalBytes=await Promise.all(grant.originalObservationAssets.map(download));
-  const historicalUi5=grant.approvedUiRounds===6 ? {
+  const historicalUi5=grant.approvedUiRounds>=6 ? {
     ui5SourceSnapshotBytes:originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi5.sourceSnapshotAsset))],
     ui5ConfigurationBytes:originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi5.configurationAsset))],
   } : {};
+  const historicalUi6=grant.approvedUiRounds===7 ? Object.fromEntries([
+    ['ui6SourceSnapshotBytes','sourceSnapshotAsset'],['ui6ConfigurationBytes','configurationAsset'],['ui6ExecutionStartBytes','executionStartAsset'],
+    ['ui6FailedSegmentBytes','failedSegmentAsset'],['ui6FailureBytes','failureAsset']]
+    .map(([key,asset])=>[key,originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi6[asset]))]])) : {};
   const inventoryBytes=await readRemote(REPO,'docs/qa/feature-inventory.json',grant.sourceSha,request);
   const tree=verifyBootstrapWorkingTree(options.appRepository,grant,options.phase);
   const providerProof=await bootstrapProvider(grant,env,request.fetchImpl);
-  const context={...options,...reviewed,...tree,...historicalUi5,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof,now:new Date().toISOString()};
+  const context={...options,...reviewed,...tree,...historicalUi5,...historicalUi6,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof,now:new Date().toISOString()};
   // Signed artifact and prior phase receipt are required by the before-deploy validator.
   if(options.phase==='before-deploy'){
     if(!options.artifactFile || !options.artifactReceipt) fail('TESTFLIGHT_ACTUAL_ARTIFACT_REQUIRED');
