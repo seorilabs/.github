@@ -1,7 +1,21 @@
 # 첫 내부 Apple 관계 조회 보정
 
-상태: 사용자 승인 후 구현/검증 중. 정확한 범위는 [승인 제안](approved-proposal.md), [승인](approval.json), [테스트 계획](test-plan.json)을 따른다.
+상태: 사용자 승인 후 최소 구현·회귀 완료, PR263 최종 CI/병합 대기. [approved-proposal.md](approved-proposal.md)는 승인 전 시점의 불변 원문이며 그 문서의 승인 대기 표기는 현재 상태가 아니다. 현재 승인은 [approval.json](approval.json), 정확한 계획은 [test-plan.json](test-plan.json), 결과는 [execution.md](execution.md)다. 원문의 해시를 보존하기 위해 승인 전 문장을 소급 수정하지 않는다.
 
-실제 Apple 기본 GET 응답은 관계 data를 생략하므로 product/app, workflow/product 및 run/workflow·product·sourceBranchOrTag를 include로 명시한다. 기존 실제 provider 검증 조건은 그대로 유지하며, 같은 HTTP 경로의 합성 회귀로 누락 관계를 계속 거절하는지 확인한다.
+## 목적·범위·근거
 
-제품/사용자 흐름·grant·실패 이력·한 Cloud·원래 기한·서명·iPhone/공개 v2·L3·E2E 조건은 바꾸지 않는다. 테스트 코드가 메모리에서 생성한 합성 키만 사용하며 실제 credential/응답/로그는 리뷰에 보내지 않는다. 이전 제안 원본과 RED/GREEN의 임시 실행은 제품·Cloud 실행 근거가 아니다.
+실제 Apple 기본 GET 응답은 관계 data를 생략한다. product/app, workflow/product 및 run/workflow·product·sourceBranchOrTag를 include로 명시해 기존 엄격한 검증기에 실제 필수 정보를 전달한다. 사용자 화면·입력 흐름·아트는 해당 없음: 서버 상태를 읽는 검증기만 바꾼다. 제품 저장·마이그레이션도 해당 없음: source/grant/원문을 변경하지 않는다.
+
+## 흐름·구조·실패 처리
+
+기존 bootstrapProvider의 HTTP 조회→실제 관계 data→기존 app/product/workflow/tag/run 일치 판정을 유지한다. 데이터 형식과 책임 분리는 그대로다. 필수 관계가 반환되지 않거나 다른 앱/후보/run이면 추정·대체 없이 기존 오류로 거절한다. 새 schema·의존성·credential·서명·기한·권한은 추가하지 않는다.
+
+## 품질·대안·인수조건
+
+관계 검사를 생략하는 대안은 채택하지 않는다. 공식 include 옵션은 요청한 실제 데이터를 받으면서 기존 엄격한 판정을 유지한다. 기준은 [실행 티켓](execution-ticket.md)의 RED→GREEN·누락5종 거절·전체 회귀·pack/actionlint/diff·CI·제한 리뷰다. L1/dev이며 제품 실행 검수는 해당 없음: 코드/합성 transport 검증과 실제 read-only 관측을 구분한다. 정확한 runtime 코드2파일만 Claude에 보내고 실제 관측·승인 원문·개인정보·credential·실행 로그를 제외한다.
+
+## 적용·운영·복구·추적
+
+중앙 PR263의 필수 검사·지적 처리·미해결0 뒤 병합하고 기존 Cloud 연결부가 실제 reviewed main을 읽도록 한다. 실패하면 Cloud를 시작하지 않고 원문을 보존한다. 복구가 필요하면 중앙 PR로 코드/등록을 재검토하며 임의 추가 빌드·태그 변경·서명 교체로 우회하지 않는다.
+
+고정 dc7/v1.1.0·원래 한 Cloud/업로드·만료·production 서명·iPhone·공개 v2/L3/E2E는 불변이다. 실제 Cloud 두 단계/산출물 검사는 후속 실행이며 합성 통과를 해당 근거로 쓰지 않는다.

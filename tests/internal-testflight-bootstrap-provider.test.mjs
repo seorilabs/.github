@@ -100,7 +100,7 @@ test('human approval binds the exact proposal bytes and rejects later edits',()=
 import {generateKeyPairSync} from 'node:crypto';
 import {bootstrapProvider} from '../scripts/release/internal-testflight-bootstrap.mjs';
 // API의 include 없는 실제 links-only 응답을 모사한다. 실제 Cloud/기기 근거가 아니다.
-const privateKeyBase64=generateKeyPairSync('ec',{namedCurve:'P-256'}).privateKey.export({type:'pkcs8',format:'pem'}).toString('base64');
+const privateKeyBase64=Buffer.from(generateKeyPairSync('ec',{namedCurve:'P-256'}).privateKey.export({type:'pkcs8',format:'pem'})).toString('base64');
 function providerFetch(omit){
  const o=observation(),requested=[];
  const linksOnly=()=>({links:{related:'https://api.appstoreconnect.apple.com/v1/unexpanded'}});
@@ -113,7 +113,7 @@ function providerFetch(omit){
   else if(u.pathname==='/v1/ciBuildRuns/build-1'){
    data=o.run;const includes=(u.searchParams.get('include')||'').split(',');
    for(const name of ['workflow','product','sourceBranchOrTag'])if(!includes.includes(name)||omit===`run.${name}`)data.relationships[name]=linksOnly();
-  }else if(u.pathname===`/v1/ciWorkflows/${provider.workflowId}/buildRuns`)data=[o.run];
+  }else if(u.pathname===`/v1/ciWorkflows/${provider.workflowId}/buildRuns`)data=[{...structuredClone(o.run),relationships:{workflow:linksOnly(),product:linksOnly(),sourceBranchOrTag:linksOnly()}}];
   else if(u.pathname==='/v1/scmGitReferences/tag-1')data=o.tag;
   else assert.fail('unexpected provider path '+u.pathname);
   return{ok:true,status:200,json:async()=>({data,links:{next:null}})};
@@ -124,6 +124,6 @@ const ciEnv={...env,APP_STORE_CONNECT_API_KEY_ID:'UHVPXA39JA',APP_STORE_CONNECT_
 test('provider HTTP flow expands actual links-only Apple relationships before strict validation',async()=>{
  const f=providerFetch();const proof=await bootstrapProvider(grant,ciEnv,f.fetchImpl);assert.equal(proof.verified,true);assert.equal(proof.matchingBuildCount,1);assert.equal(proof.internalOnly,true);
 });
-for(const omit of ['app','product','run.workflow','run.product','run.sourceBranchOrTag'])test('expanded provider flow still rejects missing relationship '+omit,async()=>{
- const f=providerFetch(omit);await assert.rejects(bootstrapProvider(grant,ciEnv,f.fetchImpl),/TESTFLIGHT_(APPLE_PRODUCT|APPLE_FIRST_BUILD|PROVIDER_TAG)/);
+for(const [omit,code] of [['app','TESTFLIGHT_APPLE_PRODUCT'],['product','TESTFLIGHT_APPLE_PRODUCT'],['run.workflow','TESTFLIGHT_APPLE_FIRST_BUILD'],['run.product','TESTFLIGHT_APPLE_FIRST_BUILD'],['run.sourceBranchOrTag','TESTFLIGHT_PROVIDER_TAG']])test('expanded provider flow still rejects missing relationship '+omit,async()=>{
+ const f=providerFetch(omit);await assert.rejects(bootstrapProvider(grant,ciEnv,f.fetchImpl),{message:code});
 });
