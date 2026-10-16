@@ -86,13 +86,14 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
             reject(Number.isFinite(ui8At) && ui7At<=ui8At && Date.parse(seventh.historicalRecordedAt)<=ui8At && ui8At<=now && ui8At<=Date.parse(document.editor.iterations[7]?.plannedAt),'TESTFLIGHT_UI8_APPROVAL_TIME');
             reject(document.editor.iterations[7]?.sourceSha===(approvedUiRounds===9 ? grant.historicalUi8.sourceSha : grant.sourceSha),'TESTFLIGHT_UI8_SOURCE');
             if(approvedUiRounds===9){
-              const ninth=validateBootstrapUi9Approval(grant,context.ui9ApprovalBytes,context.ui9ProposalBytes,context.ui9HumanApprovalBytes),ui9At=Date.parse(ninth.approvalRecordedAt);
+              const ninth=validateBootstrapUi9Approval(grant,context.ui9ApprovalBytes,context.ui9ProposalBytes,context.ui9HumanApprovalBytes);
               reject(approvals.some(a=>a.maxRound===9 && a.approvedAt===utc(ninth.approvalRecordedAt) && a.evidence===grant.ui9ApprovalFile),'TESTFLIGHT_UI9_EDITOR_APPROVAL');
-              reject(Number.isFinite(ui9At) && ui8At<=ui9At && Date.parse(eighth.historicalRecordedAt)<=ui9At && ui9At<=now && ui9At<=Date.parse(last?.plannedAt),'TESTFLIGHT_UI9_APPROVAL_TIME');
+              reject(orderedBootstrapTimes(eighth.approvalRecordedAt,ninth.approvalRecordedAt,at)
+                && orderedBootstrapTimes(eighth.historicalRecordedAt,ninth.approvalRecordedAt,last?.plannedAt),'TESTFLIGHT_UI9_APPROVAL_TIME');
               reject(last?.sourceSha===grant.sourceSha,'TESTFLIGHT_UI9_SOURCE');
-              const handoff=ninth.operatorHandoff,handoffAt=Date.parse(handoff.directedAt),began=Date.parse(last?.startedAt);
-              reject(Number.isFinite(handoffAt) && ui9At<=handoffAt && began<=handoffAt && handoffAt<=Date.parse(last?.completedAt) && handoffAt<=now
-                && utc(handoff.sameStartedAt)===utc(last?.startedAt) && Date.parse(handoff.mainDeadlineAt)-began===180*60000 && Date.parse(handoff.absoluteMaximumAt)-began===210*60000
+              const handoff=ninth.operatorHandoff;
+              reject(orderedBootstrapTimes(ninth.approvalRecordedAt,last?.startedAt,handoff.directedAt,last?.completedAt,at) && orderedBootstrapTimes(last?.completedAt,handoff.absoluteMaximumAt)
+                && utc(handoff.sameStartedAt)===utc(last?.startedAt) && compareBootstrapTimes(last?.startedAt,handoff.mainDeadlineAt,180*60)===0 && compareBootstrapTimes(last?.startedAt,handoff.absoluteMaximumAt,210*60)===0
                 && [handoff.mainDeadlineAt,handoff.absoluteMaximumAt].every(value=>utc(value)?.slice(19)===utc(last?.startedAt)?.slice(19)),'TESTFLIGHT_UI9_HANDOFF_TIME');
             }
           }
@@ -146,6 +147,23 @@ const ui8HumanApprovalPath='docs/design/2026-10-15-spiritgate-ui8/human-approval
 const ui9ProposalPath='docs/design/2026-10-16-spiritgate-ui9/approved-proposal.md';
 const ui9HumanApprovalPath='docs/design/2026-10-16-spiritgate-ui9/human-approval.json';
 const utc=value=>typeof value==='string' ? value.replace(/\+00:00$/u,'Z') : null;
+// 새 UI9/과거 UI8 순서만 비교하며 Date.parse에 소수부를 넘기지 않는다.
+function bootstrapTime(value){
+  const m=typeof value==='string' && /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$/u.exec(value);
+  if(!m) return null;
+  const second=Date.parse(m[1]+m[3]),zone=m[3]==='Z' ? 0 : (m[3][0]==='-' ? -1 : 1)*(Number(m[3].slice(1,3))*60+Number(m[3].slice(4,6)))*60000;
+  if(!Number.isFinite(second) || new Date(second+zone).toISOString().slice(0,19)!==m[1]) return null;
+  return {second,fraction:m[2] ?? ''};
+}
+function compareBootstrapTimes(left,right,shiftSeconds=0){
+  const a=bootstrapTime(left),b=bootstrapTime(right);
+  if(!a || !b) return null;
+  const shifted=a.second+shiftSeconds*1000;
+  if(shifted!==b.second) return shifted<b.second ? -1 : 1;
+  const width=Math.max(a.fraction.length,b.fraction.length),x=a.fraction.padEnd(width,'0'),y=b.fraction.padEnd(width,'0');
+  return x===y ? 0 : x<y ? -1 : 1;
+}
+const orderedBootstrapTimes=(...values)=>values.slice(1).every((value,i)=>{const order=compareBootstrapTimes(values[i],value);return order!==null && order<=0;});
 const grantPaths=parse(readFileSync(join(root,policyPath),'utf8')).internalTestflightBootstrap?.grantRegistry ?? [];
 const fail=code=>{throw new Error(code);};
 const safePath=path=>typeof path==='string' && /^[A-Za-z0-9._/-]+$/u.test(path) && !path.split('/').includes('..') && !isAbsolute(path);
@@ -408,16 +426,14 @@ function validateBootstrapHistoricalUi8(grant,context,round){
     || diagnostic?.count!==1 || diagnostic.actualProbeButtonClicks!==0 || diagnostic.actualScrollCalls!==0 || diagnostic.actualCounter!==0 || diagnostic.noAlternativeHandleNamePidRouteOrRestart!==true
     || round?.functional?.status!=='blocked' || round?.ux?.status!=='blocked' || !pids.every(pid=>Number.isSafeInteger(pid) && pid>0) || new Set(pids).size!==2
     || !equal(result.processCleanup,cleanup) || !Array.isArray(cleanup.events) || !sameIds(cleanup.events.map(e=>e.pid),pids)
-    || !cleanup.events.every(e=>e.signal==='SIGTERM' && e.attempt===1 && Date.parse(start.startedAt)<=Date.parse(e.at) && Date.parse(e.at)<=Date.parse(cleanup.at))
+    || !cleanup.events.every(e=>e.signal==='SIGTERM' && e.attempt===1 && orderedBootstrapTimes(start.startedAt,e.at,cleanup.at))
     || !Array.isArray(cleanup.verifiedOwnedBefore) || !sameIds(cleanup.verifiedOwnedBefore.map(e=>e.pid),pids)
     || cleanup.verifiedOwnedBefore.find(e=>e.pid===diagnostic.gamePid)?.kind!=='diagnostic-game' || cleanup.verifiedOwnedBefore.find(e=>e.pid===diagnostic.editorPid)?.kind!=='diagnostic-editor'
     || cleanup.requestedPidsAbsent!==true || !equal(cleanup.remainingRequestedPids,[]) || !equal(cleanup.ownedAppProcessRowsAfter,[])
     || cleanup.noCuaQueryAfterTermination!==true || cleanup.noNewProcessStarted!==true || cleanup.noUiInputSent!==true
     || cleanup.productRunCount!==0 || cleanup.diagnosticCount!==1 || cleanup.counterClicks!==0 || cleanup.scrollCalls!==0) fail('TESTFLIGHT_UI8_FAILURE_HISTORY');
-  const planned=Date.parse(start.plannedAt),began=Date.parse(start.startedAt),cap=Date.parse(start.diagnosticDeadline),stopped=Date.parse(cleanup.at),completed=Date.parse(result.completedAt),recorded=Date.parse(manifest.at);
-  if(![planned,began,cap,stopped,completed,recorded].every(Number.isFinite)
-    || !(planned<=Date.parse(frozen.frozenAt) && Date.parse(frozen.frozenAt)<=began && began<=stopped && stopped<=Date.parse(integrity.at) && Date.parse(integrity.at)<=completed && completed<=recorded && recorded<=cap)
-    || cap-began!==15*60000 || Date.parse(start.mainDeadline)-began!==180*60000 || Date.parse(start.outerDeadlineWithSingleRecheck)-began!==210*60000
+  if(!orderedBootstrapTimes(start.plannedAt,frozen.frozenAt,start.startedAt,cleanup.at,integrity.at,result.completedAt,manifest.at,start.diagnosticDeadline)
+    || compareBootstrapTimes(start.startedAt,start.diagnosticDeadline,15*60)!==0 || compareBootstrapTimes(start.startedAt,start.mainDeadline,180*60)!==0 || compareBootstrapTimes(start.startedAt,start.outerDeadlineWithSingleRecheck,210*60)!==0
     || start.round!==8 || start.clockStartsBeforeFirstDiagnosticEditorPopen!==true || start.diagnosticCount!==1 || start.diagnosticRestartAllowed!==false
     || result.completedBeforeDiagnosticDeadline!==true || result.clockNotReset!==true || result.unusedBudgetCarryForward!==false
     || !['plannedAt','startedAt','diagnosticDeadline','mainDeadline'].every(key=>utc(result[key])===utc(start[key])) || utc(result.outerDeadline)!==utc(start.outerDeadlineWithSingleRecheck)
@@ -440,7 +456,8 @@ function validateBootstrapUi9Approval(grant,approvalBytes,proposalBytes,humanByt
     || utc(human.approvedAt)!==utc(a.approvalRecordedAt) || !equal(human.operatorHandoff,a.operatorHandoff)) fail('TESTFLIGHT_UI9_HUMAN_APPROVAL_SCOPE');
   const handoff=a.operatorHandoff;
   if(!handoff || typeof handoff!=='object' || Array.isArray(handoff) || handoff.sameRound!==9 || handoff.inputBefore!=='human' || handoff.inputAfter!=='independent-agent'
-    || typeof handoff.originalDirectiveSha256!=='string' || !DIGEST.test(handoff.originalDirectiveSha256) || handoff.originalDirectiveSha256===a.originalApprovalSha256
+    || typeof handoff.originalDirectiveSha256!=='string' || !DIGEST.test(handoff.originalDirectiveSha256)
+    || [a.originalApprovalSha256,a.originalProposalSha256,a.proposalSha256,grant.ui8ApprovalSha256].includes(handoff.originalDirectiveSha256)
     || handoff.sourceSha!==grant.sourceSha || handoff.configurationFingerprint!==grant.configurationFingerprint || handoff.clockReset!==false
     || handoff.frozenHelpersModified!==false || handoff.newRun!==false || handoff.authorInputCountsAsIndependentReview!==false) fail('TESTFLIGHT_UI9_HANDOFF_SCOPE');
   if(a.kind!=='human_additional_ui_approval' || a.designId!=='SGD-UI9-TF-110-v1' || a.repository!==REPO || a.version!=='1.1.0'
