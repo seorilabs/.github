@@ -19,6 +19,12 @@ const MAX_AGE = 168 * 3600000;
 const ajv = new Ajv2020({allErrors:true});
 const validGrant = ajv.compile(JSON.parse(readFileSync(new URL('../../contracts/internal-testflight-bootstrap-grant.schema.json',import.meta.url))));
 const validDocument = ajv.compile(JSON.parse(readFileSync(new URL('../../contracts/internal-testflight-bootstrap.schema.json',import.meta.url))));
+const legacyEditorSchema=JSON.parse(readFileSync(new URL('../../contracts/development-evidence-v1.schema.json',import.meta.url)));
+// 정적 인수조건·TDD·원래 회차 구조는 재사용하고, 생략한 Editor 실행을 통과로 바꾸지 않는다.
+const validSkippedEditor=ajv.compile({...legacyEditorSchema,$id:'https://github.com/seorilabs/.github/contracts/mac-editor-skip-metadata',
+  required:[...legacyEditorSchema.required,'status'],properties:{...legacyEditorSchema.properties,status:{const:'skipped_incomplete'},
+    e2e:{type:'object',additionalProperties:false,required:['status','environment','reason'],properties:{status:{const:'skipped'},
+      environment:{type:'object',additionalProperties:false,required:['kind'],properties:{kind:{const:'godot-editor'}}},reason:{type:'string',minLength:1}}}}});
 
 export function validateInternalTestflightBootstrapEvidence(document, context) {
   const errors=[];
@@ -614,6 +620,8 @@ function validateMacEditorSkipApproval(grant,bytes,proposalBytes,humanBytes){
   if(!Buffer.isBuffer(humanBytes) || bootstrapDigest(humanBytes)!==a.humanApprovalSha256) fail('TESTFLIGHT_MAC_SKIP_HUMAN_APPROVAL_CHANGED');
   let human;try{human=JSON.parse(humanBytes);}catch{fail('TESTFLIGHT_INVALID_MAC_SKIP_HUMAN_APPROVAL');}
   if(!human || typeof human!=='object' || Array.isArray(human) || human.sourceRecordSha256!==a.originalApprovalSha256 || utc(human.approvedAt)!==utc(a.approvalRecordedAt)
+    || human.schemaVersion!==1 || human.kind!=='human_mac_editor_skip_public_minimal_receipt' || human.approvedAnswer!=='막힌 Mac Editor 검수만 생략'
+    || human.newMacEditorRoundAuthorized!==false || human.previousInputGuardAmendmentProposal!=='withdrawn without approval or execution'
     || human.physicalDeviceQaWaived!==false || human.e2eWaived!==false || human.publicWithoutNativeQaAuthorized!==false) fail('TESTFLIGHT_MAC_SKIP_HUMAN_SCOPE');
   if(grant.approvedUiRounds!==10 || a.kind!=='human_mac_editor_skip_approval' || a.repository!==REPO || a.version!=='1.1.0' || a.objective!=='first_internal_testflight_mac_editor_skip_only'
     || a.sourceSha!==grant.sourceSha || a.configurationFingerprint!==grant.configurationFingerprint || !SHA.test(a.skippedSourceSha ?? '') || !DIGEST.test(a.skippedConfigurationFingerprint ?? '')
@@ -626,12 +634,16 @@ function validateMacEditorSkipApproval(grant,bytes,proposalBytes,humanBytes){
 }
 function validateMacEditorSkipHistory(document,grant,context,inventory,now){
   const a=validateMacEditorSkipApproval(grant,context.macSkipApprovalBytes,context.macSkipProposalBytes,context.macSkipHumanApprovalBytes),objects=[];
+  const editor=document.editor;
+  if(!validSkippedEditor(editor)) fail('TESTFLIGHT_MAC_SKIP_EDITOR_SCHEMA');
+  if(editor.repository!==grant.repository || editor.target!=='app-store' || editor.sourceSha!==grant.sourceSha || editor.productKind!=='ui'
+    || !editor.implementer.trim() || editor.iterations.some(round=>!round.reviewer.trim())) fail('TESTFLIGHT_MAC_SKIP_EDITOR_SCOPE');
   for(const[asset,key]of macSkipAssets){
     const bytes=context[key];if(!Buffer.isBuffer(bytes) || bootstrapDigest(bytes)!==grant.macEditorSkip[asset].sha256 || !grant.originalObservationAssets.some(ref=>equal(ref,grant.macEditorSkip[asset]))) fail('TESTFLIGHT_MAC_SKIP_SNAPSHOT_CHANGED');
     let v;try{v=JSON.parse(bytes);}catch{fail('TESTFLIGHT_INVALID_MAC_SKIP_SNAPSHOT');}
     if(!v || typeof v!=='object' || Array.isArray(v)) fail('TESTFLIGHT_INVALID_MAC_SKIP_SNAPSHOT');objects.push(v);
   }
-  const[result,cleanup,integrity,first,original,deliverable]=objects,editor=document.editor,last=editor.iterations?.[9];
+  const[result,cleanup,integrity,first,original,deliverable]=objects,last=editor.iterations?.[9];
   if([result,cleanup,integrity,original].some(v=>v.sourceSha!==a.skippedSourceSha) || [result,cleanup,original].some(v=>v.configurationFingerprint!==a.skippedConfigurationFingerprint)
     || result.round!==10 || result.status!=='USER_REQUESTED_SKIPPED_INCOMPLETE' || result.passed!==false || result.actualRunCount!==1
     || result.inputCounts?.nativeCgPosts!==0 || result.inputCounts.confirmedProductStartOrButton!==0 || result.inputCounts.fixture!==0 || result.inputCounts.rawRuntimeKeyEvents!==2
@@ -645,7 +657,7 @@ function validateMacEditorSkipHistory(document,grant,context,inventory,now){
     || !Array.isArray(integrity.helpers) || !integrity.helpers.length || !integrity.helpers.every(h=>safePath(h.path) && DIGEST.test(h.sha256 ?? '') && h.sha256===h.frozenSha256 && h.matches===true)) fail('TESTFLIGHT_MAC_SKIP_SOURCE_HISTORY');
   const pids=[result.gamePid,result.editorPid];
   if(!pids.every(pid=>Number.isSafeInteger(pid) && pid>0) || new Set(pids).size!==2 || cleanup.round!==10 || cleanup.newRuns!==0 || cleanup.inputPosted!==0 || cleanup.firstFailurePreserved!==true || cleanup.forceKill!==false || cleanup.otherAppsTouched!==false || cleanup.productQaPassed!==false
-    || !Array.isArray(cleanup.actions) || !sameIds(cleanup.actions.map(v=>v.pid),pids)
+    || !Array.isArray(cleanup.actions) || !sameIds(cleanup.actions.map(v=>v?.pid),pids)
     || !cleanup.actions.every(v=>v.action==='SIGTERM' && v.absentAfterWait===true && typeof v.verifiedIdentityRow==='string' && v.verifiedIdentityRow.trim().split(/\s+/u)[0]===String(v.pid) && orderedBootstrapTimes(cleanup.startedAt,v.at,cleanup.finishedAt))
     || cleanup.actions.find(v=>v.pid===result.gamePid)?.role!=='game' || cleanup.actions.find(v=>v.pid===result.editorPid)?.role!=='editor') fail('TESTFLIGHT_MAC_SKIP_CLEANUP');
   if(!orderedBootstrapTimes(result.plannedAt,result.startedAt,first.startedAt,first.finishedAt,cleanup.startedAt,cleanup.finishedAt,result.finalizedAt,a.approvalRecordedAt,document.android.plannedAt,context.now)
@@ -658,11 +670,12 @@ function validateMacEditorSkipHistory(document,grant,context,inventory,now){
     || deliverable.originalsManifestSha256!==grant.macEditorSkip.originalManifestAsset.sha256 || deliverable.resultSha256!==grant.macEditorSkip.resultAsset.sha256
     || !orderedBootstrapTimes(result.finalizedAt,original.createdAt,deliverable.createdAt,a.approvalRecordedAt)
     || !macSkipAssets.filter(([asset])=>asset!=='deliverableManifestAsset').every(([asset,key,path])=>{const final=path.startsWith('final/');return(final?deliverable:original).files.some(f=>f.path===(final?path.slice(6):path) && f.sha256===grant.macEditorSkip[asset].sha256 && f.bytes===context[key].length);})) fail('TESTFLIGHT_MAC_SKIP_MANIFEST');
-  if(document.macEditorSkip?.approvalSha256!==grant.macEditorSkip.approvalSha256 || editor.status!=='skipped_incomplete' || editor.sourceSha!==a.skippedSourceSha || editor.e2e?.status!=='skipped' || editor.e2e.completedAt!==undefined
-    || !sameIds(editor.features?.map(f=>f.id),inventory?.features?.map(f=>f.id) ?? []) || !Array.isArray(editor.acceptance) || !editor.acceptance.length || !sameIds(editor.tdd?.map(t=>t.acceptanceId),editor.acceptance.map(c=>c.id))
+  const featureIds=inventory.features.map(f=>f.id),coreIds=inventory.features.filter(f=>f.core).map(f=>f.id);
+  if(document.macEditorSkip?.approvalSha256!==grant.macEditorSkip.approvalSha256 || editor.status!=='skipped_incomplete' || editor.e2e?.status!=='skipped' || editor.e2e.completedAt!==undefined
+    || !sameIds(editor.features.map(f=>`${f.id}:${f.core}`),inventory.features.map(f=>`${f.id}:${f.core}`)) || !sameIds(editor.tdd.map(t=>t.acceptanceId),editor.acceptance.map(c=>c.id))
     || !Array.isArray(editor.iterations) || editor.iterations.length!==10 || !editor.iterations.every((r,i)=>r.number===i+1 && typeof r.reviewer==='string' && r.reviewer.trim().toLowerCase()!==editor.implementer?.trim().toLowerCase()
       && orderedBootstrapTimes(r.plannedAt,r.startedAt,r.completedAt,context.now) && (i===0 || orderedBootstrapTimes(editor.iterations[i-1].completedAt,r.plannedAt))
-      && ['functional','ux'].every(k=>['passed','failed','blocked'].includes(r[k]?.status))) || last.functional.status!=='blocked' || last.ux.status!=='blocked') fail('TESTFLIGHT_MAC_SKIP_EDITOR_HISTORY');
+      && ['functional','ux'].every(k=>['passed','failed','blocked'].includes(r[k]?.status) && coreIds.every(id=>r[k].featureIds.includes(id)) && r[k].featureIds.every(id=>featureIds.includes(id)))) || last.functional.status!=='blocked' || last.ux.status!=='blocked') fail('TESTFLIGHT_MAC_SKIP_EDITOR_HISTORY');
   const firstApproval=editor.additionalIterationApproval;
   if(!firstApproval || firstApproval.approverKind!=='human' || firstApproval.maxRound!==4 || !orderedBootstrapTimes(firstApproval.approvedAt,editor.iterations[3].plannedAt)) fail('TESTFLIGHT_MAC_SKIP_UI4_APPROVAL');
   return a;
