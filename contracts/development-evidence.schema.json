@@ -283,6 +283,7 @@
           "kind": {
             "enum": [
               "godot-editor",
+              "godot-headless-e2e",
               "unity-editor",
               "web-browser",
               "native-development",
@@ -290,6 +291,19 @@
               "android-device",
               "ios-device"
             ]
+          },
+          "ciRun": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "url"
+            ],
+            "properties": {
+              "url": {
+                "type": "string",
+                "pattern": "^https://github\\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/actions/runs/[0-9]+(/attempts/[0-9]+)?$"
+              }
+            }
           },
           "target": {
             "$ref": "#/$defs/target"
@@ -351,36 +365,65 @@
             }
           }
         },
-        "if": {
-          "properties": {
-            "kind": {
-              "enum": [
-                "android-device",
-                "ios-device"
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "android-device",
+                    "ios-device"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "target": true,
+                "device": true,
+                "build": true
+              },
+              "required": [
+                "target",
+                "device",
+                "build"
               ]
+            },
+            "else": {
+              "properties": {
+                "target": false,
+                "device": false,
+                "build": false,
+                "configurationFingerprint": false
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "executor": {
+                  "const": "ci"
+                }
+              },
+              "required": [
+                "executor"
+              ]
+            },
+            "then": {
+              "properties": {
+                "ciRun": true
+              },
+              "required": [
+                "ciRun"
+              ]
+            },
+            "else": {
+              "properties": {
+                "ciRun": false
+              }
             }
           }
-        },
-        "then": {
-          "properties": {
-            "target": true,
-            "device": true,
-            "build": true
-          },
-          "required": [
-            "target",
-            "device",
-            "build"
-          ]
-        },
-        "else": {
-          "properties": {
-            "target": false,
-            "device": false,
-            "build": false,
-            "configurationFingerprint": false
-          }
-        }
+        ]
       }
     },
     "carriedForward": {

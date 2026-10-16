@@ -78,7 +78,10 @@
             ],
             "properties": {
               "rule": {
-                "const": "foundation"
+                "enum": [
+                  "foundation",
+                  "platform"
+                ]
               },
               "featureId": {
                 "type": "string",

@@ -43,10 +43,11 @@ testLevels:
   L3:
     scope: changed-and-all-features
     environments: any-planned
-    executor: different-agent-for-all-runs
+    executor: different-agent-or-verified-ci-for-all-runs
   environmentKinds:
     dev:
       - godot-editor
+      - godot-headless-e2e
       - unity-editor
       - web-browser
       - native-development
@@ -78,6 +79,13 @@ floors:
   changedFiles: plan-baseline-to-candidate
   featurePaths: run-feature-in-planned-environments
   foundationPaths: device-run-on-target-market-platform
+  inventoryVersions:
+    v1: foundation-paths-raise-device-floor
+    v2: platform-paths-raise-device-floor-e2e-workflow-required
+  platformPaths: device-run-on-target-market-platform
+  commonPlatformPaths: device-run-of-platform-features-or-core
+  newPlatformFeature: device-run-not-overridable
+  firstReleasePlatform: device-run-of-platform-features-not-overridable
   regressionPaths: full-regression-in-planned-environments
   unknownDiff: full-regression
   firstRelease: full-regression-not-overridable
@@ -113,6 +121,16 @@ floors:
     - "**/pnpm-lock.yaml"
     - "**/bun.lock"
     - "**/bun.lockb"
+  defaultPlatformPaths:
+    - "**/export_presets.cfg"
+    - "**/android/**"
+    - "**/ios/**"
+    - "**/*.gdextension"
+    - "**/*.gdap"
+    - "**/AndroidManifest.xml"
+    - "**/Info.plist"
+    - "**/*.entitlements"
+    - "**/*.xcodeproj/**"
 runs:
   featureInventory: docs/qa/feature-inventory.json
   candidateBinding: exact-source-sha
@@ -123,6 +141,12 @@ runs:
   evidenceSchema: contracts/development-evidence.schema.json
   releaseAssetPattern: development-evidence.<target>.<phase>.json
   verifier: scripts/release/verify-development-evidence.mjs
+  ciExecutor:
+    executor: ci
+    environments: dev-only
+    verification: github-actions-run-same-repository-candidate-sha-success-inventory-e2e-workflow
+    freshness: api-updated-at
+    countsAsIndependent: true
 phases:
   before-build: dev-runs
   before-deploy: dev-runs

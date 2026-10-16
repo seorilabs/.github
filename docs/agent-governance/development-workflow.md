@@ -28,7 +28,7 @@
 |---|---|---|---|---|
 | **L1** | 바뀐 기능만 | 개발 환경: Godot·Unity Editor, RN Web·개발 서버, 서비스 런타임 | 작성자가 직접 실행해 기록 | iOS에서 동의 창 표시 분기, 문구·수치 조정, 화면 하나의 버그 수정 |
 | **L2** | 바뀐 기능만 | 실기기: Android 기본, iOS는 설계에서 선택. 개발 환경 추가 가능 | 실기기 실행은 다른 에이전트 | 광고·결제·권한 동작 변경, 네이티브 플러그인 설정 |
-| **L3** | 바뀐 기능 + 전체 회귀 | 개발 환경 / Android / iOS / 둘 다 중 설계에서 선택 | 모든 실행을 다른 에이전트가 함. 새 화면·UI 개편이면 3회 검수 | SDK·엔진·의존성 업그레이드, 저장 형식 변경, 공통 구조 변경 |
+| **L3** | 바뀐 기능 + 전체 회귀 | 개발 환경 / Android / iOS / 둘 다 중 설계에서 선택 | 모든 실행을 다른 에이전트 또는 [확인된 CI 실행](#ci-실행)이 함. 새 화면·UI 개편이면 3회 검수 | SDK·엔진·의존성 업그레이드, 저장 형식 변경, 공통 구조 변경 |
 
 | `test-plan.json` 필드 | 규칙 |
 |---|---|
@@ -38,7 +38,7 @@
 | `environments` | `dev`·`android`·`ios`. 적은 환경마다 범위 안의 기능을 모두 실행 |
 | `redesign` | 새 화면·UI 개편이면 `true`. L3이어야 하며 [재설계 검수 3회](#재설계-ui-검수-3회)를 한다 |
 | `foundationRerun` | L3에서만 `true`. 기반 기능도 이어받지 않고 다시 실행 |
-| `floorOverrides` | 아래 하한을 낮춘 항목과 사유. `{rule: "foundation", featureId, reason}` 또는 `{rule: "regression", reason}` |
+| `floorOverrides` | 아래 하한을 낮춘 항목과 사유. `{rule: "foundation", featureId, reason}`(기능 목록 v1), `{rule: "platform", featureId, reason}`(기능 목록 v2) 또는 `{rule: "regression", reason}` |
 | `release` | `markets`(출시할 마켓), `until`(`test-track` / `review-submitted` / `public`, 생략하면 `public`), `rollout`(Play 단계적 출시 비율, 선택) |
 
 한 후보에 승인 설계가 여러 개 묶이면 등급은 가장 높은 값, 기능·환경·마켓은 합집합, 끝 지점은 가장 이른 값을 쓴다. 하한 낮춤은 묶인 모든 계획에 같은 항목이 있을 때만 인정한다.
@@ -50,7 +50,8 @@
 | 바뀐 파일 | 하한 | 낮추기 |
 |---|---|---|
 | 기능의 `paths` | 그 기능을 계획한 환경에서 실행 대상에 추가 | 해당 없음 |
-| 기반 기능(`foundation: true`)의 `paths`, 또는 `changedFeatures`의 기반 기능 | 그 기능을 **검증 중인 마켓 플랫폼의 실기기**에서 실행(L2) | `{rule: "foundation", featureId}` |
+| 기능 목록 v1: 기반 기능(`foundation: true`)의 `paths`, 또는 `changedFeatures`의 기반 기능 | 그 기능을 **검증 중인 마켓 플랫폼의 실기기**에서 실행(L2) | `{rule: "foundation", featureId}` |
+| 기능 목록 v2: 기능의 `platformPaths`, 최상위 `platformPaths`, 첫 출시, 새 플랫폼 기능 | [Godot headless E2E와 플랫폼 경로](#godot-headless-e2e와-플랫폼-경로) | `{rule: "platform", featureId}`. 첫 출시·새 플랫폼 기능은 낮출 수 없음 |
 | `regressionPaths`(기능 목록에 없으면 [중앙 기본값](../../contracts/development-workflow.yaml)의 엔진·export·플러그인·네이티브 빌드 설정·잠금 파일) | 계획한 환경마다 전체 회귀(L3) | `{rule: "regression"}` |
 | 비교 불가(기준이 후보의 조상이 아님, 300개 이상, 조회 불가) 또는 `baseline: null` | 전체 회귀(L3) | `{rule: "regression"}`. 첫 출시는 낮출 수 없음 |
 | `redesign: true` | L3·3회 검수 | 낮출 수 없음 |
@@ -61,7 +62,58 @@
 
 ### 기능 목록
 
-제품의 구현 기능 전체를 소스 `docs/qa/feature-inventory.json`에 `schemaVersion: 1`로 유지한다([예시](templates/feature-inventory.example.json)). 모든 기능에 선택 `paths`(저장소 기준 glob)를, 최상위에 선택 `regressionPaths`를 적는다. 기반 기능은 `"foundation": true`와 `paths`가 필수다. `paths`가 없는 기능은 하한 계산에서 자동으로 추가되지 않으므로 바뀐 기능을 `changedFeatures`에 직접 적는다.
+제품의 구현 기능 전체를 소스 `docs/qa/feature-inventory.json`에 `schemaVersion: 1`로 유지한다([예시](templates/feature-inventory.example.json)). headless E2E 틀과 CI가 준비된 Godot 게임은 `schemaVersion: 2`([예시](templates/feature-inventory-v2.example.json), [규칙](#godot-headless-e2e와-플랫폼-경로))로 올린다. 모든 기능에 선택 `paths`(저장소 기준 glob)를, 최상위에 선택 `regressionPaths`를 적는다. 기반 기능은 `"foundation": true`와 `paths`가 필수다. `paths`가 없는 기능은 하한 계산에서 자동으로 추가되지 않으므로 바뀐 기능을 `changedFeatures`에 직접 적는다.
+
+## Godot headless E2E와 플랫폼 경로
+
+[승인 설계](../design/2026-10-16-godot-headless-e2e/design.md). Godot 게임은 headless E2E를 기본 실행 환경으로 쓰고, 실기기는 플랫폼 변경·첫 출시·새 플랫폼 기능(결제·로그인을 처음 붙이는 경우 등)에만 쓴다. RN 비게임 앱은 기능 목록 v1 규칙을 그대로 쓴다.
+
+### headless E2E 기준
+
+실행 종류 `godot-headless-e2e`로 인정하는 최소 기준이다. probe·단위 테스트·스크린샷만으로는 인정하지 않는다.
+
+| # | 기준 |
+|---|---|
+| E1 | 실제 시작 장면과 실제 UI 트리를 띄운다. 화면을 우회하는 테스트 전용 장면을 쓰지 않는다 |
+| E2 | 대체 구현은 플랫폼 경계(광고·결제·로그인·클라우드 저장·원격 설정·분석·시계·난수)에만 둔다 |
+| E3 | 입력은 화면 좌표의 실제 입력 이벤트(터치·클릭·드래그)로 넣는다. 함수 직접 호출로 화면을 건너뛰지 않는다 |
+| E4 | 시작 → 기능 사용 → 저장·화면 전환 → 오류·취소·복구 → 종료·재실행 후 저장 복원을 한 여정으로 잇는다 |
+| E5 | 임시 저장 경로, 고정 시드·시계, 기기 논리 해상도 `SubViewport`로 격리하고 실행마다 같은 결과를 낸다 |
+| E6 | 시나리오의 기능 ID 합이 기능 목록의 모든 기능을 포함한다 |
+| E7 | `journey.json`(시나리오·기능 ID·통과 여부)을 쓰고, 실패 시 exit 1, 로그의 `SCRIPT ERROR`·`ERROR:` 검사, 명령 시간 제한 |
+| E8 | 화면 변경은 같은 여정을 렌더링 모드(`--headless` 없이)로 돌려 장면별 PNG를 남긴다. headless는 그림을 그리지 않는다 |
+
+작성 방법은 `~/.agent`의 `godot-game` 스킬 `references/headless-e2e.md`에 둔다. Godot 게임 작업을 시작할 때 기능 목록이 v1이거나 E2E 틀이 기준에 못 미치면 그 게임의 다음 작업에서 먼저 틀을 만들고(E2E 여정 → CI → 기능 목록 v2), 그 전 릴리스는 v1 규칙으로 검증한다. 제품 동작을 바꾸지 않는 테스트 코드·CI·기능 목록 변경은 위 설계의 승인으로 진행하고, 대체 구현 주입을 위해 제품 구조를 바꾸면 그 게임의 설계에 포함한다.
+
+### 기능 목록 v2
+
+| 필드 | 뜻 |
+|---|---|
+| `e2e.workflow` | 게임 저장소에서 후보 SHA의 headless E2E를 돌리는 workflow 파일(중앙 재사용 workflow를 부르는 caller, 예: `.github/workflows/godot-checks.yml`). 필수. [CI 실행](#ci-실행) 확인에 쓴다 |
+| `e2e.command` | 선택. 로컬·CI에서 쓰는 명령(예: `npm run test:e2e`) |
+| `features[].platformPaths` | 바뀌면 그 기능을 실기기에서 실행해야 하는 경로(네이티브 플러그인, SDK 호출 구현). 대체 구현 뒤의 게임 로직·화면은 넣지 않는다 |
+| 최상위 `platformPaths` | 바뀌면 플랫폼 기능 전체(없으면 핵심 기능)를 실기기에서 실행. 생략하면 [중앙 기본값](../../contracts/development-workflow.yaml)의 `defaultPlatformPaths` |
+| `foundation`·`paths` | 기능 실행 범위와 [이어받기](#영향-없는-기반-기능)에 그대로 쓴다. v2에서는 실기기 하한을 만들지 않는다 |
+
+| 바뀐 파일·상황 | v2 하한 | 낮추기 |
+|---|---|---|
+| 기능 `paths`(기반 기능 포함) | 그 기능을 계획한 환경에서 실행 | 해당 없음 |
+| 기능 `platformPaths` | 그 기능을 검증 중인 마켓 플랫폼의 실기기에서 실행(L2) | `{rule: "platform", featureId}` |
+| 최상위 `platformPaths` | 플랫폼 기능 전체(없으면 핵심 기능)를 실기기에서 실행 | 기능마다 `{rule: "platform", featureId}` |
+| `baseline: null`(첫 출시·새 마켓) | 전체 회귀 + `platformPaths`가 있는 기능 전체를 실기기에서 실행 | 낮출 수 없음(`platform-first`) |
+| 기준 태그의 기능 목록에 없던 기능의 `platformPaths` | 그 기능을 실기기에서 실행 | 낮출 수 없음(`platform-first`) |
+
+바뀐 파일은 후보와 기준 태그의 플랫폼 경로(기능별·최상위)를 합쳐 판정한다. 후보에서 경로를 지우거나 좁혀도 그 릴리스의 하한은 줄지 않는다. 기준 태그의 기능 목록을 읽을 수 없거나 형식이 맞지 않으면 모든 플랫폼 기능을 새 기능으로 보고 중앙 기본 경로를 더한다. 엔진 업그레이드는 경로로 다 잡히지 않으므로 설계에서 L3와 `android`(필요하면 `ios`)로 계획한다. `{rule: "platform"}`은 v1에서, `{rule: "foundation"}`은 v2에서 계획 오류다.
+
+### CI 실행
+
+`executor: "ci"` 실행은 `ciRun.url`(`https://github.com/<owner>/<repo>/actions/runs/<id>`, 선택 `/attempts/<n>`)이 필수이고 개발 환경 종류만 쓴다. 검증기는 GitHub API로 같은 저장소, `head_sha` = 후보 SHA, `completed`·`success`, workflow 경로 = 기능 목록 `e2e.workflow`를 확인한다. 확인된 CI 실행은 구현자와 다른 실행자로 보며 168시간 기한은 API의 `updated_at`으로 잰다. 로컬 `--file` 검증도 `GH_TOKEN`·`GITHUB_TOKEN`으로 조회한다. 토큰이 없거나 조회에 실패하면(404·403·5xx 등) `CI_RUN_UNVERIFIED`로 통과시키지 않는다. 실기기 실행의 독립 실행자 규칙은 그대로다.
+
+중앙 `godot-checks.yml`에 `check_command`(예: `npm run test:e2e`)와 `e2e_report_path`(예: `build/e2e`)를 주면 결과를 `headless-e2e-<sha>` artifact로 조직 보존 기간(3일) 동안 둔다. 시나리오는 그 `journey.json`에서 옮겨 적고, 증거 링크는 CI 실행 URL로 남긴다. artifact가 지워진 뒤에도 실행 확인은 API로 한다.
+
+### 사용자의 테스트 채널 확인
+
+테스트 채널 업로드 뒤 TestFlight·Play 내부 테스트·앱인토스 링크를 알리고 기다리지 않고 계획의 끝 지점까지 진행한다. 사용자의 확인은 게이트가 아니며 `runs`에 넣지 않는다. 사용자가 결함을 알리면 테스트 실패로 다룬다. 승인 범위 안이면 고쳐 새 후보로 진행하고, 범위 밖이면 [정지 조건](#승인-뒤-진행과-정지-조건) 1로 보고한다. 먼저 확인하고 싶은 릴리스는 계획의 `release.until`을 `test-track`으로 정한다.
 
 ## 재설계 UI 검수 3회
 
@@ -83,11 +135,11 @@
 
 ## 실행과 단계별 검사
 
-계획한 환경마다 범위 안의 기능을 실제로 실행하고 [실행 기록](templates/run.md)을 남긴다. 주요 작업은 시작→기능 사용→저장·화면 전환→오류·복구→종료·재실행을 이어서 실행한다. 스크린샷·코드 열람·headless 단위 테스트만으로 실제 실행을 대신하지 않는다. 사용자 저장·계정·데이터와 격리하고 초기화 전 저장 경로를 확인한다.
+계획한 환경마다 범위 안의 기능을 실제로 실행하고 [실행 기록](templates/run.md)을 남긴다. 주요 작업은 시작→기능 사용→저장·화면 전환→오류·복구→종료·재실행을 이어서 실행한다. 스크린샷·코드 열람·headless 단위 테스트만으로 실제 실행을 대신하지 않는다. [기준](#headless-e2e-기준)을 채운 Godot headless E2E는 개발 환경 실행이다. 사용자 저장·계정·데이터와 격리하고 초기화 전 저장 경로를 확인한다.
 
 | 환경 | 실행 종류(`runs[].kind`) | 방법 |
 |---|---|---|
-| 개발 환경(`dev`) | `godot-editor`, `unity-editor`, `web-browser`, `native-development`, `service-runtime` | Editor Play/Run, 개발 서버+실제 브라우저, 개발용 런타임, 서비스 API E2E |
+| 개발 환경(`dev`) | `godot-editor`, `godot-headless-e2e`, `unity-editor`, `web-browser`, `native-development`, `service-runtime` | Editor Play/Run, [Godot headless E2E](#headless-e2e-기준), 개발 서버+실제 브라우저, 개발용 런타임, 서비스 API E2E |
 | Android(`android`) | `android-device` | adb 실기기. 테스트 채널 빌드(Play 내부 테스트 등) 또는 같은 SHA 로컬 빌드 |
 | iOS(`ios`) | `ios-device` | 실기기. TestFlight 빌드 또는 같은 SHA 로컬 빌드 |
 
@@ -116,7 +168,7 @@ Play의 테스트 트랙 사이 승격은 `before-deploy`, production 승격은 
 
 ## 승인 뒤 진행과 정지 조건
 
-승인된 계획의 `release`가 배포 요청이다. 구현→PR·CI·리뷰·병합→계획한 실행→태그·빌드·테스트 채널 업로드→실기기 실행→심사 제출·승격→승인 후 공개·live 확인을 `until`까지 이어서 진행한다. 단계마다 사람에게 다시 묻지 않는다. 테스트를 **더 하는** 쪽(하한 상향, 환경 추가)도 묻지 않는다. 빌드·업로드·심사·승인·공개·live 확인은 서로 다른 상태로 기록한다.
+승인된 계획의 `release`가 배포 요청이다. 구현→PR·CI·리뷰·병합→계획한 실행→태그·빌드·테스트 채널 업로드→실기기 실행(계획·하한이 요구할 때)→심사 제출·승격→승인 후 공개·live 확인을 `until`까지 이어서 진행한다. [사용자의 테스트 채널 확인](#사용자의-테스트-채널-확인)은 기다리지 않는다. 단계마다 사람에게 다시 묻지 않는다. 테스트를 **더 하는** 쪽(하한 상향, 환경 추가)도 묻지 않는다. 빌드·업로드·심사·승인·공개·live 확인은 서로 다른 상태로 기록한다.
 
 아래 경우에만 멈추고 사람에게 보고한다.
 
@@ -176,6 +228,8 @@ node scripts/release/verify-development-evidence.mjs \
 | `TEST_LEVEL_BELOW_FLOOR <rule> <feature> <env>` | 바뀐 파일로 올라간 하한을 실행이 채우지 못했고 승인된 낮춤도 없음. 실행을 더하면 된다 |
 | `RUN_EXPIRED`, `RUN_CANDIDATE_MISMATCH`, `EXECUTION_ORDER` | 168시간 초과, 다른 SHA, 시각 순서 오류 |
 | `INDEPENDENT_RUN_REQUIRED <run>` | L2 실기기 실행 또는 L3 실행을 구현자가 함 |
+| `TEST_LEVEL_BELOW_FLOOR platform <feature> <env>` / `platform-first …` | v2 플랫폼 경로 하한을 채우지 못함. `platform-first`는 첫 출시·새 플랫폼 기능이라 낮출 수 없음 |
+| `CI_RUN_UNVERIFIED`·`CI_RUN_MISMATCH`·`CI_RUN_NOT_SUCCESSFUL`·`CI_RUN_WORKFLOW`·`CI_RUN_KIND <run>` | CI 실행을 조회하지 못함·다른 저장소나 SHA·성공 아님·기능 목록의 E2E workflow가 아님·실기기 종류 |
 | `RELEASE_NOT_AUTHORIZED` | 대상 마켓이 계획에 없음, 끝 지점이 `test-track`, Play 승격 비율이 승인한 `release.rollout`(생략 시 1)보다 큼 |
 | `TEST_PLAN_DESIGN_MISMATCH <design>` | `testPlan`이 그 설계 문서와 같은 `docs/design/<id>/` 폴더에 있지 않음 |
 

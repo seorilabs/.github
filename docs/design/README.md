@@ -20,3 +20,5 @@
 | 2026-10-15 | [Spiritgate UI7과 UI6 원본 실패 결속](2026-10-15-spiritgate-ui7/design.md) | [원문 승인](2026-10-15-spiritgate-ui7/human-approval.json) · 제안7d912748 | [Spiritgate240](https://github.com/seorilabs/spiritgate-defenders/issues/240) · [중앙 실행 범위](2026-10-15-spiritgate-ui7/execution-ticket.md) | 중앙 TDD·회귀; 실제 UI7 별도 |
 
 | 2026-10-15 | [정상 v2 추가 UI 승인 체인](2026-10-15-normal-v2-ui-approval-chain/design.md) | [사람 승인](2026-10-15-normal-v2-ui-approval-chain/approval.json) · 설계eca0a077 | [Spiritgate240](https://github.com/seorilabs/spiritgate-defenders/issues/240) · [실행 범위](2026-10-15-normal-v2-ui-approval-chain/execution-ticket.md) | 중앙 L1/dev; 제품 QA와 구분 |
+
+| 2026-10-16 | [Godot headless E2E 기본 검수와 실기기 범위 축소 v1 — 사람 승인](2026-10-16-godot-headless-e2e/design.md) | 대화 승인(검토용 커밋 f6f07f0 = 408faef와 같은 bytes, 승인 기록은 문서 안) | PR 본문에 기록 | 중앙 검증기·계약 테스트 결과 |
