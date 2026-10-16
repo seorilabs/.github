@@ -130,14 +130,20 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
     && Date.parse(android.completedAt) <= now && now-Date.parse(android.completedAt) <= MAX_AGE,'TESTFLIGHT_ANDROID_TIME');
   reject(ios?.sourceSha === context.sourceSha && ios.target === 'app-store' && ios.status === 'deferred' && typeof ios.reason === 'string' && ios.reason.trim()
     && sameIds(ios.featureIds,foundation),'TESTFLIGHT_IOS_ONLY_DEFERRED');
+  let cloudRecovery=null;
+  if(grant.cloud12Recovery){try{cloudRecovery=validateCloud12RecoveryApproval(grant,context.cloud12RecoveryApprovalBytes,context.cloud12RecoveryProposalBytes,at);}catch(error){errors.push(error.message);}}
   reject(equal(grant.provider,PROVIDER) && provider?.verified === true && provider.internalOnly === true && provider.sourceSha === context.sourceSha
-    && provider.workflowId === PROVIDER.workflowId && provider.productId === PROVIDER.productId && provider.matchingBuildCount === 1
+    && provider.workflowId === PROVIDER.workflowId && provider.productId === PROVIDER.productId && provider.matchingBuildCount === (grant.cloud12Recovery ? 2 : 1)
     && typeof provider.buildId === 'string' && provider.buildId.length > 0 && Number.isSafeInteger(provider.buildNumber) && provider.buildNumber > 0,'TESTFLIGHT_PROVIDER_INTERNAL_ONLY');
+  if(grant.cloud12Recovery) reject(cloudRecovery?.verified===true && provider?.recoveryVerified===true
+    && provider.previousFailedRunId===grant.cloud12Recovery.previousRun.id && provider.buildNumber===13,'TESTFLIGHT_CLOUD12_PROVIDER');
   if (context.phase === 'before-deploy') {
     const artifact=context.artifactProof,previous=context.beforeBuildReceipt;
     reject(artifact?.verified === true && artifact.sourceSha === context.sourceSha && artifact.buildId === provider?.buildId
       && artifact.buildNumber === provider?.buildNumber && artifact.bundleId === BUNDLE && artifact.version === '1.1.0'
       && DIGEST.test(artifact.sha256 ?? ''),'TESTFLIGHT_ACTUAL_ARTIFACT_REQUIRED');
+    if(grant.cloud12Recovery) reject(previous?.cloudRecoveryApprovalSha256===grant.cloud12Recovery.approvalSha256
+      && previous.previousFailedRunId===grant.cloud12Recovery.previousRun.id && previous.cloudAttemptCount===2 && previous.cloudAttemptLimit===2 && previous.uploadLimit===1,'TESTFLIGHT_CLOUD12_RECEIPT');
     reject(previous?.ok === true && previous.phase === 'before-build' && previous.decisionStatus === 'human_exception'
       && previous.productE2eStatus === 'blocked' && previous.nativeQaWaived === false && previous.scope === 'internal_testflight_only' && previous.sourceSha === context.sourceSha && previous.buildId === provider?.buildId
       && previous.buildNumber === provider?.buildNumber && previous.configurationFingerprint === context.configurationFingerprint
@@ -149,6 +155,7 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
     sourceSha:context.sourceSha,target:'app-store',phase:context.phase,configurationFingerprint:context.configurationFingerprint,
     grantSha256:context.grantSha256,completedAt:macSkip ? android.completedAt : document.editor.e2e.completedAt,verifiedAt:new Date(now).toISOString(),
     buildId:provider.buildId,buildNumber:provider.buildNumber,androidStatus:'passed',iosStatus:'deferred',nativeQaWaived:false,
+    ...(grant.cloud12Recovery ? {cloudRecoveryApprovalSha256:cloudRecovery.approvalSha256,previousFailedRunId:provider.previousFailedRunId,cloudAttemptCount:provider.matchingBuildCount,cloudAttemptLimit:2,uploadLimit:1} : {}),
     approvedUiRounds,additionalUiApprovalSha256:approvedUiRounds>=5 ? grant.additionalUiApprovalSha256 : null,
     ...(approvedUiRounds>=6 ? {ui6ApprovalSha256:grant.ui6ApprovalSha256} : {}),
     ...(approvedUiRounds>=7 ? {ui7ApprovalSha256:grant.ui7ApprovalSha256} : {}),
@@ -711,7 +718,8 @@ async function reviewedBootstrap(id,verifierSha,request){
     ...(grant.approvedUiRounds>=8 ? [grant.ui8ApprovalFile,ui8ProposalPath,ui8HumanApprovalPath] : []),
     ...(grant.approvedUiRounds>=9 ? [grant.ui9ApprovalFile,ui9ProposalPath,ui9HumanApprovalPath] : []),
     ...(grant.approvedUiRounds===10 ? [grant.ui10ApprovalFile,ui10ProposalPath,ui10HumanApprovalPath,ui9ImplementationApprovalPath] : []),
-    ...(grant.macEditorSkip ? [grant.macEditorSkip.approvalFile,macSkipProposalPath,macSkipHumanApprovalPath] : [])];
+    ...(grant.macEditorSkip ? [grant.macEditorSkip.approvalFile,macSkipProposalPath,macSkipHumanApprovalPath] : []),
+    ...(grant.cloud12Recovery ? [grant.cloud12Recovery.approvalFile,'docs/design/2026-10-16-spiritgate-cloud12-recovery/approved-proposal.md'] : [])];
   await Promise.all(sources.map(async path=>{
     const remote=await readRemote('seorilabs/.github',path,verifierSha,request);
     if(!readFileSync(join(root,path)).equals(remote)) fail('TESTFLIGHT_VERIFIER_BYTES_CHANGED');
@@ -790,6 +798,16 @@ async function reviewedBootstrap(id,verifierSha,request){
     if(!macSkipApprovalBytes.equals(latestApproval) || !macSkipProposalBytes.equals(latestProposal) || !macSkipHumanApprovalBytes.equals(latestHuman)) fail('TESTFLIGHT_MAC_SKIP_REVOKED_OR_CHANGED');
     Object.assign(additionalUi,{macSkipApprovalBytes,macSkipProposalBytes,macSkipHumanApprovalBytes});
   }
+  if(grant.cloud12Recovery){
+    if(bootstrapPolicy.internalTestflightBootstrap.cloud12FailureRecovery!=='single-reviewed-failed12-to13-total-cloud2-upload1'
+      || latestPolicy.internalTestflightBootstrap?.cloud12FailureRecovery!=='single-reviewed-failed12-to13-total-cloud2-upload1') fail('TESTFLIGHT_CLOUD12_POLICY');
+    const approvalPath=grant.cloud12Recovery.approvalFile,proposalPath='docs/design/2026-10-16-spiritgate-cloud12-recovery/approved-proposal.md';
+    const cloud12RecoveryApprovalBytes=readFileSync(join(root,approvalPath)),cloud12RecoveryProposalBytes=readFileSync(join(root,proposalPath));
+    validateCloud12RecoveryApproval(grant,cloud12RecoveryApprovalBytes,cloud12RecoveryProposalBytes);
+    const [latestApproval,latestProposal]=await Promise.all([readRemote('seorilabs/.github',approvalPath,'main',request),readRemote('seorilabs/.github',proposalPath,'main',request)]);
+    if(!cloud12RecoveryApprovalBytes.equals(latestApproval) || !cloud12RecoveryProposalBytes.equals(latestProposal)) fail('TESTFLIGHT_CLOUD12_REVOKED_OR_CHANGED');
+    Object.assign(additionalUi,{cloud12RecoveryApprovalBytes,cloud12RecoveryProposalBytes});
+  }
   return {grant,approvalBytes,...additionalUi,grantSha256:bootstrapDigest(bytes),verifierProof:{verified:true,revision:verifierSha,reviewedOnCurrentMain:true}};
 }
 
@@ -843,7 +861,60 @@ async function appleToken(env){
   return makeAppStoreConnectToken({keyId:env.APP_STORE_CONNECT_API_KEY_ID,issuerId:env.APP_STORE_CONNECT_ISSUER_ID,privateKeyBase64:env.APP_STORE_CONNECT_PRIVATE_KEY_BASE64});
 }
 
-export function validateBootstrapAppleObservation({app,product,workflow,run,runs,tag},grant,env){
+export function validateCloud12RecoveryApproval(grant,approvalBytes,proposalBytes,now=new Date().toISOString()){
+  const r=grant.cloud12Recovery;
+  let a;try{a=JSON.parse(approvalBytes);}catch{fail('TESTFLIGHT_CLOUD12_APPROVAL');}
+  if(!r || !Buffer.isBuffer(approvalBytes) || !Buffer.isBuffer(proposalBytes) || bootstrapDigest(approvalBytes)!==r.approvalSha256
+    || a.kind!=='human_cloud12_recovery_approval' || a.repository!==REPO || a.version!=='1.1.0'
+    || a.sourceSha!==grant.sourceSha || a.configurationFingerprint!==grant.configurationFingerprint
+    || a.originalTimingApprovalSha256!==grant.approvalSha256 || a.originalGrantSha256!=='95f0c3f0f1e4b6f059681fc1fe735e8db7dff26658378f348340b48d08be3fa5'
+    || a.originalApprovedAt!==grant.approvedAt || a.originalExpiresAt!==grant.expiresAt
+    || a.previousRunId!==r.previousRun.id || a.previousBuildNumber!==12 || a.expectedBuildNumber!==13
+    || a.additionalCloudAttempts!==1 || a.totalCloudAttemptLimit!==2 || a.totalUploadLimit!==1
+    || r.additionalCloudAttempts!==1 || r.totalCloudAttemptLimit!==2 || r.totalUploadLimit!==1 || r.expectedBuildNumber!==13
+    || a.originalFailurePreserved!==true || a.nativeQaWaived!==false || a.e2eWaived!==false || a.publicReleaseAllowed!==false || a.newAppleResourcesAllowed!==false
+    || a.proposalSha256!==bootstrapDigest(proposalBytes) || typeof a.userApprovalVerbatim!=='string' || !a.userApprovalVerbatim.trim()
+    || !orderedBootstrapTimes(grant.approvedAt,r.previousRun.finishedAt,a.approvalRecordedAt,now,grant.expiresAt)) fail('TESTFLIGHT_CLOUD12_APPROVAL');
+  return {verified:true,approvalSha256:r.approvalSha256};
+}
+
+export function validateCloud12FailedRun({run,builds,actions,artifacts,logBytes},grant){
+  const r=grant.cloud12Recovery?.previousRun,a=run?.attributes,g=grant.provider;
+  const archive=actions?.find(action=>action.id===r?.archiveActionId);
+  if(!r || run?.id!==r.id || a?.number!==12 || a.executionProgress!=='COMPLETE' || a.completionStatus!=='FAILED'
+    || a.finishedDate!==r.finishedAt || a.sourceCommit?.commitSha!==grant.sourceSha || a.startReason!=='MANUAL' || a.isPullRequestBuild!==false
+    || run.relationships?.workflow?.data?.id!==g.workflowId || run.relationships?.product?.data?.id!==g.productId
+    || run.relationships?.sourceBranchOrTag?.data?.id!==r.tagReferenceId
+    || !Array.isArray(builds) || builds.length!==0 || actions?.length!==2
+    || archive?.attributes?.actionType!=='ARCHIVE' || archive.attributes.executionProgress!=='COMPLETE' || archive.attributes.completionStatus!=='FAILED'
+    || actions.filter(action=>action.id!==r.archiveActionId).some(action=>action.attributes?.actionType!=='TEST' || action.attributes.executionProgress!=='COMPLETE' || action.attributes.completionStatus!=='SKIPPED')
+    || artifacts?.length!==1 || artifacts[0].id!==r.logArtifactId || artifacts[0].attributes?.fileType!=='LOG_BUNDLE'
+    || !Buffer.isBuffer(logBytes) || logBytes.length!==artifacts[0].attributes.fileSize || bootstrapDigest(logBytes)!==r.logZipSha256) fail('TESTFLIGHT_CLOUD12_FAILED_RUN');
+  return {verified:true,id:r.id,logZipSha256:r.logZipSha256};
+}
+
+async function cloud12FailureProof(grant,token,fetchImpl){
+  const r=grant.cloud12Recovery.previousRun;
+  const [previous,builds,actions,artifacts]=await Promise.all([
+    appleRead(`/v1/ciBuildRuns/${r.id}?include=workflow,product,sourceBranchOrTag`,token,fetchImpl),
+    applePages(`/v1/ciBuildRuns/${r.id}/builds?limit=200`,token,fetchImpl),
+    applePages(`/v1/ciBuildRuns/${r.id}/actions?limit=200`,token,fetchImpl),
+    applePages(`/v1/ciBuildActions/${r.archiveActionId}/artifacts?limit=200`,token,fetchImpl)]);
+  let logBytes;
+  try{
+    if(artifacts.length!==1 || artifacts[0].id!==r.logArtifactId || artifacts[0].attributes?.fileType!=='LOG_BUNDLE'
+      || !Number.isSafeInteger(artifacts[0].attributes.fileSize) || artifacts[0].attributes.fileSize<=0 || artifacts[0].attributes.fileSize>32768) fail('TESTFLIGHT_CLOUD12_LOG_DOWNLOAD');
+    const url=new URL(artifacts[0].attributes.downloadUrl);
+    if(url.origin!=='https://cvws.icloud-content.com' || url.username || url.password || url.hash) fail('TESTFLIGHT_CLOUD12_LOG_DOWNLOAD');
+    // Signed Apple artifact URL gets no ASC/GitHub token and may not redirect to another origin.
+    const response=await fetchImpl(url,{redirect:'error',signal:AbortSignal.timeout(30000)});
+    if(!response.ok) fail('TESTFLIGHT_CLOUD12_LOG_DOWNLOAD');
+    logBytes=Buffer.from(await response.arrayBuffer());
+  }catch{fail('TESTFLIGHT_CLOUD12_LOG_DOWNLOAD');}
+  return validateCloud12FailedRun({run:previous.data,builds,actions,artifacts,logBytes},grant);
+}
+
+export function validateBootstrapAppleObservation({app,product,workflow,run,runs,tag,failedRunProof},grant,env){
   const w=workflow?.attributes,action=w?.actions?.[0],g=grant.provider;
   if(app?.id!==g.appId || app.attributes?.bundleId!==grant.packageName || product?.id!==g.productId
     || product.relationships?.app?.data?.id!==g.appId || workflow?.id!==g.workflowId
@@ -852,17 +923,23 @@ export function validateBootstrapAppleObservation({app,product,workflow,run,runs
     || action.scheme!=='SpiritgateDefenders' || action.isRequiredToPass!==true || action.buildDistributionAudience!=='INTERNAL_ONLY'
     || !w.manualTagStartCondition || ['branchStartCondition','tagStartCondition','pullRequestStartCondition','scheduledStartCondition','manualBranchStartCondition','manualPullRequestStartCondition'].some(k=>w[k]!=null)) fail('TESTFLIGHT_APPLE_WORKFLOW_NOT_INTERNAL');
   const matches=runs.filter(r=>r.attributes?.sourceCommit?.commitSha===grant.sourceSha);
+  const recovery=grant.cloud12Recovery,previous=recovery?.previousRun;
+  const countOk=recovery ? (matches.length===2 && new Set(matches.map(r=>r.id)).size===2 && matches.some(r=>r.id===run?.id)
+    && matches.some(r=>r.id===previous.id && r.attributes?.number===12 && r.attributes.completionStatus==='FAILED')
+    && failedRunProof?.verified===true && failedRunProof.id===previous.id && failedRunProof.logZipSha256===previous.logZipSha256
+    && run?.attributes?.number===13 && run.relationships?.sourceBranchOrTag?.data?.id===previous.tagReferenceId) : matches.length===1 && matches[0].id===run?.id;
   if(run?.id!==env.CI_BUILD_ID || run.attributes?.sourceCommit?.commitSha!==grant.sourceSha
     || run.relationships?.workflow?.data?.id!==g.workflowId || run.relationships?.product?.data?.id!==g.productId
     || String(run.attributes?.number)!==env.CI_BUILD_NUMBER || run.attributes?.startReason!=='MANUAL'
-    || run.attributes?.isPullRequestBuild!==false || matches.length!==1 || matches[0].id!==run.id
+    || run.attributes?.isPullRequestBuild!==false || !countOk
     || tag?.attributes?.kind!=='TAG' || tag.attributes.name!==grant.releaseTag || tag.id!==run.relationships?.sourceBranchOrTag?.data?.id) fail('TESTFLIGHT_APPLE_FIRST_BUILD');
   return {verified:true,internalOnly:true,sourceSha:grant.sourceSha,workflowId:g.workflowId,productId:g.productId,
-    buildId:run.id,buildNumber:run.attributes.number,matchingBuildCount:matches.length};
+    buildId:run.id,buildNumber:run.attributes.number,matchingBuildCount:matches.length,
+    ...(recovery ? {recoveryVerified:true,previousFailedRunId:previous.id} : {})};
 }
 
 export async function bootstrapProvider(grant,env,fetchImpl){
-  if(env.APP_STORE_CONNECT_API_KEY_ID!=='UHVPXA39JA' || env.CI_TEAM_ID!=='HCDUXX4Z3X' || env.CI_XCODE_CLOUD!=='TRUE' || env.CI_PRODUCT_ID!==PROVIDER.productId || env.CI_WORKFLOW_ID!==PROVIDER.workflowId
+  if(env.APP_STORE_CONNECT_API_KEY_ID!=='UHVPXA39JA' || env.CI_TEAM_ID!=='69a6de86-a179-47e3-e053-5b8c7c11a4d1' || env.CI_XCODE_CLOUD!=='TRUE' || env.CI_PRODUCT_ID!==PROVIDER.productId || env.CI_WORKFLOW_ID!==PROVIDER.workflowId
     || env.CI_BUNDLE_ID!==BUNDLE || env.CI_XCODE_SCHEME!=='SpiritgateDefenders' || env.CI_TAG!==TAG || env.CI_COMMIT!==grant.sourceSha
     || !/^[A-Za-z0-9-]+$/u.test(env.CI_BUILD_ID ?? '') || !/^[1-9][0-9]*$/u.test(env.CI_BUILD_NUMBER ?? '')) fail('TESTFLIGHT_CI_CONTEXT');
   const token=await appleToken(env),g=grant.provider;
@@ -873,7 +950,8 @@ export async function bootstrapProvider(grant,env,fetchImpl){
   const tagId=run.data?.relationships?.sourceBranchOrTag?.data?.id;
   if(!/^[A-Za-z0-9-]+$/u.test(tagId ?? '')) fail('TESTFLIGHT_PROVIDER_TAG');
   const tag=await appleRead(`/v1/scmGitReferences/${tagId}`,token,fetchImpl);
-  return validateBootstrapAppleObservation({app:app.data,product:product.data,workflow:workflow.data,run:run.data,runs,tag:tag.data},grant,env);
+  const failedRunProof=grant.cloud12Recovery ? await cloud12FailureProof(grant,token,fetchImpl) : null;
+  return validateBootstrapAppleObservation({app:app.data,product:product.data,workflow:workflow.data,run:run.data,runs,tag:tag.data,failedRunProof},grant,env);
 }
 
 export async function verifyInternalTestflightBootstrap(options){

@@ -206,6 +206,7 @@ internalTestflightBootstrap:
   maxAgeHours: 168
   candidateLimit: 1
   buildUploadLimit: 1
+  cloud12FailureRecovery: single-reviewed-failed12-to13-total-cloud2-upload1
   phases: [before-build, before-deploy]
   nativeQaWaived: false
   publicReleaseRequires: normal-verifier-and-actual-iphone-whole-e2e

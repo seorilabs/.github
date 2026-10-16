@@ -783,6 +783,9 @@
             "type": "string",
             "pattern": "^contracts/internal-testflight-bootstrap/[a-z0-9.-]+\\.json$"
           }
+        },
+        "cloud12FailureRecovery": {
+          "const": "single-reviewed-failed12-to13-total-cloud2-upload1"
         }
       }
     }

@@ -120,10 +120,66 @@ function providerFetch(omit){
  };
  return{fetchImpl,requested};
 }
-const ciEnv={...env,APP_STORE_CONNECT_API_KEY_ID:'UHVPXA39JA',APP_STORE_CONNECT_ISSUER_ID:'synthetic-test-issuer',APP_STORE_CONNECT_PRIVATE_KEY_BASE64:privateKeyBase64,CI_TEAM_ID:'HCDUXX4Z3X',CI_XCODE_CLOUD:'TRUE',CI_PRODUCT_ID:provider.productId,CI_WORKFLOW_ID:provider.workflowId,CI_BUNDLE_ID:BUNDLE,CI_XCODE_SCHEME:'SpiritgateDefenders',CI_TAG:'v1.1.0',CI_COMMIT:SHA};
+const ciEnv={...env,APP_STORE_CONNECT_API_KEY_ID:'UHVPXA39JA',APP_STORE_CONNECT_ISSUER_ID:'synthetic-test-issuer',APP_STORE_CONNECT_PRIVATE_KEY_BASE64:privateKeyBase64,CI_TEAM_ID:'69a6de86-a179-47e3-e053-5b8c7c11a4d1',CI_XCODE_CLOUD:'TRUE',CI_PRODUCT_ID:provider.productId,CI_WORKFLOW_ID:provider.workflowId,CI_BUNDLE_ID:BUNDLE,CI_XCODE_SCHEME:'SpiritgateDefenders',CI_TAG:'v1.1.0',CI_COMMIT:SHA};
 test('provider HTTP flow expands actual links-only Apple relationships before strict validation',async()=>{
  const f=providerFetch();const proof=await bootstrapProvider(grant,ciEnv,f.fetchImpl);assert.equal(proof.verified,true);assert.equal(proof.matchingBuildCount,1);assert.equal(proof.internalOnly,true);
 });
 for(const [omit,code] of [['app','TESTFLIGHT_APPLE_PRODUCT'],['product','TESTFLIGHT_APPLE_PRODUCT'],['run.workflow','TESTFLIGHT_APPLE_FIRST_BUILD'],['run.product','TESTFLIGHT_APPLE_FIRST_BUILD'],['run.sourceBranchOrTag','TESTFLIGHT_PROVIDER_TAG']])test('expanded provider flow still rejects missing relationship '+omit,async()=>{
  const f=providerFetch(omit);await assert.rejects(bootstrapProvider(grant,ciEnv,f.fetchImpl),{message:code});
 });
+
+for(const team of ['HCDUXX4Z3X','00000000-0000-0000-0000-000000000000',undefined])test('CI account namespace rejects '+team,async()=>{const f=providerFetch();await assert.rejects(bootstrapProvider(grant,{...ciEnv,CI_TEAM_ID:team},f.fetchImpl),{message:'TESTFLIGHT_CI_CONTEXT'});assert.equal(f.requested.length,0);});
+
+import {validateCloud12FailedRun} from '../scripts/release/internal-testflight-bootstrap.mjs';
+const failedLog=Buffer.from('synthetic prearchive context failure log; no actual observation');
+function recoveryObservation(){
+ const o=observation();o.run.attributes.number=13;const previous=structuredClone(o.run);previous.id='failed-12';Object.assign(previous.attributes,{number:12,completionStatus:'FAILED',executionProgress:'COMPLETE',finishedDate:'2026-10-14T05:58:00Z'});
+ o.runs=[structuredClone(previous),structuredClone(o.run)];
+ const recovery={approvalFile:'docs/design/2026-10-16-spiritgate-cloud12-recovery/approval.json',approvalSha256:'c'.repeat(64),additionalCloudAttempts:1,totalCloudAttemptLimit:2,totalUploadLimit:1,expectedBuildNumber:13,previousRun:{id:previous.id,number:12,finishedAt:previous.attributes.finishedDate,tagReferenceId:'tag-1',archiveActionId:'archive-12',logArtifactId:'log-12',logZipSha256:bootstrapDigest(failedLog)}};
+ const failed={run:previous,builds:[],actions:[{id:'archive-12',attributes:{actionType:'ARCHIVE',completionStatus:'FAILED',executionProgress:'COMPLETE'}},{id:'test-12',attributes:{actionType:'TEST',completionStatus:'SKIPPED',executionProgress:'COMPLETE'}}],artifacts:[{id:'log-12',attributes:{fileType:'LOG_BUNDLE',fileSize:failedLog.length}}],logBytes:failedLog};
+ return{o,failed,g:{...grant,cloud12Recovery:recovery},e:{...env,CI_BUILD_NUMBER:'13'}};
+}
+test('exact approved failed12 remains counted alongside new13',()=>{const f=recoveryObservation();f.o.failedRunProof=validateCloud12FailedRun(f.failed,f.g);const p=validate(f.o,f.g,f.e);assert.equal(p.matchingBuildCount,2);assert.equal(p.previousFailedRunId,'failed-12');assert.equal(p.recoveryVerified,true);});
+for(const [name,change] of [
+ ['wrong previous ID',f=>{f.failed.run.id='other';}],['wrong source',f=>{f.failed.run.attributes.sourceCommit.commitSha='b'.repeat(40);}],
+ ['wrong workflow',f=>{f.failed.run.relationships.workflow.data.id='other';}],['wrong product',f=>{f.failed.run.relationships.product.data.id='other';}],
+ ['running previous',f=>{f.failed.run.attributes.executionProgress='RUNNING';}],['successful previous',f=>{f.failed.run.attributes.completionStatus='SUCCEEDED';}],
+ ['changed finish time',f=>{f.failed.run.attributes.finishedDate='2026-10-14T05:59:00Z';}],['existing uploaded build',f=>{f.failed.builds.push({id:'uploaded'});}],
+ ['actual archive',f=>{f.failed.artifacts.push({id:'archive',attributes:{fileType:'ARCHIVE'}});}],['wrong log bytes',f=>{f.failed.logBytes=Buffer.from('changed');}],
+ ['another log asset',f=>{f.failed.artifacts[0].id='another';}],['archive succeeded',f=>{f.failed.actions[0].attributes.completionStatus='SUCCEEDED';}],
+ ['non-skipped post action',f=>{f.failed.actions[1].attributes.completionStatus='SUCCEEDED';}],
+ ])test('recovery rejects '+name,()=>{const f=recoveryObservation();change(f);assert.throws(()=>validateCloud12FailedRun(f.failed,f.g),{message:'TESTFLIGHT_CLOUD12_FAILED_RUN'});});
+for(const [name,change] of [
+ ['unverified failed history',f=>{delete f.o.failedRunProof;}],['third source run',f=>{f.o.runs.push({...structuredClone(f.o.run),id:'third'});}],
+ ['wrong new number',f=>{f.o.run.attributes.number=14;f.e.CI_BUILD_NUMBER='14';}],['previous missing from list',f=>{f.o.runs.shift();}],
+ ['duplicate current run',f=>{f.o.runs[0]=structuredClone(f.o.run);}],
+ ])test('recovery cannot hide '+name,()=>{const f=recoveryObservation();f.o.failedRunProof=validateCloud12FailedRun(f.failed,f.g);change(f);assert.throws(()=>validate(f.o,f.g,f.e),{message:'TESTFLIGHT_APPLE_FIRST_BUILD'});});
+
+function recoveryFetch(change=()=>{}){
+ const f=recoveryObservation(),requested=[];change(f);const recovery=f.g.cloud12Recovery;
+ const fetchImpl=async(input,options={})=>{
+  const u=new URL(input);requested.push({origin:u.origin,path:u.pathname,authorizationPresent:!!options.headers?.Authorization,redirect:options.redirect});
+  if(u.origin==='https://cvws.icloud-content.com'){
+   assert.equal(options.headers,undefined);assert.equal(options.redirect,'error');
+   return{ok:true,arrayBuffer:async()=>Uint8Array.from(f.failed.logBytes).buffer};
+  }
+  assert.equal(u.origin,'https://api.appstoreconnect.apple.com');assert.match(options.headers.Authorization,/^Bearer /u);
+  let data;
+  if(u.pathname===`/v1/apps/${provider.appId}`)data=f.o.app;
+  else if(u.pathname===`/v1/ciProducts/${provider.productId}`){assert.equal(u.searchParams.get('include'),'app');data=f.o.product;}
+  else if(u.pathname===`/v1/ciWorkflows/${provider.workflowId}`){assert.equal(u.searchParams.get('include'),'product');data=f.o.workflow;}
+  else if(u.pathname==='/v1/ciBuildRuns/build-1'){assert.equal(u.searchParams.get('include'),'workflow,product,sourceBranchOrTag');data=f.o.run;}
+  else if(u.pathname===`/v1/ciWorkflows/${provider.workflowId}/buildRuns`)data=f.o.runs.map(r=>({...r,relationships:{}}));
+  else if(u.pathname==='/v1/scmGitReferences/tag-1')data=f.o.tag;
+  else if(u.pathname===`/v1/ciBuildRuns/${recovery.previousRun.id}`){assert.equal(u.searchParams.get('include'),'workflow,product,sourceBranchOrTag');data=f.failed.run;}
+  else if(u.pathname===`/v1/ciBuildRuns/${recovery.previousRun.id}/builds`)data=f.failed.builds;
+  else if(u.pathname===`/v1/ciBuildRuns/${recovery.previousRun.id}/actions`)data=f.failed.actions;
+  else if(u.pathname===`/v1/ciBuildActions/${recovery.previousRun.archiveActionId}/artifacts`)data=f.failed.artifacts.map(a=>({...a,attributes:{...a.attributes,downloadUrl:f.logUrl||'https://cvws.icloud-content.com/synthetic-signed-log'}}));
+  else assert.fail('unexpected recovery provider path '+u.pathname);
+  return{ok:true,status:200,json:async()=>({data,links:{next:null}})};
+ };
+ return{...f,fetchImpl,requested};
+}
+test('complete recovery HTTP flow reads exact failed run and log without forwarding credentials',async()=>{const f=recoveryFetch();const p=await bootstrapProvider(f.g,{...ciEnv,...f.e},f.fetchImpl);assert.equal(p.matchingBuildCount,2);assert.equal(p.previousFailedRunId,'failed-12');assert.equal(f.requested.filter(r=>r.origin==='https://cvws.icloud-content.com').length,1);});
+for(const url of ['http://cvws.icloud-content.com/log','https://example.com/log','https://user@cvws.icloud-content.com/log','https://cvws.icloud-content.com/log#fragment'])test('recovery refuses unapproved artifact destination '+url,async()=>{const f=recoveryFetch(f=>{f.logUrl=url;});await assert.rejects(bootstrapProvider(f.g,{...ciEnv,...f.e},f.fetchImpl),{message:'TESTFLIGHT_CLOUD12_LOG_DOWNLOAD'});assert.equal(f.requested.some(r=>r.origin!=='https://api.appstoreconnect.apple.com'),false);});
+test('recovery HTTP flow cannot skip existing uploaded builds or changed failure logs',async()=>{for(const change of [f=>{f.failed.builds=[{id:'uploaded'}];},f=>{f.failed.logBytes=Buffer.from('changed raw failure');}]){const f=recoveryFetch(change);await assert.rejects(bootstrapProvider(f.g,{...ciEnv,...f.e},f.fetchImpl),{message:'TESTFLIGHT_CLOUD12_FAILED_RUN'});}});

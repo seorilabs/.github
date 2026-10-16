@@ -407,7 +407,7 @@
     "before-build": {},
     "before-deploy": {
       "project.godot": "2a5633b0c4ed15e154cec2918e512fd4acb5ea7d46ded03190eed1c94e96af3b",
-      "xcode-cloud/SpiritgateDefenders.xcodeproj/project.pbxproj": "80c61633dd0951b7622f8aa1128bd9fc0a6ecc507d3d6fcaecc07f7c74f027e8"
+      "xcode-cloud/SpiritgateDefenders.xcodeproj/project.pbxproj": "24052024e19f5d3498bfd15ba860a621a05ecfb94b6090eb5bc9ae73d19ec52f"
     }
   },
   "profileSha256": "76d422cd8dd2e7df91065cb54b2196c69795f9edde5ddd6e862f2c801f089b4d",
@@ -636,6 +636,23 @@
     "deliverableManifestAsset": {
       "id": 646140488,
       "sha256": "b9ac1145dcf6ebf1028a94e7164051388cf46d25c5b50a970dccf2482d8ce180"
+    }
+  },
+  "cloud12Recovery": {
+    "approvalFile": "docs/design/2026-10-16-spiritgate-cloud12-recovery/approval.json",
+    "approvalSha256": "1a8e9bfd475efee0041d85b9a8665cc8c308a52e0ebfbce301267d8267bd5e9c",
+    "additionalCloudAttempts": 1,
+    "totalCloudAttemptLimit": 2,
+    "totalUploadLimit": 1,
+    "expectedBuildNumber": 13,
+    "previousRun": {
+      "id": "bc1bd2ba-743e-4db2-a3a8-00cb10ba1203",
+      "number": 12,
+      "finishedAt": "2026-10-16T06:22:03.296Z",
+      "tagReferenceId": "7001f70e-4e93-44bb-86dc-5d14329fdf50",
+      "archiveActionId": "d918be93-888a-4378-a363-cd34c009155f",
+      "logArtifactId": "d6e43387-91c8-494f-a752-e98c3b4a8242",
+      "logZipSha256": "1bd18f3dfa3fcb134ddf00945b730a1f79ba64a22c1e5e6bd0e7520311777ed2"
     }
   }
 }
