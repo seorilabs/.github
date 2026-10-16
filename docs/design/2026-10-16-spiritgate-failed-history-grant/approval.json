@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "kind": "human_first_internal_history_and_grant_approval",
+  "firstObservedAfterApprovalAt": "2026-10-16T05:27:40Z",
+  "approvedAnswer": "제안한 최소 보정·정정 전송·등록·제한 리뷰·검사 후 병합 승인",
+  "proposalSha256": "8a33239b958e2932e921b7ae12db2c0a8c33f82410c27c58ba4ec88fea2f66f5",
+  "repository": "seorilabs/spiritgate-defenders",
+  "sourceSha": "dc7ebea858def2a34a7732f6c144ef4e60fb34d3",
+  "releaseTag": "v1.1.0",
+  "expectedCloudNumber": 12,
+  "correctedAggregateSha256": "abb30a5a5cdfa42f1dc5e1852e8a710cbffc36be5b76d4fc506083ee14663483",
+  "originalExpiresAt": "2026-10-20T23:16:52.580641Z",
+  "buildUploadLimit": 1,
+  "publicReleaseAllowed": false,
+  "newUiRoundAuthorized": false,
+  "claudeDiffFiles": [
+    "scripts/release/internal-testflight-bootstrap.mjs",
+    "tests/internal-testflight-bootstrap.test.mjs",
+    "tests/internal-testflight-bootstrap-provider.test.mjs",
+    "contracts/internal-testflight-bootstrap/spiritgate-1.1.0-first-internal.json",
+    "contracts/development-workflow.yaml"
+  ],
+  "reviewMaximumIncludingAutomaticCopilot": 2,
+  "claudeToolsAllowed": [],
+  "claudeMcpAllowed": false
+}

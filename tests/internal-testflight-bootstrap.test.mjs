@@ -943,3 +943,41 @@ for(const freshAndroid of[true,false])test(`original expiry rejects skip approva
 test('extending the original expiry cannot authorize skip approval plus169h',()=>{const f=macSkipFixture();f.context.now='2026-10-15T13:00:00.123456Z';f.context.grant.expiresAt='2026-10-15T14:00:00Z';Object.assign(f.doc.android,{plannedAt:'2026-10-15T12:00:00Z',startedAt:'2026-10-15T12:01:00Z',completedAt:'2026-10-15T12:30:00Z'});alterMacSkip(f,'macSkipApprovalBytes',a=>{a.originalExpiresAt=f.context.grant.expiresAt;},false);assert.ok(run(f).errors.includes('TESTFLIGHT_EXPIRED'));});
 for(const value of[undefined,null])test(`malformed skip editor ${String(value)} fails at the outer schema`,()=>{const f=macSkipFixture();f.doc.editor=value;refreshSeven(f);assert.deepEqual(run(f),{ok:false,errors:['TESTFLIGHT_BOOTSTRAP_REQUIRED']});});
 test('a null cleanup action fails with the specific cleanup code after full digest rebinding',()=>{const f=macSkipFixture();alterMacSkip(f,'macSkipCleanupBytes',c=>{c.actions[0]=null;});assert.deepEqual(run(f),{ok:false,errors:['TESTFLIGHT_MAC_SKIP_CLEANUP']});});
+
+
+// 합성 이력 입력. 실제 UI/기기 실행 근거가 아니다.
+function rebindMacDisplayHistory(f){
+ rebindUi6History(f);rebindUi7History(f);rebindUi8History(f);rebindUi9History(f);
+ const a=JSON.parse(f.context.macSkipApprovalBytes);a.previousUi10ApprovalSha256=f.context.grant.ui10ApprovalSha256;
+ f.context.macSkipApprovalBytes=jsonBytes(a);return rebindMacSkip(f);
+}
+function macFailedDisplayFixture(){
+ const f=macSkipFixture(),start=JSON.parse(f.context.ui6ExecutionStartBytes),cfg=JSON.parse(f.context.ui6ConfigurationBytes);
+ start.configurationFingerprint='e'.repeat(64);
+ cfg.runtimeDisplayHistory=[{kind:'native-separate-window',configurationFingerprint:start.configurationFingerprint,firstRunPid:999,startedAt:start.startedAt,stoppedAt:'2026-10-08T05:52:00Z',gameInputs:0},{kind:'editor-embedded-fixed-size',recoveryAuthorizedBy:'approved isolated QA coordination',recoveryAt:'2026-10-08T05:53:00Z',globalSettingsChanged:false}];
+ f.context.ui6ExecutionStartBytes=jsonBytes(start);f.context.ui6ConfigurationBytes=jsonBytes(cfg);
+ for(const aspect of ['functional','ux'])f.doc.editor.iterations[5][aspect].status='failed';
+ return rebindMacDisplayHistory(f);
+}
+test('Mac failed UI6 display transition preserves original failure and no product E2E pass',()=>{
+ const f=macFailedDisplayFixture(),result=run(f);assert.equal(result.ok,true,JSON.stringify(result.errors));
+ assert.equal(result.productE2eStatus,'blocked');assert.equal(result.nativeQaWaived,false);assert.equal(result.publicReleaseAllowed,false);
+ assert.equal(f.doc.editor.iterations[5].functional.status,'failed');assert.equal(JSON.parse(f.context.ui6FailedSegmentBytes).wholeUi6Completed,false);
+});
+for(const[name,change]of[
+ ['missing transition',v=>{delete v.runtimeDisplayHistory;}],['only one display',v=>{v.runtimeDisplayHistory.pop();}],['null initial display',v=>{v.runtimeDisplayHistory[0]=null;}],['null final display',v=>{v.runtimeDisplayHistory[1]=null;}],
+ ['extra display',v=>{v.runtimeDisplayHistory.push(v.runtimeDisplayHistory[1]);}],['wrong initial fingerprint',v=>{v.runtimeDisplayHistory[0].configurationFingerprint='0'.repeat(64);}],
+ ['initial product input',v=>{v.runtimeDisplayHistory[0].gameInputs=1;}],['invalid PID',v=>{v.runtimeDisplayHistory[0].firstRunPid=0;}],
+ ['different initial clock',v=>{v.runtimeDisplayHistory[0].startedAt='2026-10-08T05:51:01Z';}],['global settings changed',v=>{v.runtimeDisplayHistory[1].globalSettingsChanged=true;}],
+ ['missing recovery authority',v=>{v.runtimeDisplayHistory[1].recoveryAuthorizedBy='';}],['recovery before first stop',v=>{v.runtimeDisplayHistory[1].recoveryAt='2026-10-08T05:51:30Z';}],
+ ['recovery after failed segment',v=>{v.runtimeDisplayHistory[1].recoveryAt='2026-10-08T06:01:00Z';}],
+])test('Mac failed UI6 display transition rejects '+name,()=>{
+ const f=macFailedDisplayFixture(),v=JSON.parse(f.context.ui6ConfigurationBytes);change(v);f.context.ui6ConfigurationBytes=jsonBytes(v);rebindMacDisplayHistory(f);
+ assert.ok(run(f).errors.includes('TESTFLIGHT_UI6_SNAPSHOT_SCOPE'),JSON.stringify(run(f).errors));
+});
+for(const aspect of ['functional','ux'])test('Mac failed UI6 display transition rejects '+aspect+' PASS promotion',()=>{
+ const f=macFailedDisplayFixture();f.doc.editor.iterations[5][aspect].status='passed';refreshSeven(f);assert.ok(run(f).errors.includes('TESTFLIGHT_UI6_SNAPSHOT_SCOPE'));
+});
+test('Mac failed UI6 display transition does not alter the normal historical path',()=>{
+ const f=macFailedDisplayFixture();delete f.context.grant.macEditorSkip;refreshSeven(f);assert.ok(run(f).errors.includes('TESTFLIGHT_UI6_SNAPSHOT_SCOPE'));
+});

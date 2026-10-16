@@ -46,7 +46,7 @@ for(const [name,change] of [
  ['unrelated processed binary',f=>{f.runBuildIds=[];}],
  ['different source build',f=>{f.run.attributes.sourceCommit.commitSha='c'.repeat(40);}],
 ])test(`reject processed ${name}`,()=>{const f=processed();change(f);assert.throws(()=>groupCheck(f));});
-test('unregistered ID has no local file, skip or automatic fallback',async()=>{await assert.rejects(verifyInternalTestflightBootstrap({repository:'seorilabs/spiritgate-defenders',target:'app-store',tag:'v1.1.0',phase:'before-build',bootstrapId:'spiritgate-1.1.0-first-internal',verifierSha:SHA}),/REVIEWED_GRANT_REQUIRED/);});
+test('unregistered ID has no local file, skip or automatic fallback',async()=>{await assert.rejects(verifyInternalTestflightBootstrap({repository:'seorilabs/spiritgate-defenders',target:'app-store',tag:'v1.1.0',phase:'before-build',bootstrapId:'unregistered-spiritgate-bootstrap',verifierSha:SHA}),/REVIEWED_GRANT_REQUIRED/);});
 test('bootstrap CLI cannot combine normal file or public exceptions',async()=>{
  await assert.rejects(runDevelopmentEvidenceCli(['--internal-testflight-bootstrap-id','x','--file','fake']),/INVALID_EVIDENCE_ARGUMENT/);
  await assert.rejects(runDevelopmentEvidenceCli(['--internal-testflight-bootstrap-id','x','--release-exception-id','public']),/INVALID_EVIDENCE_ARGUMENT/);

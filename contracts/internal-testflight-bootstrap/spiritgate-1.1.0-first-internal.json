@@ -1,0 +1,641 @@
+{
+  "schemaVersion": 1,
+  "kind": "first-internal-testflight",
+  "id": "spiritgate-1.1.0-first-internal",
+  "repository": "seorilabs/spiritgate-defenders",
+  "releaseTag": "v1.1.0",
+  "packageName": "com.seorilabs.spiritgatedefenders",
+  "sourceSha": "dc7ebea858def2a34a7732f6c144ef4e60fb34d3",
+  "configurationFingerprint": "e90f43fdd5ccce42c067bcd87bb690cb0ac90697848611ce2f07ff292445c848",
+  "androidConfigurationFingerprint": "283f415bd0a961f669ac488e811870a24d645cd200363bb38dd3ccb39c42ab87",
+  "productTreeSha256": "70e5ced7b31a591d8d93f95a2c7626bf7fd0ae6a00be2e47b05b61cd705a93bc",
+  "evidenceSha256": "abb30a5a5cdfa42f1dc5e1852e8a710cbffc36be5b76d4fc506083ee14663483",
+  "approvalFile": "docs/design/2026-10-14-spiritgate-internal-testflight/approval.json",
+  "approvalSha256": "8f9ea1fd82ad34ad4bee5853ef2f48851e2121d87852a273b5010f9efd15ba7d",
+  "inventorySha256": "9b3c902f62d90457905077f794e378a6542542f77881453fc1fc49f8e59eea28",
+  "approvedAt": "2026-10-13T23:16:52.580641+00:00",
+  "expiresAt": "2026-10-20T23:16:52.580641Z",
+  "revoked": false,
+  "provider": {
+    "appId": "6792205995",
+    "productId": "E5C1A24C-AA05-41B0-B2F6-F1BF0B92D7DB",
+    "workflowId": "45B83B98-ABE4-48C1-83FC-09CF3F79651E"
+  },
+  "evidenceAsset": {
+    "id": 646255342,
+    "sha256": "abb30a5a5cdfa42f1dc5e1852e8a710cbffc36be5b76d4fc506083ee14663483"
+  },
+  "originalObservationAssets": [
+    {
+      "id": 646228457,
+      "sha256": "962af2f1f507010953373931c4c9dfa2101fea7a81a792b24f8b4e05148d126c"
+    },
+    {
+      "id": 646228386,
+      "sha256": "6932f9187425be94fc913584121f0987186ba35af1485ff80e40483d7431c6f6"
+    },
+    {
+      "id": 646228271,
+      "sha256": "d17921a2738c782b892a1f087b4ebc2f2a0a8cb1163127acc13e0683a12c7e21"
+    },
+    {
+      "id": 646228185,
+      "sha256": "a474a9063e80dd74ad0aeec6d1797c57fd1f95c82d49a64216f5f4ac09074ce3"
+    },
+    {
+      "id": 646228108,
+      "sha256": "b8508300dc0bf82b2b6b34d06976a20a291533afa01fa419ca2f18f45cb1151e"
+    },
+    {
+      "id": 646228046,
+      "sha256": "e7cc919a37b85ef14edfa760f110526016aaad19f1f3f223857145f8ea6c2225"
+    },
+    {
+      "id": 646227954,
+      "sha256": "4bb316459a2315008eac69525f98902360262a24e91c9f60b3495eb7cf5af941"
+    },
+    {
+      "id": 646227792,
+      "sha256": "4450140f82687289167d45853ddfbfab9caadb2de3021342feb6d65eea0305a2"
+    },
+    {
+      "id": 646227649,
+      "sha256": "0e0f2f419cd2098da366502335a2a0bd76b987613e56a7e77deb493c1e3ca493"
+    },
+    {
+      "id": 646227513,
+      "sha256": "d5456b524455c0991a8f926fef92d570cfa7fe01b18a403b708eefb23db1530f"
+    },
+    {
+      "id": 646227386,
+      "sha256": "445fbeac92e9fe71f1bbd9db0fb877360539769f1c038de7c64194924cf37aea"
+    },
+    {
+      "id": 646227292,
+      "sha256": "abb173aa42384a5346acf56382ac23a6f940ff58fc391c3e13bfc0ed3db6e2bc"
+    },
+    {
+      "id": 646227175,
+      "sha256": "924e6dc9f9ff2f237ecd3a6025ecd729e8244362b1cffcf91542fa8c519a13a0"
+    },
+    {
+      "id": 646227069,
+      "sha256": "4b8f564d680cdce3438abecbaae6b10eab6e4e9ef54ef384ddfd8bda88b899d0"
+    },
+    {
+      "id": 646227019,
+      "sha256": "04b09e66534d0e37404e620a6944c2f87efc890368934ade7ece74381f02708a"
+    },
+    {
+      "id": 646226926,
+      "sha256": "16d1deba00a4152483407fc667f5e6b8785f3b1cd307b460c9a1d678c22780f5"
+    },
+    {
+      "id": 646226825,
+      "sha256": "05271e1bea66636437c67e8a8b2ce2726f4c6418fcc1c3d8adf6c6010a1519b6"
+    },
+    {
+      "id": 646226724,
+      "sha256": "fc55c5f508d7ae626ef8e4f70af14ce0014e30dcd17baa6ec993aedf4ab78448"
+    },
+    {
+      "id": 646226571,
+      "sha256": "ed3a9efcac2905e2956bb6a490e3bd2114873fb0a333db50e017829eed90090b"
+    },
+    {
+      "id": 646226491,
+      "sha256": "b20f6f57d7b24d096b4992439c27c85266b6825f3db5d4c54a254d5ff4846980"
+    },
+    {
+      "id": 646226388,
+      "sha256": "8821865ae356e0a7823ea595bd413b3c4f60e979837a2ed8dc8b2f1c9aa96bfb"
+    },
+    {
+      "id": 646226295,
+      "sha256": "fcb6184c4dff5c222d1065e3eabc2797c419a82ea17fe462d63fce7635b53a93"
+    },
+    {
+      "id": 646226211,
+      "sha256": "024e91892166ce33ab91ac7e700f679b5e3a011f2ef8fdd8d09c09d02acc17bc"
+    },
+    {
+      "id": 646226102,
+      "sha256": "e311057352c51b5b91e2e00c78e1d423262103715fd716bd0a2ab493e0c36b85"
+    },
+    {
+      "id": 646225998,
+      "sha256": "1ae098269b54302c1c395df1a7767f8253c06ae90907d6110831a45dbc65a18e"
+    },
+    {
+      "id": 646139772,
+      "sha256": "741f0d8e4218725718407e604f2e09ef75157f2c1f4700dbeec48e48a4dc3649"
+    },
+    {
+      "id": 646225866,
+      "sha256": "25d4e6663ff34cb86b3852fd9041baeffd762b9e9b8ae31751d8c5a343bf3660"
+    },
+    {
+      "id": 646225754,
+      "sha256": "fb39a71237f4c749f6bc163e2496d2a41f7fdbaf23d4b70210f690658cec4e13"
+    },
+    {
+      "id": 646139423,
+      "sha256": "e785a674125c730adb16b44be67cf7d32bbd2049b4efc54e4a333469aceb21b5"
+    },
+    {
+      "id": 646225619,
+      "sha256": "c9f60556de7d91bbfd04b333c69fcc5ab571bf5e8f2b204982c27cf714f83e05"
+    },
+    {
+      "id": 646225508,
+      "sha256": "f3f5df384f5f036ef56d9004634c8ce3851488f56db5ba9d4671a65df7e056a1"
+    },
+    {
+      "id": 646138210,
+      "sha256": "cff9d03d4b66f3858066f1baa930077d46bc8f2480af3c9d6bacbd2b9b69dc8e"
+    },
+    {
+      "id": 646225358,
+      "sha256": "c7225b6887da2df5534f39f63d34b623795afda0ba44ac095331eff6beb95708"
+    },
+    {
+      "id": 646225228,
+      "sha256": "8692e98f80c282f8f805b561e67e23b48d35d516bd2241492a941fa81548f241"
+    },
+    {
+      "id": 644113534,
+      "sha256": "c059d5866ece2f10c16056fa62ce4d359b43ec19a9a0588806163691162ef03c"
+    },
+    {
+      "id": 646225083,
+      "sha256": "df94ed0996643806e503845ad280f04b21e7efc48bf3914eeeee01a8a31ad65f"
+    },
+    {
+      "id": 643393528,
+      "sha256": "d1072ec2dd7bcf4a9d39a5b414a60617fa42fa492e05f277301f432a5aa62aed"
+    },
+    {
+      "id": 643393503,
+      "sha256": "471d594f10b25ffb41f6f6b5c52359e1f6b0f93ebe5888136706c2f4e51e32e6"
+    },
+    {
+      "id": 646224928,
+      "sha256": "ea07882f7595d26fc3e50957e6acbf5dc3d8dd265c18314cb072a4f5d9bf4524"
+    },
+    {
+      "id": 646224829,
+      "sha256": "bf429cc3258a2c3ff1653934177bf1a5a4e806457ce83c3e24206f13102686bb"
+    },
+    {
+      "id": 646224738,
+      "sha256": "9b33fddbf2740d32d8e6aef43889bb2fdf9a24691778747de7c2e94e6e367f5c"
+    },
+    {
+      "id": 646224642,
+      "sha256": "59c448d61e14aed5046d4089f70518577afc307d63e4fd907abfd42283719423"
+    },
+    {
+      "id": 646224525,
+      "sha256": "af9439d27b24ced499377c40dcf4bf8814b21b3aff7b89ab24ce8c0e0e89357d"
+    },
+    {
+      "id": 646224415,
+      "sha256": "10d1ba18341a08a61c55d218c29cf62cbd24c452d9dcb86b02449b1dc183c976"
+    },
+    {
+      "id": 646224308,
+      "sha256": "e1634a7f816477cc638e022b9177d379abe88cd4b0d4ccd7845bb0d5e40d5ba3"
+    },
+    {
+      "id": 646224207,
+      "sha256": "990de1f931edc1a935c0bbd1ae6aece11fff768532ea55e1443361ca83c86a73"
+    },
+    {
+      "id": 646224088,
+      "sha256": "68177b06b7e95fa3cc9f6627498c560c9033a3262ca1a3e64fe2b70f2b4413c5"
+    },
+    {
+      "id": 646223916,
+      "sha256": "ba98106c5ba23ddaea01892141459850fed2a6fb8ea6aa71925c51f972396660"
+    },
+    {
+      "id": 646223763,
+      "sha256": "92e52da937c6bfb6ff80d4c487ad561916c22bc67ccde911820a21d791ee1113"
+    },
+    {
+      "id": 646223651,
+      "sha256": "93b6f8e0ac7b7265b93883c7c29710144912ddf92045cfab64c3474252105065"
+    },
+    {
+      "id": 646223538,
+      "sha256": "f8fa4f0c7cf279482ead9e26f00c54ee917933f4674f4736a6f19f7d59bfc126"
+    },
+    {
+      "id": 646223434,
+      "sha256": "8b4e80c83232c0d3e8549aa309cd37ea14a64c3ae580fedf192b889b0833ba02"
+    },
+    {
+      "id": 646223365,
+      "sha256": "8567ff1953813224a84c4de8da8a8d88db746312a444d0290788efc75adfbbb8"
+    },
+    {
+      "id": 646223293,
+      "sha256": "16a1e12bcadeaaf82ba29a60f7a442efa55a78411a7da7aa4f3248a769452681"
+    },
+    {
+      "id": 646140488,
+      "sha256": "b9ac1145dcf6ebf1028a94e7164051388cf46d25c5b50a970dccf2482d8ce180"
+    },
+    {
+      "id": 646140367,
+      "sha256": "af4f6c7f409f1bbb4bcec19bb060bd1b76766024da2830c30c5f165b7e6fddd7"
+    },
+    {
+      "id": 646140240,
+      "sha256": "f6fc0cc37ef262df56b9a6391e6476f6f33bad8a99296f29597f688ecd9d59b5"
+    },
+    {
+      "id": 646140099,
+      "sha256": "ca5c9d655a985ff0322411820619252efcb325af617857e4c95529fd27a893ad"
+    },
+    {
+      "id": 646139953,
+      "sha256": "d2131849393da188afeecf204b1ffaf4a8d2adb345a433ef84f135680702efcd"
+    },
+    {
+      "id": 646139657,
+      "sha256": "7dae3ccbbfd1192a0e2c993c6d28b115a0d3cde741a6cf829f75ed0aa36c54e2"
+    },
+    {
+      "id": 646139559,
+      "sha256": "9fd8ad7a232d6909ee3ad400d14841ad2782b2b6e05861b1090b32ef97bd3f91"
+    },
+    {
+      "id": 646139490,
+      "sha256": "dabc8c6eb86ebd7cf588c30720f5c2985ac840e7b0aa2b485b9c51ab4af85961"
+    },
+    {
+      "id": 646139328,
+      "sha256": "ebbb84ccd84c8b7df63a3eea669905676cd4b249896a7562fe2d631f8f62054d"
+    },
+    {
+      "id": 646139220,
+      "sha256": "15fce473f7112f5a59bd48a679fcfa8935d256742f0da85afd0f0fa96dd5a697"
+    },
+    {
+      "id": 646139106,
+      "sha256": "caf89636acfb766d6644788e1555ad2aac9efab0c1672f3a771aec4e9243b7c8"
+    },
+    {
+      "id": 646138981,
+      "sha256": "ccbf98113c4aa7b25ca98ba4819164d233f0b62e7f2cab392698346ceb70de0d"
+    },
+    {
+      "id": 646138896,
+      "sha256": "3efdad6be8b6e2c081ad8126513a30185843b55e869c9feb19390def7869a86c"
+    },
+    {
+      "id": 646138830,
+      "sha256": "e3a9753f0d8542b1abfff447cb2153edad22bb5dd032b862293df617b82ba788"
+    },
+    {
+      "id": 646138752,
+      "sha256": "12e0229b1b1a1aa8e9c95509c325ed5797ac9c7ab6dc52472f9b962b9c9c73ee"
+    },
+    {
+      "id": 646138668,
+      "sha256": "e558b65551083ed207cc31b6070d5a06116f41d6783a01ee4d44e8ad024218da"
+    },
+    {
+      "id": 646138545,
+      "sha256": "5c30b22d21cd4bef87ccb0b8b348bc1c850d2a7a8ec6fdf0ddb4db60b362c9b9"
+    },
+    {
+      "id": 646138422,
+      "sha256": "b89fc34806236169b25138b5e1d7565c3e027f567c01a441b572afc39fa635c2"
+    },
+    {
+      "id": 646138325,
+      "sha256": "6a6310a189a4a82523262153d43cee8d71162e8e5fd914b12fe073c290a5a95a"
+    },
+    {
+      "id": 646138069,
+      "sha256": "ac0cab6588768f4b872e98e1433c9ab7e7ef6a127cc0416d6f7dd3f7b1be1263"
+    },
+    {
+      "id": 646137967,
+      "sha256": "1026c11efd0cea674e46cb19aebb6c808753180fc01e967d004b7923b4cf12b2"
+    },
+    {
+      "id": 646137879,
+      "sha256": "1a8b9b0ddeda3f23eca862c0764654196a76194df889ad7930cbffc5bc8ccdbd"
+    },
+    {
+      "id": 646137741,
+      "sha256": "043a392b510e5c660efb0775f22b0b09f3bb708b2f0d4aa5df56f631dcf64f7b"
+    },
+    {
+      "id": 646137618,
+      "sha256": "05ebd6d3f9262362f249bb586105858313071382ef1ad0e8ef8c95a3e50f575c"
+    },
+    {
+      "id": 644113790,
+      "sha256": "b8ba426c5963430bcc3c567d3134f51c79f843294919fcb57772b24533655756"
+    },
+    {
+      "id": 644113649,
+      "sha256": "622342f4dcf91d5310cf3d5ccad62d5b0231d317059f48712244a4eca7d76e9a"
+    },
+    {
+      "id": 644113432,
+      "sha256": "ba2b2b13fa9d580e3fd0a59416f25fd987f6237f80eb620d0f2150b8b70c8545"
+    },
+    {
+      "id": 644113309,
+      "sha256": "e7fc47665768dd40983b3eeefa9767f10d46a4dca30d28615e1dce46e038648e"
+    },
+    {
+      "id": 644113157,
+      "sha256": "4753a9f1dd6f630b92bb5693e4555955b2d7ee53c4024a511f5fa1244dbe043d"
+    },
+    {
+      "id": 644113056,
+      "sha256": "91fcfa1cd7d27394a50275fd18e180445b45de2a00c3a1a2ea697e8920269a88"
+    },
+    {
+      "id": 644112930,
+      "sha256": "fd7fa21d557dd5fe1f750f05edd82655f7b7865256d0a870c81412058e7a83dd"
+    },
+    {
+      "id": 644112786,
+      "sha256": "f49b4decb3ca46047c7d5b1601fcc12b51ebce0b24e3a97dce8e55cd945cf259"
+    },
+    {
+      "id": 644112645,
+      "sha256": "449a8bab91aa7a8186f912516494c5ed0b2b44f257926dd440e96888d92f53c9"
+    },
+    {
+      "id": 644112499,
+      "sha256": "1ced9bd21d094b59c5f31605e367e32a7b3d872d5e4f84b2b3eaeb6a2d748c65"
+    },
+    {
+      "id": 644112378,
+      "sha256": "91e524ac425de12c5b767698e0ae1abdd3a7fb0056203e48021e73ebc536b001"
+    },
+    {
+      "id": 643393506,
+      "sha256": "58a891f0e4d9263744ba451507a459257504f625505ede5c9d5844c4461c6963"
+    },
+    {
+      "id": 643393502,
+      "sha256": "f753bda86d041e3db9fa5aaa4d1abef5d66227b2ea745b7d54fd672ebb089639"
+    },
+    {
+      "id": 643393505,
+      "sha256": "f970e3871ee5971f2e5f6261254df3323f0194fcffa282055584e871b27b33cd"
+    },
+    {
+      "id": 643516569,
+      "sha256": "fe854e663be5eb6207efc39e436c3363ad025866b0b259f4a7c668f8fee4f105"
+    },
+    {
+      "id": 643516469,
+      "sha256": "55a9b0de273528e0ef55dc6dd3cece7b5d7a23994564b6bc78c7db98789b084c"
+    }
+  ],
+  "workingOverrides": {
+    "before-build": {},
+    "before-deploy": {
+      "project.godot": "2a5633b0c4ed15e154cec2918e512fd4acb5ea7d46ded03190eed1c94e96af3b",
+      "xcode-cloud/SpiritgateDefenders.xcodeproj/project.pbxproj": "80c61633dd0951b7622f8aa1128bd9fc0a6ecc507d3d6fcaecc07f7c74f027e8"
+    }
+  },
+  "profileSha256": "76d422cd8dd2e7df91065cb54b2196c69795f9edde5ddd6e862f2c801f089b4d",
+  "approvedUiRounds": 10,
+  "additionalUiApprovalFile": "docs/design/2026-10-14-spiritgate-ui5/approval.json",
+  "additionalUiApprovalSha256": "7c5029587d363c4d42d1a1444f298292eeadae9bc558bf3bc5473fdb4c69e795",
+  "ui6ApprovalFile": "docs/design/2026-10-15-spiritgate-ui6/approval.json",
+  "ui6ApprovalSha256": "bb53a1c3cc53e8450e0e33b0055422c80c0d51fdb8a596eaa34a82a8ca64574b",
+  "ui7ApprovalFile": "docs/design/2026-10-15-spiritgate-ui7/approval.json",
+  "ui7ApprovalSha256": "10691fd516b03027d810b25f3cbd3a9bde8bfa9c9b1e9546d1cfb959ac851e2a",
+  "ui8ApprovalFile": "docs/design/2026-10-15-spiritgate-ui8/approval.json",
+  "ui8ApprovalSha256": "ff44dc33d1e6fcf23494b76722ea82cb79e91051cbc1b7699e110ccd2714ed10",
+  "ui9ApprovalFile": "docs/design/2026-10-16-spiritgate-ui9/approval.json",
+  "ui9ApprovalSha256": "e374935819967ceaca95405874588ad3d2cf5438c5156352f5659b695470b999",
+  "ui10ApprovalFile": "docs/design/2026-10-16-spiritgate-ui10/approval.json",
+  "ui10ApprovalSha256": "a3f84f0f27abd8eb2e3c96fdb99e528f6ba00eb45b52ff6ddf1e32f3c18a9c7f",
+  "historicalUi5": {
+    "sourceSha": "a7a9cdcdfe68f328b9775048f7451419d6623176",
+    "configurationFingerprint": "456eaf78c14e6206ee1392659e26e140d3102ffd5b52d0df8496c55a7e299aec",
+    "sourceSnapshotAsset": {
+      "id": 643516469,
+      "sha256": "55a9b0de273528e0ef55dc6dd3cece7b5d7a23994564b6bc78c7db98789b084c"
+    },
+    "configurationAsset": {
+      "id": 643516569,
+      "sha256": "fe854e663be5eb6207efc39e436c3363ad025866b0b259f4a7c668f8fee4f105"
+    }
+  },
+  "historicalUi6": {
+    "sourceSha": "6a2c4fbf408c87658c78402a2b935ae99f9fa5f4",
+    "configurationFingerprint": "cd0954ce0e2f59f38de476104cdec9ccca1e9637717a4847e7d934e5f921dc22",
+    "sourceSnapshotAsset": {
+      "id": 643393505,
+      "sha256": "f970e3871ee5971f2e5f6261254df3323f0194fcffa282055584e871b27b33cd"
+    },
+    "configurationAsset": {
+      "id": 643393502,
+      "sha256": "f753bda86d041e3db9fa5aaa4d1abef5d66227b2ea745b7d54fd672ebb089639"
+    },
+    "executionStartAsset": {
+      "id": 643393503,
+      "sha256": "471d594f10b25ffb41f6f6b5c52359e1f6b0f93ebe5888136706c2f4e51e32e6"
+    },
+    "failedSegmentAsset": {
+      "id": 643393506,
+      "sha256": "58a891f0e4d9263744ba451507a459257504f625505ede5c9d5844c4461c6963"
+    },
+    "failureAsset": {
+      "id": 643393528,
+      "sha256": "d1072ec2dd7bcf4a9d39a5b414a60617fa42fa492e05f277301f432a5aa62aed"
+    }
+  },
+  "historicalUi7": {
+    "sourceSha": "89a4702d311e80b75de8bf11836e213ec9a7e94e",
+    "configurationFingerprint": "589b3dba390a4e538585357d92762ab77e6b4a1fad069b44e81afcb5fb6aedb9",
+    "recheckSourceSha": "53bec059a4314e7b1d0d3c18ec3dbc48ba507eba",
+    "recheckConfigurationFingerprint": "3346cd0d6ff2d3f848bba491fa6eb5f690063ababda409af7fe7c277ac821159",
+    "sourceSnapshotAsset": {
+      "id": 644112378,
+      "sha256": "91e524ac425de12c5b767698e0ae1abdd3a7fb0056203e48021e73ebc536b001"
+    },
+    "configurationAsset": {
+      "id": 644112499,
+      "sha256": "1ced9bd21d094b59c5f31605e367e32a7b3d872d5e4f84b2b3eaeb6a2d748c65"
+    },
+    "executionStartAsset": {
+      "id": 644112645,
+      "sha256": "449a8bab91aa7a8186f912516494c5ed0b2b44f257926dd440e96888d92f53c9"
+    },
+    "mainIntegrityAsset": {
+      "id": 644112786,
+      "sha256": "f49b4decb3ca46047c7d5b1601fcc12b51ebce0b24e3a97dce8e55cd945cf259"
+    },
+    "transitionAsset": {
+      "id": 644112930,
+      "sha256": "fd7fa21d557dd5fe1f750f05edd82655f7b7865256d0a870c81412058e7a83dd"
+    },
+    "recheckConfigurationAsset": {
+      "id": 644113056,
+      "sha256": "91fcfa1cd7d27394a50275fd18e180445b45de2a00c3a1a2ea697e8920269a88"
+    },
+    "recheckExecutionStartAsset": {
+      "id": 644113157,
+      "sha256": "4753a9f1dd6f630b92bb5693e4555955b2d7ee53c4024a511f5fa1244dbe043d"
+    },
+    "recheckClockAsset": {
+      "id": 644113309,
+      "sha256": "e7fc47665768dd40983b3eeefa9767f10d46a4dca30d28615e1dce46e038648e"
+    },
+    "recheckIntegrityAsset": {
+      "id": 644113432,
+      "sha256": "ba2b2b13fa9d580e3fd0a59416f25fd987f6237f80eb620d0f2150b8b70c8545"
+    },
+    "resultAsset": {
+      "id": 644113534,
+      "sha256": "c059d5866ece2f10c16056fa62ce4d359b43ec19a9a0588806163691162ef03c"
+    },
+    "cleanupAsset": {
+      "id": 644113649,
+      "sha256": "622342f4dcf91d5310cf3d5ccad62d5b0231d317059f48712244a4eca7d76e9a"
+    },
+    "manifestAsset": {
+      "id": 644113790,
+      "sha256": "b8ba426c5963430bcc3c567d3134f51c79f843294919fcb57772b24533655756"
+    }
+  },
+  "historicalUi8": {
+    "sourceSha": "d031f54cde885aa5831ceb8c585dd42fba006fa3",
+    "configurationFingerprint": "6ebc1f8d6beeab7ebbb8e996b0389eb687210623dc747e6d41d367e8de431ee3",
+    "sourceSnapshotAsset": {
+      "id": 646137618,
+      "sha256": "05ebd6d3f9262362f249bb586105858313071382ef1ad0e8ef8c95a3e50f575c"
+    },
+    "configurationAsset": {
+      "id": 646137741,
+      "sha256": "043a392b510e5c660efb0775f22b0b09f3bb708b2f0d4aa5df56f631dcf64f7b"
+    },
+    "frozenManifestAsset": {
+      "id": 646137879,
+      "sha256": "1a8b9b0ddeda3f23eca862c0764654196a76194df889ad7930cbffc5bc8ccdbd"
+    },
+    "executionStartAsset": {
+      "id": 646137967,
+      "sha256": "1026c11efd0cea674e46cb19aebb6c808753180fc01e967d004b7923b4cf12b2"
+    },
+    "sourceIntegrityAsset": {
+      "id": 646138069,
+      "sha256": "ac0cab6588768f4b872e98e1433c9ab7e7ef6a127cc0416d6f7dd3f7b1be1263"
+    },
+    "resultAsset": {
+      "id": 646138210,
+      "sha256": "cff9d03d4b66f3858066f1baa930077d46bc8f2480af3c9d6bacbd2b9b69dc8e"
+    },
+    "cleanupAsset": {
+      "id": 646138325,
+      "sha256": "6a6310a189a4a82523262153d43cee8d71162e8e5fd914b12fe073c290a5a95a"
+    },
+    "manifestAsset": {
+      "id": 646138422,
+      "sha256": "b89fc34806236169b25138b5e1d7565c3e027f567c01a441b572afc39fa635c2"
+    }
+  },
+  "historicalUi9": {
+    "sourceSha": "d031f54cde885aa5831ceb8c585dd42fba006fa3",
+    "configurationFingerprint": "3e523810669e47bf5a50ef2deb26f0438af6d6939aefe450e87fe2a4d533d0ca",
+    "capExpired": true,
+    "budgetExceeded": true,
+    "incomplete": true,
+    "passingFeatures": 0,
+    "sourceSnapshotAsset": {
+      "id": 646138545,
+      "sha256": "5c30b22d21cd4bef87ccb0b8b348bc1c850d2a7a8ec6fdf0ddb4db60b362c9b9"
+    },
+    "configurationAsset": {
+      "id": 646138668,
+      "sha256": "e558b65551083ed207cc31b6070d5a06116f41d6783a01ee4d44e8ad024218da"
+    },
+    "frozenManifestAsset": {
+      "id": 646138752,
+      "sha256": "12e0229b1b1a1aa8e9c95509c325ed5797ac9c7ab6dc52472f9b962b9c9c73ee"
+    },
+    "planAsset": {
+      "id": 646138830,
+      "sha256": "e3a9753f0d8542b1abfff447cb2153edad22bb5dd032b862293df617b82ba788"
+    },
+    "executionStartAsset": {
+      "id": 646138896,
+      "sha256": "3efdad6be8b6e2c081ad8126513a30185843b55e869c9feb19390def7869a86c"
+    },
+    "handoffDirectiveAsset": {
+      "id": 646138981,
+      "sha256": "ccbf98113c4aa7b25ca98ba4819164d233f0b62e7f2cab392698346ceb70de0d"
+    },
+    "operatorTransitionAsset": {
+      "id": 646139106,
+      "sha256": "caf89636acfb766d6644788e1555ad2aac9efab0c1672f3a771aec4e9243b7c8"
+    },
+    "projectNormalizationAsset": {
+      "id": 646139220,
+      "sha256": "15fce473f7112f5a59bd48a679fcfa8935d256742f0da85afd0f0fa96dd5a697"
+    },
+    "sourceIntegrityAsset": {
+      "id": 646139328,
+      "sha256": "ebbb84ccd84c8b7df63a3eea669905676cd4b249896a7562fe2d631f8f62054d"
+    },
+    "resultAsset": {
+      "id": 646139423,
+      "sha256": "e785a674125c730adb16b44be67cf7d32bbd2049b4efc54e4a333469aceb21b5"
+    },
+    "cleanupAsset": {
+      "id": 646139490,
+      "sha256": "dabc8c6eb86ebd7cf588c30720f5c2985ac840e7b0aa2b485b9c51ab4af85961"
+    },
+    "originalManifestAsset": {
+      "id": 646139559,
+      "sha256": "9fd8ad7a232d6909ee3ad400d14841ad2782b2b6e05861b1090b32ef97bd3f91"
+    },
+    "deliverableManifestAsset": {
+      "id": 646139657,
+      "sha256": "7dae3ccbbfd1192a0e2c993c6d28b115a0d3cde741a6cf829f75ed0aa36c54e2"
+    }
+  },
+  "macEditorSkip": {
+    "approvalFile": "docs/design/2026-10-16-spiritgate-mac-editor-skip/approval.json",
+    "approvalSha256": "326cb6fbfdf2c92e75f8ef4641c0369c373462d92202fbc1d31524bdda77445e",
+    "resultAsset": {
+      "id": 646139772,
+      "sha256": "741f0d8e4218725718407e604f2e09ef75157f2c1f4700dbeec48e48a4dc3649"
+    },
+    "cleanupAsset": {
+      "id": 646139953,
+      "sha256": "d2131849393da188afeecf204b1ffaf4a8d2adb345a433ef84f135680702efcd"
+    },
+    "sourceIntegrityAsset": {
+      "id": 646140099,
+      "sha256": "ca5c9d655a985ff0322411820619252efcb325af617857e4c95529fd27a893ad"
+    },
+    "firstFailureAsset": {
+      "id": 646140240,
+      "sha256": "f6fc0cc37ef262df56b9a6391e6476f6f33bad8a99296f29597f688ecd9d59b5"
+    },
+    "originalManifestAsset": {
+      "id": 646140367,
+      "sha256": "af4f6c7f409f1bbb4bcec19bb060bd1b76766024da2830c30c5f165b7e6fddd7"
+    },
+    "deliverableManifestAsset": {
+      "id": 646140488,
+      "sha256": "b9ac1145dcf6ebf1028a94e7164051388cf46d25c5b50a970dccf2482d8ce180"
+    }
+  }
+}
