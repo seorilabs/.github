@@ -518,7 +518,7 @@ function validateBootstrapHistoricalUi9(grant,context,round){
   const files=source.files,entries=files && typeof files==='object' && !Array.isArray(files) ? Object.entries(files) : [];
   if(!entries.length || !entries.every(([path,v])=>safePath(path) && typeof v?.sha256==='string' && DIGEST.test(v.sha256))
     || source.trackedCount!==entries.length || cfg.trackedSourceCount!==entries.length || !equal(source.mismatchesExceptDeclaredProject,[])
-    || files['project.godot']?.sha256!==cfg.sourceProjectSha256 || integrity.productTrackedCheckedExceptDeclaredProject!==entries.length-1 || !equal(integrity.productTrackedMismatchExceptDeclaredProject,[]) || !equal(integrity.frozenManifestMismatch,[])
+    || !Object.hasOwn(files,'project.godot') || files['project.godot']?.sha256!==cfg.actualProjectSha256 || typeof cfg.sourceProjectSha256!=='string' || !DIGEST.test(cfg.sourceProjectSha256) || integrity.productTrackedCheckedExceptDeclaredProject!==entries.length-1 || !equal(integrity.productTrackedMismatchExceptDeclaredProject,[]) || !equal(integrity.frozenManifestMismatch,[])
     || !cfg.helperHashes || !Object.keys(cfg.helperHashes).length || !Object.entries(cfg.helperHashes).every(([p,v])=>typeof v==='string' && DIGEST.test(v) && frozen['qa-project/'+p]===v)
     || normalization.declaredConfigurationFingerprint!==h.configurationFingerprint || normalization.declaredProjectSha256!==cfg.actualProjectSha256 || normalization.actualProjectSha256!==integrity.qaProjectGodotAfterEditorSha256
     || typeof normalization.actualProjectSha256!=='string' || !DIGEST.test(normalization.actualProjectSha256) || !cfg.configs?.some(c=>c.sha256===normalization.declaredProjectSha256)
@@ -562,6 +562,7 @@ function validateBootstrapHistoricalUi9(grant,context,round){
     || round?.plannedAt!==utc(plan.plannedAt) || round?.startedAt!==utc(start.startedAt) || round?.completedAt!==utc(result.finalizedAt)) fail('TESTFLIGHT_UI9_EXPIRED_TIME');
   const validManifest=m=>Array.isArray(m.files) && new Set(m.files.map(f=>f.path)).size===m.files.length && m.files.every(f=>safePath(f.path) && typeof f.sha256==='string' && DIGEST.test(f.sha256) && Number.isSafeInteger(f.bytes) && f.bytes>=0);
   if(!validManifest(original) || !validManifest(deliverable) || original.allStableDuringHash!==true || !original.files.every(f=>f.stableDuringHash===true)
+    || !original.files.some(f=>f.path==='preparation/source-project.godot' && f.sha256===cfg.sourceProjectSha256)
     || result.originals?.manifestSha256!==h.originalManifestAsset.sha256 || result.originals.originalFileCount!==original.files.length || result.originals.allStableDuringHash!==true
     || !ui9HistoricalAssets.filter(([asset])=>asset!=='deliverableManifestAsset').every(([asset,key,path])=>{
       const final=path.startsWith('final/'),m=final?deliverable:original,p=final?path.slice(6):path;
