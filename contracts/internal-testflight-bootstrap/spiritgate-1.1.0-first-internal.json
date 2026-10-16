@@ -15,7 +15,7 @@
   "inventorySha256": "9b3c902f62d90457905077f794e378a6542542f77881453fc1fc49f8e59eea28",
   "approvedAt": "2026-10-13T23:16:52.580641+00:00",
   "expiresAt": "2026-10-20T23:16:52.580641Z",
-  "revoked": false,
+  "revoked": true,
   "provider": {
     "appId": "6792205995",
     "productId": "E5C1A24C-AA05-41B0-B2F6-F1BF0B92D7DB",
