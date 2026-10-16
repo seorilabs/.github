@@ -1,6 +1,6 @@
 # 첫 내부1.1.0 근거 이력 보정과 실제 후보 등록
 
-상태: **설계 승인 대기.** 검증기 구현은 변경하지 않았다. 현재 고정 후보 v1.1.0/dc7ebea, Android 번호1000015, 다음 Cloud 번호12다. 실제 Cloud 빌드·업로드0이며 원래 만료2026-10-20T23:16:52.580641Z와 한 후보/한 Cloud/한 업로드를 유지한다.
+상태: **사용자 승인 후 보정 구현·회귀·CI 완료, PR 병합 대기.** 승인 전 제안 원본은 approval.json의 proposalSha256으로 별도 보존하며 아래 내용은 승인 범위와 실행 후 상태를 함께 기록한다. 현재 고정 후보 v1.1.0/dc7ebea, Android 번호1000015, 다음 Cloud 번호12다. 실제 Cloud 빌드·업로드0이며 원래 만료2026-10-20T23:16:52.580641Z와 한 후보/한 Cloud/한 업로드를 유지한다.
 
 ## 문제와 실제 근거
 
@@ -23,7 +23,7 @@ UI6 시작 원문은 첫 분리 창 지문57c0d16f…를 기록했고, 최종 �
 4. 두 번째 기록이 내장 창 복구이고 공용 설정 변경false·복구 권한 기록·첫 Run 종료≤복구≤원래 failed segment 종료 순서를 확인한다.
 5. 이 조건을 만족할 때만 서로 다른 시작/최종 지문을 실패 이력으로 허용한다. 생략을 통과로 바꾸거나 새로운 실행을 인정하지 않는다.
 
-제안 코드 diff: `/private/tmp/sgd-internal110-aggregate-preparation-v2-20261016/proposed-failed-ui6-history.patch`. 아직 적용하지 않았다. 새 schema·새 waiver 필드·검증 우회 입력은 추가하지 않는다.
+제안 코드 diff: `/private/tmp/sgd-internal110-aggregate-preparation-v2-20261016/proposed-failed-ui6-history.patch`. 현재 PR에서 적용했고 실행 결과는 execution.md에 기록했다. 새 schema·새 waiver 필드·검증 우회 입력은 추가하지 않는다.
 
 등록으로 인해 기존 "미등록 ID" 테스트가 실제 등록 ID를 쓰게 된 점은 가상의 미등록 ID로 바로잡는다. 테스트가 인터넷이나 실제 Apple/GitHub 상태를 가정하지 않게 한다.
 

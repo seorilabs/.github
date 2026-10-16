@@ -6,3 +6,5 @@
 - 실제 데이터의 UI5/6/7/8/9/Mac skip 이력 검사 오류0. 전체 preflight는 아직 미실행인 reviewed main과 실제 Cloud provider run2조건만 차단한다. 이를 전체 검증 통과라고 기록하지 않는다.
 - 다음 Cloud 번호12를 실제 Apple UI에서 읽었고 서로 다른 두 경로의 unsigned project 해시가 일치했다. 실제 서명/Cloud/업로드는 아직0이다.
 - 첫 내부 뒤 실제 iPhone·예외 인자 제거·공개1.1.1 정상v2/L3·E2E·UI/실기기·심사/공개/live 조건을 유지한다.
+
+- PR262의 Claude 제한 코드5파일 리뷰는 head62330c3에서 지적 없음(1회), 자동 Copilot Lite는 문서 미적용 표기1건을 지적했다(1회). design.md를 승인/적용 후 현재 상태로 보정하고 중앙 설명에 실제 등록을 덧붙였다. schema의 grantRegistry는 이미 경로 pattern/uniqueItems 배열을 허용하므로 변경하지 않았다. 코드5파일은 리뷰 이후 변경하지 않았으며 총2회 상한으로 추가 요청하지 않는다.
