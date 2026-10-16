@@ -74,16 +74,28 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
         reject(Number.isFinite(ui6At) && recorded<=ui6At && ui6At<=now && ui6At<=Date.parse(document.editor.iterations[5]?.plannedAt),'TESTFLIGHT_UI6_APPROVAL_TIME');
         reject(document.editor?.iterations?.[4]?.sourceSha===grant.historicalUi5.sourceSha && document.editor.iterations[5]?.sourceSha===(approvedUiRounds>=7 ? grant.historicalUi6.sourceSha : grant.sourceSha),'TESTFLIGHT_UI6_HISTORY_SOURCE');
         if(approvedUiRounds>=7){
-          const seventh=approvedUiRounds===8 ? validateBootstrapHistoricalUi7(grant,context,document.editor.iterations[6])
+          const seventh=approvedUiRounds>=8 ? validateBootstrapHistoricalUi7(grant,context,document.editor.iterations[6])
             : validateBootstrapUi7Approval(grant,context.ui7ApprovalBytes,context.ui7ProposalBytes),ui7At=Date.parse(seventh.approvalRecordedAt);
           reject(approvals.some(a=>a.maxRound===7 && a.approvedAt===utc(seventh.approvalRecordedAt) && a.evidence===grant.ui7ApprovalFile),'TESTFLIGHT_UI7_EDITOR_APPROVAL');
           reject(Number.isFinite(ui7At) && ui6At<=ui7At && ui7At<=now && ui7At<=Date.parse(document.editor.iterations[6]?.plannedAt),'TESTFLIGHT_UI7_APPROVAL_TIME');
-          reject(document.editor.iterations[6]?.sourceSha===(approvedUiRounds===8 ? grant.historicalUi7.sourceSha : grant.sourceSha),'TESTFLIGHT_UI7_SOURCE');
-          if(approvedUiRounds===8){
-            const eighth=validateBootstrapUi8Approval(grant,context.ui8ApprovalBytes,context.ui8ProposalBytes,context.ui8HumanApprovalBytes),ui8At=Date.parse(eighth.approvalRecordedAt);
+          reject(document.editor.iterations[6]?.sourceSha===(approvedUiRounds>=8 ? grant.historicalUi7.sourceSha : grant.sourceSha),'TESTFLIGHT_UI7_SOURCE');
+          if(approvedUiRounds>=8){
+            const eighth=approvedUiRounds===9 ? validateBootstrapHistoricalUi8(grant,context,document.editor.iterations[7])
+              : validateBootstrapUi8Approval(grant,context.ui8ApprovalBytes,context.ui8ProposalBytes,context.ui8HumanApprovalBytes),ui8At=Date.parse(eighth.approvalRecordedAt);
             reject(approvals.some(a=>a.maxRound===8 && a.approvedAt===utc(eighth.approvalRecordedAt) && a.evidence===grant.ui8ApprovalFile),'TESTFLIGHT_UI8_EDITOR_APPROVAL');
-            reject(Number.isFinite(ui8At) && ui7At<=ui8At && Date.parse(seventh.historicalRecordedAt)<=ui8At && ui8At<=now && ui8At<=Date.parse(last?.plannedAt),'TESTFLIGHT_UI8_APPROVAL_TIME');
-            reject(last?.sourceSha===grant.sourceSha,'TESTFLIGHT_UI8_SOURCE');
+            reject(Number.isFinite(ui8At) && ui7At<=ui8At && Date.parse(seventh.historicalRecordedAt)<=ui8At && ui8At<=now && ui8At<=Date.parse(document.editor.iterations[7]?.plannedAt),'TESTFLIGHT_UI8_APPROVAL_TIME');
+            reject(document.editor.iterations[7]?.sourceSha===(approvedUiRounds===9 ? grant.historicalUi8.sourceSha : grant.sourceSha),'TESTFLIGHT_UI8_SOURCE');
+            if(approvedUiRounds===9){
+              const ninth=validateBootstrapUi9Approval(grant,context.ui9ApprovalBytes,context.ui9ProposalBytes,context.ui9HumanApprovalBytes);
+              reject(approvals.some(a=>a.maxRound===9 && a.approvedAt===utc(ninth.approvalRecordedAt) && a.evidence===grant.ui9ApprovalFile),'TESTFLIGHT_UI9_EDITOR_APPROVAL');
+              reject(orderedBootstrapTimes(eighth.approvalRecordedAt,ninth.approvalRecordedAt,at)
+                && orderedBootstrapTimes(eighth.historicalRecordedAt,ninth.approvalRecordedAt,last?.plannedAt),'TESTFLIGHT_UI9_APPROVAL_TIME');
+              reject(last?.sourceSha===grant.sourceSha,'TESTFLIGHT_UI9_SOURCE');
+              const handoff=ninth.operatorHandoff;
+              reject(orderedBootstrapTimes(ninth.approvalRecordedAt,last?.startedAt,handoff.directedAt,last?.completedAt,at) && orderedBootstrapTimes(last?.completedAt,handoff.absoluteMaximumAt)
+                && utc(handoff.sameStartedAt)===utc(last?.startedAt) && compareBootstrapTimes(last?.startedAt,handoff.mainDeadlineAt,180*60)===0 && compareBootstrapTimes(last?.startedAt,handoff.absoluteMaximumAt,210*60)===0
+                && [handoff.mainDeadlineAt,handoff.absoluteMaximumAt].every(value=>utc(value)?.slice(19)===utc(last?.startedAt)?.slice(19)),'TESTFLIGHT_UI9_HANDOFF_TIME');
+            }
           }
         }
       }
@@ -119,7 +131,8 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
     approvedUiRounds,additionalUiApprovalSha256:approvedUiRounds>=5 ? grant.additionalUiApprovalSha256 : null,
     ...(approvedUiRounds>=6 ? {ui6ApprovalSha256:grant.ui6ApprovalSha256} : {}),
     ...(approvedUiRounds>=7 ? {ui7ApprovalSha256:grant.ui7ApprovalSha256} : {}),
-    ...(approvedUiRounds===8 ? {ui8ApprovalSha256:grant.ui8ApprovalSha256} : {})};
+    ...(approvedUiRounds>=8 ? {ui8ApprovalSha256:grant.ui8ApprovalSha256} : {}),
+    ...(approvedUiRounds===9 ? {ui9ApprovalSha256:grant.ui9ApprovalSha256} : {})};
 }
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
@@ -131,7 +144,26 @@ const ui7ProposalPath='docs/design/2026-10-15-spiritgate-ui7/approved-proposal.m
 const ui7HumanApprovalPath='docs/design/2026-10-15-spiritgate-ui7/human-approval.json';
 const ui8ProposalPath='docs/design/2026-10-15-spiritgate-ui8/approved-proposal.md';
 const ui8HumanApprovalPath='docs/design/2026-10-15-spiritgate-ui8/human-approval.json';
+const ui9ProposalPath='docs/design/2026-10-16-spiritgate-ui9/approved-proposal.md';
+const ui9HumanApprovalPath='docs/design/2026-10-16-spiritgate-ui9/human-approval.json';
 const utc=value=>typeof value==='string' ? value.replace(/\+00:00$/u,'Z') : null;
+// 새 UI9/과거 UI8 순서만 비교하며 Date.parse에 소수부를 넘기지 않는다.
+function bootstrapTime(value){
+  const m=typeof value==='string' && /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$/u.exec(value);
+  if(!m) return null;
+  const second=Date.parse(m[1]+m[3]),zone=m[3]==='Z' ? 0 : (m[3][0]==='-' ? -1 : 1)*(Number(m[3].slice(1,3))*60+Number(m[3].slice(4,6)))*60000;
+  if(!Number.isFinite(second) || new Date(second+zone).toISOString().slice(0,19)!==m[1]) return null;
+  return {second,fraction:m[2] ?? ''};
+}
+function compareBootstrapTimes(left,right,shiftSeconds=0){
+  const a=bootstrapTime(left),b=bootstrapTime(right);
+  if(!a || !b) return null;
+  const shifted=a.second+shiftSeconds*1000;
+  if(shifted!==b.second) return shifted<b.second ? -1 : 1;
+  const width=Math.max(a.fraction.length,b.fraction.length),x=a.fraction.padEnd(width,'0'),y=b.fraction.padEnd(width,'0');
+  return x===y ? 0 : x<y ? -1 : 1;
+}
+const orderedBootstrapTimes=(...values)=>values.slice(1).every((value,i)=>{const order=compareBootstrapTimes(values[i],value);return order!==null && order<=0;});
 const grantPaths=parse(readFileSync(join(root,policyPath),'utf8')).internalTestflightBootstrap?.grantRegistry ?? [];
 const fail=code=>{throw new Error(code);};
 const safePath=path=>typeof path==='string' && /^[A-Za-z0-9._/-]+$/u.test(path) && !path.split('/').includes('..') && !isAbsolute(path);
@@ -351,6 +383,97 @@ function validateBootstrapUi8Approval(grant,approvalBytes,proposalBytes,humanByt
   return a;
 }
 
+const ui8HistoricalAssets=[
+  ['sourceSnapshotAsset','ui8SourceSnapshotBytes','preparation/source-before.json'],['configurationAsset','ui8ConfigurationBytes','configuration.json'],
+  ['frozenManifestAsset','ui8FrozenManifestBytes','preparation/frozen-manifest.json'],['executionStartAsset','ui8ExecutionStartBytes','execution-start.json'],
+  ['sourceIntegrityAsset','ui8SourceIntegrityBytes','final-preserved/final-source-and-settings-check.json'],['resultAsset','ui8ResultBytes','ui8-result.json'],
+  ['cleanupAsset','ui8CleanupBytes','process-cleanup-receipt.json'],['manifestAsset','ui8ManifestBytes','ui8-evidence-manifest.json'],
+];
+function validateBootstrapHistoricalUi8(grant,context,round){
+  const h=grant.historicalUi8,objects=[];
+  for(const [asset,key]of ui8HistoricalAssets){
+    const bytes=context[key];
+    if(!Buffer.isBuffer(bytes) || bootstrapDigest(bytes)!==h[asset].sha256 || !grant.originalObservationAssets.some(a=>equal(a,h[asset]))) fail('TESTFLIGHT_UI8_SNAPSHOT_CHANGED');
+    let value;try{value=JSON.parse(bytes);}catch{fail('TESTFLIGHT_INVALID_UI8_SNAPSHOT');}
+    if(!value || typeof value!=='object' || Array.isArray(value)) fail('TESTFLIGHT_INVALID_UI8_SNAPSHOT');
+    objects.push(value);
+  }
+  const [source,cfg,frozen,start,integrity,result,cleanup,manifest]=objects;
+  if([source,cfg,frozen,start,integrity,result,manifest].some(v=>v.sourceSha!==h.sourceSha)
+    || cfg.fingerprint!==h.configurationFingerprint || cfg.nativeMarketFingerprint!==null || cfg.firstEditorLaunchOccurred!==false
+    || frozen.configurationFingerprint!==h.configurationFingerprint || frozen.configurationSha256!==h.configurationAsset.sha256 || frozen.firstEditorLaunchOccurred!==false
+    || start.configurationFingerprint!==h.configurationFingerprint || start.configurationSha256!==h.configurationAsset.sha256 || start.planSha256!==frozen.planSha256
+    || result.configuration?.frozenFingerprint!==h.configurationFingerprint || result.configuration?.sha256!==h.configurationAsset.sha256 || result.configuration?.nativeMarketFingerprint!==null) fail('TESTFLIGHT_UI8_SNAPSHOT_SCOPE');
+  const files=source.files,project=Array.isArray(files) ? files.find(f=>f.path==='project.godot')?.sha256 : undefined;
+  const declared=list=>Array.isArray(list) && list.length===1 && list[0]?.path==='project.godot' && typeof project==='string' && DIGEST.test(project)
+    && list[0].sourceSha256===project && Array.isArray(cfg.configs) && cfg.configs.some(c=>typeof c.sha256==='string' && DIGEST.test(c.sha256) && c.sha256===list[0].qaSha256);
+  if(!Array.isArray(files) || !files.length || !files.every(f=>safePath(f.path) && typeof f.sha256==='string' && DIGEST.test(f.sha256) && Number.isSafeInteger(f.bytes) && f.bytes>=0)
+    || new Set(files.map(f=>f.path)).size!==files.length || cfg.trackedSourceCount!==files.length || frozen.sourceTrackedFiles!==files.length || integrity.trackedChecked!==files.length
+    || !equal(frozen.trackedMissing,[]) || !equal(integrity.missing,[]) || !declared(frozen.trackedDeclaredQaDifference) || !declared(integrity.trackedDeclaredDifference)
+    || !cfg.helperHashes || !Object.keys(cfg.helperHashes).length || !sameIds(Object.keys(cfg.helperHashes),Object.keys(frozen.frozenHelpers ?? {}))
+    || !Object.entries(cfg.helperHashes).every(([path,hash])=>typeof hash==='string' && DIGEST.test(hash) && frozen.frozenHelpers[path]===hash && integrity.helperHashes?.[path]?.frozen===hash && integrity.helperHashes[path].actual===hash)
+    || !cfg.diagnosticFiles || !Object.keys(cfg.diagnosticFiles).length || !Object.values(cfg.diagnosticFiles).every(hash=>typeof hash==='string' && DIGEST.test(hash)) || !equal(cfg.diagnosticFiles,frozen.frozenDiagnosticFiles)
+    || !Array.isArray(integrity.diagnosticHashesAfterEditorRun) || !sameIds(integrity.diagnosticHashesAfterEditorRun.map(f=>f.path),Object.keys(cfg.diagnosticFiles))
+    || !integrity.diagnosticHashesAfterEditorRun.every(f=>f.frozenSha256===cfg.diagnosticFiles[f.path] && typeof f.actualSha256==='string' && DIGEST.test(f.actualSha256) && (f.path==='project.godot' || f.actualSha256===f.frozenSha256))
+    || typeof cfg.binarySha256!=='string' || !DIGEST.test(cfg.binarySha256) || frozen.engineBinarySha256!==cfg.binarySha256 || integrity.binaryHashUnchanged!==true
+    || typeof cfg.globalEditorSettingsAtDiagnosticBaselineSha256!=='string' || !DIGEST.test(cfg.globalEditorSettingsAtDiagnosticBaselineSha256)
+    || integrity.globalDiagnosticBaseline!==cfg.globalEditorSettingsAtDiagnosticBaselineSha256 || integrity.globalAfterUi8!==integrity.globalDiagnosticBaseline
+    || integrity.globalUnchangedDuringNewUi8Engine!==true || integrity.isolatedProductProfileAbsent!==true) fail('TESTFLIGHT_UI8_SOURCE_HISTORY');
+  const diagnostic=result.diagnostic,pids=[diagnostic?.gamePid,diagnostic?.editorPid];
+  if(result.round!==8 || result.status!=='blocked' || result.verdict!=='FAIL/BLOCKED/INCOMPLETE' || result.approvalConsumed!==true
+    || result.productRunCount!==0 || result.problemRecheckCount!==0 || result.E2E!=='notplanned/notrun' || result.ui9!=='notapproved/notrun'
+    || !equal(result.featureCounts,{pass:0,fail:0,blocked:28}) || result.matrix?.expected!==168 || result.matrix.actualProductCellsCaptured!==0 || result.matrix.passed!==0 || result.matrix.status!=='notrun-after-diagnostic-block'
+    || diagnostic?.count!==1 || diagnostic.actualProbeButtonClicks!==0 || diagnostic.actualScrollCalls!==0 || diagnostic.actualCounter!==0 || diagnostic.noAlternativeHandleNamePidRouteOrRestart!==true
+    || round?.functional?.status!=='blocked' || round?.ux?.status!=='blocked' || !pids.every(pid=>Number.isSafeInteger(pid) && pid>0) || new Set(pids).size!==2
+    || !equal(result.processCleanup,cleanup) || !Array.isArray(cleanup.events) || !sameIds(cleanup.events.map(e=>e.pid),pids)
+    || !cleanup.events.every(e=>e.signal==='SIGTERM' && e.attempt===1 && orderedBootstrapTimes(start.startedAt,e.at,cleanup.at))
+    || !Array.isArray(cleanup.verifiedOwnedBefore) || !sameIds(cleanup.verifiedOwnedBefore.map(e=>e.pid),pids)
+    || cleanup.verifiedOwnedBefore.find(e=>e.pid===diagnostic.gamePid)?.kind!=='diagnostic-game' || cleanup.verifiedOwnedBefore.find(e=>e.pid===diagnostic.editorPid)?.kind!=='diagnostic-editor'
+    || cleanup.requestedPidsAbsent!==true || !equal(cleanup.remainingRequestedPids,[]) || !equal(cleanup.ownedAppProcessRowsAfter,[])
+    || cleanup.noCuaQueryAfterTermination!==true || cleanup.noNewProcessStarted!==true || cleanup.noUiInputSent!==true
+    || cleanup.productRunCount!==0 || cleanup.diagnosticCount!==1 || cleanup.counterClicks!==0 || cleanup.scrollCalls!==0) fail('TESTFLIGHT_UI8_FAILURE_HISTORY');
+  if(!orderedBootstrapTimes(start.plannedAt,frozen.frozenAt,start.startedAt,cleanup.at,integrity.at,result.completedAt,manifest.at,start.diagnosticDeadline)
+    || compareBootstrapTimes(start.startedAt,start.diagnosticDeadline,15*60)!==0 || compareBootstrapTimes(start.startedAt,start.mainDeadline,180*60)!==0 || compareBootstrapTimes(start.startedAt,start.outerDeadlineWithSingleRecheck,210*60)!==0
+    || start.round!==8 || start.clockStartsBeforeFirstDiagnosticEditorPopen!==true || start.diagnosticCount!==1 || start.diagnosticRestartAllowed!==false
+    || result.completedBeforeDiagnosticDeadline!==true || result.clockNotReset!==true || result.unusedBudgetCarryForward!==false
+    || !['plannedAt','startedAt','diagnosticDeadline','mainDeadline'].every(key=>utc(result[key])===utc(start[key])) || utc(result.outerDeadline)!==utc(start.outerDeadlineWithSingleRecheck)
+    || utc(result.reportedAt)!==utc(result.completedAt) || round?.plannedAt!==utc(start.plannedAt) || round?.startedAt!==utc(start.startedAt) || round?.completedAt!==utc(result.completedAt)) fail('TESTFLIGHT_UI8_ORIGINAL_TIME');
+  if(manifest.round!==8 || manifest.verdict!=='FAIL/BLOCKED' || !Array.isArray(manifest.files) || manifest.fileCount!==manifest.files.length
+    || new Set(manifest.files.map(f=>f.path)).size!==manifest.files.length
+    || !ui8HistoricalAssets.filter(([asset])=>asset!=='manifestAsset').every(([asset,key,path])=>manifest.files.some(f=>f.path===path && f.sha256===h[asset].sha256 && f.bytes===context[key].length))) fail('TESTFLIGHT_UI8_MANIFEST');
+  // UI8 당시의 UI9 미승인·제품 미실행과 실패 원문은 새 수동 승인이 생겨도 바꾸지 않는다.
+  return {...validateBootstrapUi8Approval({...grant,sourceSha:h.sourceSha,configurationFingerprint:h.configurationFingerprint},context.ui8ApprovalBytes,context.ui8ProposalBytes,context.ui8HumanApprovalBytes),historicalRecordedAt:manifest.at};
+}
+
+function validateBootstrapUi9Approval(grant,approvalBytes,proposalBytes,humanBytes){
+  if(!Buffer.isBuffer(approvalBytes) || bootstrapDigest(approvalBytes)!==grant.ui9ApprovalSha256) fail('TESTFLIGHT_UI9_APPROVAL_CHANGED');
+  let a;try{a=JSON.parse(approvalBytes);}catch{fail('TESTFLIGHT_INVALID_UI9_APPROVAL');}
+  if(!a || typeof a!=='object' || Array.isArray(a)) fail('TESTFLIGHT_INVALID_UI9_APPROVAL');
+  validateBootstrapApprovalProposal(approvalBytes,proposalBytes);
+  if(!Buffer.isBuffer(humanBytes) || bootstrapDigest(humanBytes)!==a.humanApprovalSha256) fail('TESTFLIGHT_UI9_HUMAN_APPROVAL_CHANGED');
+  let human;try{human=JSON.parse(humanBytes);}catch{fail('TESTFLIGHT_INVALID_UI9_HUMAN_APPROVAL');}
+  if(!human || typeof human!=='object' || Array.isArray(human) || human.originalApprovalSha256!==a.originalApprovalSha256 || human.originalProposalSha256!==a.originalProposalSha256
+    || utc(human.approvedAt)!==utc(a.approvalRecordedAt) || !equal(human.operatorHandoff,a.operatorHandoff)) fail('TESTFLIGHT_UI9_HUMAN_APPROVAL_SCOPE');
+  const handoff=a.operatorHandoff;
+  if(!handoff || typeof handoff!=='object' || Array.isArray(handoff) || handoff.sameRound!==9 || handoff.inputBefore!=='human' || handoff.inputAfter!=='independent-agent'
+    || typeof handoff.originalDirectiveSha256!=='string' || !DIGEST.test(handoff.originalDirectiveSha256)
+    || [a.originalApprovalSha256,a.originalProposalSha256,a.proposalSha256,grant.ui8ApprovalSha256].includes(handoff.originalDirectiveSha256)
+    || handoff.sourceSha!==grant.sourceSha || handoff.configurationFingerprint!==grant.configurationFingerprint || handoff.clockReset!==false
+    || handoff.frozenHelpersModified!==false || handoff.newRun!==false || handoff.authorInputCountsAsIndependentReview!==false) fail('TESTFLIGHT_UI9_HANDOFF_SCOPE');
+  if(a.kind!=='human_additional_ui_approval' || a.designId!=='SGD-UI9-TF-110-v1' || a.repository!==REPO || a.version!=='1.1.0'
+    || a.objective!=='one_additional_ui_round' || a.approvedUiRounds!==9 || a.sourceSha!==grant.sourceSha || a.configurationFingerprint!==grant.configurationFingerprint
+    || a.originalTimingApprovalSha256!==grant.approvalSha256 || a.previousUiApprovalSha256!==grant.ui8ApprovalSha256
+    || ![a.originalApprovalSha256,a.originalProposalSha256].every(v=>typeof v==='string' && DIGEST.test(v))
+    || !a.previousUiObservationSha256 || !sameIds(Object.keys(a.previousUiObservationSha256),ui8HistoricalAssets.map(([asset])=>asset))
+    || !ui8HistoricalAssets.every(([asset])=>typeof a.previousUiObservationSha256[asset]==='string' && DIGEST.test(a.previousUiObservationSha256[asset]) && a.previousUiObservationSha256[asset]===grant.historicalUi8[asset].sha256)
+    || typeof a.userApprovalVerbatim!=='string' || !a.userApprovalVerbatim.trim()
+    || a.inputMode!=='human-then-agent' || a.independentEvaluationRequired!==true
+    || a.executionMinutes!==180 || a.issueRecheckMaximumCount!==1 || a.issueRecheckMinutes!==30 || a.totalMinutes!==210
+    || a.inputDiagnosticMaximumCount!==0 || a.inputDiagnosticMinutes!==0 || a.inputDiagnosticIncludedInExecutionMinutes!==true
+    || a.extendOriginal168Hours!==false) fail('TESTFLIGHT_UI9_APPROVAL_SCOPE');
+  return a;
+}
+
 // 임의 파일 경로를 ID로 바꿔 넘길 수 없다. 중앙 main에서 검토한 등록만 쓴다.
 async function reviewedBootstrap(id,verifierSha,request){
   const path=grantPaths.find(p=>p===`contracts/internal-testflight-bootstrap/${id}.json`);
@@ -366,7 +489,8 @@ async function reviewedBootstrap(id,verifierSha,request){
     ...(grant.approvedUiRounds>=5 ? [grant.additionalUiApprovalFile,ui5ProposalPath] : []),
     ...(grant.approvedUiRounds>=6 ? [grant.ui6ApprovalFile,ui6ProposalPath] : []),
     ...(grant.approvedUiRounds>=7 ? [grant.ui7ApprovalFile,ui7ProposalPath,ui7HumanApprovalPath] : []),
-    ...(grant.approvedUiRounds===8 ? [grant.ui8ApprovalFile,ui8ProposalPath,ui8HumanApprovalPath] : [])];
+    ...(grant.approvedUiRounds>=8 ? [grant.ui8ApprovalFile,ui8ProposalPath,ui8HumanApprovalPath] : []),
+    ...(grant.approvedUiRounds===9 ? [grant.ui9ApprovalFile,ui9ProposalPath,ui9HumanApprovalPath] : [])];
   await Promise.all(sources.map(async path=>{
     const remote=await readRemote('seorilabs/.github',path,verifierSha,request);
     if(!readFileSync(join(root,path)).equals(remote)) fail('TESTFLIGHT_VERIFIER_BYTES_CHANGED');
@@ -411,14 +535,23 @@ async function reviewedBootstrap(id,verifierSha,request){
       || bootstrapDigest(humanBytes)!==JSON.parse(ui7ApprovalBytes).humanApprovalSha256) fail('TESTFLIGHT_UI7_REVOKED_OR_CHANGED');
     Object.assign(additionalUi,{ui7ApprovalBytes,ui7ProposalBytes});
   }
-  if(grant.approvedUiRounds===8){
+  if(grant.approvedUiRounds>=8){
     const ui8ApprovalBytes=readFileSync(join(root,grant.ui8ApprovalFile)),ui8ProposalBytes=readFileSync(join(root,ui8ProposalPath));
     const ui8HumanApprovalBytes=readFileSync(join(root,ui8HumanApprovalPath));
-    validateBootstrapUi8Approval(grant,ui8ApprovalBytes,ui8ProposalBytes,ui8HumanApprovalBytes);
+    if(grant.approvedUiRounds===8) validateBootstrapUi8Approval(grant,ui8ApprovalBytes,ui8ProposalBytes,ui8HumanApprovalBytes);
     const [latestApproval,latestProposal,latestHuman]=await Promise.all([
       readRemote('seorilabs/.github',grant.ui8ApprovalFile,'main',request),readRemote('seorilabs/.github',ui8ProposalPath,'main',request),readRemote('seorilabs/.github',ui8HumanApprovalPath,'main',request)]);
     if(!ui8ApprovalBytes.equals(latestApproval) || !ui8ProposalBytes.equals(latestProposal) || !ui8HumanApprovalBytes.equals(latestHuman)) fail('TESTFLIGHT_UI8_REVOKED_OR_CHANGED');
     Object.assign(additionalUi,{ui8ApprovalBytes,ui8ProposalBytes,ui8HumanApprovalBytes});
+  }
+  if(grant.approvedUiRounds===9){
+    const ui9ApprovalBytes=readFileSync(join(root,grant.ui9ApprovalFile)),ui9ProposalBytes=readFileSync(join(root,ui9ProposalPath));
+    const ui9HumanApprovalBytes=readFileSync(join(root,ui9HumanApprovalPath));
+    validateBootstrapUi9Approval(grant,ui9ApprovalBytes,ui9ProposalBytes,ui9HumanApprovalBytes);
+    const [latestApproval,latestProposal,latestHuman]=await Promise.all([
+      readRemote('seorilabs/.github',grant.ui9ApprovalFile,'main',request),readRemote('seorilabs/.github',ui9ProposalPath,'main',request),readRemote('seorilabs/.github',ui9HumanApprovalPath,'main',request)]);
+    if(!ui9ApprovalBytes.equals(latestApproval) || !ui9ProposalBytes.equals(latestProposal) || !ui9HumanApprovalBytes.equals(latestHuman)) fail('TESTFLIGHT_UI9_REVOKED_OR_CHANGED');
+    Object.assign(additionalUi,{ui9ApprovalBytes,ui9ProposalBytes,ui9HumanApprovalBytes});
   }
   return {grant,approvalBytes,...additionalUi,grantSha256:bootstrapDigest(bytes),verifierProof:{verified:true,revision:verifierSha,reviewedOnCurrentMain:true}};
 }
@@ -535,12 +668,14 @@ export async function verifyInternalTestflightBootstrap(options){
     ['ui6SourceSnapshotBytes','sourceSnapshotAsset'],['ui6ConfigurationBytes','configurationAsset'],['ui6ExecutionStartBytes','executionStartAsset'],
     ['ui6FailedSegmentBytes','failedSegmentAsset'],['ui6FailureBytes','failureAsset']]
     .map(([key,asset])=>[key,originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi6[asset]))]])) : {};
-  const historicalUi7=grant.approvedUiRounds===8 ? Object.fromEntries(ui7HistoricalAssets
+  const historicalUi7=grant.approvedUiRounds>=8 ? Object.fromEntries(ui7HistoricalAssets
     .map(([asset,key])=>[key,originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi7[asset]))]])) : {};
+  const historicalUi8=grant.approvedUiRounds===9 ? Object.fromEntries(ui8HistoricalAssets
+    .map(([asset,key])=>[key,originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi8[asset]))]])) : {};
   const inventoryBytes=await readRemote(REPO,'docs/qa/feature-inventory.json',grant.sourceSha,request);
   const tree=verifyBootstrapWorkingTree(options.appRepository,grant,options.phase);
   const providerProof=await bootstrapProvider(grant,env,request.fetchImpl);
-  const context={...options,...reviewed,...tree,...historicalUi5,...historicalUi6,...historicalUi7,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof,now:new Date().toISOString()};
+  const context={...options,...reviewed,...tree,...historicalUi5,...historicalUi6,...historicalUi7,...historicalUi8,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof,now:new Date().toISOString()};
   // Signed artifact and prior phase receipt are required by the before-deploy validator.
   if(options.phase==='before-deploy'){
     if(!options.artifactFile || !options.artifactReceipt) fail('TESTFLIGHT_ACTUAL_ARTIFACT_REQUIRED');
