@@ -226,3 +226,7 @@ Apple의 단일 archive action은 `INTERNAL_ONLY`여야 한다. 처리된 빌드
 [UI9 설계](../design/2026-10-16-spiritgate-ui9/design.md)는 과거 UI8의 차단·제품 실행0·원래 진단/본/총 시계·정확 PID 종료·manifest를 typed historicalUi8 원본8종에 결속한다. UI9의 최초 사전 승인과 같은 회차 도중의 별도 사람→독립 agent 입력 인계는 서로 다른 시각·원본 hash로 보존한다. 후보·QA 설정·시작·180/210분 마감·helper를 바꾸지 않으며 과거 사람 조작이나 저자 입력 확인을 독립 agent PASS로 소급하지 않는다. 별도 구현/리뷰 승인은 실행 승인 시각을 다시 쓰지 않는다.
 
 현재 UI9는 원래 마감이 지난 미완료 이력이다. 이 코드 지원은 재개·UI10·시간 연장·실제 PASS·grant 등록을 허용하지 않는다. 이전 승인/실패·마지막 기능/UX·별도90분 E2E·Android 기반4·원래 만료/168시간·한 Cloud/업로드·정확 서명·iPhone·정상v2/L3/공개 조건과 빈 registry를 유지한다.
+
+### 별도 UI10 승인과 만료된 UI9 이력
+
+[UI10 설계](../design/2026-10-16-spiritgate-ui10/design.md)는 정확한10회 사전 승인과 별도 QA 후보·설정을 결속한다. typed historicalUi9는13개 원본과 불변 UI9 승인·입력 인계·늦은 구현 승인을 확인한다. UI9는 원래 cap을 넘긴 종료/최종보고·미완료·0PASS로 유지하며 마지막 실제 입력≤원래 cap, 기한 후 입력0/새Run0과 늦게까지 살아 있던 프로세스의 실제 소유 종료를 구분한다. 과거9의 completedAt은 실제 늦은 finalizedAt이며210분 안 완료로 바꾸지 않는다. 공통4~8과 마지막10의210분, 이전 실패/원문, 마지막 기능/UX·별도90분 E2E·Android 기반4·원래 만료/168시간·한 Cloud/업로드·정확 서명·iPhone·정상v2/L3/공개 조건은 불변이다. UI11·시간 연장·추가 진단은 승인하지 않았고 registry가 비어 있으면 여전히 빌드할 수 없다.

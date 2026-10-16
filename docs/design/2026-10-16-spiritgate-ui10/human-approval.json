@@ -1,0 +1,27 @@
+{
+  "approvedAt": "2026-10-16T00:03:53.892070+00:00",
+  "timestampOriginal": "2026-10-16T00:03:53.892Z",
+  "originalUserRecordSha256": "43e5a1e064cb7161e8538209bdf5c35d3eb80c133c6b63570988cf429903f822",
+  "sourceHashDefinition": "original user JSONL record including its terminating LF",
+  "contentSha256": "ac0021fa45944d05e0a7eaeda3dce5bd9169e0e0a803104e2886cf14aa062992",
+  "approvedAnswer": "제안한 UI10·중앙 보정·제한 리뷰 승인",
+  "originalProposalSha256": "286015b2542eb64ca82ff26e542fb4f70751bd17406c8cabd691d8886a4c74b4",
+  "reviewMaximumRequestsPerPrIncludingAutomaticCopilot": 2,
+  "reviewCodeFiles": [
+    "contracts/internal-testflight-bootstrap-grant.schema.json",
+    "scripts/release/internal-testflight-bootstrap.mjs",
+    "tests/internal-testflight-bootstrap.test.mjs"
+  ],
+  "excludedFromTransfer": [
+    "credentials",
+    "PixelLab raw responses",
+    "personal data",
+    "questions",
+    "execution logs",
+    "original observations"
+  ],
+  "ui11Approved": false,
+  "timeExtensionApproved": false,
+  "schemaVersion": 1,
+  "kind": "human_ui10_and_limited_central_review_public_minimal_receipt"
+}

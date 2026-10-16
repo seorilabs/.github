@@ -186,7 +186,8 @@
         6,
         7,
         8,
-        9
+        9,
+        10
       ]
     },
     "additionalUiApprovalFile": {
@@ -473,6 +474,99 @@
           "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
         }
       }
+    },
+    "ui10ApprovalFile": {
+      "const": "docs/design/2026-10-16-spiritgate-ui10/approval.json"
+    },
+    "ui10ApprovalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "historicalUi9": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceSha",
+        "configurationFingerprint",
+        "capExpired",
+        "budgetExceeded",
+        "incomplete",
+        "passingFeatures",
+        "sourceSnapshotAsset",
+        "configurationAsset",
+        "frozenManifestAsset",
+        "planAsset",
+        "executionStartAsset",
+        "handoffDirectiveAsset",
+        "operatorTransitionAsset",
+        "projectNormalizationAsset",
+        "sourceIntegrityAsset",
+        "resultAsset",
+        "cleanupAsset",
+        "originalManifestAsset",
+        "deliverableManifestAsset"
+      ],
+      "properties": {
+        "sourceSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "configurationFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "capExpired": {
+          "const": true
+        },
+        "budgetExceeded": {
+          "const": true
+        },
+        "incomplete": {
+          "const": true
+        },
+        "passingFeatures": {
+          "const": 0
+        },
+        "sourceSnapshotAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "configurationAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "frozenManifestAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "planAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "executionStartAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "handoffDirectiveAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "operatorTransitionAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "projectNormalizationAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "sourceIntegrityAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "resultAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "cleanupAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "originalManifestAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "deliverableManifestAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        }
+      }
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -487,7 +581,8 @@
               6,
               7,
               8,
-              9
+              9,
+              10
             ]
           }
         },
@@ -526,7 +621,8 @@
               6,
               7,
               8,
-              9
+              9,
+              10
             ]
           }
         },
@@ -570,7 +666,8 @@
             "enum": [
               7,
               8,
-              9
+              9,
+              10
             ]
           }
         },
@@ -613,7 +710,8 @@
           "approvedUiRounds": {
             "enum": [
               8,
-              9
+              9,
+              10
             ]
           }
         },
@@ -654,7 +752,10 @@
       "if": {
         "properties": {
           "approvedUiRounds": {
-            "const": 9
+            "enum": [
+              9,
+              10
+            ]
           }
         },
         "required": [
@@ -684,6 +785,46 @@
             {
               "required": [
                 "historicalUi8"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "approvedUiRounds": {
+            "const": 10
+          }
+        },
+        "required": [
+          "approvedUiRounds"
+        ]
+      },
+      "then": {
+        "required": [
+          "ui10ApprovalFile",
+          "ui10ApprovalSha256",
+          "historicalUi9"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "ui10ApprovalFile"
+              ]
+            },
+            {
+              "required": [
+                "ui10ApprovalSha256"
+              ]
+            },
+            {
+              "required": [
+                "historicalUi9"
               ]
             }
           ]

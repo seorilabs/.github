@@ -56,7 +56,7 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
   reject(document.editor?.iterations?.length === approvedUiRounds && document.editor?.e2e?.environment?.kind === 'godot-editor','TESTFLIGHT_APPROVED_UI_EDITOR_REQUIRED');
   const last=document.editor?.iterations?.[approvedUiRounds-1];
   const extra=(document.editor?.iterations ?? []).slice(3,approvedUiRounds);
-  reject(extra.length===approvedUiRounds-3 && extra.every(round=>Date.parse(round?.completedAt)-Date.parse(round?.startedAt) <= 210*60000),'TESTFLIGHT_APPROVED_UI_BUDGET');
+  reject(extra.length===approvedUiRounds-3 && extra.every(round=>(approvedUiRounds===10 && round?.number===9) || Date.parse(round?.completedAt)-Date.parse(round?.startedAt) <= 210*60000),'TESTFLIGHT_APPROVED_UI_BUDGET');
   if(approvedUiRounds>=5){
     try{
       const additional=approvedUiRounds>=6
@@ -80,21 +80,30 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
           reject(Number.isFinite(ui7At) && ui6At<=ui7At && ui7At<=now && ui7At<=Date.parse(document.editor.iterations[6]?.plannedAt),'TESTFLIGHT_UI7_APPROVAL_TIME');
           reject(document.editor.iterations[6]?.sourceSha===(approvedUiRounds>=8 ? grant.historicalUi7.sourceSha : grant.sourceSha),'TESTFLIGHT_UI7_SOURCE');
           if(approvedUiRounds>=8){
-            const eighth=approvedUiRounds===9 ? validateBootstrapHistoricalUi8(grant,context,document.editor.iterations[7])
+            const eighth=approvedUiRounds>=9 ? validateBootstrapHistoricalUi8(grant,context,document.editor.iterations[7])
               : validateBootstrapUi8Approval(grant,context.ui8ApprovalBytes,context.ui8ProposalBytes,context.ui8HumanApprovalBytes),ui8At=Date.parse(eighth.approvalRecordedAt);
             reject(approvals.some(a=>a.maxRound===8 && a.approvedAt===utc(eighth.approvalRecordedAt) && a.evidence===grant.ui8ApprovalFile),'TESTFLIGHT_UI8_EDITOR_APPROVAL');
             reject(Number.isFinite(ui8At) && ui7At<=ui8At && Date.parse(seventh.historicalRecordedAt)<=ui8At && ui8At<=now && ui8At<=Date.parse(document.editor.iterations[7]?.plannedAt),'TESTFLIGHT_UI8_APPROVAL_TIME');
-            reject(document.editor.iterations[7]?.sourceSha===(approvedUiRounds===9 ? grant.historicalUi8.sourceSha : grant.sourceSha),'TESTFLIGHT_UI8_SOURCE');
-            if(approvedUiRounds===9){
-              const ninth=validateBootstrapUi9Approval(grant,context.ui9ApprovalBytes,context.ui9ProposalBytes,context.ui9HumanApprovalBytes);
+            reject(document.editor.iterations[7]?.sourceSha===(approvedUiRounds>=9 ? grant.historicalUi8.sourceSha : grant.sourceSha),'TESTFLIGHT_UI8_SOURCE');
+            if(approvedUiRounds>=9){
+              const ninth=approvedUiRounds===10 ? validateBootstrapHistoricalUi9(grant,context,document.editor.iterations[8])
+                : validateBootstrapUi9Approval(grant,context.ui9ApprovalBytes,context.ui9ProposalBytes,context.ui9HumanApprovalBytes),round9=document.editor.iterations[8];
               reject(approvals.some(a=>a.maxRound===9 && a.approvedAt===utc(ninth.approvalRecordedAt) && a.evidence===grant.ui9ApprovalFile),'TESTFLIGHT_UI9_EDITOR_APPROVAL');
               reject(orderedBootstrapTimes(eighth.approvalRecordedAt,ninth.approvalRecordedAt,at)
-                && orderedBootstrapTimes(eighth.historicalRecordedAt,ninth.approvalRecordedAt,last?.plannedAt),'TESTFLIGHT_UI9_APPROVAL_TIME');
-              reject(last?.sourceSha===grant.sourceSha,'TESTFLIGHT_UI9_SOURCE');
-              const handoff=ninth.operatorHandoff;
-              reject(orderedBootstrapTimes(ninth.approvalRecordedAt,last?.startedAt,handoff.directedAt,last?.completedAt,at) && orderedBootstrapTimes(last?.completedAt,handoff.absoluteMaximumAt)
-                && utc(handoff.sameStartedAt)===utc(last?.startedAt) && compareBootstrapTimes(last?.startedAt,handoff.mainDeadlineAt,180*60)===0 && compareBootstrapTimes(last?.startedAt,handoff.absoluteMaximumAt,210*60)===0
-                && [handoff.mainDeadlineAt,handoff.absoluteMaximumAt].every(value=>utc(value)?.slice(19)===utc(last?.startedAt)?.slice(19)),'TESTFLIGHT_UI9_HANDOFF_TIME');
+                && orderedBootstrapTimes(eighth.historicalRecordedAt,ninth.approvalRecordedAt,round9?.plannedAt),'TESTFLIGHT_UI9_APPROVAL_TIME');
+              reject(round9?.sourceSha===(approvedUiRounds===10 ? grant.historicalUi9.sourceSha : grant.sourceSha),'TESTFLIGHT_UI9_SOURCE');
+              if(approvedUiRounds===9){
+                const handoff=ninth.operatorHandoff;
+                reject(orderedBootstrapTimes(ninth.approvalRecordedAt,round9?.startedAt,handoff.directedAt,round9?.completedAt,at) && orderedBootstrapTimes(round9?.completedAt,handoff.absoluteMaximumAt)
+                  && utc(handoff.sameStartedAt)===utc(round9?.startedAt) && compareBootstrapTimes(round9?.startedAt,handoff.mainDeadlineAt,180*60)===0 && compareBootstrapTimes(round9?.startedAt,handoff.absoluteMaximumAt,210*60)===0
+                  && [handoff.mainDeadlineAt,handoff.absoluteMaximumAt].every(value=>utc(value)?.slice(19)===utc(round9?.startedAt)?.slice(19)),'TESTFLIGHT_UI9_HANDOFF_TIME');
+              }else{
+                const tenth=validateBootstrapUi10Approval(grant,context.ui10ApprovalBytes,context.ui10ProposalBytes,context.ui10HumanApprovalBytes);
+                reject(approvals.some(a=>a.maxRound===10 && a.approvedAt===utc(tenth.approvalRecordedAt) && a.evidence===grant.ui10ApprovalFile),'TESTFLIGHT_UI10_EDITOR_APPROVAL');
+                reject(orderedBootstrapTimes(ninth.historicalRecordedAt,tenth.approvalRecordedAt,last?.plannedAt,last?.startedAt,last?.completedAt,at)
+                  && compareBootstrapTimes(last?.startedAt,last?.completedAt,210*60)>=0,'TESTFLIGHT_UI10_APPROVAL_TIME');
+                reject(last?.sourceSha===grant.sourceSha,'TESTFLIGHT_UI10_SOURCE');
+              }
             }
           }
         }
@@ -132,7 +141,8 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
     ...(approvedUiRounds>=6 ? {ui6ApprovalSha256:grant.ui6ApprovalSha256} : {}),
     ...(approvedUiRounds>=7 ? {ui7ApprovalSha256:grant.ui7ApprovalSha256} : {}),
     ...(approvedUiRounds>=8 ? {ui8ApprovalSha256:grant.ui8ApprovalSha256} : {}),
-    ...(approvedUiRounds===9 ? {ui9ApprovalSha256:grant.ui9ApprovalSha256} : {})};
+    ...(approvedUiRounds>=9 ? {ui9ApprovalSha256:grant.ui9ApprovalSha256} : {}),
+    ...(approvedUiRounds===10 ? {ui10ApprovalSha256:grant.ui10ApprovalSha256} : {})};
 }
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
@@ -146,8 +156,11 @@ const ui8ProposalPath='docs/design/2026-10-15-spiritgate-ui8/approved-proposal.m
 const ui8HumanApprovalPath='docs/design/2026-10-15-spiritgate-ui8/human-approval.json';
 const ui9ProposalPath='docs/design/2026-10-16-spiritgate-ui9/approved-proposal.md';
 const ui9HumanApprovalPath='docs/design/2026-10-16-spiritgate-ui9/human-approval.json';
+const ui9ImplementationApprovalPath='docs/design/2026-10-16-spiritgate-ui9/implementation-approval.json';
+const ui10ProposalPath='docs/design/2026-10-16-spiritgate-ui10/approved-proposal.md';
+const ui10HumanApprovalPath='docs/design/2026-10-16-spiritgate-ui10/human-approval.json';
 const utc=value=>typeof value==='string' ? value.replace(/\+00:00$/u,'Z') : null;
-// 새 UI9/과거 UI8 순서만 비교하며 Date.parse에 소수부를 넘기지 않는다.
+// UI9 이후와 그 실패 이력의 순서만 비교하며 Date.parse에 소수부를 넘기지 않는다.
 function bootstrapTime(value){
   const m=typeof value==='string' && /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$/u.exec(value);
   if(!m) return null;
@@ -474,6 +487,109 @@ function validateBootstrapUi9Approval(grant,approvalBytes,proposalBytes,humanByt
   return a;
 }
 
+const ui9HistoricalAssets=[
+  ['sourceSnapshotAsset','ui9SourceSnapshotBytes','preparation/source-before.json'],['configurationAsset','ui9ConfigurationBytes','configuration.json'],
+  ['frozenManifestAsset','ui9FrozenManifestBytes','preparation/frozen-manifest.json'],['planAsset','ui9PlanBytes','plan.json'],
+  ['executionStartAsset','ui9ExecutionStartBytes','execution-start.json'],['handoffDirectiveAsset','ui9HandoffDirectiveBytes','inspection/agent-takeover-user-directive.json'],
+  ['operatorTransitionAsset','ui9OperatorTransitionBytes','inspection/operator-handoff/agent-transition.json'],['projectNormalizationAsset','ui9ProjectNormalizationBytes','inspection/editor-project-normalization.json'],
+  ['sourceIntegrityAsset','ui9SourceIntegrityBytes','final/source-integrity.json'],['resultAsset','ui9ResultBytes','final/result.json'],
+  ['cleanupAsset','ui9CleanupBytes','process-cleanup-receipt.json'],['originalManifestAsset','ui9OriginalManifestBytes','final/original-manifest.json'],
+  ['deliverableManifestAsset','ui9DeliverableManifestBytes','final/deliverable-manifest.json'],
+];
+function validateBootstrapHistoricalUi9(grant,context,round){
+  const h=grant.historicalUi9,objects=[];
+  for(const [asset,key]of ui9HistoricalAssets){
+    const bytes=context[key];
+    if(!Buffer.isBuffer(bytes) || bootstrapDigest(bytes)!==h[asset].sha256 || !grant.originalObservationAssets.some(a=>equal(a,h[asset]))) fail('TESTFLIGHT_UI9_SNAPSHOT_CHANGED');
+    let v;try{v=JSON.parse(bytes);}catch{fail('TESTFLIGHT_INVALID_UI9_SNAPSHOT');}
+    if(!v || typeof v!=='object' || Array.isArray(v)) fail('TESTFLIGHT_INVALID_UI9_SNAPSHOT');
+    objects.push(v);
+  }
+  const [source,cfg,frozen,plan,start,directive,transition,normalization,integrity,result,cleanup,original,deliverable]=objects;
+  const a=validateBootstrapUi9Approval({...grant,sourceSha:h.sourceSha,configurationFingerprint:h.configurationFingerprint},context.ui9ApprovalBytes,context.ui9ProposalBytes,context.ui9HumanApprovalBytes),handoff=a.operatorHandoff;
+  let lateApproval;
+  if(!Buffer.isBuffer(context.ui9ImplementationApprovalBytes) || bootstrapDigest(context.ui9ImplementationApprovalBytes)!==a.implementationApprovalSha256) fail('TESTFLIGHT_UI9_IMPLEMENTATION_APPROVAL_CHANGED');
+  try{lateApproval=JSON.parse(context.ui9ImplementationApprovalBytes);}catch{fail('TESTFLIGHT_INVALID_UI9_IMPLEMENTATION_APPROVAL');}
+  if(!lateApproval || typeof lateApproval!=='object' || Array.isArray(lateApproval)) fail('TESTFLIGHT_INVALID_UI9_IMPLEMENTATION_APPROVAL');
+  if([source,cfg,plan,start,integrity,cleanup,original].some(v=>v.sourceSha!==h.sourceSha) || result.candidateSourceSha!==h.sourceSha
+    || [plan,start,integrity,result,original].some(v=>v.configurationFingerprint!==h.configurationFingerprint) || cfg.fingerprint!==h.configurationFingerprint
+    || cfg.editorLaunched!==false || cfg.runStarted!==false || frozen['configuration.json']!==h.configurationAsset.sha256 || frozen['plan.json']!==h.planAsset.sha256
+    || integrity.frozenManifestSha256!==h.frozenManifestAsset.sha256 || integrity.sourceBeforeManifestSha256!==h.sourceSnapshotAsset.sha256) fail('TESTFLIGHT_UI9_SNAPSHOT_SCOPE');
+  const files=source.files,entries=files && typeof files==='object' && !Array.isArray(files) ? Object.entries(files) : [];
+  if(!entries.length || !entries.every(([path,v])=>safePath(path) && typeof v?.sha256==='string' && DIGEST.test(v.sha256))
+    || source.trackedCount!==entries.length || cfg.trackedSourceCount!==entries.length || !equal(source.mismatchesExceptDeclaredProject,[])
+    || files['project.godot']?.sha256!==cfg.sourceProjectSha256 || integrity.productTrackedCheckedExceptDeclaredProject!==entries.length-1 || !equal(integrity.productTrackedMismatchExceptDeclaredProject,[]) || !equal(integrity.frozenManifestMismatch,[])
+    || !cfg.helperHashes || !Object.keys(cfg.helperHashes).length || !Object.entries(cfg.helperHashes).every(([p,v])=>typeof v==='string' && DIGEST.test(v) && frozen['qa-project/'+p]===v)
+    || normalization.declaredConfigurationFingerprint!==h.configurationFingerprint || normalization.declaredProjectSha256!==cfg.actualProjectSha256 || normalization.actualProjectSha256!==integrity.qaProjectGodotAfterEditorSha256
+    || typeof normalization.actualProjectSha256!=='string' || !DIGEST.test(normalization.actualProjectSha256) || !cfg.configs?.some(c=>c.sha256===normalization.declaredProjectSha256)
+    || normalization.allDeclaredSettingValuesEqual!==true || normalization.autoloadOrderEqual!==true || normalization.sourceOrHelpersModifiedByReviewer!==false || normalization.frozenConfigurationAndManifestPreserved!==true
+    || integrity.newRunInputOrProcessDiagnosis!==false || result.sourceAndHelpers?.productTrackedCheckedExceptDeclaredProject!==entries.length-1
+    || result.sourceAndHelpers.productMismatchCount!==0 || result.sourceAndHelpers.frozenManifestMismatchCount!==0 || result.sourceAndHelpers.sdkGameRulesAndHelpersChanged!==false) fail('TESTFLIGHT_UI9_SOURCE_HISTORY');
+  const clock=result.clock,execution=result.execution,pids=[execution?.runtimePid,execution?.editorPid];
+  if(result.round!==9 || result.result!=='incomplete' || result.overallPassed!==false || result.reusablePassingEvidenceForBuildOrRelease!==false || result.finalizationIsNewExecution!==false
+    || !equal(result.featureCoverage && {total:result.featureCoverage.total,passed:result.featureCoverage.passed,partial:result.featureCoverage.partial,notRun:result.featureCoverage.notRun},{total:28,passed:0,partial:16,notRun:12})
+    || !equal(result.matrixCoverage && {total:result.matrixCoverage.total,passed:result.matrixCoverage.passed,partial:result.matrixCoverage.partial,notRun:result.matrixCoverage.notRun},{total:168,passed:0,partial:18,notRun:150})
+    || result.independentReviewer!==round?.reviewer || result.independentReviewer===result.implementer || round?.functional?.status!=='blocked' || round?.ux?.status!=='blocked'
+    || !pids.every(pid=>Number.isSafeInteger(pid) && pid>0) || new Set(pids).size!==2 || execution.runtimeRunCount!==1
+    || execution.additionalCuAOrAxCgInputAfterDeadline!==0 || execution.newRunOrRoundOrFinalE2eAfterDeadline!==0 || execution.sigkillOrOtherAppInterference!==false
+    || result.priorUi8AndEarlierE2eFailuresUnchanged!==true || result.progressAndOriginalsOverwritten!==false
+    || clock?.timeExtensionApproved!==false || clock.lateApprovalDoesNotExtendRound!==true || clock.passivePostDeadlineObserverDataCountsAsExecution!==false) fail('TESTFLIGHT_UI9_INCOMPLETE_HISTORY');
+  if(bootstrapDigest(context.ui9HandoffDirectiveBytes)!==handoff.originalDirectiveSha256 || utc(directive.directedAt)!==utc(handoff.directedAt)
+    || !['sourceSha','configurationFingerprint','sameStartedAt','mainDeadlineAt','absoluteMaximumAt'].every(k=>utc(directive[k])===utc(handoff[k]))
+    || directive.sameRound!==9 || directive.clockReset!==false || directive.frozenHelpersModified!==false || directive.newRun!==false || directive.rootControlCountsAsIndependentReview!==false
+    || transition.sameRuntimePid!==execution.runtimePid || transition.sameEditorPid!==execution.editorPid || transition.newRunOrClockReset!==false || transition.frozenRawKindHumanPrefixDoesNotDetermineOperator!==true
+    || transition.humanLastConfirmedEvent!==directive.previousHumanInputEndsAtEvent || result.operators?.humanThroughEvent!==directive.previousHumanInputEndsAtEvent
+    || !equal(result.operators.rootFirstAgentEvents,directive.firstVerifiedRootKeyboardEvents) || transition.rootFirstAgentEvent!==directive.firstVerifiedRootKeyboardEvents?.[0]
+    || result.operators.independentAgentFromEvent!==Math.max(...(directive.firstVerifiedRootKeyboardEvents ?? []))+1) fail('TESTFLIGHT_UI9_OPERATOR_HISTORY');
+  if(!Array.isArray(cleanup.actions) || !sameIds(cleanup.actions.map(e=>e.pid),pids)
+    || !cleanup.actions.every(e=>e.signal==='SIGTERM' && e.signalSent===true && e.absentAfter===true && orderedBootstrapTimes(cleanup.startedAt,e.sentAt,e.checkedAt,cleanup.finishedAt)
+      && typeof cleanup.processes?.[e.pid]?.expectedCommand==='string' && cleanup.processes[e.pid].expectedCommand.length>0 && cleanup.processes[e.pid].observedIdentity?.endsWith(cleanup.processes[e.pid].expectedCommand))
+    || cleanup.inputPosted!==0 || cleanup.newRuns!==0 || cleanup.forceKill!==false || cleanup.otherAppsTouched!==false
+    || execution.terminationReceiptSha256!==h.cleanupAsset.sha256 || !pids.every((pid,i)=>utc(cleanup.actions.find(e=>e.pid===pid)?.sentAt)===utc(execution[i===0?'runtimeSigtermAt':'editorSigtermAt']))) fail('TESTFLIGHT_UI9_CLEANUP_HISTORY');
+  if(plan.round!==9 || start.round!==9 || plan.mainMinutes!==180 || plan.singleProblemRecheckMinutes!==30 || plan.maximumMinutes!==210 || plan.automaticInputDiagnostics!==0 || plan.priorUi8FailurePreserved!==true
+    || !sameIds(plan.features?.map(f=>f.id),JSON.parse(context.inventoryBytes).features.map(f=>f.id)) || plan.matrix?.locales?.length!==7 || plan.matrix.developmentDisplaySizes?.length!==3 || plan.matrix.requiredPanels?.length!==8
+    || start.operator!=='human' || start.reviewer!==result.independentReviewer || start.singleRecheckMinutes!==30 || start.newAutomatedInputDiagnostics!==0
+    || clock.mainMinutes!==180 || clock.singleProblemRecheckMinutes!==30 || clock.maximumMinutes!==210
+    || !['startedAt','mainDeadlineAt','absoluteMaximumAt'].every(k=>utc(clock[k])===utc(start[k])) || utc(clock.plannedAt)!==utc(plan.plannedAt)
+    || utc(handoff.sameStartedAt)!==utc(start.startedAt) || utc(handoff.mainDeadlineAt)!==utc(start.mainDeadlineAt) || utc(handoff.absoluteMaximumAt)!==utc(start.absoluteMaximumAt)
+    || compareBootstrapTimes(start.startedAt,start.mainDeadlineAt,180*60)!==0 || compareBootstrapTimes(start.startedAt,start.absoluteMaximumAt,210*60)!==0
+    || !orderedBootstrapTimes(a.approvalRecordedAt,cfg.preparationFrozenAt,plan.plannedAt,start.startedAt,handoff.directedAt,transition.recordedAt,clock.lastProductKeyAt,clock.lastInputResultAt,start.absoluteMaximumAt)
+    || !orderedBootstrapTimes(start.startedAt,clock.lastActualCaptureAt,clock.lastReadOnlyProgressAt,start.absoluteMaximumAt)
+    || !orderedBootstrapTimes(start.startedAt,normalization.observedAt,start.absoluteMaximumAt)
+    || compareBootstrapTimes(start.absoluteMaximumAt,clock.lateInputMethodAndCentralCorrectionApprovalAt)!==-1 || utc(clock.lateInputMethodAndCentralCorrectionApprovalAt)!==utc(lateApproval.approvedAt)
+    || !orderedBootstrapTimes(lateApproval.approvedAt,cleanup.startedAt,cleanup.finishedAt,integrity.auditedAt,original.createdAt,result.finalizedAt,deliverable.createdAt)
+    || compareBootstrapTimes(start.startedAt,result.finalizedAt,210*60)!==-1
+    || round?.plannedAt!==utc(plan.plannedAt) || round?.startedAt!==utc(start.startedAt) || round?.completedAt!==utc(result.finalizedAt)) fail('TESTFLIGHT_UI9_EXPIRED_TIME');
+  const validManifest=m=>Array.isArray(m.files) && new Set(m.files.map(f=>f.path)).size===m.files.length && m.files.every(f=>safePath(f.path) && typeof f.sha256==='string' && DIGEST.test(f.sha256) && Number.isSafeInteger(f.bytes) && f.bytes>=0);
+  if(!validManifest(original) || !validManifest(deliverable) || original.allStableDuringHash!==true || !original.files.every(f=>f.stableDuringHash===true)
+    || result.originals?.manifestSha256!==h.originalManifestAsset.sha256 || result.originals.originalFileCount!==original.files.length || result.originals.allStableDuringHash!==true
+    || !ui9HistoricalAssets.filter(([asset])=>asset!=='deliverableManifestAsset').every(([asset,key,path])=>{
+      const final=path.startsWith('final/'),m=final?deliverable:original,p=final?path.slice(6):path;
+      return m.files.some(f=>f.path===p && f.sha256===h[asset].sha256 && f.bytes===context[key].length);
+    })) fail('TESTFLIGHT_UI9_MANIFEST');
+  // 210분을 넘긴 원본 실패를 받는다. 늦은 정리·보고는 새 검수가 아니며 UI9 PASS/예산 준수가 아니다.
+  return {...a,historicalRecordedAt:deliverable.createdAt};
+}
+function validateBootstrapUi10Approval(grant,approvalBytes,proposalBytes,humanBytes){
+  if(!Buffer.isBuffer(approvalBytes) || bootstrapDigest(approvalBytes)!==grant.ui10ApprovalSha256) fail('TESTFLIGHT_UI10_APPROVAL_CHANGED');
+  let a;try{a=JSON.parse(approvalBytes);}catch{fail('TESTFLIGHT_INVALID_UI10_APPROVAL');}
+  if(!a || typeof a!=='object' || Array.isArray(a)) fail('TESTFLIGHT_INVALID_UI10_APPROVAL');
+  validateBootstrapApprovalProposal(approvalBytes,proposalBytes);
+  if(!Buffer.isBuffer(humanBytes) || bootstrapDigest(humanBytes)!==a.humanApprovalSha256) fail('TESTFLIGHT_UI10_HUMAN_APPROVAL_CHANGED');
+  let human;try{human=JSON.parse(humanBytes);}catch{fail('TESTFLIGHT_INVALID_UI10_HUMAN_APPROVAL');}
+  if(!human || typeof human!=='object' || Array.isArray(human) || human.originalUserRecordSha256!==a.originalApprovalSha256 || human.originalProposalSha256!==a.originalProposalSha256 || utc(human.approvedAt)!==utc(a.approvalRecordedAt)) fail('TESTFLIGHT_UI10_HUMAN_APPROVAL_SCOPE');
+  if(a.kind!=='human_additional_ui_approval' || a.designId!=='SGD-UI10-TF-110-v1' || a.repository!==REPO || a.version!=='1.1.0'
+    || a.objective!=='one_additional_ui_round' || a.approvedUiRounds!==10 || a.sourceSha!==grant.sourceSha || a.configurationFingerprint!==grant.configurationFingerprint
+    || a.originalTimingApprovalSha256!==grant.approvalSha256 || a.previousUiApprovalSha256!==grant.ui9ApprovalSha256
+    || ![a.originalApprovalSha256,a.originalProposalSha256].every(v=>typeof v==='string' && DIGEST.test(v))
+    || !a.previousUiObservationSha256 || !sameIds(Object.keys(a.previousUiObservationSha256),ui9HistoricalAssets.map(([asset])=>asset))
+    || !ui9HistoricalAssets.every(([asset])=>typeof a.previousUiObservationSha256[asset]==='string' && DIGEST.test(a.previousUiObservationSha256[asset]) && a.previousUiObservationSha256[asset]===grant.historicalUi9[asset].sha256)
+    || typeof a.userApprovalVerbatim!=='string' || !a.userApprovalVerbatim.trim() || a.inputMode!=='independent-agent' || a.independentEvaluationRequired!==true
+    || a.executionMinutes!==180 || a.issueRecheckMaximumCount!==1 || a.issueRecheckMinutes!==30 || a.totalMinutes!==210
+    || a.inputDiagnosticMaximumCount!==0 || a.inputDiagnosticMinutes!==0 || a.inputDiagnosticIncludedInExecutionMinutes!==true || a.extendOriginal168Hours!==false) fail('TESTFLIGHT_UI10_APPROVAL_SCOPE');
+  return a;
+}
+
 // 임의 파일 경로를 ID로 바꿔 넘길 수 없다. 중앙 main에서 검토한 등록만 쓴다.
 async function reviewedBootstrap(id,verifierSha,request){
   const path=grantPaths.find(p=>p===`contracts/internal-testflight-bootstrap/${id}.json`);
@@ -490,7 +606,8 @@ async function reviewedBootstrap(id,verifierSha,request){
     ...(grant.approvedUiRounds>=6 ? [grant.ui6ApprovalFile,ui6ProposalPath] : []),
     ...(grant.approvedUiRounds>=7 ? [grant.ui7ApprovalFile,ui7ProposalPath,ui7HumanApprovalPath] : []),
     ...(grant.approvedUiRounds>=8 ? [grant.ui8ApprovalFile,ui8ProposalPath,ui8HumanApprovalPath] : []),
-    ...(grant.approvedUiRounds===9 ? [grant.ui9ApprovalFile,ui9ProposalPath,ui9HumanApprovalPath] : [])];
+    ...(grant.approvedUiRounds>=9 ? [grant.ui9ApprovalFile,ui9ProposalPath,ui9HumanApprovalPath] : []),
+    ...(grant.approvedUiRounds===10 ? [grant.ui10ApprovalFile,ui10ProposalPath,ui10HumanApprovalPath,ui9ImplementationApprovalPath] : [])];
   await Promise.all(sources.map(async path=>{
     const remote=await readRemote('seorilabs/.github',path,verifierSha,request);
     if(!readFileSync(join(root,path)).equals(remote)) fail('TESTFLIGHT_VERIFIER_BYTES_CHANGED');
@@ -544,14 +661,23 @@ async function reviewedBootstrap(id,verifierSha,request){
     if(!ui8ApprovalBytes.equals(latestApproval) || !ui8ProposalBytes.equals(latestProposal) || !ui8HumanApprovalBytes.equals(latestHuman)) fail('TESTFLIGHT_UI8_REVOKED_OR_CHANGED');
     Object.assign(additionalUi,{ui8ApprovalBytes,ui8ProposalBytes,ui8HumanApprovalBytes});
   }
-  if(grant.approvedUiRounds===9){
+  if(grant.approvedUiRounds>=9){
     const ui9ApprovalBytes=readFileSync(join(root,grant.ui9ApprovalFile)),ui9ProposalBytes=readFileSync(join(root,ui9ProposalPath));
     const ui9HumanApprovalBytes=readFileSync(join(root,ui9HumanApprovalPath));
-    validateBootstrapUi9Approval(grant,ui9ApprovalBytes,ui9ProposalBytes,ui9HumanApprovalBytes);
+    if(grant.approvedUiRounds===9) validateBootstrapUi9Approval(grant,ui9ApprovalBytes,ui9ProposalBytes,ui9HumanApprovalBytes);
     const [latestApproval,latestProposal,latestHuman]=await Promise.all([
       readRemote('seorilabs/.github',grant.ui9ApprovalFile,'main',request),readRemote('seorilabs/.github',ui9ProposalPath,'main',request),readRemote('seorilabs/.github',ui9HumanApprovalPath,'main',request)]);
     if(!ui9ApprovalBytes.equals(latestApproval) || !ui9ProposalBytes.equals(latestProposal) || !ui9HumanApprovalBytes.equals(latestHuman)) fail('TESTFLIGHT_UI9_REVOKED_OR_CHANGED');
     Object.assign(additionalUi,{ui9ApprovalBytes,ui9ProposalBytes,ui9HumanApprovalBytes});
+  }
+  if(grant.approvedUiRounds===10){
+    const ui10ApprovalBytes=readFileSync(join(root,grant.ui10ApprovalFile)),ui10ProposalBytes=readFileSync(join(root,ui10ProposalPath)),ui10HumanApprovalBytes=readFileSync(join(root,ui10HumanApprovalPath));
+    const ui9ImplementationApprovalBytes=readFileSync(join(root,ui9ImplementationApprovalPath));
+    validateBootstrapUi10Approval(grant,ui10ApprovalBytes,ui10ProposalBytes,ui10HumanApprovalBytes);
+    const [latestApproval,latestProposal,latestHuman,latestImplementation]=await Promise.all([
+      readRemote('seorilabs/.github',grant.ui10ApprovalFile,'main',request),readRemote('seorilabs/.github',ui10ProposalPath,'main',request),readRemote('seorilabs/.github',ui10HumanApprovalPath,'main',request),readRemote('seorilabs/.github',ui9ImplementationApprovalPath,'main',request)]);
+    if(!ui10ApprovalBytes.equals(latestApproval) || !ui10ProposalBytes.equals(latestProposal) || !ui10HumanApprovalBytes.equals(latestHuman) || !ui9ImplementationApprovalBytes.equals(latestImplementation)) fail('TESTFLIGHT_UI10_REVOKED_OR_CHANGED');
+    Object.assign(additionalUi,{ui10ApprovalBytes,ui10ProposalBytes,ui10HumanApprovalBytes,ui9ImplementationApprovalBytes});
   }
   return {grant,approvalBytes,...additionalUi,grantSha256:bootstrapDigest(bytes),verifierProof:{verified:true,revision:verifierSha,reviewedOnCurrentMain:true}};
 }
@@ -670,12 +796,14 @@ export async function verifyInternalTestflightBootstrap(options){
     .map(([key,asset])=>[key,originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi6[asset]))]])) : {};
   const historicalUi7=grant.approvedUiRounds>=8 ? Object.fromEntries(ui7HistoricalAssets
     .map(([asset,key])=>[key,originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi7[asset]))]])) : {};
-  const historicalUi8=grant.approvedUiRounds===9 ? Object.fromEntries(ui8HistoricalAssets
+  const historicalUi8=grant.approvedUiRounds>=9 ? Object.fromEntries(ui8HistoricalAssets
     .map(([asset,key])=>[key,originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi8[asset]))]])) : {};
   const inventoryBytes=await readRemote(REPO,'docs/qa/feature-inventory.json',grant.sourceSha,request);
   const tree=verifyBootstrapWorkingTree(options.appRepository,grant,options.phase);
   const providerProof=await bootstrapProvider(grant,env,request.fetchImpl);
-  const context={...options,...reviewed,...tree,...historicalUi5,...historicalUi6,...historicalUi7,...historicalUi8,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof,now:new Date().toISOString()};
+  const historicalUi9=grant.approvedUiRounds===10 ? Object.fromEntries(ui9HistoricalAssets
+    .map(([asset,key])=>[key,originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi9[asset]))]])) : {};
+  const context={...options,...reviewed,...tree,...historicalUi5,...historicalUi6,...historicalUi7,...historicalUi8,...historicalUi9,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof,now:new Date().toISOString()};
   // Signed artifact and prior phase receipt are required by the before-deploy validator.
   if(options.phase==='before-deploy'){
     if(!options.artifactFile || !options.artifactReceipt) fail('TESTFLIGHT_ACTUAL_ARTIFACT_REQUIRED');
