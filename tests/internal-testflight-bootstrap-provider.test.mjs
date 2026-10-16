@@ -96,3 +96,34 @@ test('human approval binds the exact proposal bytes and rejects later edits',()=
  assert.throws(()=>validateBootstrapApprovalProposal(approval,Buffer.from('expanded scope')));
  assert.throws(()=>validateBootstrapApprovalProposal(Buffer.from('{}'),proposal));
 });
+
+import {generateKeyPairSync} from 'node:crypto';
+import {bootstrapProvider} from '../scripts/release/internal-testflight-bootstrap.mjs';
+// API의 include 없는 실제 links-only 응답을 모사한다. 실제 Cloud/기기 근거가 아니다.
+const privateKeyBase64=generateKeyPairSync('ec',{namedCurve:'P-256'}).privateKey.export({type:'pkcs8',format:'pem'}).toString('base64');
+function providerFetch(omit){
+ const o=observation(),requested=[];
+ const linksOnly=()=>({links:{related:'https://api.appstoreconnect.apple.com/v1/unexpanded'}});
+ const fetchImpl=async input=>{
+  const u=new URL(input);assert.equal(u.origin,'https://api.appstoreconnect.apple.com');requested.push(u.pathname+u.search);
+  let data;
+  if(u.pathname===`/v1/apps/${provider.appId}`)data=o.app;
+  else if(u.pathname===`/v1/ciProducts/${provider.productId}`){data=o.product;if(u.searchParams.get('include')!=='app'||omit==='app')data.relationships.app=linksOnly();}
+  else if(u.pathname===`/v1/ciWorkflows/${provider.workflowId}`){data=o.workflow;if(u.searchParams.get('include')!=='product'||omit==='product')delete data.relationships.product;}
+  else if(u.pathname==='/v1/ciBuildRuns/build-1'){
+   data=o.run;const includes=(u.searchParams.get('include')||'').split(',');
+   for(const name of ['workflow','product','sourceBranchOrTag'])if(!includes.includes(name)||omit===`run.${name}`)data.relationships[name]=linksOnly();
+  }else if(u.pathname===`/v1/ciWorkflows/${provider.workflowId}/buildRuns`)data=[o.run];
+  else if(u.pathname==='/v1/scmGitReferences/tag-1')data=o.tag;
+  else assert.fail('unexpected provider path '+u.pathname);
+  return{ok:true,status:200,json:async()=>({data,links:{next:null}})};
+ };
+ return{fetchImpl,requested};
+}
+const ciEnv={...env,APP_STORE_CONNECT_API_KEY_ID:'UHVPXA39JA',APP_STORE_CONNECT_ISSUER_ID:'synthetic-test-issuer',APP_STORE_CONNECT_PRIVATE_KEY_BASE64:privateKeyBase64,CI_TEAM_ID:'HCDUXX4Z3X',CI_XCODE_CLOUD:'TRUE',CI_PRODUCT_ID:provider.productId,CI_WORKFLOW_ID:provider.workflowId,CI_BUNDLE_ID:BUNDLE,CI_XCODE_SCHEME:'SpiritgateDefenders',CI_TAG:'v1.1.0',CI_COMMIT:SHA};
+test('provider HTTP flow expands actual links-only Apple relationships before strict validation',async()=>{
+ const f=providerFetch();const proof=await bootstrapProvider(grant,ciEnv,f.fetchImpl);assert.equal(proof.verified,true);assert.equal(proof.matchingBuildCount,1);assert.equal(proof.internalOnly,true);
+});
+for(const omit of ['app','product','run.workflow','run.product','run.sourceBranchOrTag'])test('expanded provider flow still rejects missing relationship '+omit,async()=>{
+ const f=providerFetch(omit);await assert.rejects(bootstrapProvider(grant,ciEnv,f.fetchImpl),/TESTFLIGHT_(APPLE_PRODUCT|APPLE_FIRST_BUILD|PROVIDER_TAG)/);
+});

@@ -861,14 +861,14 @@ export function validateBootstrapAppleObservation({app,product,workflow,run,runs
     buildId:run.id,buildNumber:run.attributes.number,matchingBuildCount:matches.length};
 }
 
-async function bootstrapProvider(grant,env,fetchImpl){
+export async function bootstrapProvider(grant,env,fetchImpl){
   if(env.APP_STORE_CONNECT_API_KEY_ID!=='UHVPXA39JA' || env.CI_TEAM_ID!=='HCDUXX4Z3X' || env.CI_XCODE_CLOUD!=='TRUE' || env.CI_PRODUCT_ID!==PROVIDER.productId || env.CI_WORKFLOW_ID!==PROVIDER.workflowId
     || env.CI_BUNDLE_ID!==BUNDLE || env.CI_XCODE_SCHEME!=='SpiritgateDefenders' || env.CI_TAG!==TAG || env.CI_COMMIT!==grant.sourceSha
     || !/^[A-Za-z0-9-]+$/u.test(env.CI_BUILD_ID ?? '') || !/^[1-9][0-9]*$/u.test(env.CI_BUILD_NUMBER ?? '')) fail('TESTFLIGHT_CI_CONTEXT');
   const token=await appleToken(env),g=grant.provider;
   const [app,product,workflow,run,runs]=await Promise.all([
-    appleRead(`/v1/apps/${g.appId}`,token,fetchImpl),appleRead(`/v1/ciProducts/${g.productId}`,token,fetchImpl),
-    appleRead(`/v1/ciWorkflows/${g.workflowId}`,token,fetchImpl),appleRead(`/v1/ciBuildRuns/${env.CI_BUILD_ID}`,token,fetchImpl),
+    appleRead(`/v1/apps/${g.appId}`,token,fetchImpl),appleRead(`/v1/ciProducts/${g.productId}?include=app`,token,fetchImpl),
+    appleRead(`/v1/ciWorkflows/${g.workflowId}?include=product`,token,fetchImpl),appleRead(`/v1/ciBuildRuns/${env.CI_BUILD_ID}?include=workflow,product,sourceBranchOrTag`,token,fetchImpl),
     applePages(`/v1/ciWorkflows/${g.workflowId}/buildRuns?limit=200`,token,fetchImpl)]);
   const tagId=run.data?.relationships?.sourceBranchOrTag?.data?.id;
   if(!/^[A-Za-z0-9-]+$/u.test(tagId ?? '')) fail('TESTFLIGHT_PROVIDER_TAG');
