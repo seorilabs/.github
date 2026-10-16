@@ -869,6 +869,7 @@ export function validateCloud12RecoveryApproval(grant,approvalBytes,proposalByte
     || a.sourceSha!==grant.sourceSha || a.configurationFingerprint!==grant.configurationFingerprint
     || a.originalTimingApprovalSha256!==grant.approvalSha256 || a.originalGrantSha256!=='95f0c3f0f1e4b6f059681fc1fe735e8db7dff26658378f348340b48d08be3fa5'
     || a.originalApprovedAt!==grant.approvedAt || a.originalExpiresAt!==grant.expiresAt
+    || !equal(a.workingOverrides,grant.workingOverrides) || a.productionProfileSha256!==grant.profileSha256 || a.appleSigningTeam!=='HCDUXX4Z3X'
     || a.previousRunId!==r.previousRun.id || a.previousBuildNumber!==12 || a.expectedBuildNumber!==13
     || a.additionalCloudAttempts!==1 || a.totalCloudAttemptLimit!==2 || a.totalUploadLimit!==1
     || r.additionalCloudAttempts!==1 || r.totalCloudAttemptLimit!==2 || r.totalUploadLimit!==1 || r.expectedBuildNumber!==13

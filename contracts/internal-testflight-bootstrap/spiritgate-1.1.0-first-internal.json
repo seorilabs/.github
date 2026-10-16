@@ -640,7 +640,7 @@
   },
   "cloud12Recovery": {
     "approvalFile": "docs/design/2026-10-16-spiritgate-cloud12-recovery/approval.json",
-    "approvalSha256": "1a8e9bfd475efee0041d85b9a8665cc8c308a52e0ebfbce301267d8267bd5e9c",
+    "approvalSha256": "8c664357660735c00c574372917885894126b77df17b3c2d882b72d939d3b342",
     "additionalCloudAttempts": 1,
     "totalCloudAttemptLimit": 2,
     "totalUploadLimit": 1,

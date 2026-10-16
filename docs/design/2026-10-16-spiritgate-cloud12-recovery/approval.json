@@ -23,5 +23,14 @@
   "proposalSha256": "b1da2d71169aaa53a0d842945c768de5c75031676058fc447212400351481ff0",
   "approvalRecordedAt": "2026-10-16T06:57:51.356064+00:00",
   "userApprovalVerbatim": "중앙 보정·제한 리뷰·Cloud13 한 회 추가 승인",
-  "approvalSource": "direct user reply call_9edf6c1c9d37452fa9cd0ad71993523a; timestamp is first local recording, not inferred human send time"
+  "approvalSource": "direct user reply call_9edf6c1c9d37452fa9cd0ad71993523a; timestamp is first local recording, not inferred human send time",
+  "workingOverrides": {
+    "before-build": {},
+    "before-deploy": {
+      "project.godot": "2a5633b0c4ed15e154cec2918e512fd4acb5ea7d46ded03190eed1c94e96af3b",
+      "xcode-cloud/SpiritgateDefenders.xcodeproj/project.pbxproj": "24052024e19f5d3498bfd15ba860a621a05ecfb94b6090eb5bc9ae73d19ec52f"
+    }
+  },
+  "productionProfileSha256": "76d422cd8dd2e7df91065cb54b2196c69795f9edde5ddd6e862f2c801f089b4d",
+  "appleSigningTeam": "HCDUXX4Z3X"
 }
