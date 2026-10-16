@@ -98,7 +98,7 @@
 | `before-build`, `before-deploy` | 중앙 빌드·업로드 workflow, Xcode Cloud 훅 | 계획의 개발 환경 실행. 실기기 실행은 아직 없어도 된다 |
 | `before-release` | Play production 승격 workflow, App Store·앱인토스 심사 제출 직전 로컬 실행 | 계획의 모든 실행(실기기 포함)과 하한, 출시 범위(`release.markets`에 대상 마켓, `until`이 `test-track`이 아님) |
 
-Android/iOS만 계획한 재설계의 독립 UI3도 실제 기기 실행과 같은 공개 전 단계에서 필수다. 아직 설치할 빌드가 없는 `before-build`/`before-deploy`에서는 UI3 횟수만 미룬다. `dev`가 포함된 계획은 기존 조기 UI3 조건을 유지하며, 기록한 회차의 순서·독립성·승인·실패 해결 검사는 어느 단계에서도 생략하지 않는다. 인수조건·TDD·L3·실기기 하한·공개 전체 회귀는 그대로다.
+Spiritgate의 Mac-only 생략 후 통합 승인 계획(`2026-10-16-native-release-handoff`, 승인 커밋 `cfe7ee914c980f39d8bf6ca062f86eb1912606fe`의 같은 폴더 `design.md`/`test-plan.json` 하나)에 한해, `google-play`/`app-store`의 dev 없는 계획은 `before-build`/`before-deploy` UI3 횟수를 실제 기기 실행과 같은 공개 전 단계로 미룬다. 앞선 승인 계획·원문 조회와 후보 조상 검증을 그대로 통과해야 하며, 다른 repo/새 계획/다른 마켓·단계 또는 `dev` 포함 계획의 기존 조기 UI3 조건은 유지한다. 기록한 회차의 순서·독립성·승인·실패 해결 검사는 어느 단계에서도 생략하지 않는다. 공개 전 UI3·인수조건·TDD·L3·실기기 하한·공개 전체 회귀는 그대로다.
 | `web`·`service`의 `before-deploy` | 공개 배포 workflow | 모든 실행과 출시 범위(테스트 채널이 없다) |
 
 Play의 테스트 트랙 사이 승격은 `before-deploy`, production 승격은 `before-release`로 검사한다. 승격 workflow는 `rollout` 입력(비면 완전 출시 1)을 검증기에 넘기고, 승인된 계획의 비율보다 크면 막는다. 여러 계획이 묶이면 가장 작은 비율이 상한이다. App Store·앱인토스 심사 제출은 중앙 workflow가 하지 않으므로 실행자가 제출 직전에 `--phase before-release`를 실행한다.

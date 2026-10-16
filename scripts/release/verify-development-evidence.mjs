@@ -169,7 +169,12 @@ function validateTestLevelEvidence(document, context) {
   }
 
   const coreFeatures = features.filter(f => f.core).map(f => f.id).filter(id => !usable.has(id));
-  checkReviewRounds(document, { redesign: merged.redesign && (releasePhase || merged.environments.includes('dev')), coreFeatures, carried: new Set(), inventoryIds, times, errors });
+  // 승인된 Spiritgate Mac 생략 계획만 native 테스트 빌드 뒤 UI3를 수행한다. 다른 계획의 순서는 바꾸지 않는다.
+  const nativeHandoff = document.repository === 'seorilabs/spiritgate-defenders' && ['google-play','app-store'].includes(target)
+    && ['before-build','before-deploy'].includes(phase) && !releasePhase && !merged.environments.includes('dev') && document.designs.length === 1
+    && document.designs.every(d => d.id === '2026-10-16-native-release-handoff' && d.approvedCommit === 'cfe7ee914c980f39d8bf6ca062f86eb1912606fe'
+      && d.document === 'docs/design/2026-10-16-native-release-handoff/design.md' && d.testPlan === 'docs/design/2026-10-16-native-release-handoff/test-plan.json');
+  checkReviewRounds(document, { redesign: merged.redesign && !nativeHandoff, coreFeatures, carried: new Set(), inventoryIds, times, errors });
 
   if (releasePhase) {
     if (!merged.markets.includes(target)) errors.push(`RELEASE_NOT_AUTHORIZED market ${target}`);
