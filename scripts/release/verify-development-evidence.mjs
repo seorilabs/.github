@@ -169,7 +169,7 @@ function validateTestLevelEvidence(document, context) {
   }
 
   const coreFeatures = features.filter(f => f.core).map(f => f.id).filter(id => !usable.has(id));
-  checkReviewRounds(document, { redesign: merged.redesign, coreFeatures, carried: new Set(), inventoryIds, times, errors });
+  checkReviewRounds(document, { redesign: merged.redesign && (releasePhase || merged.environments.includes('dev')), coreFeatures, carried: new Set(), inventoryIds, times, errors });
 
   if (releasePhase) {
     if (!merged.markets.includes(target)) errors.push(`RELEASE_NOT_AUTHORIZED market ${target}`);

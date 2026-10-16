@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "kind": "human_mac_editor_skip_public_minimal_receipt",
+  "approvedAt": "2026-10-16T01:07:07.378Z",
+  "approvedAnswer": "막힌 Mac Editor 검수만 생략",
+  "sourceRecordSha256": "f1fcaaaec2a7362574f214ff887e4fe8daad0806b865c3acd1f75ccb3e1e7e96",
+  "sourceHashDefinition": "original human user JSONL record including terminating LF",
+  "scope": "Skip only blocked Mac Editor UI review and Editor E2E; retain physical-device QA and native E2E.",
+  "previousInputGuardAmendmentProposal": "withdrawn without approval or execution",
+  "newMacEditorRoundAuthorized": false,
+  "physicalDeviceQaWaived": false,
+  "e2eWaived": false,
+  "publicWithoutNativeQaAuthorized": false
+}

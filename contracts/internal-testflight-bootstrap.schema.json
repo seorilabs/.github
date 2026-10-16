@@ -157,6 +157,35 @@
           }
         }
       }
+    },
+    "macEditorSkip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "editorE2eStatus",
+        "approvalSha256",
+        "nativeQaWaived",
+        "publicReleaseAllowed"
+      ],
+      "properties": {
+        "status": {
+          "const": "skipped_incomplete"
+        },
+        "editorE2eStatus": {
+          "const": "skipped"
+        },
+        "approvalSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "nativeQaWaived": {
+          "const": false
+        },
+        "publicReleaseAllowed": {
+          "const": false
+        }
+      }
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -567,6 +567,47 @@
           "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
         }
       }
+    },
+    "macEditorSkip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approvalFile",
+        "approvalSha256",
+        "resultAsset",
+        "cleanupAsset",
+        "sourceIntegrityAsset",
+        "firstFailureAsset",
+        "originalManifestAsset",
+        "deliverableManifestAsset"
+      ],
+      "properties": {
+        "approvalFile": {
+          "const": "docs/design/2026-10-16-spiritgate-mac-editor-skip/approval.json"
+        },
+        "approvalSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "resultAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "cleanupAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "sourceIntegrityAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "firstFailureAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "originalManifestAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        },
+        "deliverableManifestAsset": {
+          "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
+        }
+      }
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -828,6 +869,23 @@
               ]
             }
           ]
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "macEditorSkip"
+        ]
+      },
+      "then": {
+        "required": [
+          "approvedUiRounds"
+        ],
+        "properties": {
+          "approvedUiRounds": {
+            "const": 10
+          }
         }
       }
     }
