@@ -608,6 +608,82 @@
           "$ref": "#/properties/historicalUi5/properties/sourceSnapshotAsset"
         }
       }
+    },
+    "cloud12Recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approvalFile",
+        "approvalSha256",
+        "additionalCloudAttempts",
+        "totalCloudAttemptLimit",
+        "totalUploadLimit",
+        "expectedBuildNumber",
+        "previousRun"
+      ],
+      "properties": {
+        "approvalFile": {
+          "const": "docs/design/2026-10-16-spiritgate-cloud12-recovery/approval.json"
+        },
+        "approvalSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "additionalCloudAttempts": {
+          "const": 1
+        },
+        "totalCloudAttemptLimit": {
+          "const": 2
+        },
+        "totalUploadLimit": {
+          "const": 1
+        },
+        "expectedBuildNumber": {
+          "const": 13
+        },
+        "previousRun": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "number",
+            "finishedAt",
+            "tagReferenceId",
+            "archiveActionId",
+            "logArtifactId",
+            "logZipSha256"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+$"
+            },
+            "number": {
+              "const": 12
+            },
+            "finishedAt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tagReferenceId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+$"
+            },
+            "archiveActionId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+$"
+            },
+            "logArtifactId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+$"
+            },
+            "logZipSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
+      }
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
