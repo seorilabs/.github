@@ -3,10 +3,10 @@
 - 설계·테스트 계획(`test-plan.json`)·인수조건 ID:
 - 등급과 이 실행이 맡는 범위: L1 바뀐 기능 / L2 바뀐 기능의 실기기 / L3 전체 회귀
 - 후보 SHA·대상 마켓·빌드(실기기: 테스트 채널 빌드 번호 또는 같은 SHA 로컬 빌드):
-- 실행 종류(`godot-editor`·`web-browser`·`android-device`·`ios-device` 등)·기기:
+- 실행 종류(`godot-editor`·`godot-headless-e2e`·`web-browser`·`android-device`·`ios-device` 등)·기기:
 - 계획·시작·종료 시각:
 - 격리 데이터·저장 경로·설정 지문(실기기):
-- 실행자: 작성자 / 다른 에이전트 (L2 실기기와 L3는 다른 에이전트)
+- 실행자: 작성자 / 다른 에이전트 / CI(`executor: "ci"`와 `ciRun.url`, headless E2E 등 개발 환경만) (L2 실기기와 L3는 작성자 외)
 
 | 기능 ID | 시나리오·재현 단계 | 시작 상태·기대 결과 | 실제 결과 | 증거·판정 |
 |---|---|---|---|---|

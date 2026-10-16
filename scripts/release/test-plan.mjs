@@ -21,14 +21,21 @@ const undotted = value => value.replace(/(^|\/)\./gu, '$1');
 export const touches = (file, pattern) => posix.matchesGlob(file, pattern) || posix.matchesGlob(undotted(file), undotted(pattern));
 const globs = value => Array.isArray(value) && value.length > 0 && value.every(p => typeof p === 'string' && p.trim());
 
-// 기능 목록 schemaVersion 1: 모든 기능에 선택 paths, 기반 기능은 paths 필수, 최상위 선택 regressionPaths.
-const validFeature = f => typeof f?.id === 'string' && f.id.trim() && typeof f.core === 'boolean'
+// 기능 목록 schemaVersion 1: 모든 기능에 선택 paths, 기반 기능은 paths 필수, 최상위 선택 regressionPaths. 기반 기능 paths가 실기기 하한을 만든다.
+// schemaVersion 2(headless E2E 틀이 있는 게임): 실기기 하한은 기능·최상위 platformPaths만 만들고, e2e.workflow가 필수다.
+const E2E_WORKFLOW = /^\.github\/workflows\/[A-Za-z0-9._-]+\.ya?ml$/u;
+const validFeature = (f, version) => typeof f?.id === 'string' && f.id.trim() && typeof f.core === 'boolean'
   && (f.foundation === undefined || typeof f.foundation === 'boolean')
   && (f.paths === undefined || globs(f.paths))
-  && (f.foundation !== true || globs(f.paths));
-export const validInventory = inventory => inventory?.schemaVersion === 1 && Array.isArray(inventory.features) && inventory.features.length > 0
-  && inventory.features.every(validFeature) && new Set(inventory.features.map(f => f.id)).size === inventory.features.length
-  && (inventory.regressionPaths === undefined || globs(inventory.regressionPaths));
+  && (f.foundation !== true || globs(f.paths))
+  && (f.platformPaths === undefined || (version === 2 && globs(f.platformPaths)));
+const validVersionFields = inventory => inventory.schemaVersion === 2
+  ? E2E_WORKFLOW.test(inventory.e2e?.workflow ?? '') && (inventory.e2e.command === undefined || (typeof inventory.e2e.command === 'string' && inventory.e2e.command.trim()))
+    && (inventory.platformPaths === undefined || globs(inventory.platformPaths))
+  : inventory.e2e === undefined && inventory.platformPaths === undefined;
+export const validInventory = inventory => [1, 2].includes(inventory?.schemaVersion) && Array.isArray(inventory.features) && inventory.features.length > 0
+  && inventory.features.every(f => validFeature(f, inventory.schemaVersion)) && new Set(inventory.features.map(f => f.id)).size === inventory.features.length
+  && (inventory.regressionPaths === undefined || globs(inventory.regressionPaths)) && validVersionFields(inventory);
 
 export function testPlanProblems(plan, inventory) {
   if (!checkPlanSchema(plan)) return [...new Set(checkPlanSchema.errors.map(e => `schema ${e.instancePath || '/'} ${e.keyword}`))];
@@ -44,8 +51,14 @@ export function testPlanProblems(plan, inventory) {
   for (const id of plan.changedFeatures) if (!features.has(id)) problems.push(`unknown-feature ${id}`);
   const keys = plan.floorOverrides.map(o => `${o.rule}:${o.featureId ?? ''}`);
   if (new Set(keys).size !== keys.length) problems.push('duplicate-override');
-  for (const o of plan.floorOverrides) if (o.rule === 'foundation' && features.get(o.featureId)?.foundation !== true) problems.push(`override-not-foundation ${o.featureId}`);
-  return problems;
+  const platformInventory = inventory?.schemaVersion === 2;
+  for (const o of plan.floorOverrides) {
+    if (o.rule === 'foundation' && platformInventory) problems.push('foundation-override-needs-inventory-v1');
+    else if (o.rule === 'foundation' && features.get(o.featureId)?.foundation !== true) problems.push(`override-not-foundation ${o.featureId}`);
+    if (o.rule === 'platform' && !platformInventory) problems.push('platform-override-needs-inventory-v2');
+    else if (o.rule === 'platform' && !features.has(o.featureId)) problems.push(`override-unknown-feature ${o.featureId}`);
+  }
+  return [...new Set(problems)];
 }
 
 // 한 후보에 묶인 승인 계획은 가장 높은 등급, 기능·환경·마켓 합집합, 가장 이른 끝 지점으로 합친다.
@@ -53,7 +66,10 @@ export function testPlanProblems(plan, inventory) {
 export function mergeTestPlans(plans) {
   const union = values => [...new Set(values)].sort();
   const everyPlan = predicate => plans.length > 0 && plans.every(predicate);
-  const foundationIds = union(plans.flatMap(p => p.floorOverrides.filter(o => o.rule === 'foundation').map(o => o.featureId)));
+  const overriddenBy = rule => {
+    const ids = union(plans.flatMap(p => p.floorOverrides.filter(o => o.rule === rule).map(o => o.featureId)));
+    return ids.filter(id => everyPlan(p => p.floorOverrides.some(o => o.rule === rule && o.featureId === id)));
+  };
   return {
     level: highestLevel(plans.map(p => p.level)),
     baselines: [...new Set(plans.map(p => p.baseline))].sort(),
@@ -61,7 +77,8 @@ export function mergeTestPlans(plans) {
     environments: union(plans.flatMap(p => p.environments)),
     redesign: plans.some(p => p.redesign),
     foundationRerun: plans.some(p => p.foundationRerun),
-    foundationOverrides: foundationIds.filter(id => everyPlan(p => p.floorOverrides.some(o => o.rule === 'foundation' && o.featureId === id))),
+    foundationOverrides: overriddenBy('foundation'),
+    platformOverrides: overriddenBy('platform'),
     regressionOverride: everyPlan(p => p.floorOverrides.some(o => o.rule === 'regression')),
     markets: union(plans.flatMap(p => p.release.markets)),
     until: UNTIL[Math.min(...plans.map(p => UNTIL.indexOf(p.release.until ?? policy.release.defaultUntil)))],
@@ -71,7 +88,9 @@ export function mergeTestPlans(plans) {
 }
 
 // 바뀐 파일로 계획보다 높아야 하는 범위(하한)를 계산한다. changes[baseline]이 배열이 아니면 비교할 수 없다는 뜻이다.
-export function computeFloor({ merged, inventory, changes, target }) {
+// baselineInventories[baseline]은 기준 태그 시점의 기능 목록이다(v2에서만 쓴다). 없거나 읽을 수 없으면 모든 기능을 새 기능으로 본다.
+// deviceFloor는 검증 중인 마켓 플랫폼 실기기에서 실행해야 하는 기능과 그 규칙(foundation·platform·platform-first)이다.
+export function computeFloor({ merged, inventory, changes, baselineInventories, target }) {
   const files = [];
   let unknown = false;
   for (const baseline of merged.baselines) {
@@ -81,12 +100,34 @@ export function computeFloor({ merged, inventory, changes, target }) {
   }
   const firstRelease = merged.baselines.includes(null);
   const regressionPaths = Array.isArray(inventory.regressionPaths) ? inventory.regressionPaths : policy.floors.defaultRegressionPaths;
-  const touched = inventory.features.filter(f => Array.isArray(f.paths) && files.some(file => f.paths.some(p => touches(file, p)))).map(f => f.id);
+  const hits = paths => Array.isArray(paths) && files.some(file => paths.some(p => touches(file, p)));
+  const touched = inventory.features.filter(f => hits(f.paths) || hits(f.platformPaths)).map(f => f.id);
   const regressionTriggered = firstRelease || unknown || files.some(file => regressionPaths.some(p => touches(file, p)));
   const regression = regressionTriggered && (firstRelease || !merged.regressionOverride);
-  const foundation = new Set(inventory.features.filter(f => f.foundation === true).map(f => f.id));
   const platforms = marketPlatforms(target);
-  const foundationFloor = platforms.length === 0 ? []
-    : [...new Set([...touched, ...merged.changedFeatures])].filter(id => foundation.has(id) && !merged.foundationOverrides.includes(id)).sort();
-  return { touched, regression, foundationFloor, platforms, level: regression ? 'L3' : foundationFloor.length > 0 ? 'L2' : 'L1' };
+  const deviceFloor = platforms.length === 0 ? [] : inventory.schemaVersion === 2
+    ? platformFloor({ merged, inventory, files, hits, firstRelease, baselineInventories })
+    : foundationFloor({ merged, inventory, touched });
+  return { touched, regression, deviceFloor, platforms, level: regression ? 'L3' : deviceFloor.length > 0 ? 'L2' : 'L1' };
+}
+
+function foundationFloor({ merged, inventory, touched }) {
+  const foundation = new Set(inventory.features.filter(f => f.foundation === true).map(f => f.id));
+  return [...new Set([...touched, ...merged.changedFeatures])].filter(id => foundation.has(id) && !merged.foundationOverrides.includes(id)).sort()
+    .map(featureId => ({ featureId, rule: 'foundation' }));
+}
+
+// 첫 출시와 기준 태그에 없던 플랫폼 기능(결제·로그인을 처음 붙이는 경우 등)은 승인된 낮춤이 있어도 실기기에서 실행한다.
+function platformFloor({ merged, inventory, files, hits, firstRelease, baselineInventories }) {
+  const platformFeatures = inventory.features.filter(f => Array.isArray(f.platformPaths)).map(f => f.id);
+  const commonPaths = Array.isArray(inventory.platformPaths) ? inventory.platformPaths : policy.floors.defaultPlatformPaths;
+  const common = files.some(file => commonPaths.some(p => touches(file, p)));
+  const raised = new Set(inventory.features.filter(f => hits(f.platformPaths)).map(f => f.id));
+  if (common) for (const id of platformFeatures.length > 0 ? platformFeatures : inventory.features.filter(f => f.core).map(f => f.id)) raised.add(id);
+  const known = merged.baselines.filter(baseline => baseline !== null).map(baseline => baselineInventories?.[baseline]);
+  const isNew = id => firstRelease || known.some(base => !Array.isArray(base?.features) || !base.features.some(f => f?.id === id));
+  const first = new Set(platformFeatures.filter(isNew));
+  const floor = [...first].map(featureId => ({ featureId, rule: 'platform-first' }));
+  for (const featureId of raised) if (!first.has(featureId) && !merged.platformOverrides.includes(featureId)) floor.push({ featureId, rule: 'platform' });
+  return floor.sort((a, b) => a.featureId.localeCompare(b.featureId));
 }

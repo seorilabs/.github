@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
-import { githubDownload, githubJson, githubPaginate } from '../github-rest.mjs';
+import { githubDownload, githubJson, githubPaginate, resolveToken } from '../github-rest.mjs';
 import { carriedForwardFeatures } from './carry-forward.mjs';
 import { validateLegacyEvidence } from './development-evidence-v1.mjs';
 import { computeFloor, DEVICE_ENVIRONMENTS, environmentOf, highestLevel, mergeTestPlans, policy, RELEASE_ONLY_TARGETS,
@@ -22,6 +22,9 @@ const PHASES = Object.keys(policy.phases).filter(key => key.startsWith('before-'
 const TARGETS = Object.keys(policy.testLevels.marketPlatforms);
 const SHA_PATTERN = /^[a-f0-9]{40}$/u;
 const PLAN_PATH = /^docs\/design\/[^/]+\/test-plan\.json$/u;
+// CI 실행 링크. 저장소·실행 ID·재시도 번호만 꺼내 고정 API 경로로 조회한다.
+const CI_RUN_URL = /^https:\/\/github\.com\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/actions\/runs\/([0-9]+)(?:\/attempts\/([0-9]+))?$/u;
+const CI_EXECUTOR = policy.runs.ciExecutor.executor;
 
 const withinCompareLimit = files => files.length < COMPARE_FILE_LIMIT ? files : null;
 const sameFolder = design => design.testPlan === `${String(design.document).split('/').slice(0, 3).join('/')}/test-plan.json`;
@@ -125,7 +128,7 @@ function validateTestLevelEvidence(document, context) {
   if (!inventoryValid || plans.length !== document.designs.length) return { ok: false, errors: [...new Set(errors)], level: null, completedAt };
 
   const merged = mergeTestPlans(plans);
-  const floor = computeFloor({ merged, inventory, changes: context.changes, target });
+  const floor = computeFloor({ merged, inventory, changes: context.changes, baselineInventories: context.baselineInventories, target });
   const level = highestLevel([merged.level, floor.level]);
   const carried = carriedForwardFeatures(document, context, features, now, errors);
   if (merged.foundationRerun) for (const id of carried) errors.push(`CARRY_FORWARD_FORBIDDEN ${id}`);
@@ -138,21 +141,36 @@ function validateTestLevelEvidence(document, context) {
   const releasePhase = phase === 'before-release' || (RELEASE_ONLY_TARGETS.includes(target) && phase === 'before-deploy');
   const active = merged.environments.filter(env => env === 'dev' || releasePhase);
 
+  // CI 실행은 GitHub API로 읽은 실행이 같은 저장소·후보 SHA·성공·기능 목록의 E2E workflow일 때만 인정한다.
+  // 확인되면 구현자와 다른 실행자로 보고, 기한은 API의 마지막 갱신 시각으로 잰다.
+  const ciProblem = run => {
+    if (environmentOf(run.kind) !== 'dev') return 'CI_RUN_KIND';
+    const info = context.ciRuns?.[run.ciRun.url];
+    if (!info) return 'CI_RUN_UNVERIFIED';
+    if (run.ciRun.url.match(CI_RUN_URL)?.[1] !== document.repository || info.repository?.full_name !== document.repository || info.head_sha !== context.sourceSha) return 'CI_RUN_MISMATCH';
+    if (info.status !== 'completed' || info.conclusion !== 'success') return 'CI_RUN_NOT_SUCCESSFUL';
+    if (inventory.schemaVersion !== 2 || info.path !== inventory.e2e.workflow) return 'CI_RUN_WORKFLOW';
+    return null;
+  };
   const valid = [];
   for (const run of runs) {
     const ordered = times(run, `run-${run.id}`);
+    const ci = run.executor === CI_EXECUTOR;
+    const problem = ci ? ciProblem(run) : null;
+    if (problem) errors.push(`${problem} ${run.id}`);
     unique(run.scenarios.map(s => s.id), `scenario ${run.id}`);
     for (const id of new Set(run.scenarios.flatMap(s => s.featureIds))) if (!inventoryIds.has(id)) errors.push(`RUN_UNKNOWN_FEATURE ${run.id} ${id}`);
     const device = DEVICE_ENVIRONMENTS.includes(environmentOf(run.kind));
     if (ui && run.kind === 'service-runtime') errors.push(`UI_RUNTIME_REQUIRED ${run.id}`);
     if (!ui && run.kind !== 'service-runtime') errors.push(`SERVICE_RUNTIME_REQUIRED ${run.id}`);
-    const fresh = now - Date.parse(run.completedAt) <= MAX_RUN_AGE_MS;
+    const finishedAt = ci && !problem ? context.ciRuns[run.ciRun.url].updated_at : run.completedAt;
+    const fresh = now - Date.parse(finishedAt) <= MAX_RUN_AGE_MS;
     if (!fresh) errors.push(`RUN_EXPIRED ${run.id}`);
     if (run.sourceSha !== context.sourceSha) errors.push(`RUN_CANDIDATE_MISMATCH ${run.id}`);
     // 설정 지문은 검증 중인 마켓의 실기기 실행에만 대조한다. 개발 환경은 테스트용 대체 구현을 쓴다.
     if (device && context.configurationFingerprint && run.target === target && run.configurationFingerprint !== context.configurationFingerprint) errors.push(`CONFIGURATION_CHANGED ${run.id}`);
     if (sameName(run.executor, document.implementer) && (level === 'L3' || (level === 'L2' && device))) errors.push(`INDEPENDENT_RUN_REQUIRED ${run.id}`);
-    if (ordered && fresh && run.sourceSha === context.sourceSha) valid.push(run);
+    if (ordered && fresh && !problem && run.sourceSha === context.sourceSha) valid.push(run);
   }
   const covers = (env, feature) => valid.some(run => environmentOf(run.kind) === env && run.scenarios.some(s => s.featureIds.includes(feature)));
 
@@ -164,8 +182,8 @@ function validateTestLevelEvidence(document, context) {
   if (floor.regression) for (const env of active) for (const feature of fullScope) {
     if (!planned.has(`${env} ${feature}`) && !covers(env, feature)) errors.push(`TEST_LEVEL_BELOW_FLOOR regression ${feature} ${env}`);
   }
-  if (releasePhase) for (const feature of floor.foundationFloor) {
-    if (!floor.platforms.some(env => covers(env, feature))) errors.push(`TEST_LEVEL_BELOW_FLOOR foundation ${feature} ${floor.platforms.join('|')}`);
+  if (releasePhase) for (const { featureId, rule } of floor.deviceFloor) {
+    if (!floor.platforms.some(env => covers(env, featureId))) errors.push(`TEST_LEVEL_BELOW_FLOOR ${rule} ${featureId} ${floor.platforms.join('|')}`);
   }
 
   const coreFeatures = features.filter(f => f.core).map(f => f.id).filter(id => !usable.has(id));
@@ -195,6 +213,8 @@ const readableDesigns = document => document?.schemaVersion === 2 && Array.isArr
   ? document.designs.filter(d => typeof d?.id === 'string' && SHA_PATTERN.test(d.approvedCommit ?? '') && PLAN_PATH.test(d.testPlan ?? '') && sameFolder(d)) : [];
 const planBaselines = plans => [...new Set(Object.values(plans).map(entry => entry.plan?.baseline)
   .filter(ref => typeof ref === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(ref)))];
+const ciRunUrls = document => document?.schemaVersion === 2 && Array.isArray(document.runs)
+  ? [...new Set(document.runs.map(run => run?.ciRun?.url).filter(url => typeof url === 'string' && CI_RUN_URL.test(url)))] : [];
 const parseJson = text => { try { return JSON.parse(text); } catch { return null; } };
 
 function decodeContents(file) {
@@ -231,9 +251,9 @@ function localChangedFiles(ref, sourceSha) {
   return diff.status === 0 ? withinCompareLimit(parseNameStatus(diff.stdout))?.flat() ?? null : null;
 }
 
-function readLocalContext(document, sourceSha) {
-  const baselines = {}, plans = {}, changes = {};
-  if (!SHA_PATTERN.test(sourceSha ?? '')) return { baselines, plans, changes };
+function readLocalContext(document, sourceSha, inventory) {
+  const baselines = {}, plans = {}, changes = {}, baselineInventories = {};
+  if (!SHA_PATTERN.test(sourceSha ?? '')) return { baselines, plans, changes, baselineInventories };
   for (const baselineSha of baselineShas(document)) {
     const inventory = git('show', `${baselineSha}:${INVENTORY_PATH}`);
     baselines[baselineSha] = { changedFiles: localChangedFiles(baselineSha, sourceSha), inventory: inventory.status === 0 ? parseJson(inventory.stdout) : null };
@@ -244,7 +264,11 @@ function readLocalContext(document, sourceSha) {
     plans[design.id] = { approved, plan: file?.status === 0 && Buffer.byteLength(file.stdout) <= MAX_FILE_BYTES ? parseJson(file.stdout) : null };
   }
   for (const baseline of planBaselines(plans)) changes[baseline] = localChangedFiles(baseline, sourceSha);
-  return { baselines, plans, changes };
+  if (inventory?.schemaVersion === 2) for (const baseline of planBaselines(plans)) {
+    const file = git('show', `${baseline}:${INVENTORY_PATH}`);
+    baselineInventories[baseline] = file.status === 0 ? parseJson(file.stdout) : null;
+  }
+  return { baselines, plans, changes, baselineInventories };
 }
 
 // 기준 커밋·태그나 그 시점 파일이 없으면(404) 판정 불가로 두어 다시 실행하게 한다. 그 밖의 조회 실패는 그대로 멈춘다.
@@ -255,8 +279,8 @@ async function remoteChangedFiles(repository, ref, sourceSha, request) {
   return files?.flatMap(f => [f.filename, f.previous_filename].filter(Boolean)) ?? null;
 }
 
-async function readRemoteContext(document, repository, sourceSha, request) {
-  const baselines = {}, plans = {}, changes = {};
+async function readRemoteContext(document, repository, sourceSha, request, inventory) {
+  const baselines = {}, plans = {}, changes = {}, baselineInventories = {};
   for (const baselineSha of baselineShas(document)) {
     baselines[baselineSha] = {
       changedFiles: await remoteChangedFiles(repository, baselineSha, sourceSha, request),
@@ -271,7 +295,27 @@ async function readRemoteContext(document, repository, sourceSha, request) {
     plans[design.id] = { approved, plan: decodeContents(file) };
   }
   for (const baseline of planBaselines(plans)) changes[baseline] = await remoteChangedFiles(repository, baseline, sourceSha, request);
-  return { baselines, plans, changes };
+  if (inventory?.schemaVersion === 2) for (const baseline of planBaselines(plans)) {
+    baselineInventories[baseline] = await readRemoteInventory(repository, encodeURIComponent(baseline), request).catch(error => {
+      if (error?.status === 404 || /^SOURCE_FEATURE_INVENTORY_/u.test(error?.message ?? '')) return null;
+      throw error;
+    });
+  }
+  return { baselines, plans, changes, baselineInventories };
+}
+
+// CI 실행은 로컬 검증에서도 API로 확인한다. 토큰이 없거나 실행이 없으면(404) 확인 못 한 실행으로 남겨 통과시키지 않는다.
+async function readCiRuns(document, request) {
+  const ciRuns = {};
+  const urls = ciRunUrls(document);
+  if (urls.length === 0) return ciRuns;
+  try { resolveToken(request.token, request.env); } catch { return ciRuns; }
+  for (const url of urls) {
+    const [, repository, id, attempt] = url.match(CI_RUN_URL);
+    const run = await githubJson(`/repos/${repository}/actions/runs/${id}${attempt ? `/attempts/${attempt}` : ''}`, request).catch(unlessMissing);
+    if (run) ciRuns[url] = run;
+  }
+  return ciRuns;
 }
 
 /**
@@ -317,8 +361,9 @@ export async function verifyReleaseDevelopmentEvidence(options) {
   try { document = JSON.parse(bytes.toString('utf8')); }
   catch { throw new Error('INVALID_EVIDENCE_JSON'); }
   const featureInventory = await readRemoteInventory(repository, sourceSha, request);
-  const remote = await readRemoteContext(document, repository, sourceSha, request);
-  const result = validateDevelopmentEvidence(document, { ...options, featureInventory, ...remote });
+  const remote = await readRemoteContext(document, repository, sourceSha, request, featureInventory);
+  const ciRuns = await readCiRuns(document, request);
+  const result = validateDevelopmentEvidence(document, { ...options, featureInventory, ...remote, ciRuns });
   if (!result.ok) throw new Error(result.errors.join('\n'));
   return { ...result, assetId: asset.id, completedAt: document.schemaVersion === 1 ? document.e2e.completedAt : result.completedAt };
 }
@@ -354,8 +399,9 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   if (args.has('file')) {
     const document = JSON.parse(readFileSync(args.get('file'), 'utf8'));
     const featureInventory = JSON.parse(readFileSync(args.get('feature-inventory') ?? INVENTORY_PATH, 'utf8'));
-    const local = readLocalContext(document, context.sourceSha);
-    const validated = validateDevelopmentEvidence(document, { ...context, featureInventory, ...local });
+    const local = readLocalContext(document, context.sourceSha, featureInventory);
+    const ciRuns = await readCiRuns(document, { env });
+    const validated = validateDevelopmentEvidence(document, { ...context, featureInventory, ...local, ciRuns });
     result = { ...validated, completedAt: document?.schemaVersion === 1 ? document?.e2e?.completedAt : validated.completedAt };
   } else {
     result = await verifyReleaseDevelopmentEvidence({ ...context, tag: args.get('tag') ?? EVIDENCE_ARCHIVE_TAG, env });

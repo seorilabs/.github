@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 2,
+  "e2e": {
+    "workflow": ".github/workflows/godot-checks.yml",
+    "command": "npm run test:e2e"
+  },
+  "regressionPaths": [
+    "project.godot",
+    "addons/**",
+    "package-lock.json"
+  ],
+  "platformPaths": [
+    "export_presets.cfg",
+    "android/**",
+    "ios/**",
+    "**/*.gdextension",
+    "**/*.gdap"
+  ],
+  "features": [
+    {
+      "id": "core-loop",
+      "core": true,
+      "paths": [
+        "scenes/game/**",
+        "scripts/game/**"
+      ]
+    },
+    {
+      "id": "settings",
+      "core": false,
+      "paths": [
+        "scenes/settings/**"
+      ]
+    },
+    {
+      "id": "shop",
+      "core": false,
+      "foundation": true,
+      "paths": [
+        "scenes/shop/**",
+        "scripts/shop/**",
+        "scripts/platform/iap/**"
+      ],
+      "platformPaths": [
+        "scripts/platform/iap/native_*.gd",
+        "android/plugins/billing/**"
+      ]
+    },
+    {
+      "id": "rewarded-ads",
+      "core": false,
+      "foundation": true,
+      "paths": [
+        "scripts/ads/**",
+        "scripts/platform/ads/**"
+      ],
+      "platformPaths": [
+        "scripts/platform/ads/admob_*.gd"
+      ]
+    }
+  ]
+}

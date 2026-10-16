@@ -41,6 +41,11 @@ on:
         required: false
         default: "seorilabs-x64"
         type: string
+      e2e_report_path:
+        description: "headless E2E 결과 경로(journey.json·로그). 주면 성공·실패와 관계없이 artifact로 보관한다."
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -154,3 +159,13 @@ jobs:
             echo "Provide check_command or add the quality gate script." >&2
             exit 1
           fi
+
+      # 실행 근거의 확인은 이 artifact가 아니라 CI 실행 자체(API)로 한다. 결과는 조직 보존 기간 동안만 둔다.
+      - name: Upload headless E2E report
+        if: ${{ always() && inputs.e2e_report_path != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: headless-e2e-${{ github.sha }}
+          path: ${{ inputs.e2e_report_path }}
+          if-no-files-found: error
+          retention-days: 3
