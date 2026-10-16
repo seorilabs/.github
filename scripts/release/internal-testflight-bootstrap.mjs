@@ -266,8 +266,20 @@ function validateBootstrapHistoricalUi6(grant,context,round){
   try{[source,configuration,start,end,failure]=pairs.map(([key])=>JSON.parse(context[key]));approval=JSON.parse(context.ui6ApprovalBytes);}
   catch{fail('TESTFLIGHT_INVALID_UI6_SNAPSHOT');}
   if([source,configuration,start,end,failure,approval].some(v=>!v || typeof v!=='object' || Array.isArray(v))) fail('TESTFLIGHT_INVALID_UI6_SNAPSHOT');
+  // 실패한 UI6 원문이 보존한 분리 창 -> 내장 창 전환만 별도 대조한다.
+  // 정상 검수의 설정 일치 조건이나 UI6 실패 판정을 통과로 바꾸지 않는다.
+  const displays=configuration.runtimeDisplayHistory;
+  const preservedFailedDisplayChange=Boolean(grant.macEditorSkip && round?.functional?.status==='failed' && round?.ux?.status==='failed'
+    && Array.isArray(displays) && displays.length===2 && displays.every(v=>v && typeof v==='object' && !Array.isArray(v))
+    && DIGEST.test(start.configurationFingerprint ?? '')
+    && displays[0].kind==='native-separate-window' && displays[0].configurationFingerprint===start.configurationFingerprint
+    && Number.isSafeInteger(displays[0].firstRunPid) && displays[0].firstRunPid>0 && displays[0].gameInputs===0
+    && utc(displays[0].startedAt)===utc(start.startedAt)
+    && displays[1].kind==='editor-embedded-fixed-size' && displays[1].globalSettingsChanged===false
+    && typeof displays[1].recoveryAuthorizedBy==='string' && displays[1].recoveryAuthorizedBy.trim()
+    && orderedBootstrapTimes(start.startedAt,displays[0].stoppedAt,displays[1].recoveryAt,end.stopConfirmedByUtc));
   if([source,configuration,start,end,failure].some(v=>v.sourceSha!==h.sourceSha)
-    || configuration.fingerprint!==h.configurationFingerprint || start.configurationFingerprint!==h.configurationFingerprint
+    || configuration.fingerprint!==h.configurationFingerprint || (start.configurationFingerprint!==h.configurationFingerprint && !preservedFailedDisplayChange)
     || configuration.runtimeKind!=='godot-editor' || configuration.nativeMarketFingerprint!==null
     || (approval.sourceSha!==null && approval.sourceSha!==h.sourceSha)
     || (approval.configurationFingerprint!==null && approval.configurationFingerprint!==h.configurationFingerprint)

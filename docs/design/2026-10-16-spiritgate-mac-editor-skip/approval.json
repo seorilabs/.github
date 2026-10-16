@@ -10,7 +10,7 @@
   "proposalSha256": "a1603e9ef45afe76325d0ac65609bd4178e9fab49b70bd1ca980f65e5294fb8e",
   "originalTimingApprovalSha256": "8f9ea1fd82ad34ad4bee5853ef2f48851e2121d87852a273b5010f9efd15ba7d",
   "previousUi10ApprovalSha256": "a3f84f0f27abd8eb2e3c96fdb99e528f6ba00eb45b52ff6ddf1e32f3c18a9c7f",
-  "sourceSha": "cfe7ee914c980f39d8bf6ca062f86eb1912606fe",
+  "sourceSha": "dc7ebea858def2a34a7732f6c144ef4e60fb34d3",
   "configurationFingerprint": "e90f43fdd5ccce42c067bcd87bb690cb0ac90697848611ce2f07ff292445c848",
   "configurationFingerprintScope": "first internal Godot Editor development QA reference; not native market configuration",
   "nativeMarketFingerprint": null,
@@ -35,5 +35,5 @@
     "originalManifestAsset": "af4f6c7f409f1bbb4bcec19bb060bd1b76766024da2830c30c5f165b7e6fddd7",
     "deliverableManifestAsset": "b9ac1145dcf6ebf1028a94e7164051388cf46d25c5b50a970dccf2482d8ce180"
   },
-  "candidateBindingStatus": "actual candidate after native-only approved-plan documentation merge; actual Android4/native E2E not completed; no grant"
+  "candidateBindingStatus": "frozen v1.1.0 tag dc7ebea; actual Android4 core passed with explicit limits; iPhone deferred; no grant/build/upload consumed"
 }
