@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "kind": "human_apple_provider_relation_minimal_fix_approval",
+  "firstObservedAfterApprovalAt": "2026-10-16T06:07:32Z",
+  "approvedAnswer": "두 파일 최소 보정·제한 리뷰·검사 후 병합 승인",
+  "proposalSha256": "5a920b833ac53edcba9f1ce00dd39fb16d803b493142bd7686e93e333cb0875f",
+  "proposedPatchSha256": "99d2cd9e32029e9b9c72417898187c87908a26746c5c2f6b9615bf9b9e6505cf",
+  "codeDiffFiles": [
+    "scripts/release/internal-testflight-bootstrap.mjs",
+    "tests/internal-testflight-bootstrap-provider.test.mjs"
+  ],
+  "claudeToolsAllowed": [],
+  "claudeMcpAllowed": false,
+  "reviewMaximumIncludingAutomaticCopilot": 2,
+  "originalExpiresAt": "2026-10-20T23:16:52.580641Z",
+  "buildUploadLimit": 1,
+  "sourceSha": "dc7ebea858def2a34a7732f6c144ef4e60fb34d3",
+  "releaseTag": "v1.1.0",
+  "newAppleResourcesAllowed": false,
+  "productQaWaived": false
+}
