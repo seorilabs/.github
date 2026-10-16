@@ -97,6 +97,8 @@
 |---|---|---|
 | `before-build`, `before-deploy` | 중앙 빌드·업로드 workflow, Xcode Cloud 훅 | 계획의 개발 환경 실행. 실기기 실행은 아직 없어도 된다 |
 | `before-release` | Play production 승격 workflow, App Store·앱인토스 심사 제출 직전 로컬 실행 | 계획의 모든 실행(실기기 포함)과 하한, 출시 범위(`release.markets`에 대상 마켓, `until`이 `test-track`이 아님) |
+
+Spiritgate의 Mac-only 생략 후 통합 승인 계획(`2026-10-16-native-release-handoff`, 승인 커밋 `cfe7ee914c980f39d8bf6ca062f86eb1912606fe`의 같은 폴더 `design.md`/`test-plan.json` 하나)에 한해, `google-play`/`app-store`의 dev 없는 계획은 `before-build`/`before-deploy` UI3 횟수를 실제 기기 실행과 같은 공개 전 단계로 미룬다. 앞선 승인 계획·원문 조회와 후보 조상 검증을 그대로 통과해야 하며, 다른 repo/새 계획/다른 마켓·단계 또는 `dev` 포함 계획의 기존 조기 UI3 조건은 유지한다. 기록한 회차의 순서·독립성·승인·실패 해결 검사는 어느 단계에서도 생략하지 않는다. 공개 전 UI3·인수조건·TDD·L3·실기기 하한·공개 전체 회귀는 그대로다.
 | `web`·`service`의 `before-deploy` | 공개 배포 workflow | 모든 실행과 출시 범위(테스트 채널이 없다) |
 
 Play의 테스트 트랙 사이 승격은 `before-deploy`, production 승격은 `before-release`로 검사한다. 승격 workflow는 `rollout` 입력(비면 완전 출시 1)을 검증기에 넘기고, 승인된 계획의 비율보다 크면 막는다. 여러 계획이 묶이면 가장 작은 비율이 상한이다. App Store·앱인토스 심사 제출은 중앙 workflow가 하지 않으므로 실행자가 제출 직전에 `--phase before-release`를 실행한다.
@@ -230,3 +232,5 @@ Apple의 단일 archive action은 `INTERNAL_ONLY`여야 한다. 처리된 빌드
 ### 별도 UI10 승인과 만료된 UI9 이력
 
 [UI10 설계](../design/2026-10-16-spiritgate-ui10/design.md)는 정확한10회 사전 승인과 별도 QA 후보·설정을 결속한다. typed historicalUi9는13개 원본과 불변 UI9 승인·입력 인계·늦은 구현 승인을 확인한다. UI9는 원래 cap을 넘긴 종료/최종보고·미완료·0PASS로 유지하며 마지막 실제 입력≤원래 cap, 기한 후 입력0/새Run0과 늦게까지 살아 있던 프로세스의 실제 소유 종료를 구분한다. 과거9의 completedAt은 실제 늦은 finalizedAt이며210분 안 완료로 바꾸지 않는다. 공통4~8과 마지막10의210분, 이전 실패/원문, 마지막 기능/UX·별도90분 E2E·Android 기반4·원래 만료/168시간·한 Cloud/업로드·정확 서명·iPhone·정상v2/L3/공개 조건은 불변이다. UI11·시간 연장·추가 진단은 승인하지 않았고 registry가 비어 있으면 여전히 빌드할 수 없다.
+
+[Mac Editor 생략의 제한 결속](../design/2026-10-16-spiritgate-mac-editor-skip/design.md)은 사용자 직접 선택에 따라 막힌 Editor UI/E2E만 `skipped_incomplete`/`skipped`로 보존한다. 원래 UI10 승인·첫 실패·0PASS·원본6종·source/helper·소유 종료·두 manifest와 별도 Mac skip 승인/현재 후보를 모두 대조한 opt-in 첫 내부1.1.0에만 적용한다. 실제 같은 후보의 Android 기반4 전체 통과가 필요하며 결과 완료시각은 그 실제 Android 완료시각이다. dev 실행 통과나 제품 E2E 통과로 표시하지 않는다. 기존 v1/회차 승인과 실패는 불변이고 새로운 Editor 회차·가드 보정·만료 연장을 허용하지 않는다. 원래1후보/1Cloud/1업로드·168시간·v1 종료·정확 signed artifact·동일 build 검증, `nativeQaWaived=false`·`productE2eStatus=blocked`·`publicReleaseAllowed=false`와 iPhone/정상 v2·L3·독립 UI3·전체 native E2E/공개 검증은 유지한다. 실제 최종 증거 등록 전에는 registry가 비어 있어 빌드할 수 없다.

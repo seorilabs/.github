@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "level": "L1",
+  "baseline": "9e2579f5c8a3f82812fa37b0ff65f09fcdf96fb3",
+  "changedFeatures": [
+    "native-only-early-phase-review-gate",
+    "first-internal-mac-editor-skip-binding"
+  ],
+  "environments": [
+    "dev"
+  ],
+  "redesign": false,
+  "foundationRerun": false,
+  "floorOverrides": [],
+  "release": {
+    "markets": [
+      "service"
+    ],
+    "until": "public"
+  }
+}

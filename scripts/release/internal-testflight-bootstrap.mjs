@@ -19,6 +19,12 @@ const MAX_AGE = 168 * 3600000;
 const ajv = new Ajv2020({allErrors:true});
 const validGrant = ajv.compile(JSON.parse(readFileSync(new URL('../../contracts/internal-testflight-bootstrap-grant.schema.json',import.meta.url))));
 const validDocument = ajv.compile(JSON.parse(readFileSync(new URL('../../contracts/internal-testflight-bootstrap.schema.json',import.meta.url))));
+const legacyEditorSchema=JSON.parse(readFileSync(new URL('../../contracts/development-evidence-v1.schema.json',import.meta.url)));
+// 정적 인수조건·TDD·원래 회차 구조는 재사용하고, 생략한 Editor 실행을 통과로 바꾸지 않는다.
+const validSkippedEditor=ajv.compile({...legacyEditorSchema,$id:'https://github.com/seorilabs/.github/contracts/mac-editor-skip-metadata',
+  required:[...legacyEditorSchema.required,'status'],properties:{...legacyEditorSchema.properties,status:{const:'skipped_incomplete'},
+    e2e:{type:'object',additionalProperties:false,required:['status','environment','reason'],properties:{status:{const:'skipped'},
+      environment:{type:'object',additionalProperties:false,required:['kind'],properties:{kind:{const:'godot-editor'}}},reason:{type:'string',minLength:1}}}}});
 
 export function validateInternalTestflightBootstrapEvidence(document, context) {
   const errors=[];
@@ -50,8 +56,13 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
   reject(context.originalEvidenceVerified === true && sameIds(document.originalObservations?.map(a=>a.sha256),grant.originalObservationAssets?.map(a=>a.sha256)), 'TESTFLIGHT_ORIGINAL_OBSERVATIONS');
   reject(DIGEST.test(context.productTreeSha256 ?? '') && context.productTreeSha256 === grant.productTreeSha256 && context.executionVerified === true,'TESTFLIGHT_PRODUCT_BYTES');
   reject(context.verifierProof?.verified === true && context.verifierProof.reviewedOnCurrentMain === true,'TESTFLIGHT_REVIEWED_VERIFIER');
-  const editor = validateDevelopmentEvidence(document.editor,{...context,featureInventory:inventory,requireUi:true});
-  if (!editor.ok) errors.push(...editor.errors.map(e=>`TESTFLIGHT_EDITOR ${e}`));
+  let macSkip=null;
+  if(grant.macEditorSkip){try{macSkip=validateMacEditorSkipHistory(document,grant,context,inventory,now);}catch(error){return {ok:false,errors:[...new Set([...errors,error.message])]};}}
+  else if(document.macEditorSkip) errors.push('TESTFLIGHT_MAC_SKIP_REVIEWED_APPROVAL_REQUIRED');
+  if(!macSkip){
+    const editor = validateDevelopmentEvidence(document.editor,{...context,featureInventory:inventory,requireUi:true});
+    if (!editor.ok) errors.push(...editor.errors.map(e=>`TESTFLIGHT_EDITOR ${e}`));
+  }
   const approvedUiRounds=grant.approvedUiRounds ?? 4;
   reject(document.editor?.iterations?.length === approvedUiRounds && document.editor?.e2e?.environment?.kind === 'godot-editor','TESTFLIGHT_APPROVED_UI_EDITOR_REQUIRED');
   const last=document.editor?.iterations?.[approvedUiRounds-1];
@@ -98,11 +109,11 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
                   && utc(handoff.sameStartedAt)===utc(round9?.startedAt) && compareBootstrapTimes(round9?.startedAt,handoff.mainDeadlineAt,180*60)===0 && compareBootstrapTimes(round9?.startedAt,handoff.absoluteMaximumAt,210*60)===0
                   && [handoff.mainDeadlineAt,handoff.absoluteMaximumAt].every(value=>utc(value)?.slice(19)===utc(round9?.startedAt)?.slice(19)),'TESTFLIGHT_UI9_HANDOFF_TIME');
               }else{
-                const tenth=validateBootstrapUi10Approval(grant,context.ui10ApprovalBytes,context.ui10ProposalBytes,context.ui10HumanApprovalBytes);
+                const tenth=validateBootstrapUi10Approval(macSkip ? {...grant,sourceSha:macSkip.skippedSourceSha,configurationFingerprint:macSkip.skippedConfigurationFingerprint} : grant,context.ui10ApprovalBytes,context.ui10ProposalBytes,context.ui10HumanApprovalBytes);
                 reject(approvals.some(a=>a.maxRound===10 && a.approvedAt===utc(tenth.approvalRecordedAt) && a.evidence===grant.ui10ApprovalFile),'TESTFLIGHT_UI10_EDITOR_APPROVAL');
                 reject(orderedBootstrapTimes(ninth.historicalRecordedAt,tenth.approvalRecordedAt,last?.plannedAt,last?.startedAt,last?.completedAt,at)
                   && compareBootstrapTimes(last?.startedAt,last?.completedAt,210*60)>=0,'TESTFLIGHT_UI10_APPROVAL_TIME');
-                reject(last?.sourceSha===grant.sourceSha,'TESTFLIGHT_UI10_SOURCE');
+                reject(last?.sourceSha===(macSkip ? macSkip.skippedSourceSha : grant.sourceSha),'TESTFLIGHT_UI10_SOURCE');
               }
             }
           }
@@ -130,19 +141,21 @@ export function validateInternalTestflightBootstrapEvidence(document, context) {
     reject(previous?.ok === true && previous.phase === 'before-build' && previous.decisionStatus === 'human_exception'
       && previous.productE2eStatus === 'blocked' && previous.nativeQaWaived === false && previous.scope === 'internal_testflight_only' && previous.sourceSha === context.sourceSha && previous.buildId === provider?.buildId
       && previous.buildNumber === provider?.buildNumber && previous.configurationFingerprint === context.configurationFingerprint
-      && previous.grantSha256 === context.grantSha256,'TESTFLIGHT_SAME_BUILD_RECEIPT');
+      && previous.grantSha256 === context.grantSha256
+      && (!macSkip || previous.macEditorSkipApprovalSha256===grant.macEditorSkip.approvalSha256 && previous.editorStatus==='skipped_incomplete' && previous.editorE2eStatus==='skipped' && previous.publicReleaseAllowed===false),'TESTFLIGHT_SAME_BUILD_RECEIPT');
   }
   if (errors.length) return {ok:false,errors:[...new Set(errors)]};
   return {ok:true,errors:[],decisionStatus:'human_exception',productE2eStatus:'blocked',scope:'internal_testflight_only',repository:REPO,
     sourceSha:context.sourceSha,target:'app-store',phase:context.phase,configurationFingerprint:context.configurationFingerprint,
-    grantSha256:context.grantSha256,completedAt:document.editor.e2e.completedAt,verifiedAt:new Date(now).toISOString(),
+    grantSha256:context.grantSha256,completedAt:macSkip ? android.completedAt : document.editor.e2e.completedAt,verifiedAt:new Date(now).toISOString(),
     buildId:provider.buildId,buildNumber:provider.buildNumber,androidStatus:'passed',iosStatus:'deferred',nativeQaWaived:false,
     approvedUiRounds,additionalUiApprovalSha256:approvedUiRounds>=5 ? grant.additionalUiApprovalSha256 : null,
     ...(approvedUiRounds>=6 ? {ui6ApprovalSha256:grant.ui6ApprovalSha256} : {}),
     ...(approvedUiRounds>=7 ? {ui7ApprovalSha256:grant.ui7ApprovalSha256} : {}),
     ...(approvedUiRounds>=8 ? {ui8ApprovalSha256:grant.ui8ApprovalSha256} : {}),
     ...(approvedUiRounds>=9 ? {ui9ApprovalSha256:grant.ui9ApprovalSha256} : {}),
-    ...(approvedUiRounds===10 ? {ui10ApprovalSha256:grant.ui10ApprovalSha256} : {})};
+    ...(approvedUiRounds===10 ? {ui10ApprovalSha256:grant.ui10ApprovalSha256} : {}),
+    ...(macSkip ? {editorStatus:'skipped_incomplete',editorE2eStatus:'skipped',macEditorSkipApprovalSha256:grant.macEditorSkip.approvalSha256,publicReleaseAllowed:false,completedAtScope:'actual-android-foundation'} : {})};
 }
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
@@ -159,6 +172,8 @@ const ui9HumanApprovalPath='docs/design/2026-10-16-spiritgate-ui9/human-approval
 const ui9ImplementationApprovalPath='docs/design/2026-10-16-spiritgate-ui9/implementation-approval.json';
 const ui10ProposalPath='docs/design/2026-10-16-spiritgate-ui10/approved-proposal.md';
 const ui10HumanApprovalPath='docs/design/2026-10-16-spiritgate-ui10/human-approval.json';
+const macSkipProposalPath='docs/design/2026-10-16-spiritgate-mac-editor-skip/approved-proposal.md';
+const macSkipHumanApprovalPath='docs/design/2026-10-16-spiritgate-mac-editor-skip/human-approval.json';
 const utc=value=>typeof value==='string' ? value.replace(/\+00:00$/u,'Z') : null;
 // UI9 이후와 그 실패 이력의 순서만 비교하며 Date.parse에 소수부를 넘기지 않는다.
 function bootstrapTime(value){
@@ -177,7 +192,8 @@ function compareBootstrapTimes(left,right,shiftSeconds=0){
   return x===y ? 0 : x<y ? -1 : 1;
 }
 const orderedBootstrapTimes=(...values)=>values.slice(1).every((value,i)=>{const order=compareBootstrapTimes(values[i],value);return order!==null && order<=0;});
-const grantPaths=parse(readFileSync(join(root,policyPath),'utf8')).internalTestflightBootstrap?.grantRegistry ?? [];
+const bootstrapPolicy=parse(readFileSync(join(root,policyPath),'utf8'));
+const grantPaths=bootstrapPolicy.internalTestflightBootstrap?.grantRegistry ?? [];
 const fail=code=>{throw new Error(code);};
 const safePath=path=>typeof path==='string' && /^[A-Za-z0-9._/-]+$/u.test(path) && !path.split('/').includes('..') && !isAbsolute(path);
 const readRemote=async(repository,path,ref,request)=>{
@@ -591,6 +607,80 @@ function validateBootstrapUi10Approval(grant,approvalBytes,proposalBytes,humanBy
   return a;
 }
 
+const macSkipAssets=[
+  ['resultAsset','macSkipResultBytes','final/result.json'],['cleanupAsset','macSkipCleanupBytes','process-cleanup-receipt.json'],
+  ['sourceIntegrityAsset','macSkipSourceIntegrityBytes','final/source-helper-final-verification.json'],['firstFailureAsset','macSkipFirstFailureBytes','inspection/first-native-observe/execution-receipt.json'],
+  ['originalManifestAsset','macSkipOriginalManifestBytes','final/original-artifact-manifest.json'],['deliverableManifestAsset','macSkipDeliverableManifestBytes','final/deliverables-manifest.json'],
+];
+function validateMacEditorSkipApproval(grant,bytes,proposalBytes,humanBytes){
+  if(!Buffer.isBuffer(bytes) || bootstrapDigest(bytes)!==grant.macEditorSkip.approvalSha256) fail('TESTFLIGHT_MAC_SKIP_APPROVAL_CHANGED');
+  let a;try{a=JSON.parse(bytes);}catch{fail('TESTFLIGHT_INVALID_MAC_SKIP_APPROVAL');}
+  if(!a || typeof a!=='object' || Array.isArray(a)) fail('TESTFLIGHT_INVALID_MAC_SKIP_APPROVAL');
+  validateBootstrapApprovalProposal(bytes,proposalBytes);
+  if(!Buffer.isBuffer(humanBytes) || bootstrapDigest(humanBytes)!==a.humanApprovalSha256) fail('TESTFLIGHT_MAC_SKIP_HUMAN_APPROVAL_CHANGED');
+  let human;try{human=JSON.parse(humanBytes);}catch{fail('TESTFLIGHT_INVALID_MAC_SKIP_HUMAN_APPROVAL');}
+  if(!human || typeof human!=='object' || Array.isArray(human) || human.sourceRecordSha256!==a.originalApprovalSha256 || utc(human.approvedAt)!==utc(a.approvalRecordedAt)
+    || human.schemaVersion!==1 || human.kind!=='human_mac_editor_skip_public_minimal_receipt' || human.approvedAnswer!=='막힌 Mac Editor 검수만 생략'
+    || human.newMacEditorRoundAuthorized!==false || human.previousInputGuardAmendmentProposal!=='withdrawn without approval or execution'
+    || human.physicalDeviceQaWaived!==false || human.e2eWaived!==false || human.publicWithoutNativeQaAuthorized!==false) fail('TESTFLIGHT_MAC_SKIP_HUMAN_SCOPE');
+  if(grant.approvedUiRounds!==10 || a.kind!=='human_mac_editor_skip_approval' || a.repository!==REPO || a.version!=='1.1.0' || a.objective!=='first_internal_testflight_mac_editor_skip_only'
+    || a.sourceSha!==grant.sourceSha || a.configurationFingerprint!==grant.configurationFingerprint || !SHA.test(a.skippedSourceSha ?? '') || !DIGEST.test(a.skippedConfigurationFingerprint ?? '')
+    || !DIGEST.test(a.originalApprovalSha256 ?? '') || a.originalTimingApprovalSha256!==grant.approvalSha256 || a.previousUi10ApprovalSha256!==grant.ui10ApprovalSha256
+    || a.originalExpiresAt!==grant.expiresAt || a.editorUiSkipped!==true || a.editorE2eSkipped!==true || a.nativeQaWaived!==false || a.e2eWaived!==false || a.publicReleaseAllowed!==false
+    || a.candidateLimit!==1 || a.buildUploadLimit!==1 || a.maxAgeHours!==168 || a.newEditorRoundAllowed!==false || a.inputGuardCorrectionAllowed!==false
+    || !a.originalObservationSha256 || !sameIds(Object.keys(a.originalObservationSha256),macSkipAssets.map(([asset])=>asset))
+    || !macSkipAssets.every(([asset])=>typeof a.originalObservationSha256[asset]==='string' && DIGEST.test(a.originalObservationSha256[asset]) && a.originalObservationSha256[asset]===grant.macEditorSkip[asset].sha256)) fail('TESTFLIGHT_MAC_SKIP_SCOPE');
+  return a;
+}
+function validateMacEditorSkipHistory(document,grant,context,inventory,now){
+  const a=validateMacEditorSkipApproval(grant,context.macSkipApprovalBytes,context.macSkipProposalBytes,context.macSkipHumanApprovalBytes),objects=[];
+  const editor=document.editor;
+  if(!validSkippedEditor(editor)) fail('TESTFLIGHT_MAC_SKIP_EDITOR_SCHEMA');
+  if(editor.repository!==grant.repository || editor.target!=='app-store' || editor.sourceSha!==grant.sourceSha || editor.productKind!=='ui'
+    || !editor.implementer.trim() || editor.iterations.some(round=>!round.reviewer.trim())) fail('TESTFLIGHT_MAC_SKIP_EDITOR_SCOPE');
+  for(const[asset,key]of macSkipAssets){
+    const bytes=context[key];if(!Buffer.isBuffer(bytes) || bootstrapDigest(bytes)!==grant.macEditorSkip[asset].sha256 || !grant.originalObservationAssets.some(ref=>equal(ref,grant.macEditorSkip[asset]))) fail('TESTFLIGHT_MAC_SKIP_SNAPSHOT_CHANGED');
+    let v;try{v=JSON.parse(bytes);}catch{fail('TESTFLIGHT_INVALID_MAC_SKIP_SNAPSHOT');}
+    if(!v || typeof v!=='object' || Array.isArray(v)) fail('TESTFLIGHT_INVALID_MAC_SKIP_SNAPSHOT');objects.push(v);
+  }
+  const[result,cleanup,integrity,first,original,deliverable]=objects,last=editor.iterations?.[9];
+  if([result,cleanup,integrity,original].some(v=>v.sourceSha!==a.skippedSourceSha) || [result,cleanup,original].some(v=>v.configurationFingerprint!==a.skippedConfigurationFingerprint)
+    || result.round!==10 || result.status!=='USER_REQUESTED_SKIPPED_INCOMPLETE' || result.passed!==false || result.actualRunCount!==1
+    || result.inputCounts?.nativeCgPosts!==0 || result.inputCounts.confirmedProductStartOrButton!==0 || result.inputCounts.fixture!==0 || result.inputCounts.rawRuntimeKeyEvents!==2
+    || !equal(result.functionalCoverage,{pass:0,partial:1,notRun:27,fail:0}) || !equal(result.uxAreaCoverage,{pass:0,partial:1,notRun:167,fail:0}) || result.acceptanceConditionsPassCount!==0
+    || result.productSourceUnexpectedMismatch!==0 || result.helperMismatch!==0 || result.frozenMismatchCount!==0 || result.rawTailsModified!==false || result.noAdditionalQaAfterFailure!==true || result.originalProgressFilesUnmodified!==true
+    || result.firstBinding?.status!=='FAILED' || result.firstBinding.attempts!==1 || result.firstBinding.retries!==0 || result.firstBinding.exitCode!==2 || result.firstBinding.receiptSha256!==grant.macEditorSkip.firstFailureAsset.sha256
+    || first.exitCode!==2 || first.observeAttemptNumber!==1 || first.productInputPosted!==0 || first.retryCount!==0) fail('TESTFLIGHT_MAC_SKIP_ORIGINAL_VERDICT');
+  if(integrity.productCodeSdkRulesBalanceSaveIdentifiersEdited!==false || !equal(integrity.unexpectedProductMismatches,[]) || !equal(integrity.frozenMismatches,[]) || integrity.projectQaConfigurationMatchesFrozen!==true
+    || !Array.isArray(integrity.files) || integrity.files.length!==integrity.trackedFilesChecked || !integrity.files.length || new Set(integrity.files.map(f=>f.path)).size!==integrity.files.length
+    || !integrity.files.every(f=>safePath(f.path) && DIGEST.test(f.sha256 ?? '') && DIGEST.test(f.pristineSha256 ?? '') && (f.declaredQaProjectConfiguration===true ? f.path==='qa-project/project.godot' && f.sha256===integrity.projectQaConfigurationSha256 : f.sha256===f.pristineSha256))
+    || !Array.isArray(integrity.helpers) || !integrity.helpers.length || !integrity.helpers.every(h=>safePath(h.path) && DIGEST.test(h.sha256 ?? '') && h.sha256===h.frozenSha256 && h.matches===true)) fail('TESTFLIGHT_MAC_SKIP_SOURCE_HISTORY');
+  const pids=[result.gamePid,result.editorPid];
+  if(!pids.every(pid=>Number.isSafeInteger(pid) && pid>0) || new Set(pids).size!==2 || cleanup.round!==10 || cleanup.newRuns!==0 || cleanup.inputPosted!==0 || cleanup.firstFailurePreserved!==true || cleanup.forceKill!==false || cleanup.otherAppsTouched!==false || cleanup.productQaPassed!==false
+    || !Array.isArray(cleanup.actions) || !sameIds(cleanup.actions.map(v=>v?.pid),pids)
+    || !cleanup.actions.every(v=>v.action==='SIGTERM' && v.absentAfterWait===true && typeof v.verifiedIdentityRow==='string' && v.verifiedIdentityRow.trim().split(/\s+/u)[0]===String(v.pid) && orderedBootstrapTimes(cleanup.startedAt,v.at,cleanup.finishedAt))
+    || cleanup.actions.find(v=>v.pid===result.gamePid)?.role!=='game' || cleanup.actions.find(v=>v.pid===result.editorPid)?.role!=='editor') fail('TESTFLIGHT_MAC_SKIP_CLEANUP');
+  if(!orderedBootstrapTimes(result.plannedAt,result.startedAt,first.startedAt,first.finishedAt,cleanup.startedAt,cleanup.finishedAt,result.finalizedAt,a.approvalRecordedAt,document.android.plannedAt,context.now)
+    || utc(result.endedAt)!==utc(cleanup.finishedAt) || result.clockResetOrExtension!==false || compareBootstrapTimes(result.startedAt,result.mainDeadlineAt,180*60)!==0 || compareBootstrapTimes(result.startedAt,result.absoluteMaximumAt,210*60)!==0
+    || !orderedBootstrapTimes(result.finalizedAt,result.mainDeadlineAt) || !orderedBootstrapTimes(result.startedAt,integrity.checkedAt,result.finalizedAt)
+    || !(now<Date.parse(bootstrapPolicy.legacyEvidence.acceptedUntil)) || last?.plannedAt!==utc(result.plannedAt) || last?.startedAt!==utc(result.startedAt) || last?.completedAt!==utc(result.finalizedAt)) fail('TESTFLIGHT_MAC_SKIP_TIME');
+  const validManifest=m=>Array.isArray(m.files) && new Set(m.files.map(f=>f.path)).size===m.files.length && m.files.every(f=>safePath(f.path) && DIGEST.test(f.sha256 ?? '') && Number.isSafeInteger(f.bytes) && f.bytes>=0);
+  if(!validManifest(original) || original.filesCount!==original.files.length || !equal(original.unstableDuringHash,[]) || !original.files.every(f=>f.stableDuringHash===true)
+    || !validManifest(deliverable) || deliverable.fileCount!==deliverable.files.length || result.originalManifestSha256!==grant.macEditorSkip.originalManifestAsset.sha256
+    || deliverable.originalsManifestSha256!==grant.macEditorSkip.originalManifestAsset.sha256 || deliverable.resultSha256!==grant.macEditorSkip.resultAsset.sha256
+    || !orderedBootstrapTimes(result.finalizedAt,original.createdAt,deliverable.createdAt,a.approvalRecordedAt)
+    || !macSkipAssets.filter(([asset])=>asset!=='deliverableManifestAsset').every(([asset,key,path])=>{const final=path.startsWith('final/');return(final?deliverable:original).files.some(f=>f.path===(final?path.slice(6):path) && f.sha256===grant.macEditorSkip[asset].sha256 && f.bytes===context[key].length);})) fail('TESTFLIGHT_MAC_SKIP_MANIFEST');
+  const featureIds=inventory.features.map(f=>f.id),coreIds=inventory.features.filter(f=>f.core).map(f=>f.id);
+  if(document.macEditorSkip?.approvalSha256!==grant.macEditorSkip.approvalSha256 || editor.status!=='skipped_incomplete' || editor.e2e?.status!=='skipped' || editor.e2e.completedAt!==undefined
+    || !sameIds(editor.features.map(f=>`${f.id}:${f.core}`),inventory.features.map(f=>`${f.id}:${f.core}`)) || !sameIds(editor.tdd.map(t=>t.acceptanceId),editor.acceptance.map(c=>c.id))
+    || !Array.isArray(editor.iterations) || editor.iterations.length!==10 || !editor.iterations.every((r,i)=>r.number===i+1 && typeof r.reviewer==='string' && r.reviewer.trim().toLowerCase()!==editor.implementer?.trim().toLowerCase()
+      && orderedBootstrapTimes(r.plannedAt,r.startedAt,r.completedAt,context.now) && (i===0 || orderedBootstrapTimes(editor.iterations[i-1].completedAt,r.plannedAt))
+      && ['functional','ux'].every(k=>['passed','failed','blocked'].includes(r[k]?.status) && coreIds.every(id=>r[k].featureIds.includes(id)) && r[k].featureIds.every(id=>featureIds.includes(id)))) || last.functional.status!=='blocked' || last.ux.status!=='blocked') fail('TESTFLIGHT_MAC_SKIP_EDITOR_HISTORY');
+  const firstApproval=editor.additionalIterationApproval;
+  if(!firstApproval || firstApproval.approverKind!=='human' || firstApproval.maxRound!==4 || !orderedBootstrapTimes(firstApproval.approvedAt,editor.iterations[3].plannedAt)) fail('TESTFLIGHT_MAC_SKIP_UI4_APPROVAL');
+  return a;
+}
+
 // 임의 파일 경로를 ID로 바꿔 넘길 수 없다. 중앙 main에서 검토한 등록만 쓴다.
 async function reviewedBootstrap(id,verifierSha,request){
   const path=grantPaths.find(p=>p===`contracts/internal-testflight-bootstrap/${id}.json`);
@@ -608,7 +698,8 @@ async function reviewedBootstrap(id,verifierSha,request){
     ...(grant.approvedUiRounds>=7 ? [grant.ui7ApprovalFile,ui7ProposalPath,ui7HumanApprovalPath] : []),
     ...(grant.approvedUiRounds>=8 ? [grant.ui8ApprovalFile,ui8ProposalPath,ui8HumanApprovalPath] : []),
     ...(grant.approvedUiRounds>=9 ? [grant.ui9ApprovalFile,ui9ProposalPath,ui9HumanApprovalPath] : []),
-    ...(grant.approvedUiRounds===10 ? [grant.ui10ApprovalFile,ui10ProposalPath,ui10HumanApprovalPath,ui9ImplementationApprovalPath] : [])];
+    ...(grant.approvedUiRounds===10 ? [grant.ui10ApprovalFile,ui10ProposalPath,ui10HumanApprovalPath,ui9ImplementationApprovalPath] : []),
+    ...(grant.macEditorSkip ? [grant.macEditorSkip.approvalFile,macSkipProposalPath,macSkipHumanApprovalPath] : [])];
   await Promise.all(sources.map(async path=>{
     const remote=await readRemote('seorilabs/.github',path,verifierSha,request);
     if(!readFileSync(join(root,path)).equals(remote)) fail('TESTFLIGHT_VERIFIER_BYTES_CHANGED');
@@ -674,11 +765,18 @@ async function reviewedBootstrap(id,verifierSha,request){
   if(grant.approvedUiRounds===10){
     const ui10ApprovalBytes=readFileSync(join(root,grant.ui10ApprovalFile)),ui10ProposalBytes=readFileSync(join(root,ui10ProposalPath)),ui10HumanApprovalBytes=readFileSync(join(root,ui10HumanApprovalPath));
     const ui9ImplementationApprovalBytes=readFileSync(join(root,ui9ImplementationApprovalPath));
-    validateBootstrapUi10Approval(grant,ui10ApprovalBytes,ui10ProposalBytes,ui10HumanApprovalBytes);
+    if(!grant.macEditorSkip) validateBootstrapUi10Approval(grant,ui10ApprovalBytes,ui10ProposalBytes,ui10HumanApprovalBytes);
     const [latestApproval,latestProposal,latestHuman,latestImplementation]=await Promise.all([
       readRemote('seorilabs/.github',grant.ui10ApprovalFile,'main',request),readRemote('seorilabs/.github',ui10ProposalPath,'main',request),readRemote('seorilabs/.github',ui10HumanApprovalPath,'main',request),readRemote('seorilabs/.github',ui9ImplementationApprovalPath,'main',request)]);
     if(!ui10ApprovalBytes.equals(latestApproval) || !ui10ProposalBytes.equals(latestProposal) || !ui10HumanApprovalBytes.equals(latestHuman) || !ui9ImplementationApprovalBytes.equals(latestImplementation)) fail('TESTFLIGHT_UI10_REVOKED_OR_CHANGED');
     Object.assign(additionalUi,{ui10ApprovalBytes,ui10ProposalBytes,ui10HumanApprovalBytes,ui9ImplementationApprovalBytes});
+  }
+  if(grant.macEditorSkip){
+    const macSkipApprovalBytes=readFileSync(join(root,grant.macEditorSkip.approvalFile)),macSkipProposalBytes=readFileSync(join(root,macSkipProposalPath)),macSkipHumanApprovalBytes=readFileSync(join(root,macSkipHumanApprovalPath));
+    validateMacEditorSkipApproval(grant,macSkipApprovalBytes,macSkipProposalBytes,macSkipHumanApprovalBytes);
+    const [latestApproval,latestProposal,latestHuman]=await Promise.all([readRemote('seorilabs/.github',grant.macEditorSkip.approvalFile,'main',request),readRemote('seorilabs/.github',macSkipProposalPath,'main',request),readRemote('seorilabs/.github',macSkipHumanApprovalPath,'main',request)]);
+    if(!macSkipApprovalBytes.equals(latestApproval) || !macSkipProposalBytes.equals(latestProposal) || !macSkipHumanApprovalBytes.equals(latestHuman)) fail('TESTFLIGHT_MAC_SKIP_REVOKED_OR_CHANGED');
+    Object.assign(additionalUi,{macSkipApprovalBytes,macSkipProposalBytes,macSkipHumanApprovalBytes});
   }
   return {grant,approvalBytes,...additionalUi,grantSha256:bootstrapDigest(bytes),verifierProof:{verified:true,revision:verifierSha,reviewedOnCurrentMain:true}};
 }
@@ -804,7 +902,8 @@ export async function verifyInternalTestflightBootstrap(options){
   const providerProof=await bootstrapProvider(grant,env,request.fetchImpl);
   const historicalUi9=grant.approvedUiRounds===10 ? Object.fromEntries(ui9HistoricalAssets
     .map(([asset,key])=>[key,originalBytes[grant.originalObservationAssets.findIndex(a=>equal(a,grant.historicalUi9[asset]))]])) : {};
-  const context={...options,...reviewed,...tree,...historicalUi5,...historicalUi6,...historicalUi7,...historicalUi8,...historicalUi9,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof,now:new Date().toISOString()};
+  const macSkippedOriginals=grant.macEditorSkip ? Object.fromEntries(macSkipAssets.map(([asset,key])=>[key,originalBytes[grant.originalObservationAssets.findIndex(ref=>equal(ref,grant.macEditorSkip[asset]))]])) : {};
+  const context={...options,...reviewed,...tree,...historicalUi5,...historicalUi6,...historicalUi7,...historicalUi8,...historicalUi9,...macSkippedOriginals,inventoryBytes,evidenceBytes,originalEvidenceVerified:true,providerProof,now:new Date().toISOString()};
   // Signed artifact and prior phase receipt are required by the before-deploy validator.
   if(options.phase==='before-deploy'){
     if(!options.artifactFile || !options.artifactReceipt) fail('TESTFLIGHT_ACTUAL_ARTIFACT_REQUIRED');
