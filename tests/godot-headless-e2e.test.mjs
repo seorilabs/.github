@@ -90,11 +90,26 @@ test('AC-4 a central default platform path raises every platform feature to the 
 });
 test('AC-4 without platform features the core features take the device floor', () => {
   const features = inventoryV2().features.map(({ platformPaths, ...feature }) => feature);
-  const errors = errorsOf(evidence({ runs: [devRun(['settings'])] }), commonChange({ features }));
+  const ctx = commonChange({ features });
+  ctx.baselineInventories = { 'v1.0.0': inventoryV2({ features }) };
+  const errors = errorsOf(evidence({ runs: [devRun(['settings'])] }), ctx);
   assert.deepEqual(errors, ['TEST_LEVEL_BELOW_FLOOR platform create android', 'TEST_LEVEL_BELOW_FLOOR platform purchase android', 'TEST_LEVEL_BELOW_FLOOR platform store android']);
 });
-test('AC-4 the inventory platformPaths replace the central defaults', () => {
-  assert.deepEqual(errorsOf(evidence({ runs: [devRun(['settings'])] }), commonChange({ platformPaths: ['native/**'] })), []);
+test('AC-4 the inventory platformPaths replace the central defaults once the baseline has them too', () => {
+  const ctx = commonChange({ platformPaths: ['native/**'] });
+  ctx.baselineInventories = { 'v1.0.0': inventoryV2({ platformPaths: ['native/**'] }) };
+  assert.deepEqual(errorsOf(evidence({ runs: [devRun(['settings'])] }), ctx), []);
+});
+// 리뷰 반영: 후보에서 플랫폼 경로를 지우거나 좁혀도 기준 태그의 경로로 바뀐 파일을 판정한다.
+test('AC-4 removing a feature platformPaths in the candidate keeps the baseline mapping', () => {
+  const features = inventoryV2().features.map(f => f.id === 'purchase' ? { ...f, platformPaths: undefined } : f).map(f => JSON.parse(JSON.stringify(f)));
+  const ctx = v2({}, { featureInventory: inventoryV2({ features }), phase: 'before-release',
+    changes: { 'v1.0.0': ['src/settings/screen.ts', 'src/purchase/native/billing.gd'] } });
+  assert.deepEqual(errorsOf(evidence({ runs: [devRun(['settings', 'purchase'])] }), ctx), ['TEST_LEVEL_BELOW_FLOOR platform purchase android']);
+});
+test('AC-4 narrowing the common platformPaths in the candidate keeps the baseline paths', () => {
+  const errors = errorsOf(evidence({ runs: [devRun(['settings'])] }), commonChange({ platformPaths: ['native/**'] }));
+  assert.deepEqual(errors, ['TEST_LEVEL_BELOW_FLOOR platform ads android', 'TEST_LEVEL_BELOW_FLOOR platform purchase android']);
 });
 test('AC-4 each common platform feature can be lowered by its own override', () => {
   const ctx = commonChange({}, { floorOverrides: [{ rule: 'platform', featureId: 'ads', reason: '광고 미변경' }] });
@@ -117,6 +132,10 @@ test('AC-5 an unreadable baseline inventory treats every platform feature as new
   const ctx = v2({}, { phase: 'before-release', baselineInventories: { 'v1.0.0': null } });
   assert.deepEqual(errorsOf(evidence(), ctx), ['TEST_LEVEL_BELOW_FLOOR platform-first ads android', 'TEST_LEVEL_BELOW_FLOOR platform-first purchase android']);
   assert.deepEqual(errorsOf(evidence({ runs: [devRun(['settings']), device(['purchase', 'ads'])] }), ctx), []);
+});
+test('AC-5 a malformed baseline inventory is treated as unreadable', () => {
+  const ctx = v2({ floorOverrides: lowerAll }, { phase: 'before-release', baselineInventories: { 'v1.0.0': { schemaVersion: 999, features: [{ id: 'purchase' }, { id: 'ads' }] } } });
+  assert.deepEqual(errorsOf(evidence(), ctx), ['TEST_LEVEL_BELOW_FLOOR platform-first ads android', 'TEST_LEVEL_BELOW_FLOOR platform-first purchase android']);
 });
 test('AC-5 an existing platform feature from a v1 baseline inventory is not new', () => {
   const ctx = v2({}, { phase: 'before-release', baselineInventories: { 'v1.0.0': inventory() } });
@@ -234,9 +253,11 @@ test('Release verifier reads the CI run and the baseline inventory for a v2 inve
   assert.ok(api.calls.some(url => url.endsWith('/repos/seorilabs/example/actions/runs/123456789')));
   assert.ok(api.calls.some(url => url.includes('/contents/docs/qa/feature-inventory.json?ref=v1.0.0')));
 });
-test('Release verifier reports a missing CI run as unverified', async () => {
-  await assert.rejects(verify(fakeGitHub({ document: evidence({ runs: [ciE2e()] }), runStatus: 404 })), /CI_RUN_UNVERIFIED e2e-ci/u);
-});
+for (const runStatus of [404, 403, 500]) {
+  test(`Release verifier reports a CI run readback ${runStatus} as unverified`, async () => {
+    await assert.rejects(verify(fakeGitHub({ document: evidence({ runs: [ciE2e()] }), runStatus })), /CI_RUN_UNVERIFIED e2e-ci/u);
+  });
+}
 test('Release verifier treats a missing baseline inventory as new platform features', async () => {
   const document = evidence({ runs: [ciE2e()] });
   await assert.rejects(verify(fakeGitHub({ document, baselineInventory: null })), /TEST_LEVEL_BELOW_FLOOR platform-first purchase android/u);

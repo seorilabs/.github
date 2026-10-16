@@ -89,7 +89,7 @@
 
 | 필드 | 뜻 |
 |---|---|
-| `e2e.workflow` | 후보 SHA의 headless E2E를 돌리는 `.github/workflows/*.yml`. 필수. [CI 실행](#ci-실행) 확인에 쓴다 |
+| `e2e.workflow` | 게임 저장소에서 후보 SHA의 headless E2E를 돌리는 workflow 파일(중앙 재사용 workflow를 부르는 caller, 예: `.github/workflows/godot-checks.yml`). 필수. [CI 실행](#ci-실행) 확인에 쓴다 |
 | `e2e.command` | 선택. 로컬·CI에서 쓰는 명령(예: `npm run test:e2e`) |
 | `features[].platformPaths` | 바뀌면 그 기능을 실기기에서 실행해야 하는 경로(네이티브 플러그인, SDK 호출 구현). 대체 구현 뒤의 게임 로직·화면은 넣지 않는다 |
 | 최상위 `platformPaths` | 바뀌면 플랫폼 기능 전체(없으면 핵심 기능)를 실기기에서 실행. 생략하면 [중앙 기본값](../../contracts/development-workflow.yaml)의 `defaultPlatformPaths` |
@@ -103,11 +103,11 @@
 | `baseline: null`(첫 출시·새 마켓) | 전체 회귀 + `platformPaths`가 있는 기능 전체를 실기기에서 실행 | 낮출 수 없음(`platform-first`) |
 | 기준 태그의 기능 목록에 없던 기능의 `platformPaths` | 그 기능을 실기기에서 실행 | 낮출 수 없음(`platform-first`) |
 
-기준 태그의 기능 목록을 읽을 수 없으면 모든 플랫폼 기능을 새 기능으로 본다. 엔진 업그레이드는 경로로 다 잡히지 않으므로 설계에서 L3와 `android`(필요하면 `ios`)로 계획한다. `{rule: "platform"}`은 v1에서, `{rule: "foundation"}`은 v2에서 계획 오류다.
+바뀐 파일은 후보와 기준 태그의 플랫폼 경로(기능별·최상위)를 합쳐 판정한다. 후보에서 경로를 지우거나 좁혀도 그 릴리스의 하한은 줄지 않는다. 기준 태그의 기능 목록을 읽을 수 없거나 형식이 맞지 않으면 모든 플랫폼 기능을 새 기능으로 보고 중앙 기본 경로를 더한다. 엔진 업그레이드는 경로로 다 잡히지 않으므로 설계에서 L3와 `android`(필요하면 `ios`)로 계획한다. `{rule: "platform"}`은 v1에서, `{rule: "foundation"}`은 v2에서 계획 오류다.
 
 ### CI 실행
 
-`executor: "ci"` 실행은 `ciRun.url`(`https://github.com/<owner>/<repo>/actions/runs/<id>`, 선택 `/attempts/<n>`)이 필수이고 개발 환경 종류만 쓴다. 검증기는 GitHub API로 같은 저장소, `head_sha` = 후보 SHA, `completed`·`success`, workflow 경로 = 기능 목록 `e2e.workflow`를 확인한다. 확인된 CI 실행은 구현자와 다른 실행자로 보며 168시간 기한은 API의 `updated_at`으로 잰다. 로컬 `--file` 검증도 `GH_TOKEN`·`GITHUB_TOKEN`으로 조회하고, 토큰이 없으면 통과시키지 않는다. 실기기 실행의 독립 실행자 규칙은 그대로다.
+`executor: "ci"` 실행은 `ciRun.url`(`https://github.com/<owner>/<repo>/actions/runs/<id>`, 선택 `/attempts/<n>`)이 필수이고 개발 환경 종류만 쓴다. 검증기는 GitHub API로 같은 저장소, `head_sha` = 후보 SHA, `completed`·`success`, workflow 경로 = 기능 목록 `e2e.workflow`를 확인한다. 확인된 CI 실행은 구현자와 다른 실행자로 보며 168시간 기한은 API의 `updated_at`으로 잰다. 로컬 `--file` 검증도 `GH_TOKEN`·`GITHUB_TOKEN`으로 조회한다. 토큰이 없거나 조회에 실패하면(404·403·5xx 등) `CI_RUN_UNVERIFIED`로 통과시키지 않는다. 실기기 실행의 독립 실행자 규칙은 그대로다.
 
 중앙 `godot-checks.yml`에 `check_command`(예: `npm run test:e2e`)와 `e2e_report_path`(예: `build/e2e`)를 주면 결과를 `headless-e2e-<sha>` artifact로 조직 보존 기간(3일) 동안 둔다. 시나리오는 그 `journey.json`에서 옮겨 적고, 증거 링크는 CI 실행 URL로 남긴다. artifact가 지워진 뒤에도 실행 확인은 API로 한다.
 

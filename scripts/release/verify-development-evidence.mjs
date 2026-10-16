@@ -304,7 +304,8 @@ async function readRemoteContext(document, repository, sourceSha, request, inven
   return { baselines, plans, changes, baselineInventories };
 }
 
-// CI 실행은 로컬 검증에서도 API로 확인한다. 토큰이 없거나 실행이 없으면(404) 확인 못 한 실행으로 남겨 통과시키지 않는다.
+// CI 실행은 로컬 검증에서도 API로 확인한다. 토큰이 없거나 조회에 실패하면(404·403·5xx·네트워크) 확인 못 한 실행으로
+// 남겨 CI_RUN_UNVERIFIED로 실패시킨다. 통과로 넘기지 않는다.
 async function readCiRuns(document, request) {
   const ciRuns = {};
   const urls = ciRunUrls(document);
@@ -312,7 +313,7 @@ async function readCiRuns(document, request) {
   try { resolveToken(request.token, request.env); } catch { return ciRuns; }
   for (const url of urls) {
     const [, repository, id, attempt] = url.match(CI_RUN_URL);
-    const run = await githubJson(`/repos/${repository}/actions/runs/${id}${attempt ? `/attempts/${attempt}` : ''}`, request).catch(unlessMissing);
+    const run = await githubJson(`/repos/${repository}/actions/runs/${id}${attempt ? `/attempts/${attempt}` : ''}`, request).catch(() => null);
     if (run) ciRuns[url] = run;
   }
   return ciRuns;

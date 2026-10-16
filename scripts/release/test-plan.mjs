@@ -118,14 +118,22 @@ function foundationFloor({ merged, inventory, touched }) {
 }
 
 // 첫 출시와 기준 태그에 없던 플랫폼 기능(결제·로그인을 처음 붙이는 경우 등)은 승인된 낮춤이 있어도 실기기에서 실행한다.
+// 후보에서 플랫폼 경로를 지우거나 좁혀도 하한을 피하지 못하게, 바뀐 파일은 후보와 기준 태그의 플랫폼 경로를 합쳐 판정한다.
+// 형식이 맞지 않거나 읽을 수 없는 기준 기능 목록은 없는 것으로 보고 중앙 기본 경로를 더한다.
 function platformFloor({ merged, inventory, files, hits, firstRelease, baselineInventories }) {
-  const platformFeatures = inventory.features.filter(f => Array.isArray(f.platformPaths)).map(f => f.id);
-  const commonPaths = Array.isArray(inventory.platformPaths) ? inventory.platformPaths : policy.floors.defaultPlatformPaths;
-  const common = files.some(file => commonPaths.some(p => touches(file, p)));
-  const raised = new Set(inventory.features.filter(f => hits(f.platformPaths)).map(f => f.id));
-  if (common) for (const id of platformFeatures.length > 0 ? platformFeatures : inventory.features.filter(f => f.core).map(f => f.id)) raised.add(id);
-  const known = merged.baselines.filter(baseline => baseline !== null).map(baseline => baselineInventories?.[baseline]);
-  const isNew = id => firstRelease || known.some(base => !Array.isArray(base?.features) || !base.features.some(f => f?.id === id));
+  const bases = merged.baselines.filter(baseline => baseline !== null).map(baseline => baselineInventories?.[baseline]);
+  const readable = bases.filter(validInventory);
+  const unreadable = readable.length !== bases.length;
+  const ownPaths = (source, id) => source.features.find(f => f.id === id)?.platformPaths ?? [];
+  const platformPathsOf = id => [inventory, ...readable].flatMap(source => ownPaths(source, id));
+  const commonOf = source => (source.schemaVersion === 2 && Array.isArray(source.platformPaths) ? source.platformPaths : policy.floors.defaultPlatformPaths);
+  const commonPaths = [...new Set([...[inventory, ...readable].flatMap(commonOf), ...(unreadable ? policy.floors.defaultPlatformPaths : [])])];
+  const platformFeatures = inventory.features.map(f => f.id).filter(id => platformPathsOf(id).length > 0);
+  const raised = new Set(platformFeatures.filter(id => hits(platformPathsOf(id))));
+  if (files.some(file => commonPaths.some(p => touches(file, p)))) {
+    for (const id of platformFeatures.length > 0 ? platformFeatures : inventory.features.filter(f => f.core).map(f => f.id)) raised.add(id);
+  }
+  const isNew = id => firstRelease || unreadable || readable.some(base => !base.features.some(f => f.id === id));
   const first = new Set(platformFeatures.filter(isNew));
   const floor = [...first].map(featureId => ({ featureId, rule: 'platform-first' }));
   for (const featureId of raised) if (!first.has(featureId) && !merged.platformOverrides.includes(featureId)) floor.push({ featureId, rule: 'platform' });
