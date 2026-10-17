@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { parse } from "yaml";
 
 const workflowPath = new URL("../.github/workflows/promote-google-play.yml", import.meta.url);
 
@@ -48,4 +49,12 @@ test("Google Play 트랙 승격은 공개 여부로 라우팅한 러너에서 �
   assert.match(workflow, /closed_test_group_email:/);
   assert.match(workflow, /- name: Configure closed-test group[\s\S]*?manage-google-play-testers\.py[\s\S]*?--apply/);
   assert.match(workflow, /if: inputs\.closed_test_group_email != ''/);
+});
+
+// 검증기는 같은 저장소 Actions run을 API로 재조회한다. 명시적 permissions에 없으면 none이다.
+test("출시 근거의 실제 CI 조회에 필요한 Actions 읽기 권한을 보존한다", async () => {
+  const workflow = parse(await readFile(workflowPath, "utf8"));
+  assert.equal(workflow.permissions.actions, "read");
+  assert.equal(workflow.permissions.contents, "read");
+  assert.equal(workflow.permissions["id-token"], "write");
 });
