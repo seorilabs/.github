@@ -388,16 +388,16 @@
           }
         },
         "platformPaths": {
-          "const": "device-run-on-target-market-platform"
+          "const": "device-run-or-approved-real-native-development-on-target-market-platform"
         },
         "commonPlatformPaths": {
-          "const": "device-run-of-platform-features-or-core"
+          "const": "device-or-approved-real-native-development-of-platform-features-or-core"
         },
         "newPlatformFeature": {
-          "const": "device-run-not-overridable"
+          "const": "device-or-approved-real-native-development-not-waivable"
         },
         "firstReleasePlatform": {
-          "const": "device-run-of-platform-features-not-overridable"
+          "const": "device-or-approved-real-native-development-of-platform-features-not-waivable"
         },
         "regressionPaths": {
           "const": "full-regression-in-planned-environments"

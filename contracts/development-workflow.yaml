@@ -83,9 +83,9 @@ floors:
     v1: foundation-paths-raise-device-floor
     v2: platform-paths-raise-device-floor-e2e-workflow-required
   platformPaths: device-run-or-approved-real-native-development-on-target-market-platform
-  commonPlatformPaths: device-run-of-platform-features-or-core
-  newPlatformFeature: device-run-not-overridable
-  firstReleasePlatform: device-run-of-platform-features-not-overridable
+  commonPlatformPaths: device-or-approved-real-native-development-of-platform-features-or-core
+  newPlatformFeature: device-or-approved-real-native-development-not-waivable
+  firstReleasePlatform: device-or-approved-real-native-development-of-platform-features-not-waivable
   regressionPaths: full-regression-in-planned-environments
   unknownDiff: full-regression
   firstRelease: full-regression-not-overridable
