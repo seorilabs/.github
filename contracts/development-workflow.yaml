@@ -82,7 +82,7 @@ floors:
   inventoryVersions:
     v1: foundation-paths-raise-device-floor
     v2: platform-paths-raise-device-floor-e2e-workflow-required
-  platformPaths: device-run-on-target-market-platform
+  platformPaths: device-run-or-approved-real-native-development-on-target-market-platform
   commonPlatformPaths: device-run-of-platform-features-or-core
   newPlatformFeature: device-run-not-overridable
   firstReleasePlatform: device-run-of-platform-features-not-overridable

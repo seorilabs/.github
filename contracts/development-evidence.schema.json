@@ -363,6 +363,51 @@
                 }
               }
             }
+          },
+          "nativeSdk": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "mode",
+              "runtime",
+              "sdkNames",
+              "artifact",
+              "limitations"
+            ],
+            "properties": {
+              "mode": {
+                "const": "real"
+              },
+              "runtime": {
+                "enum": [
+                  "ios-simulator",
+                  "android-emulator"
+                ]
+              },
+              "sdkNames": {
+                "$ref": "#/$defs/evidence"
+              },
+              "artifact": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "properties": {
+                  "path": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              },
+              "limitations": {
+                "$ref": "#/$defs/text"
+              }
+            }
           }
         },
         "allOf": [
@@ -390,11 +435,43 @@
               ]
             },
             "else": {
-              "properties": {
-                "target": false,
-                "device": false,
-                "build": false,
-                "configurationFingerprint": false
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "native-development"
+                  },
+                  "nativeSdk": true
+                },
+                "required": [
+                  "nativeSdk"
+                ]
+              },
+              "then": {
+                "required": [
+                  "target",
+                  "build",
+                  "configurationFingerprint"
+                ],
+                "properties": {
+                  "device": false,
+                  "executor": {
+                    "not": {
+                      "const": "ci"
+                    }
+                  },
+                  "target": true,
+                  "build": true,
+                  "configurationFingerprint": true
+                }
+              },
+              "else": {
+                "properties": {
+                  "target": false,
+                  "device": false,
+                  "build": false,
+                  "configurationFingerprint": false,
+                  "nativeSdk": false
+                }
               }
             }
           },
@@ -420,6 +497,23 @@
             "else": {
               "properties": {
                 "ciRun": false
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "nativeSdk"
+              ],
+              "properties": {
+                "nativeSdk": true
+              }
+            },
+            "then": {
+              "properties": {
+                "kind": {
+                  "const": "native-development"
+                }
               }
             }
           }

@@ -51,7 +51,7 @@
 |---|---|---|
 | 기능의 `paths` | 그 기능을 계획한 환경에서 실행 대상에 추가 | 해당 없음 |
 | 기능 목록 v1: 기반 기능(`foundation: true`)의 `paths`, 또는 `changedFeatures`의 기반 기능 | 그 기능을 **검증 중인 마켓 플랫폼의 실기기**에서 실행(L2) | `{rule: "foundation", featureId}` |
-| 기능 목록 v2: 기능의 `platformPaths`, 최상위 `platformPaths`, 첫 출시, 새 플랫폼 기능 | [Godot headless E2E와 플랫폼 경로](#godot-headless-e2e와-플랫폼-경로) | `{rule: "platform", featureId}`. 첫 출시·새 플랫폼 기능은 낮출 수 없음 |
+| 기능 목록 v2: 기능의 `platformPaths`, 최상위 `platformPaths`, 첫 출시, 새 플랫폼 기능 | [Godot headless E2E와 플랫폼 경로](#godot-headless-e2e와-플랫폼-경로) | `{rule: "platform", featureId}`. 첫 출시·새 플랫폼 기능의 하한을 면제할 수 없음. 아래 실제 SDK 개발 검수로 충족 가능 |
 | `regressionPaths`(기능 목록에 없으면 [중앙 기본값](../../contracts/development-workflow.yaml)의 엔진·export·플러그인·네이티브 빌드 설정·잠금 파일) | 계획한 환경마다 전체 회귀(L3) | `{rule: "regression"}` |
 | 비교 불가(기준이 후보의 조상이 아님, 300개 이상, 조회 불가) 또는 `baseline: null` | 전체 회귀(L3) | `{rule: "regression"}`. 첫 출시는 낮출 수 없음 |
 | `redesign: true` | L3·3회 검수 | 낮출 수 없음 |
@@ -104,6 +104,16 @@
 | 기준 태그의 기능 목록에 없던 기능의 `platformPaths` | 그 기능을 실기기에서 실행 | 낮출 수 없음(`platform-first`) |
 
 바뀐 파일은 후보와 기준 태그의 플랫폼 경로(기능별·최상위)를 합쳐 판정한다. 후보에서 경로를 지우거나 좁혀도 그 릴리스의 하한은 줄지 않는다. 기준 태그의 기능 목록을 읽을 수 없거나 형식이 맞지 않으면 모든 플랫폼 기능을 새 기능으로 보고 중앙 기본 경로를 더한다. 엔진 업그레이드는 경로로 다 잡히지 않으므로 설계에서 L3와 `android`(필요하면 `ios`)로 계획한다. `{rule: "platform"}`은 v1에서, `{rule: "foundation"}`은 v2에서 계획 오류다.
+
+### 실제 SDK를 사용하는 네이티브 개발 검수
+
+[승인 설계](../design/2026-10-18-native-development-validation/design.md). 기능 목록 v2의 플랫폼 하한은 기기 사용 허가가 아니다. 개발 환경으로 확인할 수 없는 필수 항목이 있을 때만 별도로 소명·승인받아 기기를 사용한다. 개발 환경으로 충분하면 아래의 승인된 실제 SDK 실행으로 하한을 충족할 수 있다. 일반 headless·단위 테스트로 플랫폼 하한을 면제하지 않는다.
+
+승인 `test-plan.json`의 선택 배열 `platformValidation`에 `{featureId, target, kind: "native-development", reason, checks: ["sdk-completion", "server-delivery"]}`를 적는다. 해당 기능에 `platformPaths`가 있고 그 마켓과 dev 환경이 계획에 있어야 한다. 모든 결속 설계에 같은 기능·마켓의 승인이 있어야 하며 `checks`는 합집합으로 검사한다.
+
+실제 실행의 kind는 `native-development`다. `nativeSdk`에 `mode: "real"`, `runtime: "ios-simulator" | "android-emulator"`, `sdkNames`, `artifact: {path, sha256}`, `limitations`를 적고 실행의 `target`·`build`·`configurationFingerprint`도 필수로 남긴다. 대역 SDK는 인정하지 않으며 실제 SDK 실행 로그·산출물과 대조한다. 같은 후보 SHA·168시간·설정 지문·독립 실행자 조건과 하나의 실행 안의 필수 시나리오 ID·기능 커버리지를 검사한다. nativeSdk 실행은 현재 headless CI 인증 경로로 독립 실행을 주장할 수 없다(`executor: ci` 불가).
+
+이 경로는 일반 platform 하한과 첫 플랫폼 기능의 platform-first 하한을 **충족**하는 방법이다. 승인 없는 생략이나 `floorOverrides`로 platform-first를 면제하는 것은 여전히 금지한다. 계획의 android/ios 환경을 적은 경우의 전체 실행 요구도 바꾸지 않는다. App Attest·하드웨어 반응 등 실제 기기에서만 확인할 수 있는 필수 항목은 이 대체 목록에 넣지 않는다. 다른 마켓·플랫폼의 실행, 누락·미실행·차단은 통과가 아니다.
 
 ### CI 실행
 
@@ -228,7 +238,7 @@ node scripts/release/verify-development-evidence.mjs \
 | `TEST_LEVEL_BELOW_FLOOR <rule> <feature> <env>` | 바뀐 파일로 올라간 하한을 실행이 채우지 못했고 승인된 낮춤도 없음. 실행을 더하면 된다 |
 | `RUN_EXPIRED`, `RUN_CANDIDATE_MISMATCH`, `EXECUTION_ORDER` | 168시간 초과, 다른 SHA, 시각 순서 오류 |
 | `INDEPENDENT_RUN_REQUIRED <run>` | L2 실기기 실행 또는 L3 실행을 구현자가 함 |
-| `TEST_LEVEL_BELOW_FLOOR platform <feature> <env>` / `platform-first …` | v2 플랫폼 경로 하한을 채우지 못함. `platform-first`는 첫 출시·새 플랫폼 기능이라 낮출 수 없음 |
+| `TEST_LEVEL_BELOW_FLOOR platform <feature> <env>` / `platform-first …` | v2 플랫폼 경로 하한을 채우지 못함. `platform-first`는 첫 출시·새 플랫폼 기능이라 면제할 수 없음. 승인된 실제 SDK 개발 검수로 충족 가능 |
 | `CI_RUN_UNVERIFIED`·`CI_RUN_MISMATCH`·`CI_RUN_NOT_SUCCESSFUL`·`CI_RUN_WORKFLOW`·`CI_RUN_KIND <run>` | CI 실행을 조회하지 못함·다른 저장소나 SHA·성공 아님·기능 목록의 E2E workflow가 아님·실기기 종류 |
 | `RELEASE_NOT_AUTHORIZED` | 대상 마켓이 계획에 없음, 끝 지점이 `test-track`, Play 승격 비율이 승인한 `release.rollout`(생략 시 1)보다 큼 |
 | `TEST_PLAN_DESIGN_MISMATCH <design>` | `testPlan`이 그 설계 문서와 같은 `docs/design/<id>/` 폴더에 있지 않음 |
