@@ -56,6 +56,8 @@
 | 비교 불가(기준이 후보의 조상이 아님, 300개 이상, 조회 불가) 또는 `baseline: null` | 전체 회귀(L3) | `{rule: "regression"}`. 첫 출시는 낮출 수 없음 |
 | `redesign: true` | L3·3회 검수 | 낮출 수 없음 |
 
+또한 v1 기반 기능 하한도 다른 마켓의 기기 실행으로 채울 수 없다. 이 대상 마켓 검사를 제외한 기존 계획 판정은 유지한다.
+
 플랫폼 연결: `google-play`→Android, `app-store`→iOS, `apps-in-toss`→Android 또는 iOS 중 하나, `web`·`service`→실기기 없음.
 
 착수 뒤 예상하지 못한 경로를 건드려 하한이 올라가면 **사람에게 묻지 않고** 그 실행을 더한다. 계획 파일은 바꾸지 않는다. 검증기는 실제 실행이 하한을 채우면 통과시킨다. 반대로 계획보다 테스트를 줄이려면 설계를 다시 승인받는다.
@@ -114,6 +116,8 @@
 실제 실행의 kind는 `native-development`다. `nativeSdk`에 `mode: "real"`, `runtime: "ios-simulator" | "android-emulator"`, `sdkNames`, `artifact: {path, sha256}`, `limitations`를 적고 실행의 `target`·`build`·`configurationFingerprint`도 필수로 남긴다. 대역 SDK는 인정하지 않으며 실제 SDK 실행 로그·산출물과 대조한다. 같은 후보 SHA·168시간·설정 지문·독립 실행자 조건과 하나의 실행 안의 필수 시나리오 ID·기능 커버리지를 검사한다. nativeSdk 실행은 현재 headless CI 인증 경로로 독립 실행을 주장할 수 없다(`executor: ci` 불가).
 
 이 경로는 일반 platform 하한과 첫 플랫폼 기능의 platform-first 하한을 **충족**하는 방법이다. 승인 없는 생략이나 `floorOverrides`로 platform-first를 면제하는 것은 여전히 금지한다. 계획의 android/ios 환경을 적은 경우의 전체 실행 요구도 바꾸지 않는다. App Attest·하드웨어 반응 등 실제 기기에서만 확인할 수 있는 필수 항목은 이 대체 목록에 넣지 않는다. 다른 마켓·플랫폼의 실행, 누락·미실행·차단은 통과가 아니다.
+
+승인 계획의 `configurationFingerprint`는 실제 출시 설정 파일과 값을 기준으로 계산해 승인 시 고정한다. 실제 SDK 실행의 지문은 CLI 지문 인자가 없어도 이 승인 지문과 항상 같아야 한다. 여러 설계의 승인 지문이 다르면 대체 검수를 인정하지 않는다. 파생 빌드에서 제외한 플러그인 등은 limitations로 별도 명시하며 승인된 광고/서버 설정을 바꾸지 않는다. 후보에서 해당 기능의 platformPaths를 제거하면 기존 대체 검수 계획은 무효이며 새 계획 검토가 필요하다.
 
 ### CI 실행
 
@@ -303,5 +307,3 @@ Apple의 단일 archive action은 `INTERNAL_ONLY`여야 한다. 처리된 빌드
 ### 첫 내부 Spiritgate 1.1.0 실제 등록
 
 [별도 승인된 최소 보정](../design/2026-10-16-spiritgate-failed-history-grant/design.md)으로 `spiritgate-1.1.0-first-internal` 한 grant를 `contracts/development-workflow.yaml`의 `grantRegistry`에 등록했다. 위 단계별 문서의 빈 registry 조건은 등록 전 상태를 설명한다. 이 등록은 고정 dc7ebea/v1.1.0과 원래 만료·한 Cloud/한 업로드, 기존 production 서명, 원문94개와 정정 집계 해시에 한정한다. 실패 UI6의 분리 창→내장 창 이력은 Mac skip 및 기능·UX 모두 failed일 때만 대조하며 원래 실패를 통과로 승격하지 않는다. 실제 reviewed main과 Cloud 실행·산출물·서명·TestFlight 상태 검사가 별도로 필요하고, iPhone·정상v2/L3·E2E·공개 검증은 면제되지 않는다. registry의 JSON 경로 배열은 기존 schema의 pattern/uniqueItems로 검증하며 schema를 확장하지 않는다.
-
-승인 계획의 `configurationFingerprint`는 실제 출시 설정 파일과 값을 기준으로 계산해 승인 시 고정한다. 실제 SDK 실행의 지문은 CLI 지문 인자가 없어도 이 승인 지문과 항상 같아야 한다. 여러 설계의 승인 지문이 다르면 대체 검수를 인정하지 않는다. 파생 빌드에서 제외한 플러그인 등은 limitations로 별도 명시하며 승인된 광고/서버 설정을 바꾸지 않는다. 후보에서 해당 기능의 platformPaths를 제거하면 기존 대체 검수 계획은 무효이며 새 계획 검토가 필요하다. 또한 v1 기반 기능 하한도 다른 마켓의 기기 실행으로 채울 수 없다. 이 대상 마켓 검사를 제외한 기존 계획 판정은 유지한다.
