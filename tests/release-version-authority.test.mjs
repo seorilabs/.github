@@ -1961,6 +1961,8 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   // public 저장소는 ARC(allows_public_repositories=false)를 잡지 못해 job이 영구 pending 된다.
   const visibilityRoutedRunner =
     "${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || 'seorilabs-x64' }}";
+  const ownerRoutedRunner =
+    "${{ github.repository_owner == 'seorilabs' && github.event.repository.visibility == 'private' && 'seorilabs-x64' || 'ubuntu-latest' }}";
   const approvedRunners = new Set([
     'seorilabs-x64',
     'ubuntu-latest',
@@ -1995,10 +1997,10 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   // caller가 고를 수 없다는 불변식은 그대로고, 결정 근거만 저장소 공개 여부다.
   const releaseTag = parse(workflowText('release-tag.yml'));
   assert.deepEqual(releaseTag.permissions, { contents: 'write' });
-  assert.equal(releaseTag.jobs.create['runs-on'], visibilityRoutedRunner);
+  assert.equal(releaseTag.jobs.create['runs-on'], ownerRoutedRunner);
   const ledgerInit = parse(workflowText('init-release-version-ledger.yml'));
   assert.deepEqual(ledgerInit.permissions, { contents: 'write' });
-  assert.equal(ledgerInit.jobs.initialize['runs-on'], visibilityRoutedRunner);
+  assert.equal(ledgerInit.jobs.initialize['runs-on'], ownerRoutedRunner);
   // 승격은 WIF로 프로덕션 트랙을 건드린다. 러너 라우팅이 빠지면 public 저장소에서 영구 pending 된다.
   const promotePlay = parse(workflowText('promote-google-play.yml'));
   assert.equal(promotePlay.jobs.promote['runs-on'], visibilityRoutedRunner);

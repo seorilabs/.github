@@ -51,6 +51,11 @@ Google Play 폐쇄 테스트 그룹 연결과 승인된 테스터 운영 절차�
 
 ## @ref 정책
 
+태그 발급과 버전 원장 초기화는 Seorilabs 소유 private 저장소만 조직 ARC를 사용한다.
+외부 조직에서 public reusable workflow를 소비하는 private 저장소와 public 저장소는
+caller의 GitHub-hosted Linux를 사용한다. 조직 실행기·WIF·마켓 권한을 외부 저장소에
+부여하는 변경은 아니다. 다른 작업의 실행기 정책은 각 workflow 정본을 따른다.
+
 - 모든 caller는 **`@main`**으로 호출한다. 중앙 정본이 곧 실행되는 정의다.
 - caller를 SHA에 고정하지 않는다. 고정하면 중앙 변경 한 번마다 저장소 수만큼 PR이 따라붙고, 어느 저장소가 무슨 버전으로 도는지 알 수 없게 된다.
 - 중앙 workflow 변경은 계약·정적 검증을 통과한 뒤 main에 병합하면 전 저장소에 즉시 반영된다. 되돌릴 때는 중앙에서 revert 한 번으로 전부 복구한다.
