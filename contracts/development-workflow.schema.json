@@ -497,7 +497,7 @@
           "const": true
         },
         "configurationFingerprint": {
-          "const": "device-runs-of-verified-market"
+          "const": "device-and-approved-native-sdk-runs-of-verified-market"
         },
         "skippedOrBlockedPass": {
           "const": "forbidden"

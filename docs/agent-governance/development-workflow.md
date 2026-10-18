@@ -109,7 +109,7 @@
 
 [승인 설계](../design/2026-10-18-native-development-validation/design.md). 기능 목록 v2의 플랫폼 하한은 기기 사용 허가가 아니다. 개발 환경으로 확인할 수 없는 필수 항목이 있을 때만 별도로 소명·승인받아 기기를 사용한다. 개발 환경으로 충분하면 아래의 승인된 실제 SDK 실행으로 하한을 충족할 수 있다. 일반 headless·단위 테스트로 플랫폼 하한을 면제하지 않는다.
 
-승인 `test-plan.json`의 선택 배열 `platformValidation`에 `{featureId, target, kind: "native-development", reason, checks: ["sdk-completion", "server-delivery"]}`를 적는다. 해당 기능에 `platformPaths`가 있고 그 마켓과 dev 환경이 계획에 있어야 한다. 모든 결속 설계에 같은 기능·마켓의 승인이 있어야 하며 `checks`는 합집합으로 검사한다.
+승인 `test-plan.json`의 선택 배열 `platformValidation`에 `{featureId, target, kind: "native-development", reason, configurationFingerprint, checks: ["sdk-completion", "server-delivery"]}`를 적는다. 해당 기능에 `platformPaths`가 있고 그 마켓과 dev 환경이 계획에 있어야 한다. 모든 결속 설계에 같은 기능·마켓의 승인이 있어야 하며 `checks`는 합집합으로 검사한다.
 
 실제 실행의 kind는 `native-development`다. `nativeSdk`에 `mode: "real"`, `runtime: "ios-simulator" | "android-emulator"`, `sdkNames`, `artifact: {path, sha256}`, `limitations`를 적고 실행의 `target`·`build`·`configurationFingerprint`도 필수로 남긴다. 대역 SDK는 인정하지 않으며 실제 SDK 실행 로그·산출물과 대조한다. 같은 후보 SHA·168시간·설정 지문·독립 실행자 조건과 하나의 실행 안의 필수 시나리오 ID·기능 커버리지를 검사한다. nativeSdk 실행은 현재 headless CI 인증 경로로 독립 실행을 주장할 수 없다(`executor: ci` 불가).
 
@@ -303,3 +303,5 @@ Apple의 단일 archive action은 `INTERNAL_ONLY`여야 한다. 처리된 빌드
 ### 첫 내부 Spiritgate 1.1.0 실제 등록
 
 [별도 승인된 최소 보정](../design/2026-10-16-spiritgate-failed-history-grant/design.md)으로 `spiritgate-1.1.0-first-internal` 한 grant를 `contracts/development-workflow.yaml`의 `grantRegistry`에 등록했다. 위 단계별 문서의 빈 registry 조건은 등록 전 상태를 설명한다. 이 등록은 고정 dc7ebea/v1.1.0과 원래 만료·한 Cloud/한 업로드, 기존 production 서명, 원문94개와 정정 집계 해시에 한정한다. 실패 UI6의 분리 창→내장 창 이력은 Mac skip 및 기능·UX 모두 failed일 때만 대조하며 원래 실패를 통과로 승격하지 않는다. 실제 reviewed main과 Cloud 실행·산출물·서명·TestFlight 상태 검사가 별도로 필요하고, iPhone·정상v2/L3·E2E·공개 검증은 면제되지 않는다. registry의 JSON 경로 배열은 기존 schema의 pattern/uniqueItems로 검증하며 schema를 확장하지 않는다.
+
+승인 계획의 `configurationFingerprint`는 실제 출시 설정 파일과 값을 기준으로 계산해 승인 시 고정한다. 실제 SDK 실행의 지문은 CLI 지문 인자가 없어도 이 승인 지문과 항상 같아야 한다. 여러 설계의 승인 지문이 다르면 대체 검수를 인정하지 않는다. 파생 빌드에서 제외한 플러그인 등은 limitations로 별도 명시하며 승인된 광고/서버 설정을 바꾸지 않는다. 후보에서 해당 기능의 platformPaths를 제거하면 기존 대체 검수 계획은 무효이며 새 계획 검토가 필요하다. 또한 v1 기반 기능 하한도 다른 마켓의 기기 실행으로 채울 수 없다. 이 대상 마켓 검사를 제외한 기존 계획 판정은 유지한다.

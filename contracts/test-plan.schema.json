@@ -158,7 +158,8 @@
           "target",
           "kind",
           "reason",
-          "checks"
+          "checks",
+          "configurationFingerprint"
         ],
         "properties": {
           "featureId": {
@@ -187,6 +188,10 @@
               "type": "string",
               "minLength": 1
             }
+          },
+          "configurationFingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
           }
         }
       }

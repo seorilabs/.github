@@ -8,7 +8,7 @@ const ALL = ['create', 'settings', 'store', 'purchase', 'ads'];
 const FINGERPRINT = 'c'.repeat(64);
 const inv = () => ({...inventory(), schemaVersion: 2, e2e: {workflow: '.github/workflows/godot-checks.yml'},
   features: inventory().features.map(f => f.id === 'ads' ? {...f, platformPaths: ['native/ads/**']} : f)});
-const alternative = () => ({featureId: 'ads', target: 'google-play', kind: 'native-development', reason: '실제 SDK와 서버 지급을 격리 개발 환경에서 검증', checks: ['sdk-completion', 'server-delivery']});
+const alternative = () => ({featureId: 'ads', target: 'google-play', kind: 'native-development', configurationFingerprint: FINGERPRINT, reason: '실제 SDK와 서버 지급을 격리 개발 환경에서 검증', checks: ['sdk-completion', 'server-delivery']});
 function fixture() {
   const source = inv();
   const baseline = {...source, features: source.features.filter(f => f.id !== 'ads')};
@@ -75,6 +75,23 @@ test('ordinary overrides still cannot waive a new platform feature', () => {
   const f=fixture();delete f.ctx.plans[DESIGN].plan.platformValidation;f.document.runs.pop();
   f.ctx.plans[DESIGN].plan.floorOverrides=[{rule:'platform',featureId:'ads',reason:'dev exists'}];
   assert.ok(verify(f).errors.includes('TEST_LEVEL_BELOW_FLOOR platform-first ads android'));
+});
+test('approved fingerprint is mandatory even when the release caller supplies no fingerprint', () => {
+  const f=fixture();delete f.ctx.configurationFingerprint;
+  assert.deepEqual(verify(f).errors,[]);
+  f.document.runs[1].configurationFingerprint='e'.repeat(64);
+  assert.ok(verify(f).errors.includes('TEST_LEVEL_BELOW_FLOOR platform-first ads android'));
+});
+test('bound designs with conflicting approved configurations cannot authorize the alternative', () => {
+  const f=fixture();f.document.designs.push({...f.document.designs[0],id:'D-2',document:'docs/design/second/design.md',testPlan:'docs/design/second/test-plan.json'});
+  f.ctx.plans['D-2']={approved:true,plan:plan({level:'L3',changedFeatures:['ads'],platformValidation:[{...alternative(),configurationFingerprint:'e'.repeat(64)}]})};
+  assert.equal(verify(f).ok,false);
+});
+test('v1 foundation floors reject a physical run for another market', () => {
+  const f=fixture();f.ctx.featureInventory=inventory();f.ctx.changes={'v1.0.0':['src/purchase/native/billing.gd']};
+  delete f.ctx.plans[DESIGN].plan.platformValidation;
+  f.document.runs[1]=run('phone','android-device',['purchase','ads'],{executor:'qa',target:'apps-in-toss'});
+  assert.ok(verify(f).errors.includes('TEST_LEVEL_BELOW_FLOOR foundation purchase android'));
 });
 test('a physical run for another market cannot satisfy the platform floor', () => {
   const f=fixture();f.document.runs[1]=run('phone','android-device',['ads'],{executor:'qa',target:'apps-in-toss'});

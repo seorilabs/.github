@@ -167,7 +167,7 @@ function validateTestLevelEvidence(document, context) {
     const fresh = now - Date.parse(finishedAt) <= MAX_RUN_AGE_MS;
     if (!fresh) errors.push(`RUN_EXPIRED ${run.id}`);
     if (run.sourceSha !== context.sourceSha) errors.push(`RUN_CANDIDATE_MISMATCH ${run.id}`);
-    // 설정 지문은 검증 중인 마켓의 실기기 실행에만 대조한다. 개발 환경은 테스트용 대체 구현을 쓴다.
+    // 대상 마켓의 기기·실제 SDK 실행을 명시한 출시 지문과 대조한다. SDK 대체 검수는 아래 승인 계획의 지문도 항상 검사한다.
     if ((device || run.nativeSdk) && context.configurationFingerprint && run.target === target && run.configurationFingerprint !== context.configurationFingerprint) errors.push(`CONFIGURATION_CHANGED ${run.id}`);
     if (sameName(run.executor, document.implementer) && (level === 'L3' || (level === 'L2' && device) || run.nativeSdk)) errors.push(`INDEPENDENT_RUN_REQUIRED ${run.id}`);
     if (ordered && fresh && !problem && run.sourceSha === context.sourceSha) valid.push(run);
@@ -179,6 +179,7 @@ function validateTestLevelEvidence(document, context) {
     const approval = merged.platformValidation.find(v => v.target === target && v.featureId === feature);
     if (!approval) return false;
     return valid.some(run => run.kind === 'native-development' && run.target === target && run.nativeSdk?.mode === 'real'
+      && run.configurationFingerprint === approval.configurationFingerprint
       && floor.platforms.includes(run.nativeSdk.runtime === 'ios-simulator' ? 'ios' : 'android')
       && approval.checks.every(id => run.scenarios.some(s => s.id === id && s.featureIds.includes(feature))));
   };

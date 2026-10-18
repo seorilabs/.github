@@ -136,7 +136,7 @@ runs:
   candidateBinding: exact-source-sha
   maxAgeHours: 168
   isolatedDataRequired: true
-  configurationFingerprint: device-runs-of-verified-market
+  configurationFingerprint: device-and-approved-native-sdk-runs-of-verified-market
   skippedOrBlockedPass: forbidden
   evidenceSchema: contracts/development-evidence.schema.json
   releaseAssetPattern: development-evidence.<target>.<phase>.json

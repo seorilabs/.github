@@ -82,7 +82,8 @@ export function mergeTestPlans(plans) {
   const nativeKeys = union(plans.flatMap(p => (p.platformValidation ?? []).map(v => `${v.target}:${v.featureId}`)));
   const platformValidation = nativeKeys.flatMap(key => {
     const entries = plans.map(p => (p.platformValidation ?? []).find(v => `${v.target}:${v.featureId}` === key));
-    return entries.every(Boolean) ? [{...entries[0], checks: union(entries.flatMap(v => v.checks))}] : [];
+    return entries.every(Boolean) && entries.every(v => v.configurationFingerprint === entries[0].configurationFingerprint)
+      ? [{...entries[0], checks: union(entries.flatMap(v => v.checks))}] : [];
   });
   return {
     level: highestLevel(plans.map(p => p.level)),
