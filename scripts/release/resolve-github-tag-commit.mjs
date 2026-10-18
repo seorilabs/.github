@@ -7,6 +7,8 @@ import { parseReleaseTagRef } from "./tag-version-authority.mjs";
 
 const SHA = /^[0-9a-f]{40}$/u;
 const REPOSITORY = /^seorilabs\/[A-Za-z0-9._-]+$/u;
+// Approved existing external consumer; do not open arbitrary organizations.
+const EXTERNAL_REPOSITORIES = new Set(["seoleeapps/today-challenger"]);
 const MAX_RESPONSE_BYTES = 128 * 1024;
 const MAX_TAG_DEPTH = 8;
 
@@ -44,7 +46,7 @@ export async function resolveGitHubTagCommit({
   token,
   fetchImpl = globalThis.fetch,
 } = {}) {
-  if (!REPOSITORY.test(repository ?? "") || typeof fetchImpl !== "function") {
+  if (!(REPOSITORY.test(repository ?? "") || EXTERNAL_REPOSITORIES.has(repository)) || typeof fetchImpl !== "function") {
     fail("RELEASE_TAG_READBACK_INPUT_INVALID");
   }
   let tag;
