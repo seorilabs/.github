@@ -34,8 +34,8 @@
 | `rn-build-ait.yml` | RN `.ait` 후보 산출물 빌드(배포 없음) | ARC 또는 x64 Linux |
 | `godot-checks.yml` | Godot import→compile→smoke | ARC(또는 ubuntu) |
 | `godot-pages.yml` | Godot Web export + Pages 배포 | ARC(또는 ubuntu) |
-| `release-tag.yml` | 지정 commit에 명시적 SemVer 태그 생성 + 원장에서 Android versionCode 할당(atomic push) | ARC |
-| `init-release-version-ledger.yml` | 저장소별 `release-version-ledger` 브랜치 초기화(저장소당 한 번, 기본 dry_run) | ARC |
+| `release-tag.yml` | 지정 commit에 명시적 SemVer 태그 생성 + 원장에서 Android versionCode 할당(atomic push) | Seorilabs private ARC, 그 외 ubuntu |
+| `init-release-version-ledger.yml` | 저장소별 `release-version-ledger` 브랜치 초기화(저장소당 한 번, 기본 dry_run) | Seorilabs private ARC, 그 외 ubuntu |
 | `record-ios-build-observation.yml` | Xcode Cloud build number 관측값을 원장 `ios` 구획에 기록 | ARC |
 | `resolve-release-version.yml` | 앱별 custom build 경로용 태그→binding 해석 | private ARC, public ubuntu |
 | `promote-google-play.yml` | 재빌드 없이 지정 versionCode 하나만 트랙 승격. 원본과 대상 트랙이 같으면 그 트랙의 릴리스 상태만 변경 | ARC |
@@ -49,12 +49,12 @@
 
 Google Play 폐쇄 테스트 그룹 연결과 승인된 테스터 운영 절차는 [Google Play 폐쇄 테스트 운영](../../docs/ci-cd/google-play-closed-testing.md)을 따른다.
 
-## @ref 정책
-
 태그 발급과 버전 원장 초기화는 Seorilabs 소유 private 저장소만 조직 ARC를 사용한다.
 외부 조직에서 public reusable workflow를 소비하는 private 저장소와 public 저장소는
 caller의 GitHub-hosted Linux를 사용한다. 조직 실행기·WIF·마켓 권한을 외부 저장소에
 부여하는 변경은 아니다. 다른 작업의 실행기 정책은 각 workflow 정본을 따른다.
+
+## @ref 정책
 
 - 모든 caller는 **`@main`**으로 호출한다. 중앙 정본이 곧 실행되는 정의다.
 - caller를 SHA에 고정하지 않는다. 고정하면 중앙 변경 한 번마다 저장소 수만큼 PR이 따라붙고, 어느 저장소가 무슨 버전으로 도는지 알 수 없게 된다.

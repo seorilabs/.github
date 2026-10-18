@@ -1957,7 +1957,7 @@ test('App Store 워크플로는 인증서를 새로 발급하지 않는다', () 
 
 test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지한다', () => {
   // 권한 있는 job의 러너는 caller 입력을 그대로 쓰지 않는다. 승인된 라벨만 허용한다.
-  // caller 입력이 아니라 저장소 공개 여부로 중앙이 결정하는 라우팅.
+  // caller 입력 없이 중앙이 소유자·공개 여부로 결정하는 태그·원장 라우팅.
   // public 저장소는 ARC(allows_public_repositories=false)를 잡지 못해 job이 영구 pending 된다.
   const visibilityRoutedRunner =
     "${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || 'seorilabs-x64' }}";
@@ -1994,7 +1994,7 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
 
   // 태그 생성만 contents:write를 갖는다.
   // 태그를 push하는 job과 마켓 자격증명을 쓰는 job은 러너를 중앙에서 결정한다.
-  // caller가 고를 수 없다는 불변식은 그대로고, 결정 근거만 저장소 공개 여부다.
+  // caller가 고를 수 없다는 불변식은 그대로고, 소유자와 공개 여부를 함께 확인한다.
   const releaseTag = parse(workflowText('release-tag.yml'));
   assert.deepEqual(releaseTag.permissions, { contents: 'write' });
   assert.equal(releaseTag.jobs.create['runs-on'], ownerRoutedRunner);

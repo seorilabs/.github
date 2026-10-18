@@ -68,7 +68,7 @@ grep -n "uses:\|runs_on\|runs-on" .github/workflows/*.yml
 |---|---|---|
 | `runs_on` 입력 노출 | `godot-checks`, `godot-pages`, `cleanup-actions-storage`, `godot-deploy-ait` | caller가 조건식을 **반드시 전달**. 기본값이 ARC라 생략하면 깨진다 |
 | `ubuntu-latest` 하드코딩 | `godot-deploy-google-play` | 조치 불필요 |
-| 중앙이 공개 여부로 결정 | `release-tag`, `init-release-version-ledger` | caller는 관여하지 않는다 |
+| 중앙이 소유자와 공개 여부로 결정 | `release-tag`, `init-release-version-ledger` | Seorilabs private만 ARC, 그 밖은 hosted. caller는 관여하지 않는다 |
 
 caller가 전달하는 조건식:
 
@@ -80,12 +80,13 @@ runs_on: ${{ github.event.repository.private && 'seorilabs-x64' || 'ubuntu-lates
 (`tests/release-version-authority.test.mjs`가 강제한다). 그런 job은 중앙이 스스로 정한다.
 
 ```yaml
-runs-on: ${{ github.event.repository.visibility == 'public' && 'ubuntu-latest' || 'seorilabs-x64' }}
+runs-on: ${{ github.repository_owner == 'seorilabs' && github.event.repository.visibility == 'private' && 'seorilabs-x64' || 'ubuntu-latest' }}
 ```
 
 > `private == false` 형태를 쓰지 않는다. GitHub 표현식의 느슨한 비교에서 `null`은 0으로
 > 강제되어 `null == false`가 **참**이 되고, 페이로드가 비었을 때 public으로 새어나간다.
-> `visibility == 'public'`은 `null == 'public'`이 거짓이라 기존 동작(ARC)으로 수렴한다.
+> 태그·원장 job은 소유자와 `visibility == 'private'`가 모두 확인된 경우에만 ARC를 쓴다.
+> 외부 조직이나 누락된 컨텍스트는 caller의 GitHub-hosted Linux로 보낸다.
 
 ### 1-4. 저장소 콘텐츠 감사
 
