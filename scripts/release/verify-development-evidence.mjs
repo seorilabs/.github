@@ -167,12 +167,22 @@ function validateTestLevelEvidence(document, context) {
     const fresh = now - Date.parse(finishedAt) <= MAX_RUN_AGE_MS;
     if (!fresh) errors.push(`RUN_EXPIRED ${run.id}`);
     if (run.sourceSha !== context.sourceSha) errors.push(`RUN_CANDIDATE_MISMATCH ${run.id}`);
-    // 설정 지문은 검증 중인 마켓의 실기기 실행에만 대조한다. 개발 환경은 테스트용 대체 구현을 쓴다.
-    if (device && context.configurationFingerprint && run.target === target && run.configurationFingerprint !== context.configurationFingerprint) errors.push(`CONFIGURATION_CHANGED ${run.id}`);
-    if (sameName(run.executor, document.implementer) && (level === 'L3' || (level === 'L2' && device))) errors.push(`INDEPENDENT_RUN_REQUIRED ${run.id}`);
+    // 대상 마켓의 기기·실제 SDK 실행을 명시한 출시 지문과 대조한다. SDK 대체 검수는 아래 승인 계획의 지문도 항상 검사한다.
+    if ((device || run.nativeSdk) && context.configurationFingerprint && run.target === target && run.configurationFingerprint !== context.configurationFingerprint) errors.push(`CONFIGURATION_CHANGED ${run.id}`);
+    if (sameName(run.executor, document.implementer) && (level === 'L3' || (level === 'L2' && device) || run.nativeSdk)) errors.push(`INDEPENDENT_RUN_REQUIRED ${run.id}`);
     if (ordered && fresh && !problem && run.sourceSha === context.sourceSha) valid.push(run);
   }
   const covers = (env, feature) => valid.some(run => environmentOf(run.kind) === env && run.scenarios.some(s => s.featureIds.includes(feature)));
+  const deviceCovers = feature => valid.some(run => run.target === target && floor.platforms.includes(environmentOf(run.kind))
+    && run.scenarios.some(s => s.featureIds.includes(feature)));
+  const nativeCovers = feature => {
+    const approval = merged.platformValidation.find(v => v.target === target && v.featureId === feature);
+    if (!approval) return false;
+    return valid.some(run => run.kind === 'native-development' && run.target === target && run.nativeSdk?.mode === 'real'
+      && run.configurationFingerprint === approval.configurationFingerprint
+      && floor.platforms.includes(run.nativeSdk.runtime === 'ios-simulator' ? 'ios' : 'android')
+      && approval.checks.every(id => run.scenarios.some(s => s.id === id && s.featureIds.includes(feature))));
+  };
 
   const planned = new Set();
   for (const env of active) for (const feature of merged.level === 'L3' ? fullScope : changedScope) {
@@ -183,7 +193,7 @@ function validateTestLevelEvidence(document, context) {
     if (!planned.has(`${env} ${feature}`) && !covers(env, feature)) errors.push(`TEST_LEVEL_BELOW_FLOOR regression ${feature} ${env}`);
   }
   if (releasePhase) for (const { featureId, rule } of floor.deviceFloor) {
-    if (!floor.platforms.some(env => covers(env, featureId))) errors.push(`TEST_LEVEL_BELOW_FLOOR ${rule} ${featureId} ${floor.platforms.join('|')}`);
+    if (!deviceCovers(featureId) && !nativeCovers(featureId)) errors.push(`TEST_LEVEL_BELOW_FLOOR ${rule} ${featureId} ${floor.platforms.join('|')}`);
   }
 
   const coreFeatures = features.filter(f => f.core).map(f => f.id).filter(id => !usable.has(id));

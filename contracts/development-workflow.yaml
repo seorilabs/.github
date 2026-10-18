@@ -82,10 +82,10 @@ floors:
   inventoryVersions:
     v1: foundation-paths-raise-device-floor
     v2: platform-paths-raise-device-floor-e2e-workflow-required
-  platformPaths: device-run-on-target-market-platform
-  commonPlatformPaths: device-run-of-platform-features-or-core
-  newPlatformFeature: device-run-not-overridable
-  firstReleasePlatform: device-run-of-platform-features-not-overridable
+  platformPaths: device-run-or-approved-real-native-development-on-target-market-platform
+  commonPlatformPaths: device-or-approved-real-native-development-of-platform-features-or-core
+  newPlatformFeature: device-or-approved-real-native-development-not-waivable
+  firstReleasePlatform: device-or-approved-real-native-development-of-platform-features-not-waivable
   regressionPaths: full-regression-in-planned-environments
   unknownDiff: full-regression
   firstRelease: full-regression-not-overridable
@@ -136,7 +136,7 @@ runs:
   candidateBinding: exact-source-sha
   maxAgeHours: 168
   isolatedDataRequired: true
-  configurationFingerprint: device-runs-of-verified-market
+  configurationFingerprint: device-and-approved-native-sdk-runs-of-verified-market
   skippedOrBlockedPass: forbidden
   evidenceSchema: contracts/development-evidence.schema.json
   releaseAssetPattern: development-evidence.<target>.<phase>.json

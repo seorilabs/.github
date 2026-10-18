@@ -147,6 +147,54 @@
           "maximum": 1
         }
       }
+    },
+    "platformValidation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "featureId",
+          "target",
+          "kind",
+          "reason",
+          "checks",
+          "configurationFingerprint"
+        ],
+        "properties": {
+          "featureId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
+            "enum": [
+              "google-play",
+              "app-store",
+              "apps-in-toss"
+            ]
+          },
+          "kind": {
+            "const": "native-development"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "checks": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "configurationFingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
     }
   }
 }

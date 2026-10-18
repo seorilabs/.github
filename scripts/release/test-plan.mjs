@@ -58,6 +58,15 @@ export function testPlanProblems(plan, inventory) {
     if (o.rule === 'platform' && !platformInventory) problems.push('platform-override-needs-inventory-v2');
     else if (o.rule === 'platform' && !features.has(o.featureId)) problems.push(`override-unknown-feature ${o.featureId}`);
   }
+  const native = plan.platformValidation ?? [];
+  const nativeKeys = native.map(v => `${v.target}:${v.featureId}`);
+  if (new Set(nativeKeys).size !== nativeKeys.length) problems.push('duplicate-platform-validation');
+  for (const item of native) {
+    if (!platformInventory) problems.push('platform-validation-needs-inventory-v2');
+    if (!features.get(item.featureId)?.platformPaths?.length) problems.push(`platform-validation-not-native ${item.featureId}`);
+    if (!plan.release.markets.includes(item.target)) problems.push(`platform-validation-market-not-planned ${item.target}`);
+    if (!plan.environments.includes('dev')) problems.push('platform-validation-needs-dev');
+  }
   return [...new Set(problems)];
 }
 
@@ -70,6 +79,12 @@ export function mergeTestPlans(plans) {
     const ids = union(plans.flatMap(p => p.floorOverrides.filter(o => o.rule === rule).map(o => o.featureId)));
     return ids.filter(id => everyPlan(p => p.floorOverrides.some(o => o.rule === rule && o.featureId === id)));
   };
+  const nativeKeys = union(plans.flatMap(p => (p.platformValidation ?? []).map(v => `${v.target}:${v.featureId}`)));
+  const platformValidation = nativeKeys.flatMap(key => {
+    const entries = plans.map(p => (p.platformValidation ?? []).find(v => `${v.target}:${v.featureId}` === key));
+    return entries.every(Boolean) && entries.every(v => v.configurationFingerprint === entries[0].configurationFingerprint)
+      ? [{...entries[0], checks: union(entries.flatMap(v => v.checks))}] : [];
+  });
   return {
     level: highestLevel(plans.map(p => p.level)),
     baselines: [...new Set(plans.map(p => p.baseline))].sort(),
@@ -79,6 +94,7 @@ export function mergeTestPlans(plans) {
     foundationRerun: plans.some(p => p.foundationRerun),
     foundationOverrides: overriddenBy('foundation'),
     platformOverrides: overriddenBy('platform'),
+    platformValidation,
     regressionOverride: everyPlan(p => p.floorOverrides.some(o => o.rule === 'regression')),
     markets: union(plans.flatMap(p => p.release.markets)),
     until: UNTIL[Math.min(...plans.map(p => UNTIL.indexOf(p.release.until ?? policy.release.defaultUntil)))],
