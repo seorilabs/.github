@@ -114,6 +114,9 @@ publisher 권한을 가져서는 안 된다. GitHub OIDC 조건은 숫자 reposi
   검증된 파일이 있는 디렉터리에 `.aab`가 하나뿐인지 확인한다. 도구는 `SEORI_EXPECTED_AAB_SHA256`과
   `SEORI_EXPECTED_ANDROID_VERSION_CODE`를 필수로 요구하고, AAB manifest package가 Backoffice
   BuildTarget package와 다르면 provider 호출 전에 차단한다.
+- 승격 caller 권한: `contents: read`, `actions: read`, `id-token: write`를 명시한다.
+  실제 CI 실행 조회에 Actions 읽기가 필요하다. 기존 caller를 먼저 보완·검증·병합한 뒤
+  중앙 reusable의 권한 상한을 올린다. 이관하지 않은 caller가 있으면 중앙 변경을 병합하지 않는다.
 - 트랙 승격: `promote-google-play.yml`은 태그에서 파생한 versionCode를 `--promote-version-code`로
   넘긴다. 트랙의 "최신 build"를 승격하지 않는다.
 - 트랙 상태 변경: `from_track`과 `to_track`이 같으면 업로더의 `--set-track-status` 모드로 간다.
