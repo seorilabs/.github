@@ -112,7 +112,7 @@ test('Xcode trigger and the evidence CLI no longer accept release exception argu
   const base = ['--tag', 'v1.1.0', '--bundle-id', 'com.seorilabs.reascend'];
   assert.deepEqual(parseXcodeArgs(base), { tag: 'v1.1.0', bundleId: 'com.seorilabs.reascend', workflowName: '', start: true });
   assert.deepEqual(parseXcodeArgs([...base, '--release-exception-id', 'reascend-1.1.0']), parseXcodeArgs(base));
-  for (const flag of ['--release-exception-id', '--release-binding', '--exception-file', '--preflight', '--risk-notes-file', '--original-evidence-dir', '--xcode-build-number']) {
+  for (const flag of ['--release-exception-id', '--release-binding', '--exception-file', '--preflight', '--risk-notes-file', '--original-evidence-dir', '--xcode-build-number', '--submission-build-id', '--submission-artifact-sha256']) {
     await assert.rejects(runDevelopmentEvidenceCli(['--repo', 'seorilabs/example', '--sha', 'a'.repeat(40), '--target', 'google-play', '--phase', 'before-build', flag, 'x']), /INVALID_EVIDENCE_ARGUMENT/u, flag);
   }
   await assert.rejects(runDevelopmentEvidenceCli(['--repo', 'seorilabs/example', '--sha', 'a'.repeat(40), '--target', 'app-store', '--phase', 'before-build', '--verifier-sha', 'b'.repeat(40)]), /INTERNAL_TESTFLIGHT_BOOTSTRAP_ID_REQUIRED/u);
