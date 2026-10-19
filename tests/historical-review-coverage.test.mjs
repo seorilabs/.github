@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { applyHistoricalReviewCoverage } from '../scripts/release/historical-review-coverage.mjs';
+import { policy } from '../scripts/release/test-plan.mjs';
 
 const hash = document => createHash('sha256').update(JSON.stringify(document)).digest('hex');
 const errors = ['FEATURE_COVERAGE ux-1', 'FEATURE_COVERAGE functional-4', 'FEATURE_COVERAGE ux-4'];
@@ -55,6 +56,15 @@ for (const [name, mutate] of [
   ['document market mismatch', f => { f.document.target = 'app-store'; }],
   ['other tag', f => { f.context.tag = 'v1.9.1'; }],
   ['other phase', f => { f.context.phase = 'after-release'; }],
+  ['public release even if a grant lists it', f => { f.context.phase = 'before-release'; }],
+  ['web deployment even with a matching grant', f => {
+    f.context.phase = 'before-deploy'; f.context.target = f.document.target = 'web';
+    f.grant.evidenceHashes.web = hash(f.document);
+  }],
+  ['service deployment even with a matching grant', f => {
+    f.context.phase = 'before-deploy'; f.context.target = f.document.target = 'service';
+    f.grant.evidenceHashes.service = hash(f.document);
+  }],
   ['before approval', f => { f.context.now = '2026-10-19T06:44:59Z'; }],
   ['at expiry', f => { f.context.now = f.grant.expiresAt; }],
   ['past expiry', f => { f.context.now = '2026-10-21T00:00:00Z'; }],
@@ -119,12 +129,15 @@ test('normal successful evidence is unchanged and a pre-tag file check remains p
 });
 
 test('the checked-in grant is limited to the approved candidate and three actual evidence hashes', () => {
+  assert.deepEqual(policy.historicalReviewCoverage.grantRegistry,
+    ['contracts/historical-review-coverage/lizard-tycoon-1.9.0.json']);
   const grant = JSON.parse(readFileSync(new URL('../contracts/historical-review-coverage/lizard-tycoon-1.9.0.json', import.meta.url)));
   assert.equal(grant.repository, 'seorilabs/lizard-tycoon');
   assert.equal(grant.sourceSha, '055aae4422610e279417f3f3a7d2b9007cb1754d');
   assert.equal(grant.latestRound, 6);
   assert.deepEqual(grant.errors, errors);
   assert.deepEqual(grant.tags, ['development-evidence', 'v1.9.0']);
+  assert.deepEqual(grant.phases, ['before-build', 'before-deploy']);
   assert.deepEqual(Object.keys(grant.evidenceHashes).sort(), ['app-store', 'apps-in-toss', 'google-play']);
   for (const hash of Object.values(grant.evidenceHashes)) assert.match(hash, /^[a-f0-9]{64}$/u);
   assert.ok(Date.parse(grant.expiresAt) - Date.parse(grant.approvedAt) <= 168 * 3600000);

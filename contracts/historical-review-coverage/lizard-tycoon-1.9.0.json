@@ -10,8 +10,7 @@
   ],
   "phases": [
     "before-build",
-    "before-deploy",
-    "before-release"
+    "before-deploy"
   ],
   "latestRound": 6,
   "approvedAt": "2026-10-19T05:42:52.027109Z",

@@ -1,17 +1,17 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { policy } from './test-plan.mjs';
+import { policy, RELEASE_ONLY_TARGETS } from './test-plan.mjs';
 
-const grants = (policy.historicalReviewCoverage?.grantRegistry ?? []).flatMap(path => {
-  try { return [JSON.parse(readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8'))]; }
-  catch { return []; }
-});
+const grants = (policy.historicalReviewCoverage?.grantRegistry ?? [])
+  .map(path => JSON.parse(readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')));
 const maxAge = policy.runs.maxAgeHours * 60 * 60 * 1000;
 const digest = document => createHash('sha256').update(JSON.stringify(document)).digest('hex');
 
 // 중앙에서 검토한 원본에만 적용한다. 런타임 CLI/환경변수로 grant를 추가하지 않는다.
 export function applyHistoricalReviewCoverage(document, context, original, registry = grants) {
-  if (original?.ok || document?.schemaVersion !== 2 || original?.level !== 'L3'
+  if (context.phase === 'before-release'
+    || (context.phase === 'before-deploy' && RELEASE_ONLY_TARGETS.includes(context.target))
+    || original?.ok || document?.schemaVersion !== 2 || original?.level !== 'L3'
     || !Array.isArray(original?.errors) || original.errors.length === 0) return original;
   const now = Date.parse(context.now ?? new Date().toISOString());
   const latest = document.reviewRounds?.at(-1);
