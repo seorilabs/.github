@@ -11,7 +11,7 @@ const errors = ['FEATURE_COVERAGE ux-1', 'FEATURE_COVERAGE functional-4', 'FEATU
 const reject = reason => { throw new Error(`APPROVED_PATCH_CONTINUATION_${reason}`); };
 
 // 두 실행 기록을 각각 정상 검증한다. 과거 실행의 SHA나 실패를 현재 후보로 바꾸지 않는다.
-export const requiresApprovedPatchContinuation = (context, grants = registry) => grants.some(grant =>
+export const requiresApprovedPatchContinuation = (context, grants = registry) => context.target === 'google-play' && grants.some(grant =>
   grant?.kind === 'lizard-191-public-continuation' && grant.repository === context.repository && grant.sourceSha === context.sourceSha);
 
 export async function verifyApprovedPatchContinuation(document, context, dependencies, grants = registry) {

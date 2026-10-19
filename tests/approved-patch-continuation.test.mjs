@@ -73,11 +73,32 @@ test('checked-in continuation grant freezes this Android candidate and original 
   assert.equal(g.archiveId,655801246); assert.equal(g.archiveReleaseId,417105241);
 });
 
-test('registered candidate requires its envelope even after expiry or for another market',()=>{
+test('registered Android candidate requires its envelope after expiry without changing other markets',()=>{
   const f=fixture();assert.equal(requiresApprovedPatchContinuation(f.context,[f.grant]),true);
-  assert.equal(requiresApprovedPatchContinuation({...f.context,target:'app-store',now:'2026-11-01T00:00:00Z'},[f.grant]),true);
+  assert.equal(requiresApprovedPatchContinuation({...f.context,now:'2026-11-01T00:00:00Z'},[f.grant]),true);
+  assert.equal(requiresApprovedPatchContinuation({...f.context,target:'app-store'},[f.grant]),false);
+  assert.equal(requiresApprovedPatchContinuation({...f.context,target:'web'},[f.grant]),false);
   assert.equal(requiresApprovedPatchContinuation({...f.context,sourceSha:'f'.repeat(40)},[f.grant]),false);
   assert.equal(requiresApprovedPatchContinuation(f.context,[]),false);
+});
+
+for (const [name, mutate] of [
+  ['draft',release=>{release.draft=true;}],
+  ['missing draft field',release=>{delete release.draft;}],
+  ['wrong tag',release=>{release.tag_name='v1.9.0';}],
+  ['missing archive',release=>{release.assets=[];}],
+]) test(`live proof denies ${name} API response`,async()=>{
+  const {readContinuationProof}=await import('../scripts/release/verify-development-evidence.mjs');
+  const f=fixture(), release={draft:false,tag_name:'v1.9.1',assets:[{id:f.grant.archiveId,digest:f.grant.archiveDigest}]};
+  const request={token:'fixture-token',fetchImpl:async url=>{
+    const value=url.includes('/git/commits/')?{tree:{sha:f.grant.treeSha}}
+      :url.includes('/releases/assets/')?{digest:f.grant.archiveDigest}:release;
+    return new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});
+  }};
+  f.dependencies.readProof=()=>readContinuationProof(f.context.repository,f.grant,request);
+  assert.equal((await run(f)).ok,true);
+  mutate(release);
+  await assert.rejects(run(f),/VISUAL_READBACK/);
 });
 test('remote release path rejects an ordinary L1 document for the registered candidate',async()=>{
   const {verifyReleaseDevelopmentEvidence}=await import('../scripts/release/verify-development-evidence.mjs');

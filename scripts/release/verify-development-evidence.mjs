@@ -383,15 +383,7 @@ export async function verifyReleaseDevelopmentEvidence(options) {
         const ciRuns = await readCiRuns(part, request);
         return validateTestLevelEvidence(part, { ...context, featureInventory, ...remote, ciRuns });
       },
-      readProof: async grant => {
-        const candidate = await githubJson(`/repos/${repository}/git/commits/${grant.sourceSha}`, request);
-        const rendered = await githubJson(`/repos/${repository}/git/commits/${grant.renderedSha}`, request);
-        const archive = await githubJson(`/repos/${repository}/releases/assets/${grant.archiveId}`, request);
-        const release = await githubJson(`/repos/${repository}/releases/${grant.archiveReleaseId}`, request);
-        const archivePublished = release.draft === false && release.tag_name === 'v1.9.1'
-          && release.assets?.some(asset => asset.id === grant.archiveId && asset.digest === grant.archiveDigest);
-        return { candidateTree: candidate.tree?.sha, renderedTree: rendered.tree?.sha, archiveDigest: archive.digest, archivePublished };
-      },
+      readProof: grant => readContinuationProof(repository, grant, request),
     });
   } else {
     const featureInventory = await readRemoteInventory(repository, sourceSha, request);
@@ -401,6 +393,16 @@ export async function verifyReleaseDevelopmentEvidence(options) {
   }
   if (!result.ok) throw new Error(result.errors.join('\n'));
   return { ...result, assetId: asset.id, completedAt: document.kind === 'lizard-191-public-continuation' ? result.completedAt : document.schemaVersion === 1 ? document.e2e.completedAt : result.completedAt };
+}
+
+export async function readContinuationProof(repository, grant, request) {
+  const candidate = await githubJson(`/repos/${repository}/git/commits/${grant.sourceSha}`, request);
+  const rendered = await githubJson(`/repos/${repository}/git/commits/${grant.renderedSha}`, request);
+  const archive = await githubJson(`/repos/${repository}/releases/assets/${grant.archiveId}`, request);
+  const release = await githubJson(`/repos/${repository}/releases/${grant.archiveReleaseId}`, request);
+  const archivePublished = release.draft === false && release.tag_name === 'v1.9.1'
+    && release.assets?.some(asset => asset.id === grant.archiveId && asset.digest === grant.archiveDigest);
+  return { candidateTree: candidate.tree?.sha, renderedTree: rendered.tree?.sha, archiveDigest: archive.digest, archivePublished };
 }
 
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {
