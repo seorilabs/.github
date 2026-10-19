@@ -323,3 +323,5 @@ Apple의 단일 archive action은 `INTERNAL_ONLY`여야 한다. 처리된 빌드
 [1.9.1 사용자 실행 대체 승인](../design/2026-10-19-lizard-ios191-owner/design.md)은 고정 App Store1.9.1(56) 제출 한 건에만 적용한다. 사용자 원문과 서버 SSV 및 지급, ASC 빌드, 제안과 승인 bytes를 reviewed grant에 결속한다. 사용자 기록을 일반 `runs`나 독립 검수 PASS로 만들지 않고 원래 native 오류와 `human_exception`을 보존한다. 추가 기기 사용과 만료 연장은 없다. 실제 제출 또는 원래 만료 뒤 전용 연결을 제거한다.
 
 App Store1.9.1(56)의 실제 심사 접수 뒤 [종료 설계](../design/2026-10-19-lizard-ios191-retire/design.md)에 따라 iOS 전용 연결과 grant, 임시 CLI 입력을 제거했다. 위 연결 및 사용자 대체 승인 문단은 종료 이력이며 활성 예외가 아니다. 정상 native 원래 실패와 승인 대체 판정을 보존한다.
+
+종료 전 iOS 승인 및 사용자 대체 grant 원본은 [24c559f의 고정 grant](https://github.com/seorilabs/.github/blob/24c559f39731b916404fab72e6c292555ab24e92/contracts/historical-review-coverage/lizard-tycoon-ios-1.9.1.json)에 보존한다.

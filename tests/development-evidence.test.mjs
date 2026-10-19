@@ -180,3 +180,14 @@ test('the same feature cannot be carried forward twice', () => {
   const { d, ctx } = carryForwardCase(); d.carriedForward.push({ ...d.carriedForward[0] });
   assert.ok(carryErrors(d, ctx).includes('DUPLICATE carried-forward'));
 });
+
+test('retired Lizard 1.9.1 envelope kind cannot authorize App Store before-release', () => {
+  const sha='da203979846fdcf4fb5b591689d776d84fe14911';
+  const d=JSON.parse(JSON.stringify(validEvidence()).replaceAll(SHA,sha));
+  d.repository='seorilabs/lizard-tycoon';d.target='app-store';d.e2e.phase='before-deploy';
+  const ctx={...context,repository:d.repository,sourceSha:sha,target:d.target,phase:'before-release'};
+  assert.equal(validateDevelopmentEvidence(d,ctx).ok,true);
+  d.kind='lizard-ios191-submission-continuation';
+  const result=validateDevelopmentEvidence(d,ctx);
+  assert.equal(result.ok,false);assert.ok(result.errors.some(error=>error.startsWith('EVIDENCE_SCHEMA')));
+});
