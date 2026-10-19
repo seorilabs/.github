@@ -19,12 +19,49 @@ function fixture() {
     tag: 'v1.9.0', now: '2026-10-19T07:00:00Z' };
   const original = { ok: false, errors: [...errors], level: 'L3', completedAt: '2026-10-19T06:30:00Z' };
   const grant = { schemaVersion: 1, id: 'test-approved-history', repository: document.repository, sourceSha,
+    googlePlayUpload: { track: 'internal', operation: 'upload' },
     phases: ['before-build', 'before-deploy', 'before-release'], tags: ['development-evidence', 'v1.9.0'],
     latestRound: 6, approvedAt: '2026-10-19T06:45:00Z', expiresAt: '2026-10-20T06:45:00Z',
     errors: [...errors], evidenceHashes: { 'google-play': hash(document) } };
   return { document, context, original, grant };
 }
 const apply = f => applyHistoricalReviewCoverage(f.document, f.context, f.original, [f.grant]);
+
+test('before-deploy permits only the approved internal Play upload', () => {
+  const f = fixture();
+  Object.assign(f.context, { phase: 'before-deploy', playTrack: 'internal', playOperation: 'upload' });
+  assert.equal(apply(f).decisionStatus, 'human_exception');
+});
+
+for (const [name, track, operation, grantChange] of [
+  ['production upload', 'production', 'upload'],
+  ['alpha upload', 'alpha', 'upload'],
+  ['beta upload', 'beta', 'upload'],
+  ['custom track upload', 'closed-test', 'upload'],
+  ['missing track', undefined, 'upload'],
+  ['missing operation', 'internal', undefined],
+  ['internal promotion', 'internal', 'promote'],
+  ['beta promotion', 'beta', 'promote'],
+  ['production promotion', 'production', 'promote'],
+  ['grant widened to production', 'production', 'upload', { track: 'production', operation: 'upload' }],
+  ['grant widened to promotion', 'internal', 'promote', { track: 'internal', operation: 'promote' }],
+  ['missing upload grant', 'internal', 'upload', null],
+]) {
+  test(`before-deploy retains historical failures for ${name}`, () => {
+    const f = fixture();
+    Object.assign(f.context, { phase: 'before-deploy', playTrack: track, playOperation: operation });
+    if (grantChange !== undefined) f.grant.googlePlayUpload = grantChange;
+    assert.strictEqual(apply(f), f.original);
+  });
+}
+
+test('ordinary passing evidence is unchanged for production and promotion', () => {
+  for (const playOperation of ['upload', 'promote']) {
+    const f = fixture(); f.original = { ok: true, errors: [] };
+    Object.assign(f.context, { phase: 'before-deploy', playTrack: 'production', playOperation });
+    assert.strictEqual(apply(f), f.original);
+  }
+});
 
 test('an approved exact historical failure yields human_exception and retains the failed original', () => {
   const f = fixture(), before = structuredClone(f);
@@ -138,6 +175,7 @@ test('the checked-in grant is limited to the approved candidate and three actual
   assert.deepEqual(grant.errors, errors);
   assert.deepEqual(grant.tags, ['development-evidence', 'v1.9.0']);
   assert.deepEqual(grant.phases, ['before-build', 'before-deploy']);
+  assert.deepEqual(grant.googlePlayUpload, { track: 'internal', operation: 'upload' });
   assert.deepEqual(Object.keys(grant.evidenceHashes).sort(), ['app-store', 'apps-in-toss', 'google-play']);
   for (const hash of Object.values(grant.evidenceHashes)) assert.match(hash, /^[a-f0-9]{64}$/u);
   assert.ok(Date.parse(grant.expiresAt) - Date.parse(grant.approvedAt) <= 168 * 3600000);

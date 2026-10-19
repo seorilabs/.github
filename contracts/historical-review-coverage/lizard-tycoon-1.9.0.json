@@ -13,6 +13,10 @@
     "before-deploy"
   ],
   "latestRound": 6,
+  "googlePlayUpload": {
+    "track": "internal",
+    "operation": "upload"
+  },
   "approvedAt": "2026-10-19T05:42:52.027109Z",
   "expiresAt": "2026-10-26T03:59:05Z",
   "approvalEvidence": "https://github.com/seorilabs/lizard-tycoon/issues/805#issuecomment-6260553208",
@@ -34,5 +38,6 @@
   },
   "digestEncoding": "sha256-json-stringify-utf8",
   "originalVerdict": "preserve",
-  "removal": "after-expiry-or-completion-of-this-candidate"
+  "removal": "after-expiry-or-completion-of-this-candidate",
+  "uploadScopeApprovalEvidence": "https://github.com/seorilabs/lizard-tycoon/issues/805#issuecomment-6261931273"
 }

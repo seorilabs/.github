@@ -383,13 +383,15 @@ export async function verifyReleaseDevelopmentEvidence(options) {
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   const args = new Map();
   const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'configuration-fingerprint',
-    'rollout', 'internal-testflight-bootstrap-id', 'verifier-sha', 'report', 'artifact-receipt', 'artifact-file', 'app-repository', 'after']);
+    'rollout', 'play-track', 'play-operation', 'internal-testflight-bootstrap-id', 'verifier-sha', 'report', 'artifact-receipt', 'artifact-file', 'app-repository', 'after']);
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i]?.replace(/^--/u, '');
     if (!argv[i]?.startsWith('--') || !allowed.has(key) || !argv[i + 1] || argv[i + 1].startsWith('--') || args.has(key)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
     args.set(key, argv[i + 1]);
   }
   const context = { repository: args.get('repo') ?? env.GITHUB_REPOSITORY, sourceSha: args.get('sha'), target: args.get('target'), tag: args.get('tag'), phase: args.get('phase'), configurationFingerprint: args.get('configuration-fingerprint'), requireUi: args.get('target') !== 'service' };
+  context.playTrack = args.get('play-track');
+  context.playOperation = args.get('play-operation');
   if (args.has('rollout')) {
     const rollout = Number(args.get('rollout'));
     if (!/^(0(\.\d+)?|1(\.0+)?)$/u.test(args.get('rollout')) || !(rollout > 0 && rollout <= 1)) throw new Error('INVALID_EVIDENCE_ARGUMENT');

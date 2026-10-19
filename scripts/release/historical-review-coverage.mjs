@@ -24,6 +24,9 @@ export function applyHistoricalReviewCoverage(document, context, original, regis
       || !Array.isArray(grant.phases) || !grant.phases.includes(context.phase)
       || !Array.isArray(grant.tags) || (context.tag !== undefined && !grant.tags.includes(context.tag))
       || grant.latestRound !== latest.number) return false;
+    if (context.target === 'google-play' && context.phase === 'before-deploy'
+      && (grant.googlePlayUpload?.track !== 'internal' || grant.googlePlayUpload?.operation !== 'upload'
+        || context.playTrack !== 'internal' || context.playOperation !== 'upload')) return false;
     const start = Date.parse(grant.approvedAt), end = Date.parse(grant.expiresAt);
     if (![now, start, end].every(Number.isFinite) || !(start <= now && now < end)
       || !(end > start && end - start <= maxAge)) return false;

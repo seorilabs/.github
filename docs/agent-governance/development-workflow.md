@@ -151,7 +151,7 @@
 
 [Lizard Tycoon 1.9.0의 사용자 승인](../design/2026-10-19-lizard-190-historical-coverage/design.md)은 후보 `055aae4422610e279417f3f3a7d2b9007cb1754d`와 중앙에 등록된 마켓별 실제 근거 해시에만 적용한다. 정상 v2 검증을 먼저 실행하며, 현재 후보의 마지막 회차 기능과 UX가 통과하고 과거 `ux-1`, `functional-4`, `ux-4`의 범위 오류 세 개만 남을 때 `human_exception` 결정을 반환한다. 원래 failed 판정은 `originalVerdict`에 보존하며 CLI에도 출력한다.
 
-다른 후보, 태그, 자료, 오류와 만료는 허용하지 않는다. 빌드와 테스트 업로드에만 적용하며 before-release와 공개 배포인 web 및 service의 before-deploy는 거절한다. 기존 실패와 당시 실제 범위를 고쳐 쓰지 않으며 CI, 실행자, 최종 회차, 플랫폼과 출시 검사는 유지한다. 새 생략 flag는 없다. [중앙 grant](../../contracts/historical-review-coverage/lizard-tycoon-1.9.0.json)는 현재 CI의 168시간 기한 이내에서만 유효하고 만료 후 제거 대상이다. 일반 제품과 v1의 검증 동작은 바뀌지 않는다.
+다른 후보, 태그, 자료, 오류와 만료는 허용하지 않는다. 빌드와 테스트 업로드에만 적용하며 before-release와 공개 배포인 web 및 service의 before-deploy는 거절한다. 기존 실패와 당시 실제 범위를 고쳐 쓰지 않으며 CI, 실행자, 최종 회차, 플랫폼과 출시 검사는 유지한다. Google Play before-deploy 예외는 [승인된 내부 업로드 설계](../design/2026-10-19-lizard-190-internal-upload-scope/design.md)에 따라 실제 트랙 internal과 작업 upload만 허용한다. 두 관측값이 없거나 승격이면 원래 실패를 유지한다. 새 생략 flag는 없다. [중앙 grant](../../contracts/historical-review-coverage/lizard-tycoon-1.9.0.json)는 현재 CI의 168시간 기한 이내에서만 유효하고 만료 후 제거 대상이다. 일반 제품과 v1의 검증 동작은 바뀌지 않는다.
 
 ## 실행과 단계별 검사
 
