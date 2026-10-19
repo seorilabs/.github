@@ -32,6 +32,6 @@ flowchart LR
 
 중앙 변경 등급은L1, 개발 환경이다. 허용 단계, 정상 SDK4개 누락과 잘못된 런타임·설정·출처, 과거 실패 보존, 태그와 ZIP 조회, 다른 경로 보존을 테스트한다. 전체 중앙 테스트, package검사와 Actions lint, 읽기 전용 Claude 교차 리뷰 및 CI를 통과한 뒤 병합한다.
 
-기존 Xcode Cloud 훅은 태그와 빌드 번호를 검사하지만 현재 중앙 근거 CLI를 직접 호출하지 않는다. 새 전용 재사용 workflow와 앱의 thin 수동 caller로 해당 앱의 `contents: read` 토큰에서 같은 마켓·후보의 검증을 수행한다. 이 workflow는 검증만 하며 빌드·업로드·제출을 시작하지 않는다. 정상 SDK가 미실행인 `before-release`의 실패도 그대로 보존한다. 실제 Cloud 빌드는 별도 `before-build` 통과 뒤 정확한 태그로 시작한다.
+기존 Xcode Cloud 훅은 태그와 빌드 번호를 검사하지만 현재 중앙 근거 CLI를 직접 호출하지 않는다. 새 전용 재사용 workflow와 앱의 thin 수동 caller로 해당 앱의 `contents: read`, `actions: read` 토큰에서 같은 마켓·후보의 검증을 수행한다. 이 workflow는 검증만 하며 빌드·업로드·제출을 시작하지 않는다. 정상 SDK가 미실행인 `before-release`의 실패도 그대로 보존한다. 실제 Cloud 빌드는 별도 `before-build` 통과 뒤 정확한 태그로 시작한다.
 
 실제 SDK를 쓰는 데 기기가 필요하면 별도 소명과 승인을 먼저 받는다. 실제 빌드, TestFlight 처리, 마켓 자료와 정책 검수, `before-release` 통과 뒤에만 심사를 접수한다. 심사 접수 후 이 후보 grant, 전용 코드와 검증 workflow 및 caller를 제거하고 원래 실패와 실행 원장은 보존한다. 만료도 같은 제거 조건이다.

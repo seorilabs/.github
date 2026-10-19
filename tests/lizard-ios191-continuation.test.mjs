@@ -156,3 +156,10 @@ test('checked-in grant leaves native SDK validation mandatory and retires only t
   assert.equal(g.nativeSdkWaived,false);assert.equal(g.removal,'after-exact-app-store-review-submission-or-expiry');
   assert.deepEqual(g.errors,ERRORS);
 });
+test('read-only CI can read private evidence and its Actions runs without write permissions',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const {parse}=await import('yaml');
+  const workflow=parse(readFileSync('.github/workflows/verify-lizard-ios191.yml','utf8'));
+  assert.deepEqual(workflow.permissions,{contents:'read',actions:'read'});
+  for(const step of workflow.jobs.verify.steps.filter(step=>step.uses)) assert.match(step.uses,/@[a-f0-9]{40}$/);
+});

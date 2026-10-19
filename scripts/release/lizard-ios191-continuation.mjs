@@ -31,8 +31,8 @@ export async function verifyLizardIos191Continuation(document, context, dependen
   const baseline = await dependencies.validate(document.baselineEvidence,
     { ...context, sourceSha: document.baselineEvidence.sourceSha, tag: 'v1.9.0' });
   const native = await dependencies.validate(document.nativeEvidence, context);
-  if (!originalFailure(patch)) reject('PATCH_VALIDATION');
-  if (!originalFailure(baseline)) reject('BASELINE_VALIDATION');
+  if (!originalFailure(patch)) reject(`PATCH_VALIDATION ${(patch.errors ?? []).join(', ')}`);
+  if (!originalFailure(baseline)) reject(`BASELINE_VALIDATION ${(baseline.errors ?? []).join(', ')}`);
   if (!native.ok || native.level !== 'L3' || native.errors.length !== 0 || native.decisionStatus)
     reject(`NATIVE_VALIDATION ${(native.errors ?? []).join(', ')}`);
   if (context.repository !== 'seorilabs/lizard-tycoon' || context.target !== 'app-store' || context.tag !== 'v1.9.1'
