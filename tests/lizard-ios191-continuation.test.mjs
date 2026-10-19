@@ -166,19 +166,19 @@ test('read-only CI can read private evidence and its Actions runs without write 
 
 // 승인 대체 경로의 가상 입력이다. 사용자 확인을 실행 records로 만들지 않는다.
 function ownerFixture() {
-  const f=fixture(); f.context.phase='before-release'; f.context.now='2026-10-19T15:00:00Z';
+  const f=fixture(); f.context.phase='before-release'; f.context.now='2026-10-19T15:00:00Z'; f.context.submissionBuildId='build-56';f.context.submissionArtifactSha256='1'.repeat(64);
   const texts={
     confirmationJson: JSON.stringify({targetVersion:'1.9.1',targetBuild:'56',recordedAt:'2026-10-19T14:11:20Z',notObservedByAgent:true,notAddedToDevelopmentRuns:true,agentDeviceAccess:false,
       reportedRuntimeChecks:{'consent-policy':'user-confirmed','sdk-completion':'user-confirmed actual ad shown','server-delivery':'reward received per user; server record pending','relaunch-no-duplicate':'user-confirmed'}}),
     serverDeliveryJson: JSON.stringify({checkedAt:'2026-10-19T14:11:22Z',project:'seorilabs-platform',claimId:'claim-1',appId:'lizard-tycoon',clientPlatform:'ios',provider:'admob',placement:'rewarded_leaf_bonus',assurance:'server_verified',state:'delivered',createdAt:'2026-10-19T14:04:13Z',confirmedAt:'2026-10-19T14:05:07Z',acknowledgedAt:'2026-10-19T14:05:14Z',rewardKey:'leaf_bonus',rewardUnits:1,recentIosClaimCount:1,noWriteOperations:true,noDeviceOperations:true}),
     versionBuildJson: JSON.stringify({checkedAt:'2026-10-19T14:12:15Z',appId:'6786516830',bundleId:'com.seorilabs.lizardtycoon',candidateVersionBuilds:[{id:'build-56',version:'1.9.1',build:'56',state:'VALID',expired:false}],allRecent50BuildsChecked:50,serverOnlyNoDeviceAccess:true}),
-    proposalMarkdown:'one fixed candidate proposal',
+    proposalMarkdown:'one fixed candidate IPA '+ '1'.repeat(64),
   };
   const digest=s=>createHash('sha256').update(s).digest('hex');
   const approval={approvedAt:'2026-10-19T14:20:00Z',status:'approved',userStatement:'근거로 인정하고 심사제출해.',proposalSha256:digest(texts.proposalMarkdown),approvalEvidence:'https://github.com/seorilabs/lizard-tycoon/issues/805#issuecomment-6269467251',repository:f.context.repository,sourceSha:f.context.sourceSha,tag:'v1.9.1',target:'app-store',phase:'before-release',version:'1.9.1',build:'56'};
   texts.approvalJson=JSON.stringify(approval);
   f.document.ownerEvidence={...texts,releaseArtifactSha256:'1'.repeat(64)};
-  f.grant.ownerAcceptance={approvedAt:approval.approvedAt,approvalEvidence:approval.approvalEvidence,artifactSha256:'1'.repeat(64),claimId:'claim-1',buildId:'build-56',nativeErrors:['TEST_LEVEL_BELOW_FLOOR platform-first ads ios'],
+  f.grant.ownerAcceptance={independentSdkRerunWaived:true,approvedAt:approval.approvedAt,approvalEvidence:approval.approvalEvidence,artifactSha256:'1'.repeat(64),claimId:'claim-1',buildId:'build-56',nativeErrors:['TEST_LEVEL_BELOW_FLOOR platform-first ads ios'],
     ...Object.fromEntries(Object.entries(texts).map(([key,value])=>[key+'Sha256',digest(value)]))};
   return f;
 }
@@ -208,6 +208,8 @@ for(const [name,key,mutate] of [
   f.grant.ownerAcceptance[key+'Sha256']=createHash('sha256').update(f.document.ownerEvidence[key]).digest('hex');await assert.rejects(verify(f));
 });
 for(const [name,mutate] of [
+  ['different submission build',f=>{f.context.submissionBuildId='build-57';}],['different submission IPA',f=>{f.context.submissionArtifactSha256='2'.repeat(64);}],
+  ['missing submitted build',f=>{delete f.context.submissionBuildId;}],['no independent rerun acceptance',f=>{f.grant.ownerAcceptance.independentSdkRerunWaived=false;}],
   ['no reviewed owner grant',f=>{delete f.grant.ownerAcceptance;}],['different phase',f=>{f.context.phase='before-build';}],
   ['not approved yet',f=>{f.context.now='2026-10-19T14:15:00Z';}],['expired original grant',f=>{f.context.now=f.grant.expiresAt;}],
   ['additional native failure',f=>{const validate=f.dependencies.validate;f.dependencies.validate=async(p,c)=>{const r=await validate(p,c);if(p===f.document.nativeEvidence)r.errors.push('RUN_EXPIRED native');return r;};}],

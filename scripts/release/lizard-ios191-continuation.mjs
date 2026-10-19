@@ -19,9 +19,11 @@ const originalFailure = result => result?.ok === false && result.level === 'L3' 
 // 사용자 기록은 일반 runs에 넣지 않는다. 중앙에서 검토한 원본 bytes와 한 후보 승인만 인정한다.
 function verifyOwnerAcceptance(document, context, grant, native) {
   const evidence = document.ownerEvidence, accepted = grant.ownerAcceptance;
-  if (context.phase !== 'before-release' || !evidence || !accepted
+  if (context.phase !== 'before-release' || !evidence || !accepted || accepted.independentSdkRerunWaived !== true
     || Object.keys(evidence).length !== OWNER_KEYS.length || Object.keys(evidence).some(key => !OWNER_KEYS.includes(key))
     || OWNER_KEYS.some(key => typeof evidence[key] !== 'string')
+    || context.submissionBuildId !== accepted.buildId || context.submissionArtifactSha256 !== accepted.artifactSha256
+    || !evidence.proposalMarkdown?.includes(accepted.artifactSha256)
     || evidence.releaseArtifactSha256 !== accepted.artifactSha256 || !/^[a-f0-9]{64}$/u.test(accepted.artifactSha256 ?? '')
     || OWNER_KEYS.filter(key => key !== 'releaseArtifactSha256').some(key => textHash(evidence[key]) !== accepted[key+'Sha256'])) reject('OWNER_BYTES');
   let confirmation, server, builds, approval;
