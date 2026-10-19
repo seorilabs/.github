@@ -7,6 +7,8 @@ import { githubDownload, githubJson, githubPaginate, resolveToken } from '../git
 import { carriedForwardFeatures } from './carry-forward.mjs';
 import { validateLegacyEvidence } from './development-evidence-v1.mjs';
 import { applyHistoricalReviewCoverage } from './historical-review-coverage.mjs';
+import { requiresLizardIos191Continuation, verifyLizardIos191Continuation } from './lizard-ios191-continuation.mjs';
+import { parseTagReceipt } from './tag-version-authority.mjs';
 import { computeFloor, DEVICE_ENVIRONMENTS, environmentOf, highestLevel, mergeTestPlans, policy, RELEASE_ONLY_TARGETS,
   testPlanProblems, validInventory } from './test-plan.mjs';
 
@@ -372,12 +374,41 @@ export async function verifyReleaseDevelopmentEvidence(options) {
   let document;
   try { document = JSON.parse(bytes.toString('utf8')); }
   catch { throw new Error('INVALID_EVIDENCE_JSON'); }
-  const featureInventory = await readRemoteInventory(repository, sourceSha, request);
-  const remote = await readRemoteContext(document, repository, sourceSha, request, featureInventory);
-  const ciRuns = await readCiRuns(document, request);
-  const result = validateDevelopmentEvidence(document, { ...options, featureInventory, ...remote, ciRuns });
+  let result;
+  if (requiresLizardIos191Continuation(options) && document.kind !== 'lizard-ios191-submission-continuation') throw new Error('LIZARD_IOS191_CONTINUATION_REQUIRED');
+  if (document.kind === 'lizard-ios191-submission-continuation') {
+    result = await verifyLizardIos191Continuation(document, options, {
+      validate: async (part, context) => {
+        const featureInventory = await readRemoteInventory(repository, context.sourceSha, request);
+        const remote = await readRemoteContext(part, repository, context.sourceSha, request, featureInventory);
+        const ciRuns = await readCiRuns(part, request);
+        return validateTestLevelEvidence(part, { ...context, featureInventory, ...remote, ciRuns });
+      },
+      readProof: grant => readLizardIos191Proof(repository, grant, request),
+    });
+  } else {
+    const featureInventory = await readRemoteInventory(repository, sourceSha, request);
+    const remote = await readRemoteContext(document, repository, sourceSha, request, featureInventory);
+    const ciRuns = await readCiRuns(document, request);
+    result = validateDevelopmentEvidence(document, { ...options, featureInventory, ...remote, ciRuns });
+  }
   if (!result.ok) throw new Error(result.errors.join('\n'));
-  return { ...result, assetId: asset.id, completedAt: document.schemaVersion === 1 ? document.e2e.completedAt : result.completedAt };
+  return { ...result, assetId: asset.id, completedAt: document.kind === 'lizard-ios191-submission-continuation' ? result.completedAt : document.schemaVersion === 1 ? document.e2e.completedAt : result.completedAt };
+}
+
+export async function readLizardIos191Proof(repository, grant, request) {
+  const candidate = await githubJson(`/repos/${repository}/git/commits/${grant.sourceSha}`, request);
+  const rendered = await githubJson(`/repos/${repository}/git/commits/${grant.renderedSha}`, request);
+  const archive = await githubJson(`/repos/${repository}/releases/assets/${grant.archiveId}`, request);
+  const release = await githubJson(`/repos/${repository}/releases/${grant.archiveReleaseId}`, request);
+  const ref = await githubJson(`/repos/${repository}/git/ref/tags/v1.9.1`, request);
+  const tag = ref.object?.type === 'tag' ? await githubJson(`/repos/${repository}/git/tags/${ref.object.sha}`, request) : null;
+  const receipt = parseTagReceipt(tag?.message);
+  const tagSourceSha = tag?.object?.type === 'commit' && receipt?.tag === 'v1.9.1' && receipt.versionName === '1.9.1'
+    && receipt.sourceSha === tag.object.sha ? tag.object.sha : null;
+  const archivePublished = release.draft === false && release.tag_name === 'v1.9.1'
+    && release.assets?.some(asset => asset.id === grant.archiveId && asset.digest === grant.archiveDigest);
+  return { candidateTree: candidate.tree?.sha, renderedTree: rendered.tree?.sha, archiveDigest: archive.digest, archivePublished, tagSourceSha };
 }
 
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {

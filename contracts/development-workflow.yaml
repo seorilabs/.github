@@ -196,6 +196,7 @@ historicalReviewCoverage:
   scope: reviewed-exact-candidate-and-evidence-only
   grantRegistry:
     - contracts/historical-review-coverage/lizard-tycoon-1.9.0.json
+    - contracts/historical-review-coverage/lizard-tycoon-ios-1.9.1.json
 autonomousImplementation:
   approvedDesignRequired: true
   missingApproval: draft-design-and-continue-next-unattempted
