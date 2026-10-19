@@ -167,7 +167,7 @@ test('normal successful evidence is unchanged and a pre-tag file check remains p
 
 test('the checked-in grant is limited to the approved candidate and three actual evidence hashes', () => {
   assert.deepEqual(policy.historicalReviewCoverage.grantRegistry,
-    ['contracts/historical-review-coverage/lizard-tycoon-1.9.0.json', 'contracts/historical-review-coverage/lizard-tycoon-ios-1.9.1.json']);
+    ['contracts/historical-review-coverage/lizard-tycoon-1.9.0.json']);
   const grant = JSON.parse(readFileSync(new URL('../contracts/historical-review-coverage/lizard-tycoon-1.9.0.json', import.meta.url)));
   assert.equal(grant.repository, 'seorilabs/lizard-tycoon');
   assert.equal(grant.sourceSha, '055aae4422610e279417f3f3a7d2b9007cb1754d');
