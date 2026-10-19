@@ -7,6 +7,7 @@ import { githubDownload, githubJson, githubPaginate, resolveToken } from '../git
 import { carriedForwardFeatures } from './carry-forward.mjs';
 import { validateLegacyEvidence } from './development-evidence-v1.mjs';
 import { applyHistoricalReviewCoverage } from './historical-review-coverage.mjs';
+import { requiresApprovedPatchContinuation, verifyApprovedPatchContinuation } from './approved-patch-continuation.mjs';
 import { computeFloor, DEVICE_ENVIRONMENTS, environmentOf, highestLevel, mergeTestPlans, policy, RELEASE_ONLY_TARGETS,
   testPlanProblems, validInventory } from './test-plan.mjs';
 
@@ -373,8 +374,8 @@ export async function verifyReleaseDevelopmentEvidence(options) {
   try { document = JSON.parse(bytes.toString('utf8')); }
   catch { throw new Error('INVALID_EVIDENCE_JSON'); }
   let result;
+  if (requiresApprovedPatchContinuation(options) && document.kind !== 'lizard-191-public-continuation') throw new Error('APPROVED_PATCH_CONTINUATION_REQUIRED');
   if (document.kind === 'lizard-191-public-continuation') {
-    const { verifyApprovedPatchContinuation } = await import('./approved-patch-continuation.mjs');
     result = await verifyApprovedPatchContinuation(document, options, {
       validate: async (part, context) => {
         const featureInventory = await readRemoteInventory(repository, context.sourceSha, request);
@@ -386,7 +387,10 @@ export async function verifyReleaseDevelopmentEvidence(options) {
         const candidate = await githubJson(`/repos/${repository}/git/commits/${grant.sourceSha}`, request);
         const rendered = await githubJson(`/repos/${repository}/git/commits/${grant.renderedSha}`, request);
         const archive = await githubJson(`/repos/${repository}/releases/assets/${grant.archiveId}`, request);
-        return { candidateTree: candidate.tree?.sha, renderedTree: rendered.tree?.sha, archiveDigest: archive.digest };
+        const release = await githubJson(`/repos/${repository}/releases/${grant.archiveReleaseId}`, request);
+        const archivePublished = release.draft === false && release.tag_name === 'v1.9.1'
+          && release.assets?.some(asset => asset.id === grant.archiveId && asset.digest === grant.archiveDigest);
+        return { candidateTree: candidate.tree?.sha, renderedTree: rendered.tree?.sha, archiveDigest: archive.digest, archivePublished };
       },
     });
   } else {

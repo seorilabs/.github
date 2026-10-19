@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { verifyApprovedPatchContinuation } from '../scripts/release/approved-patch-continuation.mjs';
+import { verifyApprovedPatchContinuation, requiresApprovedPatchContinuation } from '../scripts/release/approved-patch-continuation.mjs';
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const errors = ['FEATURE_COVERAGE ux-1', 'FEATURE_COVERAGE functional-4', 'FEATURE_COVERAGE ux-4'];
 function fixture() {
@@ -13,10 +13,10 @@ function fixture() {
   const context = { repository: document.repository, sourceSha, target: 'google-play', tag: 'v1.9.1', phase: 'before-build', now: '2026-10-19T10:00:00Z' };
   const grant = { schemaVersion: 2, kind: document.kind, id: 'lizard-191-public', repository: document.repository, sourceSha, baselineSha, renderedSha,
     approvedAt: '2026-10-19T09:02:41Z', expiresAt: '2026-10-26T03:59:05Z', envelopeHash: hash(document), baselineHash: hash(document.baselineEvidence), patchHash: hash(document.patchEvidence),
-    treeSha: 'd'.repeat(40), archiveId: 655706292, archiveDigest: 'sha256:'+'e'.repeat(64), errors: [...errors], approvalEvidence: 'https://github.com/seorilabs/lizard-tycoon/issues/805#issuecomment-6263609549' };
+    treeSha: 'd'.repeat(40), archiveReleaseId: 417105241, archiveId: 655706292, archiveDigest: 'sha256:'+'e'.repeat(64), errors: [...errors], approvalEvidence: 'https://github.com/seorilabs/lizard-tycoon/issues/805#issuecomment-6263609549' };
   const baselineResult = { ok: false, level: 'L3', errors: [...errors], completedAt: '2026-10-19T05:27:14Z' };
   const patchResult = { ok: true, level: 'L1', errors: [], completedAt: '2026-10-19T08:44:00Z' };
-  const proof = { candidateTree: grant.treeSha, renderedTree: grant.treeSha, archiveDigest: grant.archiveDigest };
+  const proof = { candidateTree: grant.treeSha, renderedTree: grant.treeSha, archiveDigest: grant.archiveDigest, archivePublished: true };
   const calls = [];
   const dependencies = { validate: async (part, ctx) => { calls.push(ctx.sourceSha); return part === document.baselineEvidence ? baselineResult : patchResult; }, readProof: async () => proof };
   return { document, context, grant, baselineResult, patchResult, proof, dependencies, calls };
@@ -46,8 +46,8 @@ for (const [name, mutate] of [
   ['extra baseline failure',f=>{f.baselineResult.errors.push('RUN_EXPIRED old');}],
   ['baseline ordinary pass',f=>Object.assign(f.baselineResult,{ok:true,errors:[]})],
   ['baseline not L3',f=>{f.baselineResult.level='L1';}],
-  ['tree mismatch',f=>{f.proof.renderedTree='f'.repeat(40);}], ['archive mismatch',f=>{f.proof.archiveDigest='sha256:'+'f'.repeat(64);}],
-  ['rollout outside approval',f=>{f.context.rollout=2;}],
+  ['tree mismatch',f=>{f.proof.renderedTree='f'.repeat(40);}], ['archive mismatch',f=>{f.proof.archiveDigest='sha256:'+'f'.repeat(64);}], ['draft archive',f=>{f.proof.archivePublished=false;}],
+  ['rollout outside approval',f=>{f.context.rollout=2;}], ['staged rollout',f=>{f.context.rollout=0.5;}],
 ]) test(`continuation denies ${name}`, async () => {const f=fixture();mutate(f);await assert.rejects(run(f));});
 test('no registered grant and duplicate grants deny the envelope', async()=>{
   const f=fixture();await assert.rejects(verifyApprovedPatchContinuation(f.document,f.context,f.dependencies,[]));
@@ -70,5 +70,25 @@ test('checked-in continuation grant freezes this Android candidate and original 
   assert.equal(g.renderedSha,'001a8d9bec627c3d73ac8d258e0fb733202a38db');
   assert.equal(g.expiresAt,'2026-10-26T03:59:05Z');
   for (const key of ['envelopeHash','baselineHash','patchHash']) assert.match(g[key],/^[a-f0-9]{64}$/);
-  assert.equal(g.archiveId,655706292);
+  assert.equal(g.archiveId,655801246); assert.equal(g.archiveReleaseId,417105241);
+});
+
+test('registered candidate requires its envelope even after expiry or for another market',()=>{
+  const f=fixture();assert.equal(requiresApprovedPatchContinuation(f.context,[f.grant]),true);
+  assert.equal(requiresApprovedPatchContinuation({...f.context,target:'app-store',now:'2026-11-01T00:00:00Z'},[f.grant]),true);
+  assert.equal(requiresApprovedPatchContinuation({...f.context,sourceSha:'f'.repeat(40)},[f.grant]),false);
+  assert.equal(requiresApprovedPatchContinuation(f.context,[]),false);
+});
+test('remote release path rejects an ordinary L1 document for the registered candidate',async()=>{
+  const {verifyReleaseDevelopmentEvidence}=await import('../scripts/release/verify-development-evidence.mjs');
+  const {readFileSync}=await import('node:fs');
+  const g=JSON.parse(readFileSync('contracts/historical-review-coverage/lizard-tycoon-1.9.1.json'));
+  const reply=v=>new Response(JSON.stringify(v),{headers:{'content-type':'application/json'}});
+  const fetchImpl=async url=>{
+    if(url.includes('/releases/tags/'))return reply({id:123});
+    if(url.includes('/releases/123/assets?'))return reply([{id:124,size:100,name:'development-evidence.google-play.before-build.json'}]);
+    if(url.endsWith('/releases/assets/124'))return reply({schemaVersion:2,sourceSha:g.sourceSha,target:'google-play'});
+    throw Error('Unexpected read before envelope guard');
+  };
+  await assert.rejects(verifyReleaseDevelopmentEvidence({repository:g.repository,sourceSha:g.sourceSha,target:'google-play',phase:'before-build',tag:'v1.9.1',token:'fixture-token',fetchImpl}),/APPROVED_PATCH_CONTINUATION_REQUIRED/);
 });

@@ -11,6 +11,9 @@ const errors = ['FEATURE_COVERAGE ux-1', 'FEATURE_COVERAGE functional-4', 'FEATU
 const reject = reason => { throw new Error(`APPROVED_PATCH_CONTINUATION_${reason}`); };
 
 // 두 실행 기록을 각각 정상 검증한다. 과거 실행의 SHA나 실패를 현재 후보로 바꾸지 않는다.
+export const requiresApprovedPatchContinuation = (context, grants = registry) => grants.some(grant =>
+  grant?.kind === 'lizard-191-public-continuation' && grant.repository === context.repository && grant.sourceSha === context.sourceSha);
+
 export async function verifyApprovedPatchContinuation(document, context, dependencies, grants = registry) {
   if (document?.schemaVersion !== 1 || document.kind !== 'lizard-191-public-continuation'
     || document.baselineEvidence?.schemaVersion !== 2 || document.patchEvidence?.schemaVersion !== 2) reject('SCHEMA');
@@ -28,7 +31,7 @@ export async function verifyApprovedPatchContinuation(document, context, depende
     || (context.phase === 'before-deploy' && context.playTrack === 'internal' && context.playOperation === 'upload')
     || (context.phase === 'before-release' && context.playTrack === 'production' && context.playOperation === 'promote');
   const rollout = context.rollout ?? 1;
-  if (!operationAllowed || !Number.isFinite(rollout) || !(rollout > 0 && rollout <= 1)) reject('OPERATION');
+  if (!operationAllowed || !Number.isFinite(rollout) || rollout !== 1) reject('OPERATION');
   const now = Date.parse(context.now ?? new Date().toISOString());
   const matches = grants.filter(grant => {
     const start = Date.parse(grant?.approvedAt), end = Date.parse(grant?.expiresAt);
@@ -41,6 +44,7 @@ export async function verifyApprovedPatchContinuation(document, context, depende
       && grant.patchHash === hash(document.patchEvidence) && grant.baselineSha === document.baselineEvidence.sourceSha
       && document.patchEvidence.sourceSha === grant.sourceSha && grant.renderedSha === document.visualEvidence?.sourceSha
       && Number.isSafeInteger(grant.archiveId) && grant.archiveId > 0 && grant.archiveId === document.visualEvidence.archiveId
+      && Number.isSafeInteger(grant.archiveReleaseId) && grant.archiveReleaseId > 0
       && /^sha256:[a-f0-9]{64}$/u.test(grant.archiveDigest ?? '')
       && grant.approvalEvidence === 'https://github.com/seorilabs/lizard-tycoon/issues/805#issuecomment-6263609549';
   });
@@ -50,7 +54,7 @@ export async function verifyApprovedPatchContinuation(document, context, depende
     || latest.functional?.status !== 'passed' || latest.ux?.status !== 'passed') reject('LATEST_REVIEW');
   const proof = await dependencies.readProof(grant);
   if (proof.candidateTree !== grant.treeSha || proof.renderedTree !== grant.treeSha
-    || proof.archiveDigest !== grant.archiveDigest) reject('VISUAL_READBACK');
+    || proof.archiveDigest !== grant.archiveDigest || proof.archivePublished !== true) reject('VISUAL_READBACK');
   return { ok: true, errors: [], level: 'L3', completedAt: patch.completedAt,
     decisionStatus: 'human_exception', exceptionId: grant.id, waivedErrors: [...baseline.errors],
     originalVerdict: { ...baseline, errors: [...baseline.errors] }, patchVerdict: patch,
