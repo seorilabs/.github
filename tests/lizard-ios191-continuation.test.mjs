@@ -214,3 +214,17 @@ for(const [name,mutate] of [
   ['not approved yet',f=>{f.context.now='2026-10-19T14:15:00Z';}],['expired original grant',f=>{f.context.now=f.grant.expiresAt;}],
   ['additional native failure',f=>{const validate=f.dependencies.validate;f.dependencies.validate=async(p,c)=>{const r=await validate(p,c);if(p===f.document.nativeEvidence)r.errors.push('RUN_EXPIRED native');return r;};}],
 ])test(`owner acceptance rejects ${name}`,async()=>{const f=ownerFixture();mutate(f);await assert.rejects(verify(f));});
+
+test('owner proposal must contain the actual IPA even with internally matching replacement hashes',async()=>{
+  const f=ownerFixture(),digest=s=>createHash('sha256').update(s).digest('hex');
+  f.document.ownerEvidence.proposalMarkdown='proposal without an IPA';
+  f.grant.ownerAcceptance.proposalMarkdownSha256=digest(f.document.ownerEvidence.proposalMarkdown);
+  const approval=JSON.parse(f.document.ownerEvidence.approvalJson);approval.proposalSha256=f.grant.ownerAcceptance.proposalMarkdownSha256;
+  f.document.ownerEvidence.approvalJson=JSON.stringify(approval);f.grant.ownerAcceptance.approvalJsonSha256=digest(f.document.ownerEvidence.approvalJson);
+  await assert.rejects(verify(f),/OWNER_BYTES/);
+});
+test('submission binding arguments cannot silently apply to other repositories or markets',async()=>{
+  const {runDevelopmentEvidenceCli}=await import('../scripts/release/verify-development-evidence.mjs');
+  for(const [repository,target] of [['seorilabs/other','app-store'],['seorilabs/lizard-tycoon','google-play']])
+    await assert.rejects(runDevelopmentEvidenceCli(['--repo',repository,'--target',target,'--sha','b'.repeat(40),'--phase','before-release','--submission-build-id','56','--submission-artifact-sha256','1'.repeat(64)],{}),/INVALID_EVIDENCE_ARGUMENT/);
+});

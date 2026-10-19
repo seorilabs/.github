@@ -423,6 +423,7 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   const context = { repository: args.get('repo') ?? env.GITHUB_REPOSITORY, sourceSha: args.get('sha'), target: args.get('target'), tag: args.get('tag'), phase: args.get('phase'), configurationFingerprint: args.get('configuration-fingerprint'), requireUi: args.get('target') !== 'service' };
   context.submissionBuildId = args.get('submission-build-id');
   context.submissionArtifactSha256 = args.get('submission-artifact-sha256');
+  if ((args.has('submission-build-id') || args.has('submission-artifact-sha256')) && !requiresLizardIos191Continuation(context)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
   context.playTrack = args.get('play-track');
   context.playOperation = args.get('play-operation');
   if (args.has('rollout')) {

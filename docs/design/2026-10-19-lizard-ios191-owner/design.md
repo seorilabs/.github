@@ -14,7 +14,7 @@
 
 L1 개발 테스트로 원본과 수정 실패, 누락 및 변조, 잘못된 서버 상태, 다른 앱과 플랫폼, claim, 버전과 빌드, 승인 및 만료를 검사한다. 기존 정상 SDK 경로와 빌드 전 경로가 유지되는지도 검사한다. 전체 npm test, actionlint, Claude 읽기 전용 교차 리뷰, required CI를 통과한 뒤 실제 후보 before-release CLI 및 CI를 실행한다.
 
-제품과 SDK, 서버, 가격, Android는 바꾸지 않는다. 제출 뒤 또는 원래 만료 `2026-10-26T03:59:05Z`에 iOS grant, 전용 코드와 테스트, 전용 중앙 및 앱 workflow caller를 제거한다. 실제 제출 ID와 상태는 앱 docs에 기록한다.
+제품과 SDK, 서버, 가격, Android는 바꾸지 않는다. 제출 뒤 또는 원래 만료 `2026-10-26T03:59:05Z`에 iOS grant, 공용 CLI의 submission-build-id 및 submission-artifact-sha256 입력, 전용 코드와 테스트, 전용 중앙 및 앱 workflow caller를 제거한다. 실제 제출 ID와 상태는 앱 docs에 기록한다.
 
 ## 리뷰 보완과 실제 제출 결속
 
