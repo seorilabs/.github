@@ -163,3 +163,68 @@ test('read-only CI can read private evidence and its Actions runs without write 
   assert.deepEqual(workflow.permissions,{contents:'read',actions:'read'});
   for(const step of workflow.jobs.verify.steps.filter(step=>step.uses)) assert.match(step.uses,/@[a-f0-9]{40}$/);
 });
+
+// 승인 대체 경로의 가상 입력이다. 사용자 확인을 실행 records로 만들지 않는다.
+function ownerFixture() {
+  const f=fixture(); f.context.phase='before-release'; f.context.now='2026-10-19T15:00:00Z'; f.context.submissionBuildId='build-56';f.context.submissionArtifactSha256='1'.repeat(64);
+  const texts={
+    confirmationJson: JSON.stringify({targetVersion:'1.9.1',targetBuild:'56',recordedAt:'2026-10-19T14:11:20Z',notObservedByAgent:true,notAddedToDevelopmentRuns:true,agentDeviceAccess:false,
+      reportedRuntimeChecks:{'consent-policy':'user-confirmed','sdk-completion':'user-confirmed actual ad shown','server-delivery':'reward received per user; server record pending','relaunch-no-duplicate':'user-confirmed'}}),
+    serverDeliveryJson: JSON.stringify({checkedAt:'2026-10-19T14:11:22Z',project:'seorilabs-platform',claimId:'claim-1',appId:'lizard-tycoon',clientPlatform:'ios',provider:'admob',placement:'rewarded_leaf_bonus',assurance:'server_verified',state:'delivered',createdAt:'2026-10-19T14:04:13Z',confirmedAt:'2026-10-19T14:05:07Z',acknowledgedAt:'2026-10-19T14:05:14Z',rewardKey:'leaf_bonus',rewardUnits:1,recentIosClaimCount:1,noWriteOperations:true,noDeviceOperations:true}),
+    versionBuildJson: JSON.stringify({checkedAt:'2026-10-19T14:12:15Z',appId:'6786516830',bundleId:'com.seorilabs.lizardtycoon',candidateVersionBuilds:[{id:'build-56',version:'1.9.1',build:'56',state:'VALID',expired:false}],allRecent50BuildsChecked:50,serverOnlyNoDeviceAccess:true}),
+    proposalMarkdown:'one fixed candidate IPA '+ '1'.repeat(64),
+  };
+  const digest=s=>createHash('sha256').update(s).digest('hex');
+  const approval={approvedAt:'2026-10-19T14:20:00Z',status:'approved',userStatement:'근거로 인정하고 심사제출해.',proposalSha256:digest(texts.proposalMarkdown),approvalEvidence:'https://github.com/seorilabs/lizard-tycoon/issues/805#issuecomment-6269467251',repository:f.context.repository,sourceSha:f.context.sourceSha,tag:'v1.9.1',target:'app-store',phase:'before-release',version:'1.9.1',build:'56'};
+  texts.approvalJson=JSON.stringify(approval);
+  f.document.ownerEvidence={...texts,releaseArtifactSha256:'1'.repeat(64)};
+  f.grant.ownerAcceptance={independentSdkRerunWaived:true,approvedAt:approval.approvedAt,approvalEvidence:approval.approvalEvidence,artifactSha256:'1'.repeat(64),claimId:'claim-1',buildId:'build-56',nativeErrors:['TEST_LEVEL_BELOW_FLOOR platform-first ads ios'],
+    ...Object.fromEntries(Object.entries(texts).map(([key,value])=>[key+'Sha256',digest(value)]))};
+  return f;
+}
+test('owner exception retains failed native verdict and never synthesizes a run',async()=>{
+  const f=ownerFixture(), before=structuredClone(f.document);const result=await verify(f);
+  assert.equal(result.ok,true);assert.equal(result.decisionStatus,'human_exception');
+  assert.equal(result.nativeVerdict.ok,false);assert.deepEqual(result.nativeVerdict.errors,f.grant.ownerAcceptance.nativeErrors);
+  assert.equal(result.nativeSdkStatus,'owner-and-server-accepted-by-human');assert.deepEqual(f.document,before);
+});
+for(const key of ['confirmationJson','serverDeliveryJson','versionBuildJson','proposalMarkdown','approvalJson','releaseArtifactSha256']) test(`owner acceptance rejects missing or changed ${key}`,async()=>{
+  for(const missing of [true,false]){const f=ownerFixture();if(missing)delete f.document.ownerEvidence[key];else f.document.ownerEvidence[key]+='x';await assert.rejects(verify(f));}
+});
+for(const [name,key,mutate] of [
+  ['wrong app','serverDeliveryJson',p=>{p.appId='other';}],['wrong platform','serverDeliveryJson',p=>{p.clientPlatform='android';}],
+  ['wrong placement','serverDeliveryJson',p=>{p.placement='other';}],['wrong provider','serverDeliveryJson',p=>{p.provider='fake';}],
+  ['wrong claim','serverDeliveryJson',p=>{p.claimId='other';}],['unverified claim','serverDeliveryJson',p=>{p.assurance='client_confirmed';}],
+  ['undelivered claim','serverDeliveryJson',p=>{p.state='confirmed';}],['wrong reward','serverDeliveryJson',p=>{p.rewardUnits=6;}],
+  ['multiple claims','serverDeliveryJson',p=>{p.recentIosClaimCount=2;}],['claim after acknowledgement','serverDeliveryJson',p=>{p.confirmedAt='2026-10-19T14:10:00Z';}],
+  ['wrong version','versionBuildJson',p=>{p.candidateVersionBuilds[0].version='1.9.2';}],['wrong build','versionBuildJson',p=>{p.candidateVersionBuilds[0].build='57';}],
+  ['wrong build ID','versionBuildJson',p=>{p.candidateVersionBuilds[0].id='other';}],['expired build','versionBuildJson',p=>{p.candidateVersionBuilds[0].expired=true;}],
+  ['unprocessed build','versionBuildJson',p=>{p.candidateVersionBuilds[0].state='PROCESSING';}],['another app ID','versionBuildJson',p=>{p.appId='other';}],
+  ['wrong approval source','approvalJson',p=>{p.sourceSha='f'.repeat(40);}],['wrong proposal','approvalJson',p=>{p.proposalSha256='f'.repeat(64);}],
+  ['approval missing','approvalJson',p=>{p.status='pending';}],['no consent observation','confirmationJson',p=>{delete p.reportedRuntimeChecks['consent-policy'];}],
+  ['invented agent pass','confirmationJson',p=>{p.notObservedByAgent=false;}],['user reports in runs','confirmationJson',p=>{p.notAddedToDevelopmentRuns=false;}],
+])test(`owner semantics reject ${name} even if a new digest is supplied`,async()=>{
+  const f=ownerFixture(),p=JSON.parse(f.document.ownerEvidence[key]);mutate(p);f.document.ownerEvidence[key]=JSON.stringify(p);
+  f.grant.ownerAcceptance[key+'Sha256']=createHash('sha256').update(f.document.ownerEvidence[key]).digest('hex');await assert.rejects(verify(f));
+});
+for(const [name,mutate] of [
+  ['different submission build',f=>{f.context.submissionBuildId='build-57';}],['different submission IPA',f=>{f.context.submissionArtifactSha256='2'.repeat(64);}],
+  ['missing submitted build',f=>{delete f.context.submissionBuildId;}],['no independent rerun acceptance',f=>{f.grant.ownerAcceptance.independentSdkRerunWaived=false;}],
+  ['no reviewed owner grant',f=>{delete f.grant.ownerAcceptance;}],['different phase',f=>{f.context.phase='before-build';}],
+  ['not approved yet',f=>{f.context.now='2026-10-19T14:15:00Z';}],['expired original grant',f=>{f.context.now=f.grant.expiresAt;}],
+  ['additional native failure',f=>{const validate=f.dependencies.validate;f.dependencies.validate=async(p,c)=>{const r=await validate(p,c);if(p===f.document.nativeEvidence)r.errors.push('RUN_EXPIRED native');return r;};}],
+])test(`owner acceptance rejects ${name}`,async()=>{const f=ownerFixture();mutate(f);await assert.rejects(verify(f));});
+
+test('owner proposal must contain the actual IPA even with internally matching replacement hashes',async()=>{
+  const f=ownerFixture(),digest=s=>createHash('sha256').update(s).digest('hex');
+  f.document.ownerEvidence.proposalMarkdown='proposal without an IPA';
+  f.grant.ownerAcceptance.proposalMarkdownSha256=digest(f.document.ownerEvidence.proposalMarkdown);
+  const approval=JSON.parse(f.document.ownerEvidence.approvalJson);approval.proposalSha256=f.grant.ownerAcceptance.proposalMarkdownSha256;
+  f.document.ownerEvidence.approvalJson=JSON.stringify(approval);f.grant.ownerAcceptance.approvalJsonSha256=digest(f.document.ownerEvidence.approvalJson);
+  await assert.rejects(verify(f),/OWNER_BYTES/);
+});
+test('submission binding arguments cannot silently apply to other repositories or markets',async()=>{
+  const {runDevelopmentEvidenceCli}=await import('../scripts/release/verify-development-evidence.mjs');
+  for(const [repository,target] of [['seorilabs/other','app-store'],['seorilabs/lizard-tycoon','google-play']])
+    await assert.rejects(runDevelopmentEvidenceCli(['--repo',repository,'--target',target,'--sha','b'.repeat(40),'--phase','before-release','--submission-build-id','56','--submission-artifact-sha256','1'.repeat(64)],{}),/INVALID_EVIDENCE_ARGUMENT/);
+});

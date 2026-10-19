@@ -44,4 +44,6 @@ jobs:
           --tag v1.9.1
           --sha da203979846fdcf4fb5b591689d776d84fe14911
           --target app-store
+          --submission-build-id 830e7703-7a68-4c8a-80d3-3ef70e2d47b6
+          --submission-artifact-sha256 2d1dacbe42d261d62bda0874bf3f74f423cdb5a4a9057eba5458a48a675e4e08
           --phase "$PHASE"

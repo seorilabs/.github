@@ -25,5 +25,21 @@
   "approvalEvidence": "https://github.com/seorilabs/lizard-tycoon/issues/805#issuecomment-6265815627",
   "proposalSha256": "5ea2d94a28b2ddc6672b85579a4055a0304463f959b18eb79534ef41523d782d",
   "nativeSdkWaived": false,
-  "removal": "after-exact-app-store-review-submission-or-expiry"
+  "removal": "after-exact-app-store-review-submission-or-expiry",
+  "ownerAcceptance": {
+    "approvedAt": "2026-10-19T14:20:29.151424+00:00",
+    "approvalEvidence": "https://github.com/seorilabs/lizard-tycoon/issues/805#issuecomment-6269467251",
+    "independentSdkRerunWaived": true,
+    "artifactSha256": "2d1dacbe42d261d62bda0874bf3f74f423cdb5a4a9057eba5458a48a675e4e08",
+    "claimId": "cl_b55981ad-3100-4d5a-8f22-0c034a57d9bd",
+    "buildId": "830e7703-7a68-4c8a-80d3-3ef70e2d47b6",
+    "nativeErrors": [
+      "TEST_LEVEL_BELOW_FLOOR platform-first rewarded-ads ios"
+    ],
+    "confirmationJsonSha256": "a513cf76fbb49aec5a76b753c4f138cf41fbdf864d087c5aad9f3f27c366b32a",
+    "serverDeliveryJsonSha256": "f13a54e7846db2f3394ed701a6cfdb24c4d84b3d0f81543ddea44c672768d4dd",
+    "versionBuildJsonSha256": "437565e4835f5efbb1ab4f73415f44d5149241105cf8cc228094a7c0232ec9dd",
+    "approvalJsonSha256": "3652e7e1d41c1a232b05cf381d72c84718cbdd1223f54208786f9f2470d76cf3",
+    "proposalMarkdownSha256": "9455f700d9b8ac934089c67cada6d88e1be962ac1da372b3927d37c1f41c9e06"
+  }
 }

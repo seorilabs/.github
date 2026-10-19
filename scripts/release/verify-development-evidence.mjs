@@ -414,13 +414,16 @@ export async function readLizardIos191Proof(repository, grant, request) {
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   const args = new Map();
   const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'configuration-fingerprint',
-    'rollout', 'play-track', 'play-operation', 'internal-testflight-bootstrap-id', 'verifier-sha', 'report', 'artifact-receipt', 'artifact-file', 'app-repository', 'after']);
+    'submission-build-id', 'submission-artifact-sha256', 'rollout', 'play-track', 'play-operation', 'internal-testflight-bootstrap-id', 'verifier-sha', 'report', 'artifact-receipt', 'artifact-file', 'app-repository', 'after']);
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i]?.replace(/^--/u, '');
     if (!argv[i]?.startsWith('--') || !allowed.has(key) || !argv[i + 1] || argv[i + 1].startsWith('--') || args.has(key)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
     args.set(key, argv[i + 1]);
   }
   const context = { repository: args.get('repo') ?? env.GITHUB_REPOSITORY, sourceSha: args.get('sha'), target: args.get('target'), tag: args.get('tag'), phase: args.get('phase'), configurationFingerprint: args.get('configuration-fingerprint'), requireUi: args.get('target') !== 'service' };
+  context.submissionBuildId = args.get('submission-build-id');
+  context.submissionArtifactSha256 = args.get('submission-artifact-sha256');
+  if ((args.has('submission-build-id') || args.has('submission-artifact-sha256')) && !requiresLizardIos191Continuation(context)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
   context.playTrack = args.get('play-track');
   context.playOperation = args.get('play-operation');
   if (args.has('rollout')) {
