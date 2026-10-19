@@ -190,6 +190,12 @@ legacyEvidence:
   schema: contracts/development-evidence-v1.schema.json
   acceptedUntil: "2026-10-22T00:00:00Z"
   removal: delete-v1-branch-after-acceptedUntil
+historicalReviewCoverage:
+  decisionStatus: human_exception
+  originalVerdict: preserve
+  scope: reviewed-exact-candidate-and-evidence-only
+  grantRegistry:
+    - contracts/historical-review-coverage/lizard-tycoon-1.9.0.json
 autonomousImplementation:
   approvedDesignRequired: true
   missingApproval: draft-design-and-continue-next-unattempted
