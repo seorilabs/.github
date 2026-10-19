@@ -1,0 +1,46 @@
+name: Verify Lizard App Store 1.9.1 evidence
+
+on:
+  workflow_call:
+    inputs:
+      phase:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify App Store evidence
+    runs-on: ${{ github.event.repository.private && 'seorilabs-x64' || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - name: Check calling repository
+        shell: bash
+        env:
+          CALLING_REPOSITORY: ${{ github.repository }}
+        run: test "$CALLING_REPOSITORY" = 'seorilabs/lizard-tycoon'
+      - name: Checkout current central verifier
+        uses: actions/checkout@v7
+        with:
+          repository: seorilabs/.github
+          ref: main
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.16.0'
+      - name: Install verifier dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify exact candidate using read-only token
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PHASE: ${{ inputs.phase }}
+        run: >-
+          node scripts/release/verify-development-evidence.mjs
+          --repo seorilabs/lizard-tycoon
+          --tag v1.9.1
+          --sha da203979846fdcf4fb5b591689d776d84fe14911
+          --target app-store
+          --phase "$PHASE"

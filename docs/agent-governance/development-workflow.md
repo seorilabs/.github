@@ -317,3 +317,5 @@ Apple의 단일 archive action은 `INTERNAL_ONLY`여야 한다. 처리된 빌드
 ### Lizard Tycoon 1.9.1 연결 이력
 
 1.9.1 전용 예외의 승인과 범위는 [공개 연결 설계](../design/2026-10-19-lizard-191-public/design.md), 제거 조건과 결과는 [종료 설계](../design/2026-10-19-lizard-191-retire/design.md)에 보존한다. 활성 예외는 현재 grantRegistry를 따르며, 제거 전 원본은 [1feb44e의 grant](https://github.com/seorilabs/.github/blob/1feb44e448f289340bea89db1f0f74df846aecdc/contracts/historical-review-coverage/lizard-tycoon-1.9.1.json)에서 확인한다. 과거 실패와 근거 SHA를 정상 통과로 고치지 않는다.
+
+[별도 승인된 App Store 연결](../design/2026-10-19-lizard-ios191/design.md)은 같은 제품 후보의 심사 한 건에만 적용한다. 원래 UI와 현재 CI의 세 과거 범위 오류만 허용하며, 별도 네이티브 문서를 정상 검증해 iOS 실제 SDK4개 미실행을 제출 전에 차단한다. 기존 Android 연결을 재활성화하지 않는다. 앱의 읽기 전용 토큰으로 실행하는 검증 전용 workflow는 마켓 빌드나 업로드를 수행하지 않는다.
