@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "level": "L1",
+  "baseline": "2de4c3cc108a6063d0484e2910b66c6e253b651c",
+  "changedFeatures": [
+    "historical-review-coverage",
+    "godot-play-upload",
+    "play-promotion"
+  ],
+  "environments": [
+    "dev"
+  ],
+  "redesign": false,
+  "foundationRerun": false,
+  "floorOverrides": [],
+  "release": {
+    "markets": [
+      "google-play",
+      "app-store",
+      "apps-in-toss"
+    ],
+    "until": "test-track"
+  }
+}

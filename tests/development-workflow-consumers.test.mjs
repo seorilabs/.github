@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { parse } from 'yaml';
@@ -62,6 +63,26 @@ test('build-only and track promotion keep their own required phase', () => {
   assert.equal(gate.env.ROLLOUT, '${{ inputs.rollout }}');
   assert.equal(gate.if, undefined); assert.equal(gate['continue-on-error'], undefined);
 });
+test('Play 업로드와 승격은 실제 목적 트랙과 작업 종류를 근거 검증기에 전달한다', () => {
+  const upload = read('godot-deploy-google-play').jobs['build-aab'].steps
+    .find(step => step.name === 'Verify Editor E2E before-deploy');
+  assert.equal(upload.env.RELEASE_TRACK, '${{ inputs.track }}');
+  for (const track of ['', 'internal', 'production']) {
+    const capture = 'node() { printf "%s\\n" "$@"; }; git() { printf "fixture-source"; };\n';
+    const result = spawnSync('bash', ['-c', capture + upload.run], { encoding: 'utf8',
+      env: { ...process.env, RELEASE_TRACK: track, GITHUB_REPOSITORY: 'seorilabs/fixture', EVIDENCE_TAG: 'v1.9.0' } });
+    assert.equal(result.status, 0, result.stderr);
+    const args = result.stdout.trim().split('\n');
+    assert.equal(args[args.indexOf('--play-operation') + 1], 'upload');
+    if (track) assert.equal(args[args.indexOf('--play-track') + 1], track);
+    else assert.equal(args.includes('--play-track'), false);
+  }
+  assert.doesNotMatch(upload.run, /--play-track ["']?internal/u);
+  const promotion = Object.values(read('promote-google-play').jobs)[0].steps
+    .find(step => step.name === 'Verify development evidence before promotion');
+  assert.equal(promotion.env.TO_TRACK, '${{ inputs.to_track }}');
+  assert.match(promotion.run, /--play-track "\$TO_TRACK" --play-operation promote/u);
+});
 test('Xcode Cloud start verifies the exact tag candidate before the mutation', () => {
   const script = readFileSync('scripts/trigger-xcode-cloud.mjs', 'utf8');
   const gate = script.indexOf('await verifyReleaseDevelopmentEvidence');
@@ -79,7 +100,9 @@ for (const [name, upload] of [['godot-deploy-google-play', 'Upload to Google Pla
     for (const phase of ['before-build', 'before-deploy']) {
       const step = steps.find(item => item.name === `Verify Editor E2E ${phase}`);
       assert.doesNotMatch(step.run, /exception|--verifier-sha|--report|--artifact|--release-binding/u);
-      assert.deepEqual(Object.keys(step.env).sort(), ['EVIDENCE_TAG', 'GH_TOKEN']);
+      const keys = ['EVIDENCE_TAG', 'GH_TOKEN'];
+      if (name === 'godot-deploy-google-play' && phase === 'before-deploy') keys.push('RELEASE_TRACK');
+      assert.deepEqual(Object.keys(step.env).sort(), keys.sort());
     }
     assert.ok(steps.every(step => !/exception|promotion evidence/iu.test(step.name ?? '')));
     assert.doesNotMatch(readFileSync(`.github/workflows/${name}.yml`, 'utf8'), /RELEASE_EXCEPTION|SEORI_EXCEPTION|release-exception/u);

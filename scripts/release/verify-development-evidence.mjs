@@ -6,6 +6,7 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import { githubDownload, githubJson, githubPaginate, resolveToken } from '../github-rest.mjs';
 import { carriedForwardFeatures } from './carry-forward.mjs';
 import { validateLegacyEvidence } from './development-evidence-v1.mjs';
+import { applyHistoricalReviewCoverage } from './historical-review-coverage.mjs';
 import { computeFloor, DEVICE_ENVIRONMENTS, environmentOf, highestLevel, mergeTestPlans, policy, RELEASE_ONLY_TARGETS,
   testPlanProblems, validInventory } from './test-plan.mjs';
 
@@ -36,7 +37,7 @@ export function validateDevelopmentEvidence(document, context) {
     if (!(now < LEGACY_ACCEPTED_UNTIL)) return { ok: false, errors: ['EVIDENCE_V1_RETIRED'] };
     return validateLegacyEvidence(document, context);
   }
-  return validateTestLevelEvidence(document, context);
+  return applyHistoricalReviewCoverage(document, context, validateTestLevelEvidence(document, context));
 }
 
 // 재설계 3회 검수는 v1 회차 규칙을 그대로 쓴다. 회차를 기록했다면 횟수와 상관없이 순서·독립성·해결 여부를 확인한다.
@@ -382,13 +383,15 @@ export async function verifyReleaseDevelopmentEvidence(options) {
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   const args = new Map();
   const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'configuration-fingerprint',
-    'rollout', 'internal-testflight-bootstrap-id', 'verifier-sha', 'report', 'artifact-receipt', 'artifact-file', 'app-repository', 'after']);
+    'rollout', 'play-track', 'play-operation', 'internal-testflight-bootstrap-id', 'verifier-sha', 'report', 'artifact-receipt', 'artifact-file', 'app-repository', 'after']);
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i]?.replace(/^--/u, '');
     if (!argv[i]?.startsWith('--') || !allowed.has(key) || !argv[i + 1] || argv[i + 1].startsWith('--') || args.has(key)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
     args.set(key, argv[i + 1]);
   }
-  const context = { repository: args.get('repo') ?? env.GITHUB_REPOSITORY, sourceSha: args.get('sha'), target: args.get('target'), phase: args.get('phase'), configurationFingerprint: args.get('configuration-fingerprint'), requireUi: args.get('target') !== 'service' };
+  const context = { repository: args.get('repo') ?? env.GITHUB_REPOSITORY, sourceSha: args.get('sha'), target: args.get('target'), tag: args.get('tag'), phase: args.get('phase'), configurationFingerprint: args.get('configuration-fingerprint'), requireUi: args.get('target') !== 'service' };
+  context.playTrack = args.get('play-track');
+  context.playOperation = args.get('play-operation');
   if (args.has('rollout')) {
     const rollout = Number(args.get('rollout'));
     if (!/^(0(\.\d+)?|1(\.0+)?)$/u.test(args.get('rollout')) || !(rollout > 0 && rollout <= 1)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
@@ -421,7 +424,11 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   const after = args.get('after');
   if (after !== undefined && (!Number.isFinite(Date.parse(after)) || !(Date.parse(result.completedAt) >= Date.parse(after)))) throw new Error('EVIDENCE_COMPLETION_BEFORE_BUILD');
   if (env.GITHUB_OUTPUT && result.completedAt) appendFileSync(env.GITHUB_OUTPUT, `completed_at=${result.completedAt}\n`);
-  process.stdout.write(`개발 검수 근거 통과${result.level ? `(${result.level})` : ''}: ${context.target} ${context.phase} ${context.sourceSha}\n`);
+  if (result.decisionStatus === 'human_exception') {
+    process.stdout.write(`검수 승인 예외 human_exception: ${result.exceptionId} ${context.target} ${context.phase} ${context.sourceSha}\n원래 검증 failed: ${result.originalVerdict.errors.join(', ')}\n`);
+  } else {
+    process.stdout.write(`개발 검수 근거 통과${result.level ? `(${result.level})` : ''}: ${context.target} ${context.phase} ${context.sourceSha}\n`);
+  }
 
   return result;
 }

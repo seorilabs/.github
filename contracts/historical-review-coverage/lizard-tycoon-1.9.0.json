@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "lizard-tycoon-1.9.0-historical-coverage",
+  "repository": "seorilabs/lizard-tycoon",
+  "sourceSha": "055aae4422610e279417f3f3a7d2b9007cb1754d",
+  "version": "1.9.0",
+  "tags": [
+    "development-evidence",
+    "v1.9.0"
+  ],
+  "phases": [
+    "before-build",
+    "before-deploy"
+  ],
+  "latestRound": 6,
+  "googlePlayUpload": {
+    "track": "internal",
+    "operation": "upload"
+  },
+  "approvedAt": "2026-10-19T05:42:52.027109Z",
+  "expiresAt": "2026-10-26T03:59:05Z",
+  "approvalEvidence": "https://github.com/seorilabs/lizard-tycoon/issues/805#issuecomment-6260553208",
+  "approvalSource": "user-conversation",
+  "errors": [
+    "FEATURE_COVERAGE ux-1",
+    "FEATURE_COVERAGE functional-4",
+    "FEATURE_COVERAGE ux-4"
+  ],
+  "evidenceHashes": {
+    "google-play": "c17489f016eabc2566c3cde2df6bb110841fc1485361c433fd5755ccde042bd8",
+    "app-store": "4b57f494ad1fbab720e287bca0d359beed561c1bfd367987775797ffd9a4e0c8",
+    "apps-in-toss": "b90e1724ed40d3a396dbb52d1c95eb1457b6fc31e34ada74a61dc451f0e23bdc"
+  },
+  "rawEvidenceHashes": {
+    "google-play": "c48daa03a1d28bb73b1e7299debc5c5148719992ea4d76f8a6ea80baa5816a72",
+    "app-store": "6d12c0ce26031db5fe239ff1f53debf10d44dd9d340320da31dbaadab0c8c10f",
+    "apps-in-toss": "b3aa71a38f81afb269033f40622f7049877ac381b45ff67e6505176f8fbf9267"
+  },
+  "digestEncoding": "sha256-json-stringify-utf8",
+  "originalVerdict": "preserve",
+  "removal": "after-expiry-or-completion-of-this-candidate",
+  "uploadScopeApprovalEvidence": "https://github.com/seorilabs/lizard-tycoon/issues/805#issuecomment-6261931273"
+}

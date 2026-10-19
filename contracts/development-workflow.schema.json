@@ -686,6 +686,24 @@
         }
       }
     },
+    "historicalReviewCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decisionStatus", "originalVerdict", "scope", "grantRegistry"],
+      "properties": {
+        "decisionStatus": { "const": "human_exception" },
+        "originalVerdict": { "const": "preserve" },
+        "scope": { "const": "reviewed-exact-candidate-and-evidence-only" },
+        "grantRegistry": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^contracts/historical-review-coverage/[a-z0-9][a-z0-9.-]*\\.json$"
+          }
+        }
+      }
+    },
     "autonomousImplementation": {
       "type": "object",
       "additionalProperties": false,
