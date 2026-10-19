@@ -372,12 +372,31 @@ export async function verifyReleaseDevelopmentEvidence(options) {
   let document;
   try { document = JSON.parse(bytes.toString('utf8')); }
   catch { throw new Error('INVALID_EVIDENCE_JSON'); }
-  const featureInventory = await readRemoteInventory(repository, sourceSha, request);
-  const remote = await readRemoteContext(document, repository, sourceSha, request, featureInventory);
-  const ciRuns = await readCiRuns(document, request);
-  const result = validateDevelopmentEvidence(document, { ...options, featureInventory, ...remote, ciRuns });
+  let result;
+  if (document.kind === 'lizard-191-public-continuation') {
+    const { verifyApprovedPatchContinuation } = await import('./approved-patch-continuation.mjs');
+    result = await verifyApprovedPatchContinuation(document, options, {
+      validate: async (part, context) => {
+        const featureInventory = await readRemoteInventory(repository, context.sourceSha, request);
+        const remote = await readRemoteContext(part, repository, context.sourceSha, request, featureInventory);
+        const ciRuns = await readCiRuns(part, request);
+        return validateTestLevelEvidence(part, { ...context, featureInventory, ...remote, ciRuns });
+      },
+      readProof: async grant => {
+        const candidate = await githubJson(`/repos/${repository}/git/commits/${grant.sourceSha}`, request);
+        const rendered = await githubJson(`/repos/${repository}/git/commits/${grant.renderedSha}`, request);
+        const archive = await githubJson(`/repos/${repository}/releases/assets/${grant.archiveId}`, request);
+        return { candidateTree: candidate.tree?.sha, renderedTree: rendered.tree?.sha, archiveDigest: archive.digest };
+      },
+    });
+  } else {
+    const featureInventory = await readRemoteInventory(repository, sourceSha, request);
+    const remote = await readRemoteContext(document, repository, sourceSha, request, featureInventory);
+    const ciRuns = await readCiRuns(document, request);
+    result = validateDevelopmentEvidence(document, { ...options, featureInventory, ...remote, ciRuns });
+  }
   if (!result.ok) throw new Error(result.errors.join('\n'));
-  return { ...result, assetId: asset.id, completedAt: document.schemaVersion === 1 ? document.e2e.completedAt : result.completedAt };
+  return { ...result, assetId: asset.id, completedAt: document.kind === 'lizard-191-public-continuation' ? result.completedAt : document.schemaVersion === 1 ? document.e2e.completedAt : result.completedAt };
 }
 
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {

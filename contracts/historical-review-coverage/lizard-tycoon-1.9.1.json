@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 2,
+  "kind": "lizard-191-public-continuation",
+  "id": "lizard-tycoon-1.9.1-public-continuation",
+  "repository": "seorilabs/lizard-tycoon",
+  "sourceSha": "da203979846fdcf4fb5b591689d776d84fe14911",
+  "baselineSha": "055aae4422610e279417f3f3a7d2b9007cb1754d",
+  "renderedSha": "001a8d9bec627c3d73ac8d258e0fb733202a38db",
+  "approvedAt": "2026-10-19T09:02:41Z",
+  "expiresAt": "2026-10-26T03:59:05Z",
+  "approvalEvidence": "https://github.com/seorilabs/lizard-tycoon/issues/805#issuecomment-6263609549",
+  "envelopeHash": "92b9187bb0acdd94a42f48b85a64572faba12bb0ee33fe3d40e8e7935b3c7da3",
+  "baselineHash": "c17489f016eabc2566c3cde2df6bb110841fc1485361c433fd5755ccde042bd8",
+  "patchHash": "4fbb2b54dcd03353a77be590e4f18af4315f3d74adc8d1e11e0a9f81188764e4",
+  "treeSha": "cd0ea63658ee2026c87088c169d5cb7cebf67878",
+  "archiveId": 655706292,
+  "archiveDigest": "sha256:920b3c845d4ed0e0dea79f0a386e0e737deefbda18f14b9d826724e9167a249d",
+  "removal": "after-this-Android-public-release-or-original-expiry"
+}

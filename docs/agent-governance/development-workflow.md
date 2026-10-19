@@ -313,3 +313,7 @@ Apple의 단일 archive action은 `INTERNAL_ONLY`여야 한다. 처리된 빌드
 ### 첫 내부 Spiritgate 1.1.0 실제 등록
 
 [별도 승인된 최소 보정](../design/2026-10-16-spiritgate-failed-history-grant/design.md)으로 `spiritgate-1.1.0-first-internal` 한 grant를 `contracts/development-workflow.yaml`의 `grantRegistry`에 등록했다. 위 단계별 문서의 빈 registry 조건은 등록 전 상태를 설명한다. 이 등록은 고정 dc7ebea/v1.1.0과 원래 만료·한 Cloud/한 업로드, 기존 production 서명, 원문94개와 정정 집계 해시에 한정한다. 실패 UI6의 분리 창→내장 창 이력은 Mac skip 및 기능·UX 모두 failed일 때만 대조하며 원래 실패를 통과로 승격하지 않는다. 실제 reviewed main과 Cloud 실행·산출물·서명·TestFlight 상태 검사가 별도로 필요하고, iPhone·정상v2/L3·E2E·공개 검증은 면제되지 않는다. registry의 JSON 경로 배열은 기존 schema의 pattern/uniqueItems로 검증하며 schema를 확장하지 않는다.
+
+### Lizard Tycoon 1.9.1 Android 한 후보의 공개 연결
+
+[승인 설계](../design/2026-10-19-lizard-191-public/design.md)에 따라 고정 후보의 새 L1 근거와 기존 1.9.0 L3 원본을 전용 봉투로 각각 정상 검증한다. 현재 후보 검증은 통과해야 하며 과거 원본의 정확한 세 범위 누락만 `human_exception`으로 보존한다. 두 실행의 source SHA는 유지하고 Editor PR과 후보의 같은 tree 및 원본 ZIP digest를 실제 조회한다. 이 등록은 Google Play v1.9.1의 빌드, internal/upload, production/promote만 허용하며 기존 만료와 다른 마켓의 조건은 바꾸지 않는다. 공개 완료 후 grant와 전용 분기를 제거한다.
