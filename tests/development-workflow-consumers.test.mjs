@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { parse } from 'yaml';
@@ -66,7 +67,16 @@ test('Play 업로드와 승격은 실제 목적 트랙과 작업 종류를 근�
   const upload = read('godot-deploy-google-play').jobs['build-aab'].steps
     .find(step => step.name === 'Verify Editor E2E before-deploy');
   assert.equal(upload.env.RELEASE_TRACK, '${{ inputs.track }}');
-  assert.match(upload.run, /--play-track "\$RELEASE_TRACK" --play-operation upload/u);
+  for (const track of ['', 'internal', 'production']) {
+    const capture = 'node() { printf "%s\\n" "$@"; }; git() { printf "fixture-source"; };\n';
+    const result = spawnSync('bash', ['-c', capture + upload.run], { encoding: 'utf8',
+      env: { ...process.env, RELEASE_TRACK: track, GITHUB_REPOSITORY: 'seorilabs/fixture', EVIDENCE_TAG: 'v1.9.0' } });
+    assert.equal(result.status, 0, result.stderr);
+    const args = result.stdout.trim().split('\n');
+    assert.equal(args[args.indexOf('--play-operation') + 1], 'upload');
+    if (track) assert.equal(args[args.indexOf('--play-track') + 1], track);
+    else assert.equal(args.includes('--play-track'), false);
+  }
   assert.doesNotMatch(upload.run, /--play-track ["']?internal/u);
   const promotion = Object.values(read('promote-google-play').jobs)[0].steps
     .find(step => step.name === 'Verify development evidence before promotion');

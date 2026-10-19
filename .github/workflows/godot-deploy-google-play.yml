@@ -581,10 +581,11 @@ jobs:
           RELEASE_TRACK: ${{ inputs.track }}
         run: |
           set -euo pipefail
+          play_args=(--play-operation upload)
+          [ -z "$RELEASE_TRACK" ] || play_args+=(--play-track "$RELEASE_TRACK")
           node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
             --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
-            --target google-play --phase before-deploy \
-            --play-track "$RELEASE_TRACK" --play-operation upload
+            --target google-play --phase before-deploy "${play_args[@]}"
 
       - name: Upload to Google Play
         if: ${{ inputs.upload }}
