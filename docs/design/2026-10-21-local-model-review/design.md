@@ -21,7 +21,8 @@ Copilot 코드 리뷰는 조직 좌석이 아니라 개인 Copilot Pro 한도로
 - 단계는 `local-model-review`와 `required-checks`만 남긴다. Copilot `assisted-review`, Codex·Claude `cross-model-review`, Copilot Balanced 대체, 세 저장소 예외, 보안 민감 변경의 교차 리뷰 불가 사람 승인 조건을 없앤다.
 - 리뷰어는 MiniMax Code를 작성 agent의 로컬에서 읽기 전용 지시로 실행한다. 작성 agent가 `origin/main...HEAD` diff를 만들어 파일로 넘긴다. 실행 전후 작업 트리 내용 지문(추적 파일 diff와 미추적 파일 해시)이 같은지 확인하고, 다르면 되돌린 뒤 한 번만 다시 실행한다.
 - 리뷰 출력은 PR에 올리지 않는다. 실패 시나리오가 있는 지적만 고치고 나머지는 답하지 않고 버린다. 리뷰어의 심각도 표기만으로 수용하지 않는다. 이 규칙은 작은 모델의 오탐으로 턴이 길어지는 것을 막기 위한 것이다.
-- 회차는 최대 2회다. 2회차는 수용한 수정이 새 로직을 만들었을 때만, 1회차 출력과 처리 결과, 1회차 이후 diff만 넘긴다.
+- 회차는 최대 2회다. 2회차는 수용한 수정이 새 로직을 만들었거나 리뷰 뒤에 커밋이 더 생겼을 때, 1회차 출력과 처리 결과, 리뷰한 SHA 이후 diff만 넘긴다. 실패 재실행은 회차당 한 번이다.
+- 개발 워크플로 계약의 개별 승인 항목 `security-change-without-cross-review`를 문서와 함께 삭제한다.
 - 병합 gate는 Seori thread 해결, 수용한 로컬 지적 수정 완료, required check 통과, 조건부 사람 승인이다.
 - 실행 명령과 프롬프트는 `~/.agent`의 `seori-pr-workflow` 스킬 `scripts/local-review.sh`가 보유한다. 중앙 계약은 공급자·도구·모델·입력·읽기 전용·결과 미게시만 고정한다.
 

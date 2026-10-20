@@ -31,6 +31,7 @@ requestObligation:
 
 reviewFailures:
   diagnoseBeforeRetry: true
+  maxRerunsPerRound: 1
   otherError:
     maxRetries: 1
   usageLimit:
@@ -70,6 +71,8 @@ stages:
     blocking: false
     resultPostedToPr: false
     beforePullRequestReady: true
+    reviewedHead: final-head-after-ci-and-self-check
+    headChangedAfterReview: verification-round-on-changes-since-reviewed-head
     allowedWhen:
       - code-change
       - configuration-logic-change

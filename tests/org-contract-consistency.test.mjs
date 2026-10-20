@@ -170,6 +170,11 @@ test("상시 자동 코드 리뷰 없이 로컬 모델 리뷰 단계만 계약�
   assert.equal(localReview.blocking, false);
   assert.equal(localReview.resultPostedToPr, false);
   assert.equal(localReview.beforePullRequestReady, true);
+  assert.equal(localReview.reviewedHead, "final-head-after-ci-and-self-check");
+  assert.equal(
+    localReview.headChangedAfterReview,
+    "verification-round-on-changes-since-reviewed-head",
+  );
   assert.deepEqual(
     [...localReview.allowedWhen].sort(),
     ["code-change", "configuration-logic-change"],
@@ -210,6 +215,7 @@ test("저장소 예외 없이 모든 저장소의 코드·설정 변경에 로�
 test("로컬 리뷰 실패는 사유를 기록하고 자체 점검으로 진행하며 유료 설정을 바꾸지 않는다", () => {
   const failures = reviewPolicy.reviewFailures;
   assert.equal(failures.diagnoseBeforeRetry, true);
+  assert.equal(failures.maxRerunsPerRound, 1);
   assert.equal(failures.otherError.maxRetries, 1);
   assert.equal(failures.usageLimit.retry, "no-automatic-retry");
   assert.equal(failures.workingTreeChangedByReviewer.retry, "once-after-revert");
