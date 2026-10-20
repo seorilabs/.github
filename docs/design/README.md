@@ -21,6 +21,8 @@
 
 | 2026-10-15 | [정상 v2 추가 UI 승인 체인](2026-10-15-normal-v2-ui-approval-chain/design.md) | [사람 승인](2026-10-15-normal-v2-ui-approval-chain/approval.json) · 설계eca0a077 | [Spiritgate240](https://github.com/seorilabs/spiritgate-defenders/issues/240) · [실행 범위](2026-10-15-normal-v2-ui-approval-chain/execution-ticket.md) | 중앙 L1/dev; 제품 QA와 구분 |
 
+| 2026-10-21 | [로컬 모델 코드 리뷰로 봇 리뷰 대체 v1 — 사람 승인](2026-10-21-local-model-review/design.md) | 대화 승인(승인 기록은 문서 안) | PR 본문에 기록 | 계약 테스트·리뷰 스크립트 실측 |
+
 | 2026-10-16 | [Godot headless E2E 기본 검수와 실기기 범위 축소 v1 — 사람 승인](2026-10-16-godot-headless-e2e/design.md) | 대화 승인(검토용 커밋 f6f07f0 = 408faef와 같은 bytes, 승인 기록은 문서 안) | PR 본문에 기록 | 중앙 검증기·계약 테스트 결과 |
 
 | 2026-10-16 | [Spiritgate 실패 Cloud12 보존과13 단일 복구](2026-10-16-spiritgate-cloud12-recovery/design.md) | [직접 승인](2026-10-16-spiritgate-cloud12-recovery/approval.json) · 제안b1da2d71 | [Spiritgate240](https://github.com/seorilabs/spiritgate-defenders/issues/240) · [실행 티켓](2026-10-16-spiritgate-cloud12-recovery/ticket.md) | [중앙 L1 실행](2026-10-16-spiritgate-cloud12-recovery/execution.md); 실제 Cloud/기기 검수 별도 |

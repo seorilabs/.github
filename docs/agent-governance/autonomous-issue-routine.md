@@ -146,8 +146,8 @@ PR 본문에는 다음을 분리해 기록한다.
 `contracts/review-policy.yaml`을 그대로 따른다.
 
 1. 조직에 상시 자동 코드 리뷰가 없다. 직접 요청하지 않은 봇 리뷰나 봇 요약 코멘트가 도착하기를 기다리지 않는다.
-2. 코드나 설정 로직이 바뀌면 중앙 계약의 요청 의무와 저장소 예외를 적용한다. 보안·결제·데이터 형식과 무결성·릴리스 실행 변경은 세 예외 저장소도 교차 리뷰 대상이며, 그 밖의 500줄 이상 변경도 교차 리뷰를 요청한다. Claude 실행(`claude-local`, `claude-cloud`)은 PR 코멘트 `@codex review`(보안 민감 변경은 `@codex review for security issues`), `codex-local`은 읽기 전용 로컬 Claude 리뷰를 사용한다. `codex-cloud`와 사용량 소진으로 교차 리뷰가 불가능한 경우는 사유 기록 후 Copilot Balanced로 대신한다. 그 밖의 리뷰 대상은 Copilot Lite를 요청한다. 문서·에셋·자동 생성물과 세 저장소의 일반 변경은 계약에 따라 생략한다. 요청 깊이 확인, 회차, 총 요청 2회 상한, 실패 처리는 [CONTRIBUTING.md](../../CONTRIBUTING.md#review-and-merge)를 따른다. 병합 여부를 사람에게 확인하는 보안 민감 PR은 항목별 review 대기로 기록한다.
-3. 받은 지적마다 수정·소명·후속 이슈 중 하나로 같은 thread에 한국어로 답하고 Resolve한다. 교차 리뷰를 받아도 결함 판단의 1차 책임은 작성 agent에 있으므로 위험 지점을 직접 점검해 근거를 PR에 남긴다.
+2. 코드나 설정 로직이 바뀌면 Ready로 올리기 전에 중앙 계약의 로컬 모델 리뷰를 한 번 돌린다. 봇 리뷰는 요청하지 않는다. 문서·에셋·자동 생성물만의 변경은 계약에 따라 생략한다. 지적 수용 기준, 회차, 실패 처리는 [CONTRIBUTING.md](../../CONTRIBUTING.md#review-and-merge)를 따른다. 로컬 리뷰를 받지 못한 PR은 본문에 원인을 한 줄 적는다.
+3. Seori thread는 수정·소명·후속 이슈 중 하나로 같은 thread에 한국어로 답하고 Resolve한다. 로컬 리뷰를 받아도 결함 판단의 1차 책임은 작성 agent에 있으므로 위험 지점을 직접 점검해 근거를 PR에 남긴다.
 4. Ready, current HEAD, required check·CI green, conflict 없음, 미해결 thread 0개를 직접 확인한다.
 5. 모든 gate가 통과하면 `gh pr merge <PR> --squash --delete-branch`로 병합한다. ruleset이나 권한이 막으면 우회하지 않는다.
 

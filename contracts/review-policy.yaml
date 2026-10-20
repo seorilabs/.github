@@ -29,118 +29,66 @@ requestObligation:
     - generated-file-only-change
     - release-metadata-only-change
 
-repositoryExemptions:
-  repositories:
-    - seorilabs-backoffice
-    - seorilabs-official
-    - .github
-  skipReviewRequest: true
-  exceptWhen:
-    - security-sensitive-change
-    - payment-change
-    - data-format-change
-    - data-integrity-change
-    - release-logic-change
-
-copilotEffort:
-  default: lite
-  verifyFrom: review-overview-comment
-
 reviewFailures:
   diagnoseBeforeRetry: true
-  allRequestsCountTowardLimit: true
-  allowanceExhausted:
-    retry: after-confirmed-reset-or-entitlement-restored
-    recordResetTime: if-provider-reported
-  transientRateLimit:
-    retry: once-after-provider-retry-time
-    unknownRetryTime: no-automatic-retry
-  unclassifiedLimit:
-    retry: no-automatic-retry
+  maxRerunsPerRound: 1
   otherError:
     maxRetries: 1
-  inventResetTime: false
+  usageLimit:
+    retry: no-automatic-retry
+  workingTreeChangedByReviewer:
+    retry: once-after-revert
+  unavailable:
+    recordReasonInPr: true
+    proceedWithSelfReview: true
+    requestOtherProvider: false
   changePaidUsageBudget: false
 
 reviewRounds:
-  maxRequestsPerPr: 2
+  maxRoundsPerPr: 2
   findingAcceptance: concrete-failure-scenario-in-scope
+  rejectedFindingHandling: drop-without-reply
   verificationRound:
     when: accepted-fix-added-logic
     scope: changes-since-first-review
     includeFirstRoundFindings: true
-  afterVerificationRound: no-review-request
+  afterVerificationRound: no-review-run
   escalateWhen: same-area-defect-after-verification-round
 
 stages:
-  - id: assisted-review
+  - id: local-model-review
     order: 1
-    provider: copilot
+    provider: minimax
+    tool: mcode
+    model: MiniMax-M3.1-Flash
     mode: advisory
-    trigger: review-request
-    reviewer: "copilot-pull-request-reviewer[bot]"
+    trigger: local-headless
+    runner: author-agent
+    input: author-generated-diff
+    readOnly: true
     optional: false
     countsAsApproval: false
     blocking: false
+    resultPostedToPr: false
+    beforePullRequestReady: true
+    reviewedHead: final-head-after-ci-and-self-check
+    headChangedAfterReview: verification-round-on-changes-since-reviewed-head
     allowedWhen:
       - code-change
       - configuration-logic-change
-      - author-request
     skipWhen:
       - docs-only-change
+      - translations-only-change
+      - assets-only-change
       - generated-file-only-change
-      - cross-model-review-eligible
-    allowedAsFallbackFor: cross-model-review
-    threadResolutionRequired: true
-  - id: cross-model-review
-    order: 1
-    mode: advisory
-    optional: false
-    countsAsApproval: false
-    blocking: false
-    allowedWhen:
-      - security-sensitive-change
-      - payment-change
-      - data-format-change
-      - data-integrity-change
-      - release-logic-change
-      - large-code-change
-    largeCodeChange:
-      minChangedLines: 500
-    reviewers:
-      - authors:
-          - claude-local
-          - claude-cloud
-        provider: codex
-        trigger: mention
-        request: "@codex review"
-        securityRequest: "@codex review for security issues"
-        reviewer: "chatgpt-codex-connector[bot]"
-        threadResolutionRequired: true
-      - authors:
-          - codex-local
-        provider: claude
-        trigger: local-headless
-        input: author-generated-diff
-        readOnly: true
-        resultPostedBy: author
-    fallback:
-      stage: assisted-review
-      copilotEffort: balanced
-      unavailableAuthors:
-        - codex-cloud
-      when:
-        - reviewer-unavailable
-        - usage-limit
-      recordReason: true
-      securitySensitiveRequiresHumanDecision: true
+      - release-metadata-only-change
   - id: required-checks
     order: 2
     allRequired: true
 
 mergeGate:
   codeReviewThreadsResolved: true
-  reviewFindingsAnswered: true
+  localReviewFindingsHandled: true
   requiredChecksPassed: true
   humanApproval: conditional
   humanApprovalConditions:

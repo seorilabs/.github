@@ -184,7 +184,6 @@ release:
     - payment-products-prices-settlement
     - credential-create-or-rotate
     - data-delete-or-restore
-    - security-change-without-cross-review
     - support-contact
 legacyEvidence:
   schema: contracts/development-evidence-v1.schema.json
