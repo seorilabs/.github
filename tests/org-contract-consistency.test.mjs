@@ -139,141 +139,83 @@ test("모든 stack profile은 SDK git submodule 배포를 금지한다", () => {
   }
 });
 
-test("상시 자동 코드 리뷰 없이 요청 기반 리뷰 단계만 계약된다", () => {
+test("상시 자동 코드 리뷰 없이 로컬 모델 리뷰 단계만 계약된다", () => {
   assert.deepEqual(
     reviewPolicy.stages.map(({ id }) => id),
-    ["assisted-review", "cross-model-review", "required-checks"],
+    ["local-model-review", "required-checks"],
   );
   assert.deepEqual(
     reviewPolicy.stages.map(({ order }) => order),
-    [1, 1, 2],
+    [1, 2],
   );
-  const triggers = reviewPolicy.stages.flatMap(({ trigger, reviewers = [] }) => [
-    trigger,
-    ...reviewers.map((reviewer) => reviewer.trigger),
-  ]);
-  assert.ok(triggers.every((trigger) => trigger !== "automatic-first-turn"));
+  assert.ok(
+    reviewPolicy.stages.every(({ trigger }) => trigger !== "automatic-first-turn"),
+  );
+  assert.ok(
+    reviewPolicy.stages.every(({ provider }) => provider !== "copilot"),
+  );
 
-  const assistedReview = reviewPolicy.stages.find(
-    ({ id }) => id === "assisted-review",
+  const localReview = reviewPolicy.stages.find(
+    ({ id }) => id === "local-model-review",
   );
-  assert.equal(assistedReview.provider, "copilot");
-  assert.equal(assistedReview.mode, "advisory");
-  assert.equal(assistedReview.trigger, "review-request");
-  assert.equal(assistedReview.reviewer, "copilot-pull-request-reviewer[bot]");
-  assert.equal(assistedReview.optional, false);
-  assert.equal(assistedReview.countsAsApproval, false);
-  assert.equal(assistedReview.blocking, false);
-  assert.equal(assistedReview.threadResolutionRequired, true);
-  assert.equal(assistedReview.allowedAsFallbackFor, "cross-model-review");
+  assert.equal(localReview.provider, "minimax");
+  assert.equal(localReview.tool, "mcode");
+  assert.equal(localReview.mode, "advisory");
+  assert.equal(localReview.trigger, "local-headless");
+  assert.equal(localReview.runner, "author-agent");
+  assert.equal(localReview.input, "author-generated-diff");
+  assert.equal(localReview.readOnly, true);
+  assert.equal(localReview.optional, false);
+  assert.equal(localReview.countsAsApproval, false);
+  assert.equal(localReview.blocking, false);
+  assert.equal(localReview.resultPostedToPr, false);
+  assert.equal(localReview.beforePullRequestReady, true);
   assert.deepEqual(
-    [...assistedReview.allowedWhen].sort(),
-    ["author-request", "code-change", "configuration-logic-change"],
+    [...localReview.allowedWhen].sort(),
+    ["code-change", "configuration-logic-change"],
   );
   assert.deepEqual(
-    [...assistedReview.skipWhen].sort(),
+    [...localReview.skipWhen].sort(),
     [
-      "cross-model-review-eligible",
+      "assets-only-change",
       "docs-only-change",
       "generated-file-only-change",
+      "release-metadata-only-change",
+      "translations-only-change",
     ],
   );
 });
 
-test("위험하거나 큰 변경은 작성 모델과 다른 회사 모델에 교차 리뷰를 요청한다", () => {
-  const crossReview = reviewPolicy.stages.find(
-    ({ id }) => id === "cross-model-review",
-  );
-  assert.equal(crossReview.mode, "advisory");
-  assert.equal(crossReview.optional, false);
-  assert.equal(crossReview.countsAsApproval, false);
-  assert.equal(crossReview.blocking, false);
-  assert.deepEqual(
-    [...crossReview.allowedWhen].sort(),
-    [
-      "data-format-change",
-      "data-integrity-change",
-      "large-code-change",
-      "payment-change",
-      "release-logic-change",
-      "security-sensitive-change",
-    ],
-  );
-  assert.equal(crossReview.largeCodeChange.minChangedLines, 500);
-
-  assert.deepEqual(
-    crossReview.reviewers.map(({ authors, provider }) => [authors, provider]),
-    [
-      [["claude-local", "claude-cloud"], "codex"],
-      [["codex-local"], "claude"],
-    ],
-  );
-  const codexReview = crossReview.reviewers.find(
-    ({ provider }) => provider === "codex",
-  );
-  assert.equal(codexReview.trigger, "mention");
-  assert.equal(codexReview.request, "@codex review");
-  assert.equal(
-    codexReview.securityRequest,
-    "@codex review for security issues",
-  );
-  assert.equal(codexReview.reviewer, "chatgpt-codex-connector[bot]");
-  assert.equal(codexReview.threadResolutionRequired, true);
-  const claudeReview = crossReview.reviewers.find(
-    ({ provider }) => provider === "claude",
-  );
-  assert.equal(claudeReview.trigger, "local-headless");
-  assert.equal(claudeReview.input, "author-generated-diff");
-  assert.equal(claudeReview.readOnly, true);
-  assert.equal(claudeReview.resultPostedBy, "author");
-
-  assert.equal(crossReview.fallback.stage, "assisted-review");
-  assert.deepEqual(crossReview.fallback.unavailableAuthors, ["codex-cloud"]);
-  assert.deepEqual(
-    [...crossReview.fallback.when].sort(),
-    ["reviewer-unavailable", "usage-limit"],
-  );
-  assert.equal(crossReview.fallback.recordReason, true);
-  assert.equal(crossReview.fallback.securitySensitiveRequiresHumanDecision, true);
-  assert.equal(crossReview.fallback.copilotEffort, "balanced");
-});
-
-test("Lite는 기본이고 세 저장소의 예외가 중요한 변경의 요청 의무를 없애지 않는다", () => {
-  assert.equal(reviewPolicy.copilotEffort.default, "lite");
-  assert.equal(reviewPolicy.copilotEffort.verifyFrom, "review-overview-comment");
-  const exemptions = reviewPolicy.repositoryExemptions;
-  assert.deepEqual([...exemptions.repositories].sort(), [
-    ".github",
-    "seorilabs-backoffice",
-    "seorilabs-official",
-  ]);
-  const crossReview = reviewPolicy.stages.find(({ id }) => id === "cross-model-review");
-  const protectedChanges = [
-    "security-sensitive-change",
-    "payment-change",
-    "data-format-change",
-    "data-integrity-change",
-    "release-logic-change",
-  ];
-  assert.deepEqual([...exemptions.exceptWhen].sort(), [...protectedChanges].sort());
-  for (const change of protectedChanges) {
-    assert.ok(crossReview.allowedWhen.includes(change), change);
-  }
-  assert.equal(exemptions.skipReviewRequest, true);
+test("저장소 예외 없이 모든 저장소의 코드·설정 변경에 로컬 리뷰 의무가 있다", () => {
+  assert.equal(reviewPolicy.repositoryExemptions, undefined);
+  assert.equal(reviewPolicy.copilotEffort, undefined);
   assert.equal(reviewPolicy.requestObligation.requiredForApplicableStage, true);
   assert.equal(reviewPolicy.requestObligation.reviewResultCountsAsApproval, false);
+  assert.equal(
+    reviewPolicy.requestObligation.resultUnavailableRequiresRecordedReason,
+    true,
+  );
+  assert.deepEqual(
+    [...reviewPolicy.requestObligation.skipWhen].sort(),
+    [
+      "assets-only-change",
+      "docs-only-change",
+      "generated-file-only-change",
+      "release-metadata-only-change",
+      "translations-only-change",
+    ],
+  );
 });
 
-test("한도 오류는 공급자 근거로 구분하고 모든 재요청은 기존 상한에 센다", () => {
+test("로컬 리뷰 실패는 사유를 기록하고 자체 점검으로 진행하며 유료 설정을 바꾸지 않는다", () => {
   const failures = reviewPolicy.reviewFailures;
   assert.equal(failures.diagnoseBeforeRetry, true);
-  assert.equal(failures.allRequestsCountTowardLimit, true);
-  assert.equal(failures.allowanceExhausted.retry, "after-confirmed-reset-or-entitlement-restored");
-  assert.equal(failures.transientRateLimit.retry, "once-after-provider-retry-time");
-  assert.equal(failures.transientRateLimit.unknownRetryTime, "no-automatic-retry");
-  assert.equal(failures.unclassifiedLimit.retry, "no-automatic-retry");
   assert.equal(failures.otherError.maxRetries, 1);
-  assert.equal(failures.inventResetTime, false);
+  assert.equal(failures.usageLimit.retry, "no-automatic-retry");
+  assert.equal(failures.workingTreeChangedByReviewer.retry, "once-after-revert");
+  assert.equal(failures.unavailable.recordReasonInPr, true);
+  assert.equal(failures.unavailable.proceedWithSelfReview, true);
+  assert.equal(failures.unavailable.requestOtherProvider, false);
   assert.equal(failures.changePaidUsageBudget, false);
 });
 
@@ -283,23 +225,17 @@ test("변경 줄 수는 한 가지 제외 기준으로 세고 큰 PR은 리뷰 �
     ["assets", "docs", "generated-files", "lock-files", "translations"],
   );
   assert.equal(reviewPolicy.pullRequest.splitReviewAboveChangedLines, 1500);
-  const crossReview = reviewPolicy.stages.find(
-    ({ id }) => id === "cross-model-review",
-  );
-  assert.ok(
-    crossReview.largeCodeChange.minChangedLines <
-      reviewPolicy.pullRequest.splitReviewAboveChangedLines,
-  );
 });
 
 test("리뷰는 2회차까지만 돌고 2회차는 1회차 이후 수정분만 확인한다", () => {
   const rounds = reviewPolicy.reviewRounds;
-  assert.equal(rounds.maxRequestsPerPr, 2);
+  assert.equal(rounds.maxRoundsPerPr, 2);
   assert.equal(rounds.findingAcceptance, "concrete-failure-scenario-in-scope");
+  assert.equal(rounds.rejectedFindingHandling, "drop-without-reply");
   assert.equal(rounds.verificationRound.when, "accepted-fix-added-logic");
   assert.equal(rounds.verificationRound.scope, "changes-since-first-review");
   assert.equal(rounds.verificationRound.includeFirstRoundFindings, true);
-  assert.equal(rounds.afterVerificationRound, "no-review-request");
+  assert.equal(rounds.afterVerificationRound, "no-review-run");
   assert.equal(
     rounds.escalateWhen,
     "same-area-defect-after-verification-round",
@@ -311,11 +247,11 @@ test("머지 gate는 도착하지 않는 봇 산출물을 기다리지 않는다
     "codeReviewThreadsResolved",
     "humanApproval",
     "humanApprovalConditions",
+    "localReviewFindingsHandled",
     "requiredChecksPassed",
-    "reviewFindingsAnswered",
   ]);
   assert.equal(reviewPolicy.mergeGate.codeReviewThreadsResolved, true);
   assert.equal(reviewPolicy.mergeGate.requiredChecksPassed, true);
-  assert.equal(reviewPolicy.mergeGate.reviewFindingsAnswered, true);
+  assert.equal(reviewPolicy.mergeGate.localReviewFindingsHandled, true);
   assert.equal(reviewPolicy.mergeGate.humanApproval, "conditional");
 });
