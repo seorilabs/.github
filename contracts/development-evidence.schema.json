@@ -212,6 +212,9 @@
           },
           "ux": {
             "$ref": "#/$defs/reviewResult"
+          },
+          "interruption": {
+            "$ref": "#/$defs/interruptedReview"
           }
         }
       }
@@ -733,6 +736,78 @@
         },
         "resolutionEvidence": {
           "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "interruptedReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "originalReportSha256",
+        "actualScope",
+        "evidence"
+      ],
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/text"
+        },
+        "originalReportSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "actualScope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "completed",
+            "incomplete",
+            "notRun"
+          ],
+          "properties": {
+            "completed": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/text"
+              }
+            },
+            "incomplete": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/text"
+              }
+            },
+            "notRun": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          },
+          "anyOf": [
+            {
+              "properties": {
+                "incomplete": {
+                  "minItems": 1,
+                  "type": "array"
+                }
+              }
+            },
+            {
+              "properties": {
+                "notRun": {
+                  "minItems": 1,
+                  "type": "array"
+                }
+              }
+            }
+          ]
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
         }
       }
     }
