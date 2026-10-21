@@ -75,6 +75,11 @@ redesignReview:
   extraRounds: prior-human-approval-with-scope-time-cost
   selfRoleSwitchCountsAsIndependent: false
   endlessWithinRoundRetries: forbidden
+  incompleteHistoryRecovery:
+    schema: v2-optional-reviewHistoryRecovery
+    historicalAttempts: exactly-first-three-no-pass-credit
+    newRounds: three-complete-independent-current-candidate-all-features
+    approval: after-history-before-each-new-plan-with-real-round-cap
 floors:
   changedFiles: plan-baseline-to-candidate
   featurePaths: run-feature-in-planned-environments
