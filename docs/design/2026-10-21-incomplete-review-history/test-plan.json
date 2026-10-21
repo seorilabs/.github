@@ -1,1 +1,20 @@
-{"schemaVersion":1,"level":"L1","baseline":null,"changedFeatures":["development-evidence"],"environments":["dev"],"redesign":false,"foundationRerun":false,"floorOverrides":[],"release":{"markets":["service"],"until":"public"}}
+{
+  "schemaVersion": 1,
+  "level": "L1",
+  "baseline": "a6dc6937f37eb5783ae249cfc315ba00f11fabfc",
+  "changedFeatures": [
+    "development-evidence"
+  ],
+  "environments": [
+    "dev"
+  ],
+  "redesign": false,
+  "foundationRerun": false,
+  "floorOverrides": [],
+  "release": {
+    "markets": [
+      "service"
+    ],
+    "until": "public"
+  }
+}
