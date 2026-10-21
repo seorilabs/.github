@@ -75,6 +75,13 @@ redesignReview:
   extraRounds: prior-human-approval-with-scope-time-cost
   selfRoleSwitchCountsAsIndependent: false
   endlessWithinRoundRetries: forbidden
+  interruptedCurrentRounds:
+    schema: v2-optional-reviewRounds-interruption
+    verdict: functional-and-ux-failed-or-blocked-only
+    original: retain-sha-times-verdict-report-hash-and-actual-scope
+    completeReviewCredit: 0
+    approvalCapCount: 1
+    completion: three-complete-current-independent-all-feature-reviews-and-last-passed
   incompleteHistoryRecovery:
     schema: v2-optional-reviewHistoryRecovery
     historicalAttempts: exactly-first-three-no-pass-credit

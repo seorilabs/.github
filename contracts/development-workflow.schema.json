@@ -346,6 +346,17 @@
             "approval": "after-history-before-each-new-plan-with-real-round-cap",
             "completedRounds": "optional-complete-original-records-no-pass-credit-real-sequence-and-prior-approval"
           }
+        },
+        "interruptedCurrentRounds": {
+          "type": "object",
+          "const": {
+            "schema": "v2-optional-reviewRounds-interruption",
+            "verdict": "functional-and-ux-failed-or-blocked-only",
+            "original": "retain-sha-times-verdict-report-hash-and-actual-scope",
+            "completeReviewCredit": 0,
+            "approvalCapCount": 1,
+            "completion": "three-complete-current-independent-all-feature-reviews-and-last-passed"
+          }
         }
       }
     },
