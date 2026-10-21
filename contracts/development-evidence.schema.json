@@ -547,6 +547,107 @@
           }
         }
       }
+    },
+    "reviewHistoryRecovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "attempts"
+      ],
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/text"
+        },
+        "attempts": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "number",
+              "sourceSha",
+              "plannedAt",
+              "startedAt",
+              "completedAt",
+              "reviewer",
+              "functionalStatus",
+              "uxStatus",
+              "evidence",
+              "originalReportSha256"
+            ],
+            "properties": {
+              "number": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3
+              },
+              "sourceSha": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/sha"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "plannedAt": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "startedAt": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "completedAt": {
+                "$ref": "#/$defs/time"
+              },
+              "reviewer": {
+                "$ref": "#/$defs/text"
+              },
+              "functionalStatus": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "blocked"
+                ]
+              },
+              "uxStatus": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "blocked"
+                ]
+              },
+              "evidence": {
+                "$ref": "#/$defs/evidence"
+              },
+              "originalReportSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "resolutionEvidence": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {

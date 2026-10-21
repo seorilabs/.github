@@ -41,7 +41,7 @@ export function validateDevelopmentEvidence(document, context) {
 }
 
 // 재설계 3회 검수는 v1 회차 규칙을 그대로 쓴다. 회차를 기록했다면 횟수와 상관없이 순서·독립성·해결 여부를 확인한다.
-function checkReviewRounds(document, { redesign, coreFeatures, carried, inventoryIds, times, errors }) {
+function checkReviewRounds(document, { redesign, coreFeatures, carried, inventoryIds, times, errors, now }) {
   const ui = document.productKind === 'ui';
   if (!ui && document.reviewRounds.length !== 0) errors.push('SERVICE_WITH_UI_ROUNDS');
   if (redesign && (document.reviewRounds.length < ROUNDS || coreFeatures.length === 0)) errors.push('THREE_UI_ROUNDS_REQUIRED');
@@ -56,9 +56,31 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
       return !Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 19) !== approval.approvedAt.slice(0, 19);
     })) errors.push('INVALID_ADDITIONAL_ITERATION_APPROVAL_TIME');
   }
+  // Incomplete original attempts retain their verdicts and count toward the cap,
+  // but never satisfy any of the three complete reviews required by a redesign.
+  const history = document.reviewHistoryRecovery?.attempts ?? [];
+  if (history.length && (!ui || !redesign)) errors.push('REVIEW_RECOVERY_REQUIRES_REDESIGN');
+  if (history.length && !history.some(r => r.sourceSha === null || r.plannedAt === null || r.startedAt === null)) errors.push('REVIEW_RECOVERY_NO_METADATA_GAP');
   let previousEnd = 0;
+  history.forEach((attempt, index) => {
+    if (attempt.number !== index + 1) errors.push('REVIEW_RECOVERY_HISTORY_SEQUENCE');
+    const knownTimes = [attempt.plannedAt, attempt.startedAt, attempt.completedAt].filter(value => value !== null);
+    const known = knownTimes.map(Date.parse);
+    const completion = Date.parse(attempt.completedAt);
+    if (known.some((value, i) => !Number.isFinite(value) || new Date(value).toISOString().slice(0, 19) !== knownTimes[i].slice(0, 19) || (i > 0 && value < known[i - 1]))
+      || completion > now || completion < previousEnd
+      || (attempt.plannedAt !== null && Date.parse(attempt.plannedAt) < previousEnd)
+      || (attempt.startedAt !== null && Date.parse(attempt.startedAt) < previousEnd)) errors.push('REVIEW_RECOVERY_HISTORY_TIME');
+    if ([attempt.functionalStatus, attempt.uxStatus].some(status => status !== 'passed')
+      && !attempt.resolutionEvidence?.trim()) errors.push('REVIEW_RECOVERY_UNRESOLVED_HISTORY');
+    previousEnd = completion;
+  });
+  const historicalEnd = previousEnd;
   document.reviewRounds.forEach((round, index) => {
-    if (round.number !== index + 1) errors.push('ROUND_SEQUENCE');
+    if (round.number !== index + history.length + 1) errors.push('ROUND_SEQUENCE');
+    if (history.length && round.sourceSha !== document.sourceSha) errors.push('REVIEW_RECOVERY_SOURCE_MISMATCH');
+    if (history.length && now - Date.parse(round.completedAt) > MAX_RUN_AGE_MS) errors.push('REVIEW_RECOVERY_EXPIRED');
+    if (history.length && [...inventoryIds].some(id => !round.functional.featureIds.includes(id) || !round.ux.featureIds.includes(id))) errors.push('REVIEW_RECOVERY_FULL_COVERAGE');
     times(round, `round-${round.number}`);
     if (Date.parse(round.plannedAt) < previousEnd) errors.push('ROUND_OVERLAP');
     previousEnd = Date.parse(round.completedAt);
@@ -69,8 +91,10 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
       const result = round[aspect];
       if (result.status !== 'passed' && (index === document.reviewRounds.length - 1 || !result.resolutionEvidence)) errors.push(`UNRESOLVED_REVIEW ${round.number}-${aspect}`);
     }
-    if (round.number > ROUNDS) {
-      if (!approvals.some(approval => approval.maxRound >= round.number && Number.isFinite(Date.parse(approval.approvedAt)) && Date.parse(approval.approvedAt) <= Date.parse(round.plannedAt))) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
+    if (round.number > ROUNDS || history.length) {
+      if (!approvals.some(approval => approval.maxRound >= round.number && Number.isFinite(Date.parse(approval.approvedAt))
+        && Date.parse(approval.approvedAt) <= Date.parse(round.plannedAt)
+        && (!history.length || Date.parse(approval.approvedAt) >= historicalEnd))) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
     }
   });
 }
@@ -203,7 +227,7 @@ function validateTestLevelEvidence(document, context) {
     && ['before-build','before-deploy'].includes(phase) && !releasePhase && !merged.environments.includes('dev') && document.designs.length === 1
     && document.designs.every(d => d.id === '2026-10-16-native-release-handoff' && d.approvedCommit === 'cfe7ee914c980f39d8bf6ca062f86eb1912606fe'
       && d.document === 'docs/design/2026-10-16-native-release-handoff/design.md' && d.testPlan === 'docs/design/2026-10-16-native-release-handoff/test-plan.json');
-  checkReviewRounds(document, { redesign: merged.redesign && !nativeHandoff, coreFeatures, carried: new Set(), inventoryIds, times, errors });
+  checkReviewRounds(document, { redesign: merged.redesign && !nativeHandoff, coreFeatures, carried: new Set(), inventoryIds, times, errors, now });
 
   if (releasePhase) {
     if (!merged.markets.includes(target)) errors.push(`RELEASE_NOT_AUTHORIZED market ${target}`);
