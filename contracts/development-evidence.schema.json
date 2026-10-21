@@ -646,6 +646,35 @@
               }
             }
           }
+        },
+        "completedRounds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "round",
+              "implementer",
+              "originalReportSha256",
+              "evidence"
+            ],
+            "properties": {
+              "round": {
+                "$ref": "#/properties/reviewRounds/items"
+              },
+              "implementer": {
+                "$ref": "#/$defs/text"
+              },
+              "originalReportSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "evidence": {
+                "$ref": "#/$defs/evidence"
+              }
+            }
+          }
         }
       }
     }
