@@ -1709,6 +1709,7 @@ test('Godot 릴리즈 경로는 명시된 preset 하나에만 태그 파생 버�
   assert.equal(presetStep.if, "${{ inputs.build_script == '' }}");
   assert.equal(customBuildStep.if, "${{ inputs.build_script != '' }}");
   assert.equal(directBuildStep.if, "${{ inputs.build_script == '' }}");
+  assert.equal(customBuildStep.env.GH_TOKEN, '${{ github.token }}');
   assert.equal(customBuildStep.env.SEORI_RELEASE_TAG, '${{ steps.tag.outputs.tag }}');
   assert.equal(customBuildStep.env.SEORI_RELEASE_VERSION_NAME, '${{ steps.release.outputs.version_name }}');
   assert.equal(customBuildStep.env.SEORI_RELEASE_VERSION_CODE, '${{ steps.release.outputs.android_version_code }}');
