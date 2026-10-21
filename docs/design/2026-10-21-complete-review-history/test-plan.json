@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "level": "L1",
+  "baseline": "17005d45dcb358b666d91ea9a2ec30a2c79b1e9a",
+  "changedFeatures": ["development-evidence"],
+  "environments": ["dev"],
+  "redesign": false,
+  "foundationRerun": false,
+  "floorOverrides": [],
+  "release": {"markets": ["service"], "until": "public"}
+}
