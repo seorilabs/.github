@@ -9,6 +9,8 @@ import { parse } from 'yaml';
 import { verifyReleaseDevelopmentEvidence, validateDevelopmentEvidence } from '../scripts/release/verify-development-evidence.mjs';
 import { SHA, NOW, context, validEvidence } from './helpers/development-evidence-fixture.mjs';
 
+const CLI_CLOCK = new URL('./helpers/legacy-cli-clock.mjs', import.meta.url).href;
+
 const reply = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
 function fakeGitHub({ evidence = validEvidence(), missing = false, status = 200, duplicate = false, paginated = false, tag = 'v1.0.0', phase = 'before-build', extra = [], archives } = {}) {
   const calls = [];
@@ -102,7 +104,7 @@ test('development policy and example compile under strict JSON Schema', () => {
 test('actual CLI exits nonzero for a mismatched final candidate without printing payloads', () => {
   const dir = mkdtempSync(join(tmpdir(), 'development-evidence-cli-'));
   try {
-    const path = join(dir, 'evidence.json'), d = validEvidence(), now = Date.now();
+    const path = join(dir, 'evidence.json'), d = validEvidence(), now = Date.parse(NOW);
     d.e2e.plannedAt = new Date(now - 60000).toISOString(); d.e2e.startedAt = new Date(now - 40000).toISOString(); d.e2e.completedAt = new Date(now - 20000).toISOString();
     d.iterations.forEach((r, i) => {
       r.plannedAt = new Date(now - (6-i) * 3600000).toISOString();
@@ -111,8 +113,8 @@ test('actual CLI exits nonzero for a mismatched final candidate without printing
     });
     writeFileSync(path, JSON.stringify(d));
     const inventoryPath = join(dir, 'feature-inventory.json'); writeFileSync(inventoryPath, JSON.stringify(context.featureInventory));
-    const args = ['scripts/release/verify-development-evidence.mjs', '--file', path, '--feature-inventory', inventoryPath, '--repo', context.repository, '--sha', SHA, '--target', context.target, '--phase', context.phase];
-    const env = { ...process.env, GITHUB_ENV: '', GITHUB_OUTPUT: '' };
+    const args = ['--import', CLI_CLOCK, 'scripts/release/verify-development-evidence.mjs', '--file', path, '--feature-inventory', inventoryPath, '--repo', context.repository, '--sha', SHA, '--target', context.target, '--phase', context.phase];
+    const env = { ...process.env, SEORI_TEST_LEGACY_CLI_NOW: NOW, GITHUB_ENV: '', GITHUB_OUTPUT: '' };
     const good = spawnSync(process.execPath, args, { encoding: 'utf8', env });
     assert.equal(good.status, 0, good.stderr);
     args[args.indexOf('--sha')+1] = 'd'.repeat(40);
@@ -190,7 +192,7 @@ test('local CLI compares the baseline with git in the product repository', () =>
     for (let i = 0; i < 150; i += 1) git('mv', `src/create/r${i}.ts`, `src/create/moved/r${i}.ts`);
     const renamed = commit('src/create/r-last.ts', 'r-last-2');
     const run = (sha, from = baseline) => {
-      const d = carriedEvidence(sha, from), now = Date.now();
+      const d = carriedEvidence(sha, from), now = Date.parse(NOW);
       d.carriedForward[0].verifiedAt = new Date(now - 7200000).toISOString();
       d.e2e.plannedAt = new Date(now - 60000).toISOString(); d.e2e.startedAt = new Date(now - 40000).toISOString(); d.e2e.completedAt = new Date(now - 20000).toISOString();
       d.iterations.forEach((r, i) => {
@@ -200,7 +202,7 @@ test('local CLI compares the baseline with git in the product repository', () =>
       });
       const path = join(dir, '..', `${sha}.evidence.json`); writeFileSync(path, JSON.stringify(d));
       try {
-        return spawnSync(process.execPath, [join(process.cwd(), 'scripts/release/verify-development-evidence.mjs'), '--file', path, '--repo', context.repository, '--sha', sha, '--target', context.target, '--phase', context.phase], { cwd: dir, encoding: 'utf8', env: { ...process.env, GITHUB_ENV: '', GITHUB_OUTPUT: '' } });
+        return spawnSync(process.execPath, ['--import', CLI_CLOCK, join(process.cwd(), 'scripts/release/verify-development-evidence.mjs'), '--file', path, '--repo', context.repository, '--sha', sha, '--target', context.target, '--phase', context.phase], { cwd: dir, encoding: 'utf8', env: { ...process.env, SEORI_TEST_LEGACY_CLI_NOW: NOW, GITHUB_ENV: '', GITHUB_OUTPUT: '' } });
       } finally { rmSync(path, { force: true }); }
     };
     const good = run(unaffected);
