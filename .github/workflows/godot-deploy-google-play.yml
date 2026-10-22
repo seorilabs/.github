@@ -649,3 +649,14 @@ jobs:
             echo "- artifact: ${{ steps.provenance.outputs.artifact_path }} sha256:${{ steps.provenance.outputs.artifact_digest }}"
             echo "- track: ${{ inputs.track }} / status: ${{ inputs.release_status }} / uploaded: ${{ inputs.upload }}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Keep the failed output for diagnosis. This never marks it as verified or
+      # changes the failed job result, and is separate from upload candidates.
+      - name: Preserve failed AAB for diagnostics
+        if: ${{ failure() && steps.meta.outputs.aab_path != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: failed-godot-google-play-aab-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.meta.outputs.aab_path }}
+          if-no-files-found: ignore
+          retention-days: 3
