@@ -83,8 +83,29 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
   });
   const incompleteEnd = previousEnd;
   const completedHistory = document.reviewHistoryRecovery?.completedRounds ?? [];
-  completedHistory.forEach(({ round, implementer }, index) => {
-    if (round.interruption) errors.push('REVIEW_RECOVERY_INTERRUPTED_HISTORY');
+  const interruptedHistory = document.reviewHistoryRecovery?.interruptedRounds ?? [];
+  const checkInterruption = round => {
+    const partial = round.interruption;
+    if (['functional', 'ux'].some(aspect => round[aspect].status === 'passed')) errors.push('INTERRUPTED_REVIEW_PASSED');
+    if (!partial.reason.trim() || !partial.evidence.some(value => value.trim())) errors.push('INTERRUPTED_REVIEW_EVIDENCE_REQUIRED');
+    const units = [...partial.actualScope.completed, ...partial.actualScope.incomplete, ...partial.actualScope.notRun];
+    if (new Set(units).size !== units.length) errors.push('INTERRUPTED_REVIEW_SCOPE_OVERLAP');
+  };
+  // Separate arrays retain their own order; their union retains every actual round,
+  // including interrupted attempts, without counting any history as current credit.
+  for (const [records, label] of [[completedHistory, 'COMPLETED'], [interruptedHistory, 'INTERRUPTED']]) {
+    if (records.some(({ round }, i) => i > 0 && round.number <= records[i - 1].round.number)) errors.push(`REVIEW_RECOVERY_${label}_SEQUENCE`);
+  }
+  const historicalRounds = [
+    ...completedHistory.map(entry => ({ ...entry, interrupted: false })),
+    ...interruptedHistory.map(entry => ({ ...entry, interrupted: true })),
+  ].sort((a, b) => a.round.number - b.round.number);
+  historicalRounds.forEach(({ round, implementer, originalReportSha256, interrupted }, index) => {
+    if (!interrupted && round.interruption) errors.push('REVIEW_RECOVERY_INTERRUPTED_HISTORY');
+    if (interrupted) {
+      checkInterruption(round);
+      if (originalReportSha256 !== round.interruption.originalReportSha256) errors.push('REVIEW_RECOVERY_INTERRUPTED_HASH_MISMATCH');
+    }
     if (round.number !== history.length + index + 1) errors.push('REVIEW_RECOVERY_COMPLETED_SEQUENCE');
     times(round, `historical-round-${round.number}`);
     const knownTimes = [round.plannedAt, round.startedAt, round.completedAt];
@@ -103,7 +124,7 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
   const historicalEnd = previousEnd;
   const strictCurrent = history.length > 0 || hasInterruption;
   document.reviewRounds.forEach((round, index) => {
-    if (round.number !== index + history.length + completedHistory.length + 1) errors.push('ROUND_SEQUENCE');
+    if (round.number !== index + history.length + historicalRounds.length + 1) errors.push('ROUND_SEQUENCE');
     if (strictCurrent && round.sourceSha !== document.sourceSha) errors.push('REVIEW_RECOVERY_SOURCE_MISMATCH');
     if (strictCurrent && now - Date.parse(round.completedAt) > MAX_RUN_AGE_MS) errors.push('REVIEW_RECOVERY_EXPIRED');
     if (strictCurrent && !round.interruption && [...inventoryIds].some(id => !round.functional.featureIds.includes(id) || !round.ux.featureIds.includes(id))) errors.push('REVIEW_RECOVERY_FULL_COVERAGE');
@@ -112,11 +133,7 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
     previousEnd = Date.parse(round.completedAt);
     if (sameName(round.reviewer, document.implementer)) errors.push('INDEPENDENT_REVIEW_REQUIRED');
     if (round.interruption) {
-      const partial = round.interruption;
-      if (['functional', 'ux'].some(aspect => round[aspect].status === 'passed')) errors.push('INTERRUPTED_REVIEW_PASSED');
-      if (!partial.reason.trim() || !partial.evidence.some(value => value.trim())) errors.push('INTERRUPTED_REVIEW_EVIDENCE_REQUIRED');
-      const units = [...partial.actualScope.completed, ...partial.actualScope.incomplete, ...partial.actualScope.notRun];
-      if (new Set(units).size !== units.length) errors.push('INTERRUPTED_REVIEW_SCOPE_OVERLAP');
+      checkInterruption(round);
       // These original IDs may be the required scope, not actual completion. The typed partial scope records that gap.
       if ([...round.functional.featureIds, ...round.ux.featureIds].some(id => !inventoryIds.has(id))) errors.push('INTERRUPTED_REVIEW_UNKNOWN_FEATURE');
     } else {

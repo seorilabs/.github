@@ -650,6 +650,23 @@
             }
           }
         },
+        "interruptedRounds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/properties/reviewHistoryRecovery/properties/completedRounds/items",
+            "type": "object",
+            "properties": {
+              "round": {
+                "type": "object",
+                "required": ["interruption"],
+                "properties": {
+                  "interruption": { "$ref": "#/$defs/interruptedReview" }
+                }
+              }
+            }
+          }
+        },
         "completedRounds": {
           "type": "array",
           "minItems": 1,
