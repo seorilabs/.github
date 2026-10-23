@@ -660,9 +660,13 @@
             "properties": {
               "round": {
                 "type": "object",
-                "required": ["interruption"],
+                "required": [
+                  "interruption"
+                ],
                 "properties": {
-                  "interruption": { "$ref": "#/$defs/interruptedReview" }
+                  "interruption": {
+                    "$ref": "#/$defs/interruptedReview"
+                  }
                 }
               }
             }
@@ -693,6 +697,113 @@
               },
               "evidence": {
                 "$ref": "#/$defs/evidence"
+              }
+            }
+          }
+        }
+      }
+    },
+    "invalidInitialReviewHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "rounds"
+      ],
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/text"
+        },
+        "rounds": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "round",
+              "implementer",
+              "originalReportSha256",
+              "evidence",
+              "correction"
+            ],
+            "properties": {
+              "round": {
+                "$ref": "#/properties/reviewRounds/items"
+              },
+              "implementer": {
+                "$ref": "#/$defs/text"
+              },
+              "originalReportSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "evidence": {
+                "$ref": "#/$defs/evidence"
+              },
+              "correction": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "number",
+                  "sourceSha",
+                  "originalReportSha256",
+                  "recordedAt",
+                  "visualReviewCompletedAt",
+                  "functionalStatus",
+                  "uxStatus",
+                  "reportSha256",
+                  "reason",
+                  "evidence"
+                ],
+                "properties": {
+                  "number": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3
+                  },
+                  "sourceSha": {
+                    "$ref": "#/$defs/sha"
+                  },
+                  "originalReportSha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "recordedAt": {
+                    "$ref": "#/$defs/time"
+                  },
+                  "visualReviewCompletedAt": {
+                    "$ref": "#/$defs/time"
+                  },
+                  "functionalStatus": {
+                    "enum": [
+                      "passed",
+                      "failed",
+                      "blocked"
+                    ]
+                  },
+                  "uxStatus": {
+                    "enum": [
+                      "passed",
+                      "failed",
+                      "blocked"
+                    ]
+                  },
+                  "reportSha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "reason": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "evidence": {
+                    "$ref": "#/$defs/evidence"
+                  }
+                }
+              },
+              "resolutionEvidence": {
+                "$ref": "#/$defs/text"
               }
             }
           }
@@ -845,6 +956,21 @@
           "additionalIterationApproval": {
             "type": "null"
           }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "invalidInitialReviewHistory"
+        ],
+        "properties": {
+          "invalidInitialReviewHistory": {}
+        }
+      },
+      "then": {
+        "properties": {
+          "reviewHistoryRecovery": false
         }
       }
     }
