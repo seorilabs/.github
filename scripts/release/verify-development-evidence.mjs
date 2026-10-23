@@ -42,7 +42,7 @@ export function validateDevelopmentEvidence(document, context) {
 
 // 재설계 3회 검수는 v1 회차 규칙을 그대로 쓴다. 회차를 기록했다면 횟수와 상관없이 순서·독립성·해결 여부를 확인한다.
 function checkReviewRounds(document, { redesign, coreFeatures, carried, inventoryIds, times, errors, now }) {
-  const ui = document.productKind === 'ui';
+  const ui = document.productKind !== 'service';
   if (!ui && document.reviewRounds.length !== 0) errors.push('SERVICE_WITH_UI_ROUNDS');
   const hasInterruption = document.reviewRounds.some(round => round.interruption);
   const completeRounds = document.reviewRounds.filter(round => !round.interruption);
@@ -178,7 +178,8 @@ function validateTestLevelEvidence(document, context) {
   const tddIds = document.tdd.map(t => t.acceptanceId);
   unique(conditions, 'acceptance'); unique(tddIds, 'tdd');
   if (conditions.some(id => !tddIds.includes(id)) || tddIds.some(id => !conditions.includes(id))) errors.push('TDD_ACCEPTANCE_COVERAGE');
-  const ui = document.productKind === 'ui';
+  const mixed = document.productKind === 'mixed';
+  const ui = document.productKind !== 'service';
   if (context.requireUi !== false && !ui) errors.push('UI_REQUIRED');
 
   const inventory = context.featureInventory;
@@ -186,6 +187,9 @@ function validateTestLevelEvidence(document, context) {
   if (!inventoryValid) errors.push('SOURCE_FEATURE_INVENTORY_REQUIRED');
   const features = inventoryValid ? inventory.features : [];
   const inventoryIds = new Set(features.map(f => f.id));
+  const serviceIds = new Set(mixed ? features.filter(f => f.runtimeKind === 'service').map(f => f.id) : []);
+  const uiIds = new Set(features.filter(f => !serviceIds.has(f.id)).map(f => f.id));
+  if (mixed && (serviceIds.size === 0 || uiIds.size === 0)) errors.push('MIXED_FEATURE_KINDS_REQUIRED');
 
   unique(document.designs.map(d => d.id), 'design');
   const plans = [];
@@ -238,8 +242,15 @@ function validateTestLevelEvidence(document, context) {
     unique(run.scenarios.map(s => s.id), `scenario ${run.id}`);
     for (const id of new Set(run.scenarios.flatMap(s => s.featureIds))) if (!inventoryIds.has(id)) errors.push(`RUN_UNKNOWN_FEATURE ${run.id} ${id}`);
     const device = DEVICE_ENVIRONMENTS.includes(environmentOf(run.kind));
-    if (ui && run.kind === 'service-runtime') errors.push(`UI_RUNTIME_REQUIRED ${run.id}`);
+    if (ui && !mixed && run.kind === 'service-runtime') errors.push(`UI_RUNTIME_REQUIRED ${run.id}`);
     if (!ui && run.kind !== 'service-runtime') errors.push(`SERVICE_RUNTIME_REQUIRED ${run.id}`);
+    let runtimeMatches = true;
+    if (mixed) for (const id of new Set(run.scenarios.flatMap(s => s.featureIds))) {
+      if (serviceIds.has(id) !== (run.kind === 'service-runtime')) {
+        runtimeMatches = false;
+        errors.push(`RUN_FEATURE_RUNTIME_MISMATCH ${run.id} ${id}`);
+      }
+    }
     const finishedAt = ci && !problem ? context.ciRuns[run.ciRun.url].updated_at : run.completedAt;
     const fresh = now - Date.parse(finishedAt) <= MAX_RUN_AGE_MS;
     if (!fresh) errors.push(`RUN_EXPIRED ${run.id}`);
@@ -247,8 +258,10 @@ function validateTestLevelEvidence(document, context) {
     // 대상 마켓의 기기·실제 SDK 실행을 명시한 출시 지문과 대조한다. SDK 대체 검수는 아래 승인 계획의 지문도 항상 검사한다.
     if ((device || run.nativeSdk) && context.configurationFingerprint && run.target === target && run.configurationFingerprint !== context.configurationFingerprint) errors.push(`CONFIGURATION_CHANGED ${run.id}`);
     if (sameName(run.executor, document.implementer) && (level === 'L3' || (level === 'L2' && device) || run.nativeSdk)) errors.push(`INDEPENDENT_RUN_REQUIRED ${run.id}`);
-    if (ordered && fresh && !problem && run.sourceSha === context.sourceSha) valid.push(run);
+    if (ordered && fresh && !problem && runtimeMatches && run.sourceSha === context.sourceSha) valid.push(run);
   }
+  if (mixed && (!valid.some(run => run.kind === 'service-runtime') || !valid.some(run => run.kind !== 'service-runtime')))
+    errors.push('MIXED_RUN_KINDS_REQUIRED');
   const covers = (env, feature) => valid.some(run => environmentOf(run.kind) === env && run.scenarios.some(s => s.featureIds.includes(feature)));
   const deviceCovers = feature => valid.some(run => run.target === target && floor.platforms.includes(environmentOf(run.kind))
     && run.scenarios.some(s => s.featureIds.includes(feature)));
@@ -273,13 +286,13 @@ function validateTestLevelEvidence(document, context) {
     if (!deviceCovers(featureId) && !nativeCovers(featureId)) errors.push(`TEST_LEVEL_BELOW_FLOOR ${rule} ${featureId} ${floor.platforms.join('|')}`);
   }
 
-  const coreFeatures = features.filter(f => f.core).map(f => f.id).filter(id => !usable.has(id));
+  const coreFeatures = features.filter(f => mixed ? uiIds.has(f.id) : f.core).map(f => f.id).filter(id => !usable.has(id));
   // 승인된 Spiritgate Mac 생략 계획만 native 테스트 빌드 뒤 UI3를 수행한다. 다른 계획의 순서는 바꾸지 않는다.
   const nativeHandoff = document.repository === 'seorilabs/spiritgate-defenders' && ['google-play','app-store'].includes(target)
     && ['before-build','before-deploy'].includes(phase) && !releasePhase && !merged.environments.includes('dev') && document.designs.length === 1
     && document.designs.every(d => d.id === '2026-10-16-native-release-handoff' && d.approvedCommit === 'cfe7ee914c980f39d8bf6ca062f86eb1912606fe'
       && d.document === 'docs/design/2026-10-16-native-release-handoff/design.md' && d.testPlan === 'docs/design/2026-10-16-native-release-handoff/test-plan.json');
-  checkReviewRounds(document, { redesign: merged.redesign && !nativeHandoff, coreFeatures, carried: new Set(), inventoryIds, times, errors, now });
+  checkReviewRounds(document, { redesign: merged.redesign && !nativeHandoff, coreFeatures, carried: new Set(), inventoryIds: mixed ? uiIds : inventoryIds, times, errors, now });
 
   if (releasePhase && merged.releaseAllowed) {
     if (!merged.markets.includes(target)) errors.push(`RELEASE_NOT_AUTHORIZED market ${target}`);

@@ -22,9 +22,11 @@ export const touches = (file, pattern) => posix.matchesGlob(file, pattern) || po
 const globs = value => Array.isArray(value) && value.length > 0 && value.every(p => typeof p === 'string' && p.trim());
 
 // 기능 목록 schemaVersion 1: 모든 기능에 선택 paths, 기반 기능은 paths 필수, 최상위 선택 regressionPaths. 기반 기능 paths가 실기기 하한을 만든다.
+// 선택 runtimeKind(ui/service)는 mixed 제품의 기능별 실행을 구분한다. 기존 ui/service 제품의 실행 규칙은 유지한다.
 // schemaVersion 2(headless E2E 틀이 있는 게임): 실기기 하한은 기능·최상위 platformPaths만 만들고, e2e.workflow가 필수다.
 const E2E_WORKFLOW = /^\.github\/workflows\/[A-Za-z0-9._-]+\.ya?ml$/u;
 const validFeature = (f, version) => typeof f?.id === 'string' && f.id.trim() && typeof f.core === 'boolean'
+  && (f.runtimeKind === undefined || ['ui', 'service'].includes(f.runtimeKind))
   && (f.foundation === undefined || typeof f.foundation === 'boolean')
   && (f.paths === undefined || globs(f.paths))
   && (f.foundation !== true || globs(f.paths))
