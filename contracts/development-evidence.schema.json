@@ -35,7 +35,8 @@
     "productKind": {
       "enum": [
         "ui",
-        "service"
+        "service",
+        "mixed"
       ]
     },
     "implementer": {

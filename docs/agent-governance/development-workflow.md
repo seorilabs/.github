@@ -179,6 +179,8 @@ v2의 선택 `reviewRounds[].interruption`은 실제 실행을 시작했으나 �
 
 ## 실행과 단계별 검사
 
+UI와 서비스 기능을 함께 바꾼 후보는 근거의 `productKind: "mixed"`와 기능 목록의 `runtimeKind: "service"`를 사용한다. mixed에서 runtimeKind를 생략한 기능은 ui다. 두 종류의 기능과 실제 실행을 모두 요구하며 service-runtime은 service 기능만, 브라우저와 Editor 등 UI 실행은 ui 기능만 충족한다. 후보, 독립성, 하한과 기한은 그대로 검사한다. UI 개편의 독립 3회는 UI 기능 전체를 다루며 서비스 실행으로 대신할 수 없다. 서비스 기능도 별도 실제 실행이 필요하다. 기존 ui/service 근거의 의미는 바뀌지 않는다.
+
 계획한 환경마다 범위 안의 기능을 실제로 실행하고 [실행 기록](templates/run.md)을 남긴다. 주요 작업은 시작→기능 사용→저장·화면 전환→오류·복구→종료·재실행을 이어서 실행한다. 스크린샷·코드 열람·headless 단위 테스트만으로 실제 실행을 대신하지 않는다. [기준](#headless-e2e-기준)을 채운 Godot headless E2E는 개발 환경 실행이다. 사용자 저장·계정·데이터와 격리하고 초기화 전 저장 경로를 확인한다.
 
 | 환경 | 실행 종류(`runs[].kind`) | 방법 |
