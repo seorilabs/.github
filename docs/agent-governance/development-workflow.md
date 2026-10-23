@@ -276,7 +276,7 @@ node scripts/release/verify-development-evidence.mjs \
 | `INDEPENDENT_RUN_REQUIRED <run>` | L2 실기기 실행 또는 L3 실행을 구현자가 함 |
 | `TEST_LEVEL_BELOW_FLOOR platform <feature> <env>` / `platform-first …` | v2 플랫폼 경로 하한을 채우지 못함. `platform-first`는 첫 출시·새 플랫폼 기능이라 면제할 수 없음. 승인된 실제 SDK 개발 검수로 충족 가능 |
 | `CI_RUN_UNVERIFIED`·`CI_RUN_MISMATCH`·`CI_RUN_NOT_SUCCESSFUL`·`CI_RUN_WORKFLOW`·`CI_RUN_KIND <run>` | CI 실행을 조회하지 못함·다른 저장소나 SHA·성공 아님·기능 목록의 E2E workflow가 아님·실기기 종류 |
-| `RELEASE_NOT_AUTHORIZED` | 대상 마켓이 계획에 없음, 끝 지점이 `test-track`, Play 승격 비율이 승인한 `release.rollout`(생략 시 1)보다 큼 |
+| `RELEASE_NOT_AUTHORIZED` | 대상 마켓이 계획에 없음, 끝 지점이 `test-track`, Play 승격 비율이 승인한 `release.rollout`(생략 시 1)보다 큼; `release: null`인 개발 전용 후보는 모든 마켓 phase 차단 |
 | `TEST_PLAN_DESIGN_MISMATCH <design>` | `testPlan`이 그 설계 문서와 같은 `docs/design/<id>/` 폴더에 있지 않음 |
 
 첨부 내용만으로 실제 플레이나 사람 승인을 증명하지 않는다. 작성자와 독립 검수자는 승인·실행·접근 가능한 증거를 확인할 책임이 있다.
