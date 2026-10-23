@@ -26,3 +26,5 @@
 | 2026-10-16 | [Godot headless E2E 기본 검수와 실기기 범위 축소 v1 — 사람 승인](2026-10-16-godot-headless-e2e/design.md) | 대화 승인(검토용 커밋 f6f07f0 = 408faef와 같은 bytes, 승인 기록은 문서 안) | PR 본문에 기록 | 중앙 검증기·계약 테스트 결과 |
 
 | 2026-10-16 | [Spiritgate 실패 Cloud12 보존과13 단일 복구](2026-10-16-spiritgate-cloud12-recovery/design.md) | [직접 승인](2026-10-16-spiritgate-cloud12-recovery/approval.json) · 제안b1da2d71 | [Spiritgate240](https://github.com/seorilabs/spiritgate-defenders/issues/240) · [실행 티켓](2026-10-16-spiritgate-cloud12-recovery/ticket.md) | [중앙 L1 실행](2026-10-16-spiritgate-cloud12-recovery/execution.md); 실제 Cloud/기기 검수 별도 |
+
+| 2026-10-23 | [배포 없는 테스트 계획 v1](2026-10-23-no-release-plans/design.md) | 대화 승인, 설계 7701faa | [중앙 티켓 305](https://github.com/seorilabs/.github/issues/305) | 중앙 계약, 검증기와 CLI 테스트 |

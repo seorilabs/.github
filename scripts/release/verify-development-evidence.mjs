@@ -204,6 +204,7 @@ function validateTestLevelEvidence(document, context) {
   if (!inventoryValid || plans.length !== document.designs.length) return { ok: false, errors: [...new Set(errors)], level: null, completedAt };
 
   const merged = mergeTestPlans(plans);
+  if (!merged.releaseAllowed) errors.push('RELEASE_NOT_AUTHORIZED development-only');
   const floor = computeFloor({ merged, inventory, changes: context.changes, baselineInventories: context.baselineInventories, target });
   const level = highestLevel([merged.level, floor.level]);
   const carried = carriedForwardFeatures(document, context, features, now, errors);
@@ -280,7 +281,7 @@ function validateTestLevelEvidence(document, context) {
       && d.document === 'docs/design/2026-10-16-native-release-handoff/design.md' && d.testPlan === 'docs/design/2026-10-16-native-release-handoff/test-plan.json');
   checkReviewRounds(document, { redesign: merged.redesign && !nativeHandoff, coreFeatures, carried: new Set(), inventoryIds, times, errors, now });
 
-  if (releasePhase) {
+  if (releasePhase && merged.releaseAllowed) {
     if (!merged.markets.includes(target)) errors.push(`RELEASE_NOT_AUTHORIZED market ${target}`);
     if (merged.until === 'test-track') errors.push('RELEASE_NOT_AUTHORIZED until test-track');
     // Play production 승격은 승인된 단계적 출시 비율을 넘지 못한다. 비율을 주지 않으면 완전 출시(1)다.
