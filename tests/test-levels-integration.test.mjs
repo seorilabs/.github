@@ -29,6 +29,45 @@ function fakeGitHub({ document = evidence(), testPlan = plan(), assets = ['befor
 }
 const verify = (api, changes = {}) => verifyReleaseDevelopmentEvidence({ ...context(), tag: 'v1.0.0', token: 'fixture-token', fetchImpl: api.fetchImpl, ...changes });
 
+for (const phase of ['before-build', 'before-deploy', 'before-release']) {
+  test(`NREL-6 Release verifier rejects approved development-only plans at ${phase}`, async () => {
+    const api = fakeGitHub({testPlan: plan({release: null})});
+    await assert.rejects(verify(api, {phase}), /RELEASE_NOT_AUTHORIZED development-only/u);
+    assert.ok(api.calls.some(url => url.endsWith(`/contents/${PLAN_PATH}?ref=${APPROVED}`)));
+  });
+}
+
+test('NREL-6 actual CLI rejects development-only before every market phase', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'development-only-cli-'));
+  const git = (...args) => {
+    const result = spawnSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', ...args], {cwd: dir, encoding: 'utf8'});
+    assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
+  };
+  const write = (path, body) => {mkdirSync(dirname(join(dir, path)), {recursive: true}); writeFileSync(join(dir, path), body);};
+  try {
+    git('init', '-q');
+    write('docs/qa/feature-inventory.json', JSON.stringify(inventory()));
+    write('src/settings/screen.ts', 'base'); git('add', '.'); git('commit', '-qm', 'base'); git('tag', 'v1.0.0');
+    write(PLAN_PATH, JSON.stringify(plan({release: null})));
+    write('docs/design/2026-10-14-example/design.md', '# development only');
+    git('add', '.'); git('commit', '-qm', 'design'); const approved = git('rev-parse', 'HEAD');
+    write('src/settings/screen.ts', 'changed'); git('add', '.'); git('commit', '-qm', 'change');
+    const candidate = git('rev-parse', 'HEAD'), now = Date.now();
+    const document = evidence({sourceSha: candidate, runs: [run('dev', 'godot-editor', ['settings'], {sourceSha: candidate,
+      plannedAt: new Date(now-60000).toISOString(), startedAt: new Date(now-40000).toISOString(), completedAt: new Date(now-20000).toISOString()})]});
+    document.designs[0].approvedCommit = approved;
+    write('evidence.json', JSON.stringify(document));
+    for (const phase of ['before-build', 'before-deploy', 'before-release']) {
+      const result = spawnSync(process.execPath, [join(process.cwd(), 'scripts/release/verify-development-evidence.mjs'),
+        '--file', join(dir, 'evidence.json'), '--repo', 'seorilabs/example', '--sha', candidate, '--target', 'google-play', '--phase', phase],
+        {cwd: dir, encoding: 'utf8', env: {...process.env, GITHUB_ENV: '', GITHUB_OUTPUT: ''}});
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /RELEASE_NOT_AUTHORIZED development-only/u);
+      assert.doesNotMatch(result.stderr, /TEST_PLAN_INVALID|TEST_PLAN_UNAPPROVED/u);
+    }
+  } finally {rmSync(dir, {recursive: true, force: true});}
+});
+
 test('Release verifier reads the plan at the approved commit and the files changed since its baseline', async () => {
   const api = fakeGitHub();
   const result = await verify(api);

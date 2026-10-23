@@ -64,15 +64,17 @@ export function testPlanProblems(plan, inventory) {
   for (const item of native) {
     if (!platformInventory) problems.push('platform-validation-needs-inventory-v2');
     if (!features.get(item.featureId)?.platformPaths?.length) problems.push(`platform-validation-not-native ${item.featureId}`);
-    if (!plan.release.markets.includes(item.target)) problems.push(`platform-validation-market-not-planned ${item.target}`);
+    if (!(plan.release?.markets ?? []).includes(item.target)) problems.push(`platform-validation-market-not-planned ${item.target}`);
     if (!plan.environments.includes('dev')) problems.push('platform-validation-needs-dev');
   }
   return [...new Set(problems)];
 }
 
 // 한 후보에 묶인 승인 계획은 가장 높은 등급, 기능·환경·마켓 합집합, 가장 이른 끝 지점으로 합친다.
+// 하나라도 release: null이면 마켓 작업은 허용하지 않는다. 개발 환경 검사와 PR 병합 범위만 남는다.
 // 하한 낮춤은 묶인 모든 계획에 같은 항목이 있을 때만 남긴다. 한 설계의 사유가 다른 설계의 변경까지 덮지 않게 한다.
 export function mergeTestPlans(plans) {
+  const releaseAllowed = plans.length > 0 && plans.every(p => p.release !== null);
   const union = values => [...new Set(values)].sort();
   const everyPlan = predicate => plans.length > 0 && plans.every(predicate);
   const overriddenBy = rule => {
@@ -96,10 +98,11 @@ export function mergeTestPlans(plans) {
     platformOverrides: overriddenBy('platform'),
     platformValidation,
     regressionOverride: everyPlan(p => p.floorOverrides.some(o => o.rule === 'regression')),
-    markets: union(plans.flatMap(p => p.release.markets)),
-    until: UNTIL[Math.min(...plans.map(p => UNTIL.indexOf(p.release.until ?? policy.release.defaultUntil)))],
+    releaseAllowed,
+    markets: releaseAllowed ? union(plans.flatMap(p => p.release.markets)) : [],
+    until: releaseAllowed ? UNTIL[Math.min(...plans.map(p => UNTIL.indexOf(p.release.until ?? policy.release.defaultUntil)))] : null,
     // Play 단계적 출시 비율. 생략은 완전 출시(1)이며 묶인 계획 중 가장 작은 비율까지만 승인된 것으로 본다.
-    rollout: Math.min(...plans.map(p => p.release.rollout ?? 1)),
+    rollout: releaseAllowed ? Math.min(...plans.map(p => p.release.rollout ?? 1)) : null,
   };
 }
 

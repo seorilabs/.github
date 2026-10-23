@@ -654,6 +654,9 @@
         "authorizedBy": {
           "const": "approved-test-plan-release"
         },
+        "developmentOnly": {
+          "const": "explicit-null-blocks-all-market-phases"
+        },
         "defaultUntil": {
           "const": "public"
         },

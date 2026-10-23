@@ -39,9 +39,11 @@
 | `redesign` | 새 화면·UI 개편이면 `true`. L3이어야 하며 [재설계 검수 3회](#재설계-ui-검수-3회)를 한다 |
 | `foundationRerun` | L3에서만 `true`. 기반 기능도 이어받지 않고 다시 실행 |
 | `floorOverrides` | 아래 하한을 낮춘 항목과 사유. `{rule: "foundation", featureId, reason}`(기능 목록 v1), `{rule: "platform", featureId, reason}`(기능 목록 v2) 또는 `{rule: "regression", reason}` |
-| `release` | `markets`(출시할 마켓), `until`(`test-track` / `review-submitted` / `public`, 생략하면 `public`), `rollout`(Play 단계적 출시 비율, 선택) |
+| `release` | 개발 환경 검사와 PR 병합만 승인하면 `null`. 출시를 승인하면 기존 객체: `markets`(출시할 마켓), `until`(`test-track` / `review-submitted` / `public`, 생략하면 `public`), `rollout`(Play 단계적 출시 비율, 선택) |
 
 한 후보에 승인 설계가 여러 개 묶이면 등급은 가장 높은 값, 기능·환경·마켓은 합집합, 끝 지점은 가장 이른 값을 쓴다. 하한 낮춤은 묶인 모든 계획에 같은 항목이 있을 때만 인정한다.
+
+하나라도 `release: null`이면 전체 후보는 개발 전용이다. 다른 계획의 출시 객체로 이를 덮을 수 없으며 마켓, 끝 지점과 비율을 출시 승인으로 사용하지 않는다. `release` 생략은 허용하지 않는다. [개발 전용 예제](templates/test-plan.development-only.example.json)를 참고한다. null 계획에 마켓별 `platformValidation`을 넣으면 시장이 계획되지 않았다는 오류를 반환한다.
 
 ### 검증기가 계산하는 하한
 
@@ -195,6 +197,8 @@ v2의 선택 `reviewRounds[].interruption`은 실제 실행을 시작했으나 �
 Spiritgate의 Mac-only 생략 후 통합 승인 계획(`2026-10-16-native-release-handoff`, 승인 커밋 `cfe7ee914c980f39d8bf6ca062f86eb1912606fe`의 같은 폴더 `design.md`/`test-plan.json` 하나)에 한해, `google-play`/`app-store`의 dev 없는 계획은 `before-build`/`before-deploy` UI3 횟수를 실제 기기 실행과 같은 공개 전 단계로 미룬다. 앞선 승인 계획·원문 조회와 후보 조상 검증을 그대로 통과해야 하며, 다른 repo/새 계획/다른 마켓·단계 또는 `dev` 포함 계획의 기존 조기 UI3 조건은 유지한다. 기록한 회차의 순서·독립성·승인·실패 해결 검사는 어느 단계에서도 생략하지 않는다. 공개 전 UI3·인수조건·TDD·L3·실기기 하한·공개 전체 회귀는 그대로다.
 | `web`·`service`의 `before-deploy` | 공개 배포 workflow | 모든 실행과 출시 범위(테스트 채널이 없다) |
 
+개발 전용 후보는 마켓 작업 진입용 `before-build`, `before-deploy`, `before-release`에서 모두 `RELEASE_NOT_AUTHORIZED development-only`로 차단한다. 테스트 채널과 web, service도 포함한다. 로컬 개발 테스트와 PR 정적 검사는 계속 실행하며, 이를 위해 가짜 출시 근거를 만들지 않는다.
+
 Play의 테스트 트랙 사이 승격은 `before-deploy`, production 승격은 `before-release`로 검사한다. 승격 workflow는 `rollout` 입력(비면 완전 출시 1)을 검증기에 넘기고, 승인된 계획의 비율보다 크면 막는다. 여러 계획이 묶이면 가장 작은 비율이 상한이다. App Store·앱인토스 심사 제출은 중앙 workflow가 하지 않으므로 실행자가 제출 직전에 `--phase before-release`를 실행한다.
 
 ### 영향 없는 기반 기능
@@ -210,7 +214,7 @@ Play의 테스트 트랙 사이 승격은 `before-deploy`, production 승격은 
 
 ## 승인 뒤 진행과 정지 조건
 
-승인된 계획의 `release`가 배포 요청이다. 구현→PR·CI·리뷰·병합→계획한 실행→태그·빌드·테스트 채널 업로드→실기기 실행(계획·하한이 요구할 때)→심사 제출·승격→승인 후 공개·live 확인을 `until`까지 이어서 진행한다. [사용자의 테스트 채널 확인](#사용자의-테스트-채널-확인)은 기다리지 않는다. 단계마다 사람에게 다시 묻지 않는다. 테스트를 **더 하는** 쪽(하한 상향, 환경 추가)도 묻지 않는다. 빌드·업로드·심사·승인·공개·live 확인은 서로 다른 상태로 기록한다.
+승인된 계획의 `release`가 객체일 때 배포 요청이다. `release: null`이면 구현, 개발 환경 검증과 PR 병합에서 마치며 태그, 마켓 빌드, 업로드, 제출과 공개를 하지 않는다. 이후 출시는 `release`를 객체로 바꾼 설계와 테스트 계획의 새 정확한 커밋에 대한 사람 승인이 필요하다. 구현→PR·CI·리뷰·병합→계획한 실행→태그·빌드·테스트 채널 업로드→실기기 실행(계획·하한이 요구할 때)→심사 제출·승격→승인 후 공개·live 확인을 `until`까지 이어서 진행한다. [사용자의 테스트 채널 확인](#사용자의-테스트-채널-확인)은 기다리지 않는다. 단계마다 사람에게 다시 묻지 않는다. 테스트를 **더 하는** 쪽(하한 상향, 환경 추가)도 묻지 않는다. 빌드·업로드·심사·승인·공개·live 확인은 서로 다른 상태로 기록한다.
 
 아래 경우에만 멈추고 사람에게 보고한다.
 

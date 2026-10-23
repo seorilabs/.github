@@ -182,6 +182,7 @@ foundationFeatures:
   carryForwardMaxAgeDays: 30
 release:
   authorizedBy: approved-test-plan-release
+  developmentOnly: explicit-null-blocks-all-market-phases
   defaultUntil: public
   until:
     - test-track
