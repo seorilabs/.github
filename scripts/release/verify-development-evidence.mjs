@@ -40,6 +40,37 @@ export function validateDevelopmentEvidence(document, context) {
   return applyHistoricalReviewCoverage(document, context, validateTestLevelEvidence(document, context));
 }
 
+// 알려진 최초 기록의 잘못된 판정과 시각은 보존한다. 새 검수의 통과 횟수에는 넣지 않는다.
+function checkInvalidInitialHistory(document, { ui, redesign, errors, now }) {
+  const history = document.invalidInitialReviewHistory;
+  if (!history) return { count: 0, end: 0 };
+  if (!ui || !redesign) errors.push('INVALID_INITIAL_REVIEW_REQUIRES_REDESIGN');
+  let end = 0, previousReviewEnd = 0, invalid = false;
+  if (!history.reason.trim()) errors.push('INVALID_INITIAL_REVIEW_EVIDENCE_REQUIRED');
+  history.rounds.forEach(({ round, implementer, originalReportSha256, correction, evidence, resolutionEvidence }, index) => {
+    if (round.number !== index + 1) errors.push('INVALID_INITIAL_REVIEW_SEQUENCE');
+    if (round.interruption) errors.push('INVALID_INITIAL_REVIEW_INTERRUPTED');
+    if (sameName(round.reviewer, implementer)) errors.push('INVALID_INITIAL_REVIEW_INDEPENDENCE');
+    if (correction.number !== round.number || correction.sourceSha !== round.sourceSha || correction.originalReportSha256 !== originalReportSha256)
+      errors.push('INVALID_INITIAL_REVIEW_CORRECTION_MISMATCH');
+    const values = [round.plannedAt, round.startedAt, round.completedAt, correction.visualReviewCompletedAt, correction.recordedAt];
+    const parsed = values.map(Date.parse);
+    const [planned, started, completed, visual, recorded] = parsed;
+    if (parsed.some((value, i) => !Number.isFinite(value) || value > now || new Date(value).toISOString().slice(0, 19) !== values[i].slice(0, 19))
+      || recorded < Math.max(planned, started, completed, visual) || visual < started)
+      errors.push('INVALID_INITIAL_REVIEW_TIME');
+    if (!correction.reason.trim() || !evidence.some(value => value.trim()) || !correction.evidence.some(value => value.trim()))
+      errors.push('INVALID_INITIAL_REVIEW_EVIDENCE_REQUIRED');
+    const failed = [round.functional.status, round.ux.status, correction.functionalStatus, correction.uxStatus].some(status => status !== 'passed');
+    if (failed && !resolutionEvidence?.trim()) errors.push('INVALID_INITIAL_REVIEW_UNRESOLVED_CORRECTION');
+    invalid ||= failed || planned > started || started > completed || visual > completed || planned < previousReviewEnd;
+    previousReviewEnd = Math.max(previousReviewEnd, completed, visual);
+    end = Math.max(end, ...parsed);
+  });
+  if (!invalid) errors.push('INVALID_INITIAL_REVIEW_NO_FAILURE');
+  return { count: history.rounds.length, end };
+}
+
 // 재설계 3회 검수는 v1 회차 규칙을 그대로 쓴다. 회차를 기록했다면 횟수와 상관없이 순서·독립성·해결 여부를 확인한다.
 function checkReviewRounds(document, { redesign, coreFeatures, carried, inventoryIds, times, errors, now }) {
   const ui = document.productKind !== 'service';
@@ -48,6 +79,7 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
   const completeRounds = document.reviewRounds.filter(round => !round.interruption);
   if (redesign && (completeRounds.length < ROUNDS || coreFeatures.length === 0)) errors.push('THREE_UI_ROUNDS_REQUIRED');
   if (hasInterruption && (!ui || !redesign)) errors.push('INTERRUPTED_REVIEW_REQUIRES_REDESIGN');
+  const invalidInitial = checkInvalidInitialHistory(document, { ui, redesign, errors, now });
   const covered = (ids, label) => {
     if (coreFeatures.some(id => !carried.has(id) && !ids.includes(id)) || ids.some(id => !inventoryIds.has(id))) errors.push(`FEATURE_COVERAGE ${label}`);
   };
@@ -67,7 +99,7 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
   const history = document.reviewHistoryRecovery?.attempts ?? [];
   if (history.length && (!ui || !redesign)) errors.push('REVIEW_RECOVERY_REQUIRES_REDESIGN');
   if (history.length && !history.some(r => r.sourceSha === null || r.plannedAt === null || r.startedAt === null)) errors.push('REVIEW_RECOVERY_NO_METADATA_GAP');
-  let previousEnd = 0;
+  let previousEnd = invalidInitial.end;
   history.forEach((attempt, index) => {
     if (attempt.number !== index + 1) errors.push('REVIEW_RECOVERY_HISTORY_SEQUENCE');
     const knownTimes = [attempt.plannedAt, attempt.startedAt, attempt.completedAt].filter(value => value !== null);
@@ -122,9 +154,9 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
     if (!approvedBefore(round, incompleteEnd)) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
   });
   const historicalEnd = previousEnd;
-  const strictCurrent = history.length > 0 || hasInterruption;
+  const strictCurrent = history.length > 0 || invalidInitial.count > 0 || hasInterruption;
   document.reviewRounds.forEach((round, index) => {
-    if (round.number !== index + history.length + historicalRounds.length + 1) errors.push('ROUND_SEQUENCE');
+    if (round.number !== index + history.length + historicalRounds.length + invalidInitial.count + 1) errors.push('ROUND_SEQUENCE');
     if (strictCurrent && round.sourceSha !== document.sourceSha) errors.push('REVIEW_RECOVERY_SOURCE_MISMATCH');
     if (strictCurrent && now - Date.parse(round.completedAt) > MAX_RUN_AGE_MS) errors.push('REVIEW_RECOVERY_EXPIRED');
     if (strictCurrent && !round.interruption && [...inventoryIds].some(id => !round.functional.featureIds.includes(id) || !round.ux.featureIds.includes(id))) errors.push('REVIEW_RECOVERY_FULL_COVERAGE');
@@ -142,10 +174,11 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
     }
     for (const aspect of ['functional', 'ux']) {
       const result = round[aspect];
+      if (invalidInitial.count && result.status !== 'passed') errors.push('INVALID_INITIAL_REVIEW_CURRENT_NOT_PASSED');
       if (result.status !== 'passed' && (index === document.reviewRounds.length - 1 || !result.resolutionEvidence)) errors.push(`UNRESOLVED_REVIEW ${round.number}-${aspect}`);
     }
-    if (round.number > ROUNDS || history.length) {
-      if (!approvedBefore(round, history.length ? historicalEnd : null)) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
+    if (round.number > ROUNDS || history.length || invalidInitial.count) {
+      if (!approvedBefore(round, history.length || invalidInitial.count ? historicalEnd : null)) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
     }
   });
 }
