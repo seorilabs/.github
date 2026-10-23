@@ -460,6 +460,7 @@ jobs:
           XCODE_SCHEME: ${{ steps.meta.outputs.scheme }}
           ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
           PROFILE_NAME: ${{ steps.signing.outputs.profile_name }}
+          IOS_PROVISIONING_PROFILE_NAME: ${{ steps.signing.outputs.profile_name }}
           MARKETING_VERSION: ${{ steps.release.outputs.apple_marketing_version }}
           BUILD_NUMBER: ${{ steps.release.outputs.apple_build_number }}
         run: |
