@@ -12,11 +12,12 @@ test("Google Play 트랙 승격은 공개 여부로 라우팅한 러너에서 �
   )?.[0];
   const promoteStep = workflow.match(/- name: Promote track[\s\S]*?(?=\n      - name: Summary)/)?.[0];
 
-  // public 저장소는 ARC(allows_public_repositories=false)를 잡지 못해 job이 영구 pending 된다.
-  // caller가 고르는 게 아니라 중앙이 저장소 공개 여부로 결정한다.
+  // ARC는 seorilabs 조직의 private 저장소만 받는다(allows_public_repositories=false, 다른 조직은 러너 그룹 밖).
+  // public 저장소나 seoleeapps 같은 다른 조직 저장소가 잡으면 job이 영구 pending 된다.
+  // caller가 고르는 게 아니라 중앙이 소유 조직과 공개 여부로 결정한다.
   assert.match(
     workflow,
-    /runs-on: \$\{\{ github\.event\.repository\.visibility == 'public' && 'ubuntu-latest' \|\| 'seorilabs-x64' \}\}/,
+    /runs-on: \$\{\{ github\.repository_owner == 'seorilabs' && github\.event\.repository\.visibility == 'private' && 'seorilabs-x64' \|\| 'ubuntu-latest' \}\}/,
   );
   assert.doesNotMatch(workflow, /runs-on: seorilabs-x64$/m);
   assert.doesNotMatch(workflow, /runs-on: \$\{\{ inputs\.runs_on \}\}/);

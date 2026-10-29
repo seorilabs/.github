@@ -2002,9 +2002,10 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   const ledgerInit = parse(workflowText('init-release-version-ledger.yml'));
   assert.deepEqual(ledgerInit.permissions, { contents: 'write' });
   assert.equal(ledgerInit.jobs.initialize['runs-on'], ownerRoutedRunner);
-  // 승격은 WIF로 프로덕션 트랙을 건드린다. 러너 라우팅이 빠지면 public 저장소에서 영구 pending 된다.
+  // 승격은 WIF로 프로덕션 트랙을 건드린다. 러너 라우팅이 빠지면 public 저장소와 다른 조직 저장소에서
+  // 영구 pending 된다(seoleeapps/monster-party v0.1.0 승격이 seorilabs-x64 대기로 멈춤, 2026-10-29).
   const promotePlay = parse(workflowText('promote-google-play.yml'));
-  assert.equal(promotePlay.jobs.promote['runs-on'], visibilityRoutedRunner);
+  assert.equal(promotePlay.jobs.promote['runs-on'], ownerRoutedRunner);
   const resolveTagStep = releaseTag.jobs.create.steps.find(
     (step) => step.name === 'Allocate release version and create tag',
   );
