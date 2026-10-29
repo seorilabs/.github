@@ -140,9 +140,10 @@ publisher 권한을 가져서는 안 된다. GitHub OIDC 조건은 숫자 reposi
   한 번의 atomic push로 묶는다. `release-tag.yml` caller가 있는 저장소는
   `init-release-version-ledger.yml` caller도 있어야 한다.
   ([릴리스 번호 원장](../../docs/ci-cd/release-version-ledger.md))
-- 러너: `release-tag.yml`과 `promote-google-play.yml`은 private에서 `seorilabs-x64`,
-  public에서 `ubuntu-latest`로 중앙이 판정한다. Godot Play와 RN Play은 `ubuntu-latest`로
-  고정한다. 어느 쪽도 caller가 러너를 선택하는 `runs_on` 입력은 없다.
+- 러너: `release-tag.yml`, `init-release-version-ledger.yml`, `promote-google-play.yml`은 seorilabs
+  조직의 private 저장소에서만 `seorilabs-x64`를 쓰고, public 저장소와 seoleeapps 같은 다른 조직
+  저장소는 `ubuntu-latest`로 중앙이 판정한다(ARC 러너 그룹이 둘 다 받지 않는다). Godot Play와 RN
+  Play은 `ubuntu-latest`로 고정한다. 어느 쪽도 caller가 러너를 선택하는 `runs_on` 입력은 없다.
 - Godot export preset: 버전 주입 대상과 `godot --export-release` 대상이 같은 preset이어야 한다.
   Google Play는 `android_export_preset`(기본 `Android`), App Store는 `ios_export_preset`으로 명시한다.
 - Godot Android에서 import 전 공개 runtime config 복원이나 최종 AAB 정책 검사가 필요하면 각각 `prepare_project_script`, `post_export_validation_script`를 넘긴다. 후자에는 `AAB_PATH`, `ANDROID_VERSION_NAME`, `ANDROID_VERSION_CODE`가 전달된다.
