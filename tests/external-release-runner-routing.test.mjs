@@ -4,9 +4,10 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { parse } from 'yaml';
 
-for (const [filename, job] of [
-  ['release-tag.yml', 'create'],
-  ['init-release-version-ledger.yml', 'initialize'],
+for (const [filename, job, permissions] of [
+  ['release-tag.yml', 'create', { contents: 'write' }],
+  ['init-release-version-ledger.yml', 'initialize', { contents: 'write' }],
+  ['promote-google-play.yml', 'promote', { contents: 'read', actions: 'read', 'id-token': 'write' }],
 ]) {
   const workflow = parse(readFileSync(new URL(`../.github/workflows/${filename}`, import.meta.url), 'utf8'));
   const expression = workflow.jobs[job]['runs-on'].replace(/^\$\{\{\s*|\s*\}\}$/gu, '');
@@ -26,6 +27,6 @@ for (const [filename, job] of [
   test(`${filename}: caller input cannot select a privileged runner`, () => {
     assert.doesNotMatch(expression, /inputs\./u);
     assert.equal(Object.hasOwn(workflow.on.workflow_call.inputs, 'runs_on'), false);
-    assert.deepEqual(workflow.permissions, { contents: 'write' });
+    assert.deepEqual(workflow.permissions, permissions);
   });
 }
