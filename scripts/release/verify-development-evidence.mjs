@@ -97,7 +97,7 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
   // Incomplete original attempts retain their verdicts and count toward the cap,
   // but never satisfy any of the three complete reviews required by a redesign.
   const history = document.reviewHistoryRecovery?.attempts ?? [];
-  if (history.length && (!ui || !redesign)) errors.push('REVIEW_RECOVERY_REQUIRES_REDESIGN');
+  if (document.reviewHistoryRecovery && (!ui || !redesign)) errors.push('REVIEW_RECOVERY_REQUIRES_REDESIGN');
   if (history.length && !history.some(r => r.sourceSha === null || r.plannedAt === null || r.startedAt === null)) errors.push('REVIEW_RECOVERY_NO_METADATA_GAP');
   let previousEnd = invalidInitial.end;
   history.forEach((attempt, index) => {
@@ -132,6 +132,8 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
     ...completedHistory.map(entry => ({ ...entry, interrupted: false })),
     ...interruptedHistory.map(entry => ({ ...entry, interrupted: true })),
   ].sort((a, b) => a.round.number - b.round.number);
+  const originalApprovalEnd = history.length ? incompleteEnd
+    : Date.parse(historicalRounds.find(({ round }) => round.number === ROUNDS)?.round.completedAt ?? '1970-01-01T00:00:00Z');
   historicalRounds.forEach(({ round, implementer, originalReportSha256, interrupted }, index) => {
     if (!interrupted && round.interruption) errors.push('REVIEW_RECOVERY_INTERRUPTED_HISTORY');
     if (interrupted) {
@@ -151,10 +153,10 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
       if (round[aspect].status !== 'passed' && !round[aspect].resolutionEvidence?.trim()) errors.push(`REVIEW_RECOVERY_UNRESOLVED_COMPLETED ${round.number}-${aspect}`);
     }
     // Its original approval must precede its own plan; a later replacement approval cannot authorize it.
-    if (!approvedBefore(round, incompleteEnd)) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
+    if ((round.number > ROUNDS || history.length) && !approvedBefore(round, originalApprovalEnd)) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
   });
   const historicalEnd = previousEnd;
-  const strictCurrent = history.length > 0 || invalidInitial.count > 0 || hasInterruption;
+  const strictCurrent = history.length > 0 || historicalRounds.length > 0 || invalidInitial.count > 0 || hasInterruption;
   document.reviewRounds.forEach((round, index) => {
     if (round.number !== index + history.length + historicalRounds.length + invalidInitial.count + 1) errors.push('ROUND_SEQUENCE');
     if (strictCurrent && round.sourceSha !== document.sourceSha) errors.push('REVIEW_RECOVERY_SOURCE_MISMATCH');
@@ -178,7 +180,7 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
       if (result.status !== 'passed' && (index === document.reviewRounds.length - 1 || !result.resolutionEvidence)) errors.push(`UNRESOLVED_REVIEW ${round.number}-${aspect}`);
     }
     if (round.number > ROUNDS || history.length || invalidInitial.count) {
-      if (!approvedBefore(round, history.length || invalidInitial.count ? historicalEnd : null)) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
+      if (!approvedBefore(round, history.length || historicalRounds.length || invalidInitial.count ? historicalEnd : null)) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
     }
   });
 }
