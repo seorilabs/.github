@@ -559,13 +559,18 @@
         "reason",
         "attempts"
       ],
+      "anyOf": [
+        { "properties": { "attempts": { "type": "array", "minItems": 3 } } },
+        { "required": ["completedRounds"], "properties": { "completedRounds": { "type": "array", "minItems": 1 } } },
+        { "required": ["interruptedRounds"], "properties": { "interruptedRounds": { "type": "array", "minItems": 1 } } }
+      ],
       "properties": {
         "reason": {
           "$ref": "#/$defs/text"
         },
         "attempts": {
           "type": "array",
-          "minItems": 3,
+          "anyOf": [{ "type": "array", "maxItems": 0 }, { "type": "array", "minItems": 3 }],
           "maxItems": 3,
           "items": {
             "type": "object",
