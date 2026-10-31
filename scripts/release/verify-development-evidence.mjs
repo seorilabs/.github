@@ -79,7 +79,10 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
   if (!ui && document.reviewRounds.length !== 0) errors.push('SERVICE_WITH_UI_ROUNDS');
   const hasInterruption = document.reviewRounds.some(round => round.interruption);
   const completeRounds = document.reviewRounds.filter(round => !round.interruption);
-  if (redesign && (completeRounds.length < ROUNDS || coreFeatures.length === 0)) errors.push('THREE_UI_ROUNDS_REQUIRED');
+  const qualifyingRounds = document.invalidInitialReviewHistory
+    ? completeRounds.filter(round => round.functional.status === 'passed' && round.ux.status === 'passed')
+    : completeRounds;
+  if (redesign && (qualifyingRounds.length < ROUNDS || coreFeatures.length === 0)) errors.push('THREE_UI_ROUNDS_REQUIRED');
   if (hasInterruption && (!ui || !redesign)) errors.push('INTERRUPTED_REVIEW_REQUIRES_REDESIGN');
   const invalidInitial = checkInvalidInitialHistory(document, { ui, redesign, errors, now });
   const covered = (ids, label) => {
@@ -203,7 +206,6 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
     }
     for (const aspect of ['functional', 'ux']) {
       const result = round[aspect];
-      if (invalidInitial.count && result.status !== 'passed') errors.push('INVALID_INITIAL_REVIEW_CURRENT_NOT_PASSED');
       if (result.status !== 'passed' && (index === document.reviewRounds.length - 1 || !result.resolutionEvidence)) errors.push(`UNRESOLVED_REVIEW ${round.number}-${aspect}`);
     }
     if (round.number > ROUNDS || history.length || invalidInitial.count) {
