@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "level": "L1",
+  "baseline": "fa99bfe0078e2cee0b91cac94fe7023ca8ff702a",
+  "changedFeatures": ["development-evidence-validation"],
+  "environments": ["dev"],
+  "redesign": false,
+  "foundationRerun": false,
+  "floorOverrides": [],
+  "release": null
+}
