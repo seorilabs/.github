@@ -196,10 +196,12 @@ for (const [name, mutate] of [
   const f=preCorrectionInterruptionFixture();mutate(f);assert.equal(check(f).ok,false,JSON.stringify(check(f)));
 });
 
-test('pre-correction interruption may follow original report before a late visual check', () => {
+test('prior approval cannot precede the last actual original visual check', () => {
   const f=preCorrectionInterruptionFixture();
   f.document.invalidInitialReviewHistory.rounds[1].correction.visualReviewCompletedAt='2026-10-14T03:35:00Z';
-  assert.deepEqual(check(f).errors, []);
+  const errors=check(f).errors;
+  assert.ok(errors.includes('PRE_CORRECTION_INTERRUPTED_TIME'),JSON.stringify(errors));
+  assert.ok(errors.includes('EXTRA_ROUND_APPROVAL_REQUIRED'),JSON.stringify(errors));
 });
 test('same-candidate interrupted review cannot name the current implementer as reviewer', () => {
   const f=preCorrectionInterruptionFixture();

@@ -65,7 +65,7 @@ function checkInvalidInitialHistory(document, { ui, redesign, errors, now }) {
     if (failed && !resolutionEvidence?.trim()) errors.push('INVALID_INITIAL_REVIEW_UNRESOLVED_CORRECTION');
     invalid ||= failed || planned > started || started > completed || visual > completed || planned < previousReviewEnd;
     previousReviewEnd = Math.max(previousReviewEnd, completed, visual);
-    originalEnd = Math.max(originalEnd, completed);
+    originalEnd = Math.max(originalEnd, completed, visual);
     correctionStart = Math.min(correctionStart, recorded);
     end = Math.max(end, ...parsed);
   });
