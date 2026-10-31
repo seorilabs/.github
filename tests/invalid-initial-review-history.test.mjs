@@ -158,3 +158,40 @@ test('known invalid history does not waive platform or release checks', () => {
   has(f, 'TEST_LEVEL_BELOW_FLOOR foundation purchase android'); has(f, 'RELEASE_NOT_AUTHORIZED market google-play');
   has(f, 'RELEASE_NOT_AUTHORIZED until test-track');
 });
+
+// Synthetic inputs: an additional round was interrupted after the original
+// rounds, but before their later correction was recorded.
+function preCorrectionInterruptionFixture() {
+  const f = fixture();
+  const prior = structuredClone(f.document.reviewRounds[0]);
+  Object.assign(prior, {number: 4, plannedAt: '2026-10-14T03:27:00Z', startedAt: '2026-10-14T03:28:00Z', completedAt: '2026-10-14T03:29:00Z',
+    interruption: {reason: 'stopped while reviewing the original history', originalReportSha256: 'd'.repeat(64), evidence: ['https://example.com/raw'], actualScope: {completed: ['headless'], incomplete: ['rendered'], notRun: ['visual']}}});
+  for (const aspect of ['functional','ux']) { prior[aspect].status = 'blocked'; prior[aspect].resolutionEvidence = 'https://example.com/reinspection'; }
+  f.document.invalidInitialReviewHistory.interruptedBeforeCorrection = [{round: prior, implementer: 'author-agent', originalReportSha256: 'd'.repeat(64), evidence: ['https://example.com/raw']}];
+  f.document.reviewRounds.forEach(r => { r.number += 1; });
+  f.document.additionalIterationApproval = null;
+  f.document.additionalIterationApprovals = [
+    {approverKind:'human',approver:'owner',approvedAt:'2026-10-14T03:26:00Z',maxRound:4,evidence:'https://example.com/old-approval'},
+    {approverKind:'human',approver:'owner',approvedAt:'2026-10-14T03:50:00Z',maxRound:7,evidence:'https://example.com/new-approval'},
+  ];
+  return f;
+}
+test('retains a prior authorized interruption before correction and requires three later passes', () => {
+  const f = preCorrectionInterruptionFixture();
+  assert.deepEqual(check(f).errors, []);
+});
+for (const [name, mutate] of [
+  ['missing prior approval', f => f.document.additionalIterationApprovals.shift()],
+  ['approval after prior plan', f => f.document.additionalIterationApprovals[0].approvedAt='2026-10-14T03:28:00Z'],
+  ['prior approval below round number', f => f.document.additionalIterationApprovals[0].maxRound=3],
+  ['duplicated round number', f => f.document.invalidInitialReviewHistory.interruptedBeforeCorrection[0].round.number=3],
+  ['missing interruption', f => delete f.document.invalidInitialReviewHistory.interruptedBeforeCorrection[0].round.interruption],
+  ['inconsistent report hash', f => f.document.invalidInitialReviewHistory.interruptedBeforeCorrection[0].originalReportSha256='e'.repeat(64)],
+  ['reviewer equals implementer', f => f.document.invalidInitialReviewHistory.interruptedBeforeCorrection[0].round.reviewer='author-agent'],
+  ['unresolved interruption', f => delete f.document.invalidInitialReviewHistory.interruptedBeforeCorrection[0].round.ux.resolutionEvidence],
+  ['interruption after correction', f => f.document.invalidInitialReviewHistory.interruptedBeforeCorrection[0].round.completedAt='2026-10-14T03:41:00Z'],
+  ['missing later round', f => f.document.reviewRounds.pop()],
+  ['later approval before correction', f => f.document.additionalIterationApprovals[1].approvedAt='2026-10-14T03:30:00Z'],
+]) test(`prior interruption rejects ${name}`, () => {
+  const f=preCorrectionInterruptionFixture();mutate(f);assert.equal(check(f).ok,false,JSON.stringify(check(f)));
+});
