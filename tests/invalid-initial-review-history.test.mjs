@@ -136,7 +136,7 @@ test('expired fresh rounds remain forbidden', () => {
 
 test('fresh failed UX cannot count as one of three passes through resolution text', () => {
   const f = fixture(); f.document.reviewRounds[0].ux.status = 'blocked'; f.document.reviewRounds[0].ux.resolutionEvidence = 'https://example.com/later';
-  has(f, 'INVALID_INITIAL_REVIEW_CURRENT_NOT_PASSED');
+  has(f, 'THREE_UI_ROUNDS_REQUIRED');
 });
 
 test('invalid known history cannot be combined with missing-metadata history', () => {
@@ -208,4 +208,47 @@ test('same-candidate interrupted review cannot name the current implementer as r
   const previous=f.document.invalidInitialReviewHistory.interruptedBeforeCorrection[0];
   previous.implementer='other-agent';previous.round.reviewer=f.document.implementer;
   assert.ok(check(f).errors.includes('PRE_CORRECTION_INTERRUPTED_INDEPENDENCE'),JSON.stringify(check(f)));
+});
+
+// Retain the failed complete review rather than overwriting its verdict.
+function resolvedFailedCurrentFixture() {
+  const f=preCorrectionInterruptionFixture();
+  const failed=f.document.reviewRounds[1];
+  for (const aspect of ['functional','ux']) {
+    failed[aspect].status='failed';
+    failed[aspect].resolutionEvidence='https://example.com/full-round7-reinspection';
+  }
+  const last=structuredClone(f.document.reviewRounds[2]);
+  Object.assign(last,{number:8,plannedAt:'2026-10-14T06:20:00Z',startedAt:'2026-10-14T06:21:00Z',completedAt:'2026-10-14T06:30:00Z'});
+  f.document.reviewRounds.push(last);
+  f.document.additionalIterationApprovals.push({approverKind:'human',approver:'owner',approvedAt:'2026-10-14T05:20:00Z',maxRound:8,evidence:'https://example.com/round8-approval'});
+  return f;
+}
+test('resolved failed current review remains immutable while three later-qualified passes are required',()=>{
+  const f=resolvedFailedCurrentFixture();const before=JSON.stringify(f.document.reviewRounds[1]);
+  assert.deepEqual(check(f).errors,[]);assert.equal(JSON.stringify(f.document.reviewRounds[1]),before);
+});
+for(const [name,mutate] of [
+ ['two passes only',f=>f.document.reviewRounds.pop()],
+ ['last review failed',f=>{for(const a of ['functional','ux'])f.document.reviewRounds.at(-1)[a].status='failed';}],
+ ['missing functional resolution',f=>delete f.document.reviewRounds[1].functional.resolutionEvidence],
+ ['missing UX resolution',f=>delete f.document.reviewRounds[1].ux.resolutionEvidence],
+ ['extra approval missing',f=>f.document.additionalIterationApprovals.pop()],
+ ['extra approval late',f=>f.document.additionalIterationApprovals.at(-1).approvedAt='2026-10-14T06:22:00Z'],
+ ['source mismatch',f=>f.document.reviewRounds[2].sourceSha='f'.repeat(40)],
+ ['self review',f=>f.document.reviewRounds[2].reviewer=f.document.implementer],
+ ['partial passed review',f=>f.document.reviewRounds[2].ux.featureIds.pop()],
+ ['overlap',f=>f.document.reviewRounds[3].plannedAt='2026-10-14T06:05:00Z'],
+])test(`resolved failed review still rejects ${name}`,()=>{const f=resolvedFailedCurrentFixture();mutate(f);assert.equal(check(f).ok,false,JSON.stringify(check(f)));});
+
+test('three passes do not permit a failed final round even with resolution text',()=>{
+  const f=resolvedFailedCurrentFixture();const last=structuredClone(f.document.reviewRounds.at(-1));
+  Object.assign(last,{number:9,plannedAt:'2026-10-14T06:40:00Z',startedAt:'2026-10-14T06:41:00Z',completedAt:'2026-10-14T06:50:00Z'});
+  for(const a of ['functional','ux']){last[a].status='failed';last[a].resolutionEvidence='https://example.com/claimed-future';}
+  f.document.reviewRounds.push(last);f.document.additionalIterationApprovals.at(-1).maxRound=9;
+  const errors=check(f).errors;assert.ok(errors.includes('UNRESOLVED_REVIEW 9-functional'));assert.ok(errors.includes('UNRESOLVED_REVIEW 9-ux'));
+});
+test('resolved blocked complete round is retained without pass credit',()=>{
+  const f=resolvedFailedCurrentFixture();for(const a of ['functional','ux'])f.document.reviewRounds[1][a].status='blocked';
+  assert.deepEqual(check(f).errors,[]);
 });

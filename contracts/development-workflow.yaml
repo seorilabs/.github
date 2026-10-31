@@ -89,6 +89,7 @@ redesignReview:
     approval: after-history-before-each-new-plan-with-real-round-cap
     completedRounds: optional-complete-original-records-no-pass-credit-real-sequence-and-prior-approval
     preCorrectionInterruptedRounds: optional-invalid-initial-history-interruptions-before-correction-no-pass-credit-real-prior-approval-and-subsequent-three-passes
+    correctedInitialCompletion: three-passed-current-full-reviews-with-resolved-failed-rounds-retained-and-final-passed
     interruptedRounds: optional-interrupted-original-records-no-pass-credit-real-sequence-and-prior-approval
 floors:
   changedFiles: plan-baseline-to-candidate
