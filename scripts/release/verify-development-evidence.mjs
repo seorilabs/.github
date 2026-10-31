@@ -65,7 +65,7 @@ function checkInvalidInitialHistory(document, { ui, redesign, errors, now }) {
     if (failed && !resolutionEvidence?.trim()) errors.push('INVALID_INITIAL_REVIEW_UNRESOLVED_CORRECTION');
     invalid ||= failed || planned > started || started > completed || visual > completed || planned < previousReviewEnd;
     previousReviewEnd = Math.max(previousReviewEnd, completed, visual);
-    originalEnd = Math.max(originalEnd, completed, visual);
+    originalEnd = Math.max(originalEnd, completed);
     correctionStart = Math.min(correctionStart, recorded);
     end = Math.max(end, ...parsed);
   });
@@ -124,7 +124,7 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
     if (Date.parse(round.plannedAt) < priorEnd || Date.parse(round.completedAt) > invalidInitial.correctionStart)
       errors.push('PRE_CORRECTION_INTERRUPTED_TIME');
     priorEnd = Date.parse(round.completedAt);
-    if (sameName(round.reviewer, implementer)) errors.push('PRE_CORRECTION_INTERRUPTED_INDEPENDENCE');
+    if (sameName(round.reviewer, implementer) || (round.sourceSha === document.sourceSha && sameName(round.reviewer, document.implementer))) errors.push('PRE_CORRECTION_INTERRUPTED_INDEPENDENCE');
     if (!round.interruption || originalReportSha256 !== round.interruption.originalReportSha256)
       errors.push('PRE_CORRECTION_INTERRUPTED_HASH_MISMATCH');
     if (round.interruption) {

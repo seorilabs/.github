@@ -195,3 +195,15 @@ for (const [name, mutate] of [
 ]) test(`prior interruption rejects ${name}`, () => {
   const f=preCorrectionInterruptionFixture();mutate(f);assert.equal(check(f).ok,false,JSON.stringify(check(f)));
 });
+
+test('pre-correction interruption may follow original report before a late visual check', () => {
+  const f=preCorrectionInterruptionFixture();
+  f.document.invalidInitialReviewHistory.rounds[1].correction.visualReviewCompletedAt='2026-10-14T03:35:00Z';
+  assert.deepEqual(check(f).errors, []);
+});
+test('same-candidate interrupted review cannot name the current implementer as reviewer', () => {
+  const f=preCorrectionInterruptionFixture();
+  const previous=f.document.invalidInitialReviewHistory.interruptedBeforeCorrection[0];
+  previous.implementer='other-agent';previous.round.reviewer=f.document.implementer;
+  assert.ok(check(f).errors.includes('PRE_CORRECTION_INTERRUPTED_INDEPENDENCE'),JSON.stringify(check(f)));
+});
