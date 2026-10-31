@@ -43,9 +43,9 @@ export function validateDevelopmentEvidence(document, context) {
 // 알려진 최초 기록의 잘못된 판정과 시각은 보존한다. 새 검수의 통과 횟수에는 넣지 않는다.
 function checkInvalidInitialHistory(document, { ui, redesign, errors, now }) {
   const history = document.invalidInitialReviewHistory;
-  if (!history) return { count: 0, end: 0 };
+  if (!history) return { count: 0, end: 0, originalEnd: 0, correctionStart: Infinity };
   if (!ui || !redesign) errors.push('INVALID_INITIAL_REVIEW_REQUIRES_REDESIGN');
-  let end = 0, previousReviewEnd = 0, invalid = false;
+  let end = 0, previousReviewEnd = 0, originalEnd = 0, correctionStart = Infinity, invalid = false;
   if (!history.reason.trim()) errors.push('INVALID_INITIAL_REVIEW_EVIDENCE_REQUIRED');
   history.rounds.forEach(({ round, implementer, originalReportSha256, correction, evidence, resolutionEvidence }, index) => {
     if (round.number !== index + 1) errors.push('INVALID_INITIAL_REVIEW_SEQUENCE');
@@ -65,10 +65,12 @@ function checkInvalidInitialHistory(document, { ui, redesign, errors, now }) {
     if (failed && !resolutionEvidence?.trim()) errors.push('INVALID_INITIAL_REVIEW_UNRESOLVED_CORRECTION');
     invalid ||= failed || planned > started || started > completed || visual > completed || planned < previousReviewEnd;
     previousReviewEnd = Math.max(previousReviewEnd, completed, visual);
+    originalEnd = Math.max(originalEnd, completed, visual);
+    correctionStart = Math.min(correctionStart, recorded);
     end = Math.max(end, ...parsed);
   });
   if (!invalid) errors.push('INVALID_INITIAL_REVIEW_NO_FAILURE');
-  return { count: history.rounds.length, end };
+  return { count: history.rounds.length, end, originalEnd, correctionStart };
 }
 
 // 재설계 3회 검수는 v1 회차 규칙을 그대로 쓴다. 회차를 기록했다면 횟수와 상관없이 순서·독립성·해결 여부를 확인한다.
@@ -114,6 +116,31 @@ function checkReviewRounds(document, { redesign, coreFeatures, carried, inventor
     previousEnd = completion;
   });
   const incompleteEnd = previousEnd;
+  const priorInterruptions = document.invalidInitialReviewHistory?.interruptedBeforeCorrection ?? [];
+  let priorEnd = invalidInitial.originalEnd;
+  priorInterruptions.forEach(({ round, implementer, originalReportSha256 }, index) => {
+    if (round.number !== invalidInitial.count + index + 1) errors.push('PRE_CORRECTION_INTERRUPTED_SEQUENCE');
+    times(round, `pre-correction-round-${round.number}`);
+    if (Date.parse(round.plannedAt) < priorEnd || Date.parse(round.completedAt) > invalidInitial.correctionStart)
+      errors.push('PRE_CORRECTION_INTERRUPTED_TIME');
+    priorEnd = Date.parse(round.completedAt);
+    if (sameName(round.reviewer, implementer) || (round.sourceSha === document.sourceSha && sameName(round.reviewer, document.implementer))) errors.push('PRE_CORRECTION_INTERRUPTED_INDEPENDENCE');
+    if (!round.interruption || originalReportSha256 !== round.interruption.originalReportSha256)
+      errors.push('PRE_CORRECTION_INTERRUPTED_HASH_MISMATCH');
+    if (round.interruption) {
+      if (['functional', 'ux'].some(aspect => round[aspect].status === 'passed')) errors.push('INTERRUPTED_REVIEW_PASSED');
+      const scope = round.interruption.actualScope;
+      const units = [...scope.completed, ...scope.incomplete, ...scope.notRun];
+      if (new Set(units).size !== units.length) errors.push('INTERRUPTED_REVIEW_SCOPE_OVERLAP');
+      if (!round.interruption.reason.trim() || !round.interruption.evidence.some(value => value.trim())) errors.push('INTERRUPTED_REVIEW_EVIDENCE_REQUIRED');
+    }
+    for (const aspect of ['functional', 'ux']) {
+      if (round[aspect].status === 'passed' || !round[aspect].resolutionEvidence?.trim()) errors.push(`PRE_CORRECTION_INTERRUPTED_UNRESOLVED ${round.number}-${aspect}`);
+      if (round[aspect].featureIds.some(id => !inventoryIds.has(id))) errors.push('INTERRUPTED_REVIEW_UNKNOWN_FEATURE');
+    }
+    if (!approvedBefore(round, invalidInitial.originalEnd)) errors.push('EXTRA_ROUND_APPROVAL_REQUIRED');
+  });
+  invalidInitial.count += priorInterruptions.length;
   const completedHistory = document.reviewHistoryRecovery?.completedRounds ?? [];
   const interruptedHistory = document.reviewHistoryRecovery?.interruptedRounds ?? [];
   const checkInterruption = round => {

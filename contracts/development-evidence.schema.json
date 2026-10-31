@@ -719,6 +719,9 @@
         "reason": {
           "$ref": "#/$defs/text"
         },
+        "interruptedBeforeCorrection": {
+          "$ref": "#/properties/reviewHistoryRecovery/properties/interruptedRounds"
+        },
         "rounds": {
           "type": "array",
           "minItems": 3,
