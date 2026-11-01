@@ -15,6 +15,13 @@ const entries = [
   ['rn-deploy-app-store', 'Archive with Xcode', 'Export and upload to App Store Connect'],
   ['godot-deploy-app-store', 'Export Xcode project', 'Export and upload to App Store Connect'],
 ];
+test('Godot AIT can read the CI execution used as independent E2E evidence', () => {
+  const workflow = read('godot-deploy-ait');
+  const job = Object.values(workflow.jobs).find(value => value.steps?.some(step => step.name === 'Verify Editor E2E before-build'));
+  const permissions = job.permissions ?? workflow.permissions;
+  assert.equal(permissions.actions, 'read');
+  assert.equal(permissions.contents, 'read');
+});
 for (const [name, build, deploy] of entries) {
   test(`${name} checks current evidence before build and market mutation`, () => {
     const steps = Object.values(read(name).jobs).find(job => job.steps?.some(step => step.name === build)).steps;
