@@ -1975,7 +1975,8 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
     'rn-deploy-google-play.yml': { contents: 'read', 'id-token': 'write', packages: 'read' },
     'godot-deploy-google-play.yml': { contents: 'read', actions: 'read', 'id-token': 'write' },
     'rn-deploy-ait.yml': { contents: 'read', packages: 'read' },
-    'godot-deploy-ait.yml': { contents: 'read' },
+    // Godot AIT inherits the caller's minimum scopes so actions:read is not dropped.
+    'godot-deploy-ait.yml': undefined,
     // App Store 업로드는 ASC API key secret을 쓴다. WIF가 없으므로 id-token이 필요 없다.
     'godot-deploy-app-store.yml': { contents: 'read' },
     // App Store 업로드는 ASC API key secret을 쓴다. WIF가 없으므로 id-token이 필요 없다.
@@ -1985,8 +1986,10 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   for (const name of RELEASE_WORKFLOWS) {
     const workflow = parse(workflowText(name));
     assert.deepEqual(workflow.permissions, marketPermissions[name], name);
-    assert.equal(workflow.permissions.contents, 'read', name);
-    assert.equal(workflow.permissions['contents-write'], undefined, name);
+    if (workflow.permissions) {
+      assert.equal(workflow.permissions.contents, 'read', name);
+      assert.equal(workflow.permissions['contents-write'], undefined, name);
+    }
 
     for (const job of Object.values(workflow.jobs)) {
       assert.ok(approvedRunners.has(job['runs-on']), `${name}: ${job['runs-on']}`);
