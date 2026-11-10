@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "level": "L1",
+  "baseline": "2bf7204159ced1cb0de2644f00485736bfea2173",
+  "changedFeatures": [
+    "godot-ait-deployment"
+  ],
+  "environments": [
+    "dev"
+  ],
+  "redesign": false,
+  "foundationRerun": false,
+  "floorOverrides": [],
+  "release": null
+}

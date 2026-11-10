@@ -84,8 +84,8 @@ on:
       VITE_TOSS_REWARDED_AD_GROUP_ID:
         required: false
 
-permissions:
-  contents: read
+# Preserve caller permissions, including actions: read for verified CI evidence.
+# A contents-only redeclaration here disables every other caller-granted scope.
 
 jobs:
   deploy:
