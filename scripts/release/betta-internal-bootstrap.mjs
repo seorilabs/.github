@@ -25,7 +25,8 @@ export function validateBettaGrant(grant){
   return grant;
 }
 
-export function validateBettaInternalContext(grant,context,originalVerdict){
+function validateBettaContext(grant,context,originalVerdict,recovery){
+  if(!!grant.existingAabRecovery!==recovery) fail(recovery ? 'BETTA_RECOVERY_REQUIRED':'BETTA_UPLOAD_ONLY_REQUIRED');
   validateBettaGrant(grant);
   if(context.repository!==grant.repository || context.sourceSha!==grant.sourceSha || context.tag!==grant.releaseTag
     || context.configurationFingerprint!==grant.configurationFingerprint) fail('BETTA_BINDING_MISMATCH');
@@ -40,6 +41,12 @@ export function validateBettaInternalContext(grant,context,originalVerdict){
   return {ok:true,decisionStatus:'human_exception',productE2eStatus:'blocked',nativeQaWaived:false,publicReleaseAllowed:false,
     exceptionId:grant.id,target:context.target,phase:context.phase,sourceSha:grant.sourceSha,originalVerdict:structuredClone(originalVerdict)};
 }
+
+export const validateBettaInternalContext=(grant,context,originalVerdict)=>validateBettaContext(grant,context,originalVerdict,false);
+export const validateBettaAabRecoveryContext=(grant,context,originalVerdict)=>{
+  if(context.phase!=='before-deploy' || context.target!=='google-play') fail('BETTA_UPLOAD_ONLY_REQUIRED');
+  return validateBettaContext(grant,context,originalVerdict,true);
+};
 
 // records는 영속 claim과 실제 provider 조회를 합쳐 만든다. JSON의 자체 verified 값은
 // 외부 입력으로 받지 않으며, 실제 소비자 adapter가 조회한 값만 이 함수에 전달한다.

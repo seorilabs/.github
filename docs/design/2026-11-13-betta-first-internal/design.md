@@ -48,3 +48,20 @@ Cloud custom script 사이에는 임시 파일 유지를 가정하지 않는다.
 실제 protobuf에는 MAIN/LAUNCHER가 `activity-alias`에 있고 portrait는 target activity에 있다. alias의 정확한 target을 해석해 방향을 검사하며, 누락·중복 target은 거부한다. 첫 실제 manifest의 원문·해시·run과 source를 작은 fixture로 보존하고 실제 signed AAB의 서명·certificate·SDK·portrait를 다시 검사한다.
 
 검사기 revision 동안 이전 grant를 회수한다. 재결속은 별도 PR로 검토하며 기존 grant·claim·실패 로그를 보존한다. 새 grant ID의 claim 목록이 비어 있어도 같은 source의 실제 Google workflow runs 전체에서 순번을 계산한다. 이전 physical run의 terminal failure와 단 하나의 skipped uploader 또는 기존 reviewed 미접수 증거를 조회하고, 새 claim을 physical attempt 2로 기록한다. 미접수 불명·동시 실행·세 번째 run·GitHub rerun·claim 순번 불일치는 계속 거부한다. 최초 승인 시간·2회 빌드·1회 접수 한도는 늘리지 않는다.
+
+## 같은 서명 파일의 업로드 전용 복구
+
+두 번째 physical build `43292795874`는 export 중 runner communication lost로 끝났고 산출물은 없었다. 정확한 근본 원인은 확정하지 않았다. 후속 단계는 pending/null이며 skipped로 바꾸지 않는다. 두 빌드 한도는 소진됐으므로 세 번째 게임 빌드나 GHA rerun을 시작하지 않는다.
+
+사용자가 승인한 C13은 signed AAB 검사 후 첫 내부 채널 도달과 필요한 pipeline/중앙 예외 준비를 포함한다. 같은 실제 signed AAB를 재사용하는 추가0build 경로는 제품·소스·버전·마켓·2build/1accepted 범위를 넓히지 않는다. 독립 범위 검토를 수행했다. 별도의 전용 workflow와 closed existingAabRecovery grant를 사용하고 정상 build/deploy CLI는 이 grant를 명시적으로 거부한다. 기존 r1은 회수한다. 별도 caller 브랜치의 전용 workflow 한 파일을 PR로 검토하고 병합하지 않는다. 검토·CI를 마친 고정 caller SHA에 annotated 운영 tag `betta-existing-aab-upload-0.1.0`를 붙여 실행한다. 게임PR2, 게임 소스와 원격/로컬main을 유지한다. artifactSourceSha는 bd78, uploaderCodeSha는 별도로 검토한 caller commit이다.
+
+회수할 원본은 provider artifact13975726650, archive SHA1816e94e6473a9728a34efbcffb09f5930cb9037a898171a9eabf973c88975c5의 단일 betta-raising.aab다. 파일 SHA33ef4d1103c2ebea66c5f8d478b32de559b859747f2dc44faf2e241ba09d60eb와114,386,125바이트, package/code1/0.1.0/서명/SDK26·36/portrait를 검사한다. Godot·Gradle·prepare·export·sign은 실행하지 않는다. 최신main의 reviewed 코드/등록/회수와 최초 승인·만료·설정·99입력, tag/원장/CI/원래v2와9개 봉인 원본을 다시 검증한다. 과거 tracked 감사 뒤 untracked 중단은 유지한다. fresh original checkout과 immutable provider artifact를 대체 검증 범위로 기록하며 fullWorkingTreeAuditPassed:false다. 이를 과거 작업트리 전체 감사나 정상 QA 통과로 기록하지 않는다.
+
+GitHub의 두 실제 source build와 before-build claim을 보존한다. 첫 uploader는 skipped이고 두 번째는 pending/null 및 runner lost annotation이어야 한다. 이전 두 grant의 회수, before-deploy intent 부재와 fresh Play empty를 확인한다. PodNotFound만으로 물리 worker 종료를 주장하지 않는다.
+
+업로드 예산은 grantID와 무관한 repository/Release443379082/package/versionCode1의 `com.seorilabs.bettaraising.1.upload-intent.json` 한 개로 원자적으로 예약한다. 이어 정확한 두 이전 before-deploy asset 슬롯에 명시적 `betta-recovery-upload-fence`를 POST하고 전체 바이트를 다시 읽는다. 기존 정상 claim이 먼저면422로 recovery를 중단하고, fence가 먼저면 old producer의 claim POST가422·strict kind 실패로 끝나므로 그 uploader가 실행되지 않는다. fence는 정상 claim이 아니며 정상 schema에 허용하지 않는다. 두 슬롯과 global slot의 삭제·교체·rollback은 없다. 부분 fence, POST 응답 유실, 같은 producer 재호출과 모든422는 실제 업로드 없이 중단한다. 두 fence의 admission 차단 뒤 Play empty를 다시 확인하고 단 한 번 업로드한다. 예약 뒤 실패·접수 불명에는 자동 재시도가 없다. 예약이 전혀 없는 setup 실패는 새0build 실행으로 검토·복구할 수 있지만 이전 실행은 terminal이어야 하고 rerun은 거부한다.
+
+검증은 closed schema·normal 경로 거부·immutable artifact tuple·두 빌드 이력·uploader provenance 분리·global/old fence 경합·부분 완료·응답 유실·동일 producer 재호출과 정상 schema의 fence 거부를 포함한다. 실제 archive 원본을 다운로드해 ZIPdigest와 파일명·크기·AABdigest를 사전 확인했다. 전체 Node·pack·actionlint·CI·필수 모델 리뷰와 별도 독립 구현 검토 뒤 활성화한다. 신규 범용 skip, 별도 key/계정권한·유료plan·기기·심사·공개는 추가하지 않는다.
+
+
+운영 tag는 uploader 코드 선택에만 쓰고 제품 version/원장/source는 기존 v0.1.0/code1/bd78에서 읽는다. 실제 push run과 GITHUB_REF exact값, annotated tag object와 target commit, caller 파일hash를 모두 결속한다. 기존 deploy workflow를 세 번째 실행하거나 tag를 이동·삭제해 슬롯을 다시 열지 않는다. GitHub 재사용 workflow의 github context는 호출한 workflow의 context이므로 called workflow도 실제 caller의 push를 검사한다([공식 문서](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#github-context)). 첫 모델 리뷰는 외부 문서 요청 권한을 얻지 못한 뒤 제한시간으로 종료됐으며, 최종 운영 tag diff를 포함해 허용된 한 번만 재시도한다. 새 grant는 이 코드 PR과 분리해 실제 tuple이 확정된 뒤 등록한다.

@@ -270,6 +270,91 @@
           "app-store"
         ]
       }
+    },
+    "existingAabRecovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceArtifactId",
+        "sourceArtifactName",
+        "sourceArtifactArchiveSha256",
+        "artifactSha256",
+        "artifactSize",
+        "sourceGrantCommit",
+        "sourceGrantSha256",
+        "sourceRunIds",
+        "firstBuildClaimSha256",
+        "secondBuildClaimSha256",
+        "uploaderCodeSha",
+        "callerWorkflowSha256",
+        "workflowPath",
+        "releaseNotesSha256",
+        "additionalGameBuilds",
+        "fullWorkingTreeAuditPassed",
+        "sourceAuditStatus",
+        "uploadExecutionTag"
+      ],
+      "properties": {
+        "sourceArtifactId": {
+          "const": 13975726650
+        },
+        "sourceArtifactName": {
+          "const": "godot-google-play-aab-0.1.0-1"
+        },
+        "sourceArtifactArchiveSha256": {
+          "const": "1816e94e6473a9728a34efbcffb09f5930cb9037a898171a9eabf973c88975c5"
+        },
+        "artifactSha256": {
+          "const": "33ef4d1103c2ebea66c5f8d478b32de559b859747f2dc44faf2e241ba09d60eb"
+        },
+        "artifactSize": {
+          "const": 114386125
+        },
+        "sourceGrantCommit": {
+          "const": "f3788854433ac76e994577fdc5dfb1f071d9c883"
+        },
+        "sourceGrantSha256": {
+          "const": "da76b2c29820243d91d5b8d80554f9ddc730141ee73d9d3720d4e69e853ad7dd"
+        },
+        "sourceRunIds": {
+          "const": [
+            43286867642,
+            43292795874
+          ]
+        },
+        "firstBuildClaimSha256": {
+          "const": "3800d669065a1f9c5c8b4031b6fbc6866df76ac175fe1ed151b5a376b8868d34"
+        },
+        "secondBuildClaimSha256": {
+          "const": "ab3f4e965d3ac92b9c19b2c24bbd6e6bc3127d5d902b3f2ac8d2f0e1e539d8b0"
+        },
+        "uploaderCodeSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "callerWorkflowSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "workflowPath": {
+          "const": ".github/workflows/recover-betta-google-play.yml"
+        },
+        "releaseNotesSha256": {
+          "const": "9f0448e6bcdc4f5e0b4961b7f8c845f3c5653d24ce9ba4dc4e9905c373305028"
+        },
+        "additionalGameBuilds": {
+          "const": 0
+        },
+        "fullWorkingTreeAuditPassed": {
+          "const": false
+        },
+        "sourceAuditStatus": {
+          "const": "tracked-passed-untracked-unresolved"
+        },
+        "uploadExecutionTag": {
+          "const": "betta-existing-aab-upload-0.1.0"
+        }
+      }
     }
   },
   "allOf": [
@@ -287,6 +372,28 @@
         "required": [
           "appStore"
         ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "existingAabRecovery"
+        ]
+      },
+      "then": {
+        "properties": {
+          "sourceSha": {
+            "const": "bd78bd996987481d668185da815c6853c4e99a4b"
+          },
+          "releaseTag": {
+            "const": "v0.1.0"
+          },
+          "targets": {
+            "const": [
+              "google-play"
+            ]
+          }
+        }
       }
     }
   ]
