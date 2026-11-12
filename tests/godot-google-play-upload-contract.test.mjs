@@ -29,7 +29,7 @@ test('Godot Play 업로드는 pip가 있는 고정 Python을 설치한 뒤 API c
   assert.ok(installIndex > setupIndex, 'API client 설치 전에 Python을 준비해야 합니다.');
 
   const setup = steps[setupIndex];
-  assert.equal(setup.if, '${{ inputs.upload }}');
+  assert.equal(setup.if, "${{ inputs.upload && inputs.betta_internal_bootstrap_id == '' }}");
   assert.equal(
     setup.uses,
     'actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97',
@@ -44,7 +44,7 @@ test('Godot Play 업로드는 pip가 있는 고정 Python을 설치한 뒤 API c
   );
 
   const install = steps[installIndex];
-  assert.equal(install.if, '${{ inputs.upload }}');
+  assert.equal(install.if, "${{ inputs.upload && inputs.betta_internal_bootstrap_id == '' }}");
   assert.match(install.run, /python3 -m pip install --upgrade pip/u);
   assert.match(install.run, /google-api-python-client/u);
 });

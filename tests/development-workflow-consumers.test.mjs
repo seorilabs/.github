@@ -92,16 +92,25 @@ test('Xcode Cloud start verifies the exact tag candidate before the mutation', (
 // 앱 릴리스 예외는 등급제(설계 2026-10-14-test-levels 순서 3)에서 지웠다. 입력·인자·비밀값 전달이 되살아나지 않게 한다.
 const EXCEPTION_INPUTS = ['release_exception_id', 'configuration_fingerprint', 'release_verifier_sha'];
 for (const [name, upload] of [['godot-deploy-google-play', 'Upload to Google Play'], ['godot-deploy-app-store', 'Export and upload to App Store Connect']]) {
-  test(`${name} has no release exception path and always runs the central main verifier`, () => {
+  test(`${name} keeps legacy release exceptions disabled and uses the central main verifier`, () => {
     const workflow = read(name);
     for (const key of EXCEPTION_INPUTS) assert.equal(workflow.on.workflow_call.inputs[key], undefined, key);
     const steps = Object.values(workflow.jobs).find(job => job.steps?.some(step => step.name === upload)).steps;
     assert.equal(steps.find(step => step.name === 'Checkout release version authority').with.ref, 'main');
     for (const phase of ['before-build', 'before-deploy']) {
       const step = steps.find(item => item.name === `Verify Editor E2E ${phase}`);
-      assert.doesNotMatch(step.run, /exception|--verifier-sha|--report|--artifact|--release-binding/u);
+      if(name==='godot-deploy-google-play'){
+        // 명시적으로 켜지 않은 일반 소비자는 원래 인자만 중앙 검증기에 전달한다.
+        const capture='node() { printf "%s\\n" "$@"; }; git() { printf fixture-source; };\n';
+        const result=spawnSync('bash',['-c',capture+step.run],{encoding:'utf8',env:{...process.env,GITHUB_REPOSITORY:'seorilabs/fixture',EVIDENCE_TAG:'v1.0.0',RELEASE_TRACK:'internal',BETTA_BOOTSTRAP_ID:''}});
+        assert.equal(result.status,0,result.stderr);
+        assert.doesNotMatch(result.stdout,/--betta-internal-bootstrap-id|--report|--artifact-file|--verifier-sha|--release-binding/u);
+      }else assert.doesNotMatch(step.run, /exception|--verifier-sha|--report|--artifact|--release-binding/u);
       const keys = ['EVIDENCE_TAG', 'GH_TOKEN'];
-      if (name === 'godot-deploy-google-play' && phase === 'before-deploy') keys.push('RELEASE_TRACK');
+      if (name === 'godot-deploy-google-play'){
+        keys.push('RELEASE_TRACK','BETTA_BOOTSTRAP_ID','BETTA_BOOTSTRAP_TOKEN');
+        if(phase==='before-deploy')keys.push('BETTA_ARTIFACT_FILE');
+      }
       assert.deepEqual(Object.keys(step.env).sort(), keys.sort());
     }
     assert.ok(steps.every(step => !/exception|promotion evidence/iu.test(step.name ?? '')));

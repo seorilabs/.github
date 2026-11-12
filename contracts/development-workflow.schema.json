@@ -843,6 +843,75 @@
           "const": "single-reviewed-failed12-to13-total-cloud2-upload1"
         }
       }
+    },
+    "bettaInternalBootstrap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grantSchema",
+        "optIn",
+        "decisionStatus",
+        "originalVerdicts",
+        "productE2eStatus",
+        "publicReleaseAllowed",
+        "maxAgeHours",
+        "maxBuildsPerMarket",
+        "maxAcceptedUploadsPerMarket",
+        "phases",
+        "grantRegistry",
+        "retryRegistry"
+      ],
+      "properties": {
+        "grantSchema": {
+          "const": "contracts/betta-internal-bootstrap-grant.schema.json"
+        },
+        "optIn": {
+          "const": "explicit-reviewed-betta-internal-id"
+        },
+        "decisionStatus": {
+          "const": "human_exception"
+        },
+        "originalVerdicts": {
+          "const": "preserve"
+        },
+        "productE2eStatus": {
+          "const": "blocked"
+        },
+        "publicReleaseAllowed": {
+          "const": false
+        },
+        "maxAgeHours": {
+          "const": 168
+        },
+        "maxBuildsPerMarket": {
+          "const": 2
+        },
+        "maxAcceptedUploadsPerMarket": {
+          "const": 1
+        },
+        "phases": {
+          "const": [
+            "before-build",
+            "before-deploy"
+          ]
+        },
+        "grantRegistry": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^contracts/betta-internal-bootstrap/[a-z0-9.-]+\\.json$"
+          }
+        },
+        "retryRegistry": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^contracts/betta-internal-bootstrap-retries/[a-z0-9.-]+\\.json$"
+          }
+        }
+      }
     }
   }
 }

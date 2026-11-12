@@ -235,3 +235,16 @@ internalTestflightBootstrap:
   revocation: read-current-central-grant-every-phase
   grantRegistry:
     - contracts/internal-testflight-bootstrap/spiritgate-1.1.0-first-internal.json
+bettaInternalBootstrap:
+  grantSchema: contracts/betta-internal-bootstrap-grant.schema.json
+  optIn: explicit-reviewed-betta-internal-id
+  decisionStatus: human_exception
+  originalVerdicts: preserve
+  productE2eStatus: blocked
+  publicReleaseAllowed: false
+  maxAgeHours: 168
+  maxBuildsPerMarket: 2
+  maxAcceptedUploadsPerMarket: 1
+  phases: [before-build, before-deploy]
+  retryRegistry: []
+  grantRegistry: []

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "level": "L1",
+  "baseline": "9e26f586c1ff8d92616fe8c7a89b1619b14ec962",
+  "changedFeatures": ["betta-first-internal-bootstrap", "godot-rendering-runtime"],
+  "environments": ["dev"],
+  "redesign": false,
+  "foundationRerun": false,
+  "floorOverrides": [],
+  "release": null
+}
