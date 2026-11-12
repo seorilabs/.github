@@ -91,7 +91,7 @@ jobs:
           command -v apt-get >/dev/null 2>&1 || { echo "실제 렌더링에는 Debian 계열 Xvfb 실행 환경이 필요합니다." >&2; exit 1; }
           sudo_cmd=""; command -v sudo >/dev/null 2>&1 && sudo_cmd="sudo"
           ${sudo_cmd} apt-get update
-          ${sudo_cmd} apt-get install -y --no-install-recommends xvfb xauth libgl1 libglx-mesa0 libgl1-mesa-dri libegl1 libegl-mesa0
+          ${sudo_cmd} apt-get install -y --no-install-recommends xvfb xauth libgl1 libglx-mesa0 libgl1-mesa-dri libegl1 libegl-mesa0 libx11-6 libxext6 libxrender1 libxfixes3 libxi6 libxinerama1 libxrandr2 libxcursor1 libxkbcommon0
           command -v xvfb-run >/dev/null
 
       - name: Cache Godot editor
@@ -153,6 +153,17 @@ jobs:
       - name: Import project
         shell: bash
         run: godot --headless --path "$PROJECT_DIR" --import --quit-after 1
+
+      - name: Verify rendering runtime before long checks
+        if: inputs.with_rendering
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/godot-rendering-runtime.log"
+          status=0
+          xvfb-run -a godot --display-driver x11 --audio-driver Dummy --path "$PROJECT_DIR" --quit-after 2 > "$log" 2>&1 || status=$?
+          cat "$log"
+          [ "$status" -eq 0 ] && ! grep -Eq '^(SCRIPT ERROR|ERROR:)' "$log"
 
       # caller가 준 check_command를 run 본문에 직접 보간(rn-static-checks와 동일 패턴, eval 미사용).
       - name: Run checks (custom)
