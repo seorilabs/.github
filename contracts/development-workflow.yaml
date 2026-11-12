@@ -251,3 +251,4 @@ bettaInternalBootstrap:
     - contracts/betta-internal-bootstrap/betta-0-1-0-google-first-internal.json
     - contracts/betta-internal-bootstrap/betta-0-1-0-google-first-internal-r1.json
     - contracts/betta-internal-bootstrap/betta-0-1-0-existing-aab-upload-only.json
+    - contracts/betta-internal-bootstrap/betta-0-1-0-existing-aab-upload-only-preflight-r1.json

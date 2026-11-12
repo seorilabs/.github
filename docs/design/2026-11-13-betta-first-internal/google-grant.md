@@ -39,3 +39,10 @@
 Annotated 운영tag betta-existing-aab-upload-0.1.0는 caller코드 선택에만 쓴다. 제품버전/원장은 v0.1.0/code1 그대로다. 추가게임빌드0회, 전송은 package/version 단일global intent와 두legacy슬롯의원자적fence 뒤 최대1접수만 허용한다. 모든422/부분완료/응답유실 뒤 자동재시도·슬롯삭제·tag재지정·rerun을 하지 않는다. 정확한tag/push/code/hash/원래CI·claim·실제provider·원장·승인·원본실패와freshPlayempty를 runtime에서 다시 확인한다.
 
 첫 grant 생성 시 GET main ref가HTTP502로 실패했으며 변경·claim·업로드는 없었다. 읽기만 재시도해 실제 tuple을 확정했다. 이 transient준비실패도 별도로 보존한다. 이등록이 기존정상QA·네이티브QA·공개권한을 바꾸지 않으며 Apple 로그인/등록/Cloud준비는 별도로 남는다.
+
+
+## 예약 전 다운로드 실패의 단일 재시도
+
+기존0build run43309802883 attempt1은 artifact ZIP GET에서 HTTP415로 중단됐고 예약·Google 전송 전이었다. 실제 job131502589080의 원문54,619바이트 SHA7b1c02bf73195e25ed1343f8e0cfabafdc0ce356106fd0511c16169cb215f1be와 당시 grant14a91b319cf7d0bc7b9c31bef7bac838b35af3be03b615a8b0df748a1269b51f·verifier c55980f9·실제 reusable6e7e9a40·빈 Play·예약 없음을10번째 관측에 봉인했다. 관측 asset741202216,167,556바이트,SHA c7e170984be213063ec096d219b04e1290f68177c26ba7e0c2733267762fc84f를 Release에서 다시 읽어 검증했다.
+
+새 grant betta-0-1-0-existing-aab-upload-only-preflight-r1의 SHA는119ce200ed5c383704d4cd10e9bfc05b368f9418b71c887efdede9858c4845dd, verifier는a3a79a32bd1cc2be7dae54cf3aeeacf06471c8f2다. 이전3grant는 회수됐다. source bd78, caller9ff, 같은 불변tag와 run의 attempt2만 허용한다. 최초9관측·C13 승인 시각과 만료·2native/1accepted·QA blocked·전체 working-tree 감사false를 유지한다. 추가 게임빌드0회다. 새 grant 등록을 확인한 뒤에만 all-jobs rerun을1회 실행하며 --failed·tag 변경·attempt3·예약 후 재시도는 허용하지 않는다.
