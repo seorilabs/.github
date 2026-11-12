@@ -247,4 +247,5 @@ bettaInternalBootstrap:
   maxAcceptedUploadsPerMarket: 1
   phases: [before-build, before-deploy]
   retryRegistry: []
-  grantRegistry: []
+  grantRegistry:
+    - contracts/betta-internal-bootstrap/betta-0-1-0-google-first-internal.json
