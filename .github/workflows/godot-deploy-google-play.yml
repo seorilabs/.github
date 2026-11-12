@@ -585,7 +585,7 @@ jobs:
         run: python3 "$SCRIPTS_DIR/check_google_play_readiness.py"
 
       - name: Upload AAB artifact
-        if: ${{ !inputs.upload }}
+        if: ${{ !inputs.upload || inputs.betta_internal_bootstrap_id != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: godot-google-play-aab-${{ steps.release.outputs.version_name }}-${{ steps.release.outputs.android_version_code }}
@@ -721,6 +721,20 @@ jobs:
           )
           [ -n "$RELEASE_NOTES_JSON" ] && args+=(--release-notes-json "$RELEASE_NOTES_JSON")
           python3 .seorilabs-release-authority/scripts/release/upload-google-play-aab.py "${args[@]}"
+
+      - name: Upload Betta signed candidate evidence
+        if: ${{ always() && inputs.betta_internal_bootstrap_id != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: betta-internal-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/betta-before-build.json
+            ${{ runner.temp }}/betta-before-deploy.json
+            ${{ runner.temp }}/release-binding.json
+            ${{ runner.temp }}/release-artifact-receipt.txt
+            ${{ runner.temp }}/release-version-ledger.json
+          if-no-files-found: warn
+          retention-days: 3
 
       - name: Summary
         shell: bash
