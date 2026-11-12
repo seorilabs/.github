@@ -291,7 +291,8 @@
         "releaseNotesSha256",
         "additionalGameBuilds",
         "fullWorkingTreeAuditPassed",
-        "sourceAuditStatus"
+        "sourceAuditStatus",
+        "uploadExecutionTag"
       ],
       "properties": {
         "sourceArtifactId": {
@@ -349,6 +350,9 @@
         },
         "sourceAuditStatus": {
           "const": "tracked-passed-untracked-unresolved"
+        },
+        "uploadExecutionTag": {
+          "const": "betta-existing-aab-upload-0.1.0"
         }
       }
     }

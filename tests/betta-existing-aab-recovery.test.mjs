@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createBettaClaim} from '../scripts/release/betta-internal-grant-store.mjs';
 import {recoverySlots,assertRecoveryHistory,assertRecoveryArtifact,assertRecoveryProducer,reserveRecoveryUpload} from '../scripts/release/betta-existing-aab-recovery.mjs';
 const sha='bd78bd996987481d668185da815c6853c4e99a4b';
-const grant={sourceSha:sha,repository:'seorilabs/betta-raising',googlePlay:{packageName:'com.seorilabs.bettaraising',versionCode:1},existingAabRecovery:{sourceRunIds:[43286867642,43292795874],uploaderCodeSha:'a'.repeat(40),workflowPath:'.github/workflows/recover-betta-google-play.yml',sourceArtifactId:13975726650,sourceArtifactName:'godot-google-play-aab-0.1.0-1',sourceArtifactArchiveSha256:'b'.repeat(64)}};
+const grant={sourceSha:sha,repository:'seorilabs/betta-raising',googlePlay:{packageName:'com.seorilabs.bettaraising',versionCode:1},existingAabRecovery:{sourceRunIds:[43286867642,43292795874],uploaderCodeSha:'a'.repeat(40),workflowPath:'.github/workflows/recover-betta-google-play.yml',uploadExecutionTag:'betta-existing-aab-upload-0.1.0',sourceArtifactId:13975726650,sourceArtifactName:'godot-google-play-aab-0.1.0-1',sourceArtifactArchiveSha256:'b'.repeat(64)}};
 const run=id=>({id,head_sha:sha,status:'completed',conclusion:'failure',event:'workflow_dispatch',run_attempt:1,path:'.github/workflows/deploy-google-play.yml'});
 const job=steps=>({status:'completed',conclusion:'failure',steps});
 const history=()=>({runs:grant.existingAabRecovery.sourceRunIds.map(run),firstJobs:[job([{name:'Upload to Google Play',conclusion:'skipped'}])],secondJobs:[job([{name:'Export signed Android AAB',status:'in_progress',conclusion:null,started_at:'2026-11-12T19:45:16Z'},{name:'Verify Editor E2E before-deploy',status:'pending',conclusion:null,started_at:null},{name:'Upload to Google Play',status:'pending',conclusion:null,started_at:null}])],annotations:[{message:'The self-hosted runner lost communication with the server.'}]});
@@ -17,11 +17,12 @@ test('artifact identity is immutable by provider id, archive digest and original
  for(const patch of [{id:1},{expired:true},{digest:'sha256:'+'c'.repeat(64)},{workflow_run:{id:2,head_sha:sha,repository_id:1455493296}}])assert.throws(()=>assertRecoveryArtifact(grant,{...artifact,...patch}));
 });
 test('upload producer code is separate from artifact source and cannot be a game-build rerun',()=>{
- const env={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:grant.repository,GITHUB_RUN_ID:'999',GITHUB_RUN_ATTEMPT:'1',GITHUB_SHA:'a'.repeat(40)};
- const r={id:999,event:'workflow_dispatch',repository:{full_name:grant.repository,private:true},head_sha:'a'.repeat(40),run_attempt:1,status:'in_progress',path:grant.existingAabRecovery.workflowPath};
+ const env={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:grant.repository,GITHUB_RUN_ID:'999',GITHUB_RUN_ATTEMPT:'1',GITHUB_SHA:'a'.repeat(40),GITHUB_REF:'refs/tags/betta-existing-aab-upload-0.1.0'};
+ const r={id:999,event:'push',repository:{full_name:grant.repository,private:true},head_sha:'a'.repeat(40),run_attempt:1,status:'in_progress',path:grant.existingAabRecovery.workflowPath};
  assertRecoveryProducer(grant,r,env);
  for(const patch of [{head_sha:sha},{run_attempt:2},{path:'.github/workflows/deploy-google-play.yml'},{status:'completed'}])assert.throws(()=>assertRecoveryProducer(grant,{...r,...patch},env));
  assert.throws(()=>assertRecoveryProducer(grant,r,{...env,GITHUB_ACTIONS:'false'}));
+ assert.throws(()=>assertRecoveryProducer(grant,r,{...env,GITHUB_REF:'refs/tags/v0.1.0'}));
 });
 test('one global slot fences both old upload admissions, including a late old producer',async()=>{
  const assets=new Map();let next=1;

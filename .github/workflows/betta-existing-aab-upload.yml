@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   upload-existing:
-    if: ${{ github.repository == 'seorilabs/betta-raising' && github.event.repository.private == true && github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.repository == 'seorilabs/betta-raising' && github.event.repository.private == true && github.event_name == 'push' && github.ref == 'refs/tags/betta-existing-aab-upload-0.1.0' }}
     name: Upload previously signed Betta AAB
     runs-on: seorilabs-x64
     timeout-minutes: 20
