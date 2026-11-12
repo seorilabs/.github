@@ -46,3 +46,12 @@ Annotated 운영tag betta-existing-aab-upload-0.1.0는 caller코드 선택에만
 기존0build run43309802883 attempt1은 artifact ZIP GET에서 HTTP415로 중단됐고 예약·Google 전송 전이었다. 실제 job131502589080의 원문54,619바이트 SHA7b1c02bf73195e25ed1343f8e0cfabafdc0ce356106fd0511c16169cb215f1be와 당시 grant14a91b319cf7d0bc7b9c31bef7bac838b35af3be03b615a8b0df748a1269b51f·verifier c55980f9·실제 reusable6e7e9a40·빈 Play·예약 없음을10번째 관측에 봉인했다. 관측 asset741202216,167,556바이트,SHA c7e170984be213063ec096d219b04e1290f68177c26ba7e0c2733267762fc84f를 Release에서 다시 읽어 검증했다.
 
 새 grant betta-0-1-0-existing-aab-upload-only-preflight-r1의 SHA는119ce200ed5c383704d4cd10e9bfc05b368f9418b71c887efdede9858c4845dd, verifier는a3a79a32bd1cc2be7dae54cf3aeeacf06471c8f2다. 이전3grant는 회수됐다. source bd78, caller9ff, 같은 불변tag와 run의 attempt2만 허용한다. 최초9관측·C13 승인 시각과 만료·2native/1accepted·QA blocked·전체 working-tree 감사false를 유지한다. 추가 게임빌드0회다. 새 grant 등록을 확인한 뒤에만 all-jobs rerun을1회 실행하며 --failed·tag 변경·attempt3·예약 후 재시도는 허용하지 않는다.
+
+
+## Google 내부 채널 도달과 grant 회수
+
+실제 run43309802883 attempt2가2026-11-12T21:55Z에 성공했다. job131518256444는 새 signed AAB를 빌드하지 않고 기존 artifact13975726650의 동일114,386,125바이트 AAB를 검사·업로드했다. 실제 producer github:43309802883:2와 grant119ce200을 예약 영수증·global asset741227295·기존 admission fence741227344/741227381에서 다시 읽었다. 기존2회의 native 실행, 실패한0build attempt1과 성공한 attempt2를 각각 보존한다.
+
+2026-11-12T21:55:27.145775Z 실제 Google API에서 internal release Betta Atelier0.1.0(1), versionCodes[1], status completed, bundleVersionCodes[1]와 한국어·영어 노트를 확인했다. 내부 참여 링크는 https://play.google.com/apps/internaltest/4701307715864182719 다. Phone 설치·실행은 에이전트가 하지 않았다. 새 grant는 목적을 달성해 회수하며 네 원본 grant·claim/fence·실패 증거는 보존한다. 같은 태그·run의 추가 시도나 세 번째 native 빌드, 추가 provider 접수는 없다.
+
+정상v2 두 phase는 THREE_UI_ROUNDS_REQUIRED, 제품 E2E blocked, nativeQaWaived:false, publicReleaseAllowed:false, 과거 전체 working-tree 감사false를 유지한다. 게임PR2와 callerPR4, 로컬/원격main을 병합하지 않았다. Apple은 로그인 사용자 확인·앱 등록·App Attest profile·private Cloud 준비/실행과 TestFlight 배포가 남아 있으며 업로드되지 않았다. NAS 원본 보관과 파일별 크기/SHA-256 readback은 실행 증적 목록에서 별도로 기록한다.
