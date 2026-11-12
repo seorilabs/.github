@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createBettaClaim} from '../scripts/release/betta-internal-grant-store.mjs';
-import {recoverySlots,assertRecoveryHistory,assertRecoveryArtifact,assertRecoveryProducer,reserveRecoveryUpload} from '../scripts/release/betta-existing-aab-recovery.mjs';
+import {recoverySlots,assertRecoveryHistory,assertRecoveryArtifact,assertRecoveryProducer,assertRecoveryPreflight,reserveRecoveryUpload} from '../scripts/release/betta-existing-aab-recovery.mjs';
 const sha='bd78bd996987481d668185da815c6853c4e99a4b';
 const grant={sourceSha:sha,repository:'seorilabs/betta-raising',googlePlay:{packageName:'com.seorilabs.bettaraising',versionCode:1},existingAabRecovery:{sourceRunIds:[43286867642,43292795874],uploaderCodeSha:'a'.repeat(40),workflowPath:'.github/workflows/recover-betta-google-play.yml',uploadExecutionTag:'betta-existing-aab-upload-0.1.0',sourceArtifactId:13975726650,sourceArtifactName:'godot-google-play-aab-0.1.0-1',sourceArtifactArchiveSha256:'b'.repeat(64)}};
 const run=id=>({id,head_sha:sha,status:'completed',conclusion:'failure',event:'workflow_dispatch',run_attempt:1,path:'.github/workflows/deploy-google-play.yml'});
@@ -83,9 +83,32 @@ test('upload-only workflow has no engine, Gradle, export or signing execution',a
  const w=parse(readFileSync(new URL('../.github/workflows/betta-existing-aab-upload.yml',import.meta.url),'utf8'));
  assert.equal(w.jobs['upload-existing']['runs-on'],'seorilabs-x64');
  assert.equal(w.jobs['upload-existing'].environment,'google-play');
+ assert.match(w.jobs['upload-existing'].if,/github.run_id == '43309802883' && github.run_attempt == '2'/u);
+ assert.equal(w.jobs['upload-existing'].steps.find(s=>s.name==='Verify and upload exact existing AAB').env.BETTA_EXISTING_AAB_ID,'betta-0-1-0-existing-aab-upload-only-preflight-r1');
  const steps=w.jobs['upload-existing'].steps;
  const commands=steps.filter(s=>s.run).map(s=>s.run).join('\n');
  assert.doesNotMatch(commands,/\bgodot\b|\bgradle[w]?\b|--export|genkey|prepare_android|keystore/iu);
  assert.match(commands,/node \.\.\/authority\/scripts\/release\/recover-betta-existing-aab\.mjs/u);
  assert.equal(steps[0].with.ref,'v0.1.0');assert.equal(steps[0].with.path,'candidate');
+});
+
+test('readonly preflight retry accepts only the fixed run attempt 2',()=>{
+ const retry={runId:43309802883,failedAttempt:1,allowedAttempt:2,jobId:131502589080,workflowId:301,originalReusableCommit:'6'.repeat(40),rawJobLogSha256:'7b1c02bf73195e25ed1343f8e0cfabafdc0ce356106fd0511c16169cb215f1be'};
+ const g={...grant,existingAabRecovery:{...grant.existingAabRecovery,preflightRetry:retry}};
+ const env={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:g.repository,GITHUB_RUN_ID:String(retry.runId),GITHUB_RUN_ATTEMPT:'2',GITHUB_SHA:'a'.repeat(40),GITHUB_REF:'refs/tags/betta-existing-aab-upload-0.1.0'};
+ const run={id:retry.runId,workflow_id:301,referenced_workflows:[{path:'seorilabs/.github/.github/workflows/betta-existing-aab-upload.yml@main',sha:'6'.repeat(40)}],event:'push',repository:{full_name:g.repository,private:true},head_sha:'a'.repeat(40),run_attempt:2,status:'in_progress',path:g.existingAabRecovery.workflowPath};
+ assertRecoveryProducer(g,run,env);
+ for(const patch of [{id:retry.runId+1},{run_attempt:1},{run_attempt:3}])assert.throws(()=>assertRecoveryProducer(g,{...run,...patch},env));
+ assert.throws(()=>assertRecoveryProducer(g,run,{...env,GITHUB_RUN_ATTEMPT:'1'}));
+});
+
+test('preflight proof requires exact failed job and unmodified provider log bytes',async()=>{
+ const {createHash}=await import('node:crypto');
+ const log=Buffer.from('HTTP 415 Must accept application/json /actions/artifacts/13975726650/zip');
+ const retry={runId:43309802883,failedAttempt:1,allowedAttempt:2,jobId:131502589080,workflowId:301,originalReusableCommit:'6'.repeat(40),rawJobLogSha256:createHash('sha256').update(log).digest('hex')};
+ const g={...grant,existingAabRecovery:{...grant.existingAabRecovery,preflightRetry:retry}};
+ const run={id:retry.runId,workflow_id:301,referenced_workflows:[{path:'seorilabs/.github/.github/workflows/betta-existing-aab-upload.yml@main',sha:'6'.repeat(40)}],event:'push',repository:{full_name:g.repository,private:true},head_sha:'a'.repeat(40),run_attempt:1,status:'completed',conclusion:'failure',path:g.existingAabRecovery.workflowPath};
+ const jobs=[{id:retry.jobId,status:'completed',conclusion:'failure',steps:[{name:'Verify and upload exact existing AAB',status:'completed',conclusion:'failure'}]}];
+ assertRecoveryPreflight(g,{run,jobs,log});
+ for(const patch of [{run:{...run,conclusion:'success'}},{run:{...run,run_attempt:2}},{jobs:[{...jobs[0],id:1}]},{jobs:[{...jobs[0],steps:[{...jobs[0].steps[0],conclusion:'success'}]}]},{log:Buffer.concat([log,Buffer.from('changed')])}])assert.throws(()=>assertRecoveryPreflight(g,{run,jobs,log,...patch}));
 });

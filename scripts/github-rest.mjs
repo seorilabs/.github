@@ -146,7 +146,7 @@ export async function githubDownload(path, options = {}) {
   const { env = process.env, fetchImpl = globalThis.fetch } = options;
   const { response, url, method } = await githubRequest(path, {
     ...options,
-    accept: 'application/octet-stream',
+    accept: options.accept ?? 'application/octet-stream',
     redirect: 'manual',
   });
 
