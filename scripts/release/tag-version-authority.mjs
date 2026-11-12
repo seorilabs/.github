@@ -1263,8 +1263,19 @@ export function parseAabRuntimeSettings(buffer) {
       && filter.children.some(child => child.name === 'action' && child.attributes.name === 'android.intent.action.MAIN')
       && filter.children.some(child => child.name === 'category' && child.attributes.name === 'android.intent.category.LAUNCHER')));
   if (launchers.length !== 1) throw new Error('AAB_SINGLE_LAUNCHER_REQUIRED');
+  let launcher = launchers[0];
+  if (launcher.name === 'activity-alias') {
+    const { packageName } = parseAabManifest(buffer);
+    const qualify = name => !name ? '' : name.startsWith('.') ? packageName + name
+      : name.includes('.') ? name : `${packageName}.${name}`;
+    const target = qualify(launcher.attributes.targetActivity);
+    const activities = applications[0].children.filter(node => node.name === 'activity'
+      && target && qualify(node.attributes.name) === target);
+    if (activities.length !== 1) throw new Error('AAB_ALIAS_TARGET_REQUIRED');
+    launcher = activities[0];
+  }
   return { minSdk: Number(sdk[0].attributes.minSdkVersion), targetSdk: Number(sdk[0].attributes.targetSdkVersion),
-    launchOrientation: launchers[0].attributes.screenOrientation };
+    launchOrientation: launcher.attributes.screenOrientation };
 }
 
 /** plutil -convert json 출력에서 Apple marketing version과 build number를 읽는다. */
