@@ -51,6 +51,37 @@ export function validateBettaCloudRun({run,workflow,product,app,tag},grant,env){
   return {producer:`xcode-cloud:${run.id}`,id:run.id,number:r.number,state:r.executionProgress==='COMPLETE' ? (r.completionStatus==='SUCCEEDED'?'succeeded':'failed'):'in_progress'};
 }
 
+export async function observeBettaGoogleBuilds(grant,{id,phase,fetchImpl=globalThis.fetch},claims,request){
+    const run=await githubJson(`/repos/${grant.repository}/actions/runs/${id}`,request);
+    const current=validateBettaGoogleRun(run,grant,{phase,producerRunId:id});
+    const runs=await githubPaginate(`/repos/${grant.repository}/actions/workflows/deploy-google-play.yml/runs?head_sha=${grant.sourceSha}&event=workflow_dispatch&per_page=100`,{...request,select:d=>d.workflow_runs});
+    const matching=runs.filter(r=>r.head_sha===grant.sourceSha && r.path?.split('@')[0]===grant.googlePlay.workflowPath);
+    if(!matching.some(r=>String(r.id)===id) || matching.length>2 || matching.some(r=>r.run_attempt!==1)) fail('BETTA_GOOGLE_BUILD_LIMIT');
+    const ordered=[...matching].sort((a,b)=>BigInt(a.id)<BigInt(b.id)?-1:1);
+    if(new Set(ordered.map(r=>String(r.id))).size!==ordered.length || String(ordered.at(-1).id)!==id) fail('BETTA_PREVIOUS_ATTEMPT_UNRESOLVED');
+    const ordinal=ordered.findIndex(r=>String(r.id)===id)+1;
+    const buildClaims=claims.filter(c=>c.phase==='before-build');
+    if(buildClaims.some(c=>!ordered.some((r,i)=>c.producer===`github:${r.id}:1` && c.attempt===i+1))) fail('BETTA_ATTEMPT_HISTORY_INVALID');
+    const previous=[];
+    // Source-wide provider history survives a reviewed grant-ID revision.
+    for(const [i,prior] of ordered.slice(0,-1).entries()){
+      if(prior.status!=='completed' || !['failure','cancelled','timed_out'].includes(prior.conclusion)) fail('BETTA_PREVIOUS_ATTEMPT_UNRESOLVED');
+      const jobs=await githubPaginate(`/repos/${grant.repository}/actions/runs/${prior.id}/attempts/1/jobs?per_page=100`,{...request,select:d=>d.jobs});
+      const uploadSteps=jobs.flatMap(j=>j.steps ?? []).filter(s=>s.name==='Upload to Google Play');
+      const skipped=uploadSteps.length===1 && uploadSteps[0].conclusion==='skipped';
+      const producer=`github:${prior.id}:1`;
+      const intent=claims.find(c=>c.producer===producer && c.phase==='before-deploy');
+      if(!skipped && (!intent || !await reviewedBettaNoUpload(grant,intent,{request,googleJobs:jobs,fetchImpl}))) fail('BETTA_PREVIOUS_UPLOAD_ACCEPTANCE_UNKNOWN');
+      previous.push({attempt:i+1,producer,state:'failed',providerVerified:true,acceptedUpload:false});
+    }
+    const own=buildClaims.find(c=>c.producer===current.producer);
+    if(own){
+      if(own.attempt!==ordinal) fail('BETTA_ATTEMPT_HISTORY_INVALID');
+      previous.push({attempt:own.attempt,producer:current.producer,state:current.state});
+    }
+    return {...current,attempts:previous.sort((a,b)=>a.attempt-b.attempt)};
+}
+
 export async function observeBettaProvider(grant,options,claims,request){
   const {target,phase,env=process.env,fetchImpl=globalThis.fetch}=options;
   if(target==='google-play'){
@@ -64,25 +95,7 @@ export async function observeBettaProvider(grant,options,claims,request){
       || !Array.isArray(market.tracks) || market.tracks.some(t=>t.versionCodes?.length!==0)) fail('BETTA_MARKET_ALREADY_HAS_BUILD');
     const id=options.producerRunId ?? env.GITHUB_RUN_ID;
     if(!/^[1-9][0-9]*$/u.test(id ?? '') || (phase==='before-build' && (env.GITHUB_ACTIONS!=='true' || env.GITHUB_RUN_ID!==id || env.GITHUB_RUN_ATTEMPT!=='1'))) fail('BETTA_GOOGLE_CI_REQUIRED');
-    const run=await githubJson(`/repos/${grant.repository}/actions/runs/${id}`,request);
-    const current=validateBettaGoogleRun(run,grant,{phase,producerRunId:id});
-    const runs=await githubPaginate(`/repos/${grant.repository}/actions/workflows/deploy-google-play.yml/runs?head_sha=${grant.sourceSha}&event=workflow_dispatch&per_page=100`,{...request,select:d=>d.workflow_runs});
-    const matching=runs.filter(r=>r.head_sha===grant.sourceSha && r.path?.split('@')[0]===grant.googlePlay.workflowPath);
-    if(!matching.some(r=>String(r.id)===id) || matching.length>2 || matching.some(r=>r.run_attempt!==1)) fail('BETTA_GOOGLE_BUILD_LIMIT');
-    const previous=[];
-    for(const claim of claims.filter(c=>c.phase==='before-build' && c.producer!==current.producer)){
-      const prior=matching.find(r=>`github:${r.id}:1`===claim.producer);
-      if(!prior || prior.status!=='completed' || !['failure','cancelled','timed_out'].includes(prior.conclusion)) fail('BETTA_PREVIOUS_ATTEMPT_UNRESOLVED');
-      const jobs=await githubPaginate(`/repos/${grant.repository}/actions/runs/${prior.id}/attempts/1/jobs?per_page=100`,{...request,select:d=>d.jobs});
-      const uploadJobs=jobs.filter(j=>j.steps?.some(s=>s.name==='Upload to Google Play'));
-      const skipped=uploadJobs.length===1 && uploadJobs[0].steps.find(s=>s.name==='Upload to Google Play').conclusion==='skipped';
-      const intent=claims.find(c=>c.producer===claim.producer && c.phase==='before-deploy');
-      if(!skipped && (!intent || !await reviewedBettaNoUpload(grant,intent,{request,googleJobs:jobs,fetchImpl}))) fail('BETTA_PREVIOUS_UPLOAD_ACCEPTANCE_UNKNOWN');
-      previous.push({attempt:claim.attempt,producer:claim.producer,state:'failed',providerVerified:true,acceptedUpload:false});
-    }
-    const own=claims.find(c=>c.producer===current.producer && c.phase==='before-build');
-    if(own) previous.push({attempt:own.attempt,producer:current.producer,state:current.state});
-    return {...current,attempts:previous.sort((a,b)=>a.attempt-b.attempt)};
+    return observeBettaGoogleBuilds(grant,{id,phase,fetchImpl},claims,request);
   }
   if(target!=='app-store') fail('BETTA_PROVIDER_TARGET');
   const g=grant.appStore,id=env.CI_BUILD_ID;

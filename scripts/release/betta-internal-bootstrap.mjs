@@ -99,8 +99,9 @@ export function verifyBettaSource(directory,grant,{phase,credentialFile}){
   const extras=git('ls-files','--others','-z').toString().split('\0').filter(Boolean);
   const credentialPath=credentialFile ? relative(root,realpathSync(credentialFile)) : null;
   const generatedAndroid=path=>phase==='before-deploy' && grant.targets?.includes('google-play') && (
-    /^native\/android\/seori_account_link\/(?:\.gradle|build)\//u.test(path)
-    || /^godot\/android\/build\/(?:\.gradle|build|src\/main\/assets)\//u.test(path)
+    /^native\/android\/seori_account_link\/(?:\.gradle|\.kotlin|build)\//u.test(path)
+    || /^godot\/android\/build\/(?:\.gradle|\.kotlin|build|src\/main\/assets)\//u.test(path)
+    || /^godot\/android\/build\/assetPackInstallTime\/(?:build|src\/main\/assets)\//u.test(path)
     || /^godot\/android\/build\/(?:res\/.*\.(?:xml|png|webp)|src\/(?:main|debug|release)\/AndroidManifest\.xml)$/u.test(path)
     || /^godot\/addons\/seori_account_link\/bin\/(debug|release)\/SeoriAccountLink-\1\.aar$/u.test(path)
     || /^build\/android\/[A-Za-z0-9._-]+\.aab$/u.test(path)
@@ -141,7 +142,7 @@ export function verifyBettaSource(directory,grant,{phase,credentialFile}){
       if(path==='godot/android/.build_version' && readFileSync(join(root,path),'utf8').trim()!=='4.7.2.stable') fail('BETTA_ANDROID_TEMPLATE_VERSION');
       continue;
     }
-    fail('BETTA_UNTRACKED_SOURCE');
+    fail(`BETTA_UNTRACKED_SOURCE ${JSON.stringify(path)}`);
   }
   return {sourceSha:grant.sourceSha,productTreeSha256:bettaDigest(tree)};
 }

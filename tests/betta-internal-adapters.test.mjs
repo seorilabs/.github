@@ -111,3 +111,25 @@ test('Godot import metadata is generated only for the exact tracked input',()=>{
     assert.throws(()=>verifyBettaSource(root,g,{phase:'before-deploy'}),/BETTA_IMPORT_METADATA/u);
   }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+test('Godot install-time asset-pack outputs are allowed only after export, while inputs stay pinned',()=>{
+  const root=mkdtempSync(join(tmpdir(),'betta-asset-pack-test-'));
+  const git=(...args)=>execFileSync('git',['-C',root,...args],{stdio:['ignore','pipe','pipe']});
+  const output='godot/android/build/assetPackInstallTime/src/main/assets/fish.ctex';
+  try{
+    git('init');writeFileSync(join(root,'source.gd'),'tracked\n');git('add','.');
+    git('-c','user.name=Fixture','-c','user.email=fixture@example.test','commit','-m','fixture');
+    const g={targets:['google-play'],sourceSha:git('rev-parse','HEAD').toString().trim()};
+    g.productTreeSha256=bettaDigest(git('ls-tree','-r','-z',g.sourceSha));
+    for(const path of [output,'godot/android/build/assetPackInstallTime/build/intermediates/assets.pb','native/android/seori_account_link/.kotlin/sessions/compiler.salive']){
+      mkdirSync(join(root,path,'..'),{recursive:true});writeFileSync(join(root,path),'generated');
+    }
+    verifyBettaSource(root,g,{phase:'before-deploy'});
+    assert.throws(()=>verifyBettaSource(root,g,{phase:'before-build'}),/BETTA_UNTRACKED_SOURCE/u);
+    const input='godot/android/build/assetPackInstallTime/build.gradle';
+    writeFileSync(join(root,input),'apply plugin: "com.android.asset-pack"');
+    assert.throws(()=>verifyBettaSource(root,g,{phase:'before-deploy'}),error=>error.message===`BETTA_UNTRACKED_SOURCE ${JSON.stringify(input)}`);
+    rmSync(join(root,input));
+    g.targets=['app-store'];assert.throws(()=>verifyBettaSource(root,g,{phase:'before-deploy'}),/BETTA_UNTRACKED_SOURCE/u);
+  }finally{rmSync(root,{recursive:true,force:true});}
+});

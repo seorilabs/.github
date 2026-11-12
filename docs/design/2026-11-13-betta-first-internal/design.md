@@ -42,3 +42,9 @@ Cloud custom script 사이에는 임시 파일 유지를 가정하지 않는다.
 후보 e4e9f67의 첫 CI는 headless 58여정을 통과한 뒤 XCursor 런타임 부재로 실제 렌더 시작에 실패했다. 원본 로그와 artifact를 보존하고 X11 의존성 및 긴 검사 전 실제 화면 실행 smoke를 추가한다. 이는 제품 소스 변경이나 제품 검수 통과 기록이 아니다.
 
 서명 원본과 검사 영수증의 NAS 검증을 위해 Betta opt-in은 upload=true에서도 exact AAB artifact를 보존한다(#328). 검증 영수증은 명시한 다섯 텍스트 파일만 3일 보존하며 키·토큰·ADC·서명 디렉터리를 수집하지 않는다. 일반 소비자의 업로드 artifact 기본 조건은 유지한다. archive 자체를 서명 검사나 업로드 성공으로 기록하지 않는다.
+
+첫 실제 Google 빌드 `43286867642`는 signed AAB export 뒤 `BETTA_UNTRACKED_SOURCE`에서 중단됐고 uploader는 skipped다. 실제 AAB의 `assetPackInstallTime/assets`와 고정 템플릿의 별도 asset-pack 모듈을 확인했다. 생성 허용 경로에 그 모듈의 `build`와 `src/main/assets`만 추가하고 build.gradle 등 입력은 digest 고정을 유지한다. Kotlin 플러그인이 적용된 두 Android 빌드 루트의 `.kotlin` 작업 캐시만 허용한다. 거부 메시지에는 JSON 이스케이프한 상대 경로를 넣어 다음 실패를 식별할 수 있게 한다.
+
+실제 protobuf에는 MAIN/LAUNCHER가 `activity-alias`에 있고 portrait는 target activity에 있다. alias의 정확한 target을 해석해 방향을 검사하며, 누락·중복 target은 거부한다. 첫 실제 manifest의 원문·해시·run과 source를 작은 fixture로 보존하고 실제 signed AAB의 서명·certificate·SDK·portrait를 다시 검사한다.
+
+검사기 revision 동안 이전 grant를 회수한다. 재결속은 별도 PR로 검토하며 기존 grant·claim·실패 로그를 보존한다. 새 grant ID의 claim 목록이 비어 있어도 같은 source의 실제 Google workflow runs 전체에서 순번을 계산한다. 이전 physical run의 terminal failure와 단 하나의 skipped uploader 또는 기존 reviewed 미접수 증거를 조회하고, 새 claim을 physical attempt 2로 기록한다. 미접수 불명·동시 실행·세 번째 run·GitHub rerun·claim 순번 불일치는 계속 거부한다. 최초 승인 시간·2회 빌드·1회 접수 한도는 늘리지 않는다.
