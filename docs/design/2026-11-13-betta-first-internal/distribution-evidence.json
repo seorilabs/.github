@@ -1,0 +1,63 @@
+{
+  "kind": "betta-internal-distribution-evidence-index",
+  "sourceSha": "bd78bd996987481d668185da815c6853c4e99a4b",
+  "uploaderCodeSha": "9ff287c10ef6c22663c5ca99efbfe95cb14d3344",
+  "releaseTag": "v0.1.0",
+  "versionCode": 1,
+  "androidStatus": "internal_available",
+  "joinUrl": "https://play.google.com/apps/internaltest/4701307715864182719",
+  "successfulUploadRun": {
+    "id": 43309802883,
+    "attempt": 2,
+    "jobId": 131518256444,
+    "conclusion": "success",
+    "url": "https://github.com/seorilabs/betta-raising/actions/runs/43309802883/attempts/2"
+  },
+  "providerReadback": {
+    "observedAt": "2026-11-12T21:55:27.145775+00:00",
+    "track": "internal",
+    "releaseStatus": "completed",
+    "bundleVersionCodes": [
+      1
+    ],
+    "testersGroupSelected": true
+  },
+  "artifactSha256": "33ef4d1103c2ebea66c5f8d478b32de559b859747f2dc44faf2e241ba09d60eb",
+  "additionalGameBuilds": 0,
+  "priorNativeBuildRuns": [
+    43286867642,
+    43292795874
+  ],
+  "grantRevocation": {
+    "pr": 343,
+    "mergeSha": "4f4f3798cc66c0437598377ef361cf3e41379b86",
+    "allFourGrantsRevoked": true
+  },
+  "nasSnapshots": [
+    {
+      "destination": "/Volumes/Data/Backup/agent-artifacts/betta-raising/2026-11-13/bd78bd996987481d668185da815c6853c4e99a4b/internal-distribution/android-test-track-20261113T070204+0900",
+      "files": 1266,
+      "bytes": 423516743,
+      "copiedFiles": 7,
+      "copiedBytes": 7810,
+      "manifestSha256": "3b6b7f789699228f7179896dfeab214c8b0b55b59648351dc71153c7f50f360e",
+      "copyReadback": "verified",
+      "copyMethod": "explicit stream, flush, fsync, reopen SHA-256; existing copies re-read and reused",
+      "localRetainedForOngoingApplePreparation": true
+    }
+  ],
+  "appleStatus": "not_uploaded; login user verification, app record, App Attest production profile, private Xcode Cloud and TestFlight remain",
+  "deviceUseByAgent": false,
+  "productE2eStatus": "blocked",
+  "normalQaPassed": false,
+  "fullOriginalWorkingTreeAuditPassed": false,
+  "publicReleaseAllowed": false,
+  "gamePr2AndCallerPr4": "Ready unmerged; original main and user dirty settings preserved",
+  "nasCallerProbeSupplement": {
+    "destination": "/Volumes/Data/Backup/agent-artifacts/betta-raising/2026-11-13/bd78bd996987481d668185da815c6853c4e99a4b/internal-distribution/caller-probes-20261113T070422+0900",
+    "files": 5,
+    "bytes": 3111168,
+    "manifestSha256": "bf60c5b7440d26118619891961dfa5861be11f88c69bec37e274dce944d63d35",
+    "copyReadback": "verified"
+  }
+}
