@@ -100,7 +100,13 @@ test('Godot import metadata is generated only for the exact tracked input',()=>{
     writeFileSync(path,'[remap]\nimporter="texture"\npath="res://.godot/imported/fish.ctex"\n[deps]\nsource_file="res://fish.png"\n[params]\ncompress/mode=0\n');
     writeFileSync(join(root,'godot','locale.csv.import'),'[remap]\nimporter="csv_translation"\npath="res://locale.en.translation"\n[deps]\nsource_file="res://locale.csv"\n');
     writeFileSync(join(root,'godot','locale.en.translation'),'generated translation fixture');
+    g.workingOverrides={'before-deploy':{'godot/locale.en.translation':bettaDigest(Buffer.from('generated translation fixture'))}};
     verifyBettaSource(root,g,{phase:'before-deploy'});
+    writeFileSync(join(root,'godot','locale.en.translation'),'altered translation');
+    assert.throws(()=>verifyBettaSource(root,g,{phase:'before-deploy'}),/BETTA_UNTRACKED_SOURCE/u);
+    writeFileSync(join(root,'godot','locale.en.translation'),'generated translation fixture');
+    writeFileSync(path,'[remap]\nimporter="texture"\npath="res://.godot/imported/fish.ctex"\n[deps]\nsource_file="res://.godot/imported/other.ctex"\n[params]\nsource_file="res://fish.png"\n');
+    assert.throws(()=>verifyBettaSource(root,g,{phase:'before-deploy'}),/BETTA_IMPORT_METADATA/u);
     writeFileSync(path,'[remap]\npath="res://hidden.gd"\n[deps]\nsource_file="res://fish.png"\n');
     assert.throws(()=>verifyBettaSource(root,g,{phase:'before-deploy'}),/BETTA_IMPORT_METADATA/u);
   }finally{rmSync(root,{recursive:true,force:true});}
