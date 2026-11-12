@@ -18,9 +18,9 @@ test('artifact identity is immutable by provider id, archive digest and original
 });
 test('upload producer code is separate from artifact source and cannot be a game-build rerun',()=>{
  const env={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:grant.repository,GITHUB_RUN_ID:'999',GITHUB_RUN_ATTEMPT:'1',GITHUB_SHA:'a'.repeat(40),GITHUB_REF:'refs/tags/betta-existing-aab-upload-0.1.0'};
- const r={id:999,event:'push',repository:{full_name:grant.repository,private:true},head_sha:'a'.repeat(40),run_attempt:1,status:'in_progress',path:grant.existingAabRecovery.workflowPath};
+ const r={id:999,workflow_id:301,event:'push',repository:{full_name:grant.repository,private:true},head_sha:'a'.repeat(40),run_attempt:1,status:'in_progress',path:grant.existingAabRecovery.workflowPath};
  assertRecoveryProducer(grant,r,env);
- for(const patch of [{head_sha:sha},{run_attempt:2},{path:'.github/workflows/deploy-google-play.yml'},{status:'completed'}])assert.throws(()=>assertRecoveryProducer(grant,{...r,...patch},env));
+ for(const patch of [{workflow_id:undefined},{workflow_id:0},{head_sha:sha},{run_attempt:2},{path:'.github/workflows/deploy-google-play.yml'},{status:'completed'}])assert.throws(()=>assertRecoveryProducer(grant,{...r,...patch},env));
  assert.throws(()=>assertRecoveryProducer(grant,r,{...env,GITHUB_ACTIONS:'false'}));
  assert.throws(()=>assertRecoveryProducer(grant,r,{...env,GITHUB_REF:'refs/tags/v0.1.0'}));
 });
