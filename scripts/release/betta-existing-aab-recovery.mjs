@@ -31,7 +31,7 @@ export function assertRecoveryArtifact(g,a){
 }
 export function assertRecoveryProducer(g,run,env){
  const r=g.existingAabRecovery;
- if(env.GITHUB_ACTIONS!=='true' || env.GITHUB_REPOSITORY!==g.repository || env.GITHUB_RUN_ATTEMPT!=='1' || env.GITHUB_SHA!==r.uploaderCodeSha || env.GITHUB_REF!==`refs/tags/${r.uploadExecutionTag}`
+ if(!Number.isSafeInteger(run?.workflow_id) || run.workflow_id<=0 || env.GITHUB_ACTIONS!=='true' || env.GITHUB_REPOSITORY!==g.repository || env.GITHUB_RUN_ATTEMPT!=='1' || env.GITHUB_SHA!==r.uploaderCodeSha || env.GITHUB_REF!==`refs/tags/${r.uploadExecutionTag}`
   || String(run?.id)!==env.GITHUB_RUN_ID || run.head_sha!==r.uploaderCodeSha || run.event!=='push' || run.run_attempt!==1 || run.status!=='in_progress'
   || run.repository?.full_name!==g.repository || run.repository.private!==true || run.path?.split('@')[0]!==r.workflowPath)fail('BETTA_RECOVERY_PRODUCER');
 }
@@ -65,7 +65,7 @@ export async function recoverBettaExistingAab({id,env=process.env,fetchImpl=glob
  if(g.originalObservationAssets.length!==9 || !g.originalObservationAssets.some(o=>o.name==='historical-first-native-build-failure.bd78bd9.json') || !g.originalObservationAssets.some(o=>o.name==='historical-second-runner-loss.bd78bd9.json'))fail('BETTA_RECOVERY_FAILURE_HISTORY_REQUIRED');
  const root=realpathSync(process.cwd());if(root!==realpathSync(join(env.GITHUB_WORKSPACE,'candidate')))fail('BETTA_RECOVERY_WORKSPACE');
  const current=await githubJson(`/repos/${g.repository}/actions/runs/${env.GITHUB_RUN_ID}`,request);assertRecoveryProducer(g,current,env);
- const producerRuns=await githubPaginate(`/repos/${g.repository}/actions/workflows/recover-betta-google-play.yml/runs?head_sha=${r.uploaderCodeSha}&event=push&per_page=100`,{...request,select:d=>d.workflow_runs});
+ const producerRuns=await githubPaginate(`/repos/${g.repository}/actions/workflows/${current.workflow_id}/runs?head_sha=${r.uploaderCodeSha}&event=push&per_page=100`,{...request,select:d=>d.workflow_runs});
  if(!producerRuns.some(run=>run.id===current.id) || producerRuns.some(run=>run.run_attempt!==1 || (run.id!==current.id && (run.status!=='completed' || !['failure','cancelled','timed_out'].includes(run.conclusion)))))fail('BETTA_RECOVERY_PRODUCER_HISTORY');
  const uploaderRef=await githubJson(`/repos/${g.repository}/git/ref/tags/${r.uploadExecutionTag}`,request);
  if(uploaderRef.object?.type!=='tag')fail('BETTA_RECOVERY_ANNOTATED_EXECUTION_TAG');
