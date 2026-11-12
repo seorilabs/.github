@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "target",
+    "phase",
+    "attempt",
+    "producer",
+    "sourceSha",
+    "grantSha256",
+    "configurationFingerprint",
+    "recordedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "betta-internal-claim"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^betta-[a-z0-9-]+$"
+    },
+    "target": {
+      "enum": [
+        "google-play",
+        "app-store"
+      ]
+    },
+    "phase": {
+      "enum": [
+        "before-build",
+        "before-deploy"
+      ]
+    },
+    "attempt": {
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "producer": {
+      "type": "string",
+      "pattern": "^(?:github:[1-9][0-9]*:1|xcode-cloud:[A-Za-z0-9-]+)$"
+    },
+    "sourceSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "grantSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "configurationFingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "recordedAt": {
+      "type": "string",
+      "minLength": 20
+    },
+    "artifactSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "before-deploy"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "artifactSha256"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "artifactSha256"
+          ]
+        }
+      }
+    }
+  ]
+}

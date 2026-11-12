@@ -20,6 +20,11 @@ on:
         required: false
         default: ""
         type: string
+      betta_internal_bootstrap_id:
+        description: "중앙에 등록된 Betta 첫 내부 배포 ID. 기본은 비활성이다."
+        required: false
+        default: ""
+        type: string
       track:
         required: false
         default: "internal"
@@ -80,6 +85,10 @@ on:
         default: 30
         type: number
     secrets:
+      BETTA_INTERNAL_BOOTSTRAP_TOKEN:
+        required: false
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:
+        required: false
       FIREBASE_ANDROID_API_KEY:
         required: false
       FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_BASE64:
@@ -101,12 +110,13 @@ permissions:
 jobs:
   build-aab:
     name: Godot signed Android App Bundle
-    # 마켓 자격증명을 쓰는 job은 caller가 러너를 고를 수 없다. GitHub-hosted x64로 고정한다.
-    runs-on: ubuntu-latest
+    # 신규 Betta 내부 경로는 중앙 Android x64 러너를 사용한다. 기존 소비자의 실행 경로는 유지한다.
+    runs-on: ${{ github.repository == 'seorilabs/betta-raising' && github.event.repository.private == true && inputs.betta_internal_bootstrap_id != '' && 'seorilabs-x64-android' || 'ubuntu-latest' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: google-play
 
     env:
+      PUBLISHER_EXECUTION_COPY_PRESENT: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON != '' }}
       GODOT_VERSION: ${{ inputs.godot_version }}
       GODOT_STATUS: ${{ inputs.godot_status }}
       PROJECT_DIR: ${{ inputs.project_dir }}
@@ -225,17 +235,71 @@ jobs:
         shell: bash
         run: npm ci --prefix .seorilabs-release-authority --ignore-scripts --no-audit
 
+      - name: Reject another app or track in Betta bootstrap
+        if: ${{ inputs.betta_internal_bootstrap_id != '' }}
+        env:
+          CALLER_PRIVATE: ${{ github.event.repository.private }}
+          RELEASE_TRACK: ${{ inputs.track }}
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REPOSITORY" = seorilabs/betta-raising ] && [ "$CALLER_PRIVATE" = true ] && [ "$RELEASE_TRACK" = internal ]
+
+      - name: Validate Betta Publisher readback configuration
+        if: ${{ inputs.betta_internal_bootstrap_id != '' && env.PUBLISHER_EXECUTION_COPY_PRESENT != 'true' }}
+        env:
+          GOOGLE_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
+        run: |
+          set -euo pipefail
+          [ -n "$GOOGLE_WORKLOAD_IDENTITY_PROVIDER" ] && [ -n "$GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL" ]
+
+      - name: Authenticate Betta Publisher readback with WIF
+        if: ${{ inputs.betta_internal_bootstrap_id != '' && env.PUBLISHER_EXECUTION_COPY_PRESENT != 'true' }}
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
+          create_credentials_file: true
+
+      - name: Authenticate Betta registered Publisher readback
+        if: ${{ inputs.betta_internal_bootstrap_id != '' && env.PUBLISHER_EXECUTION_COPY_PRESENT == 'true' }}
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          credentials_json: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          create_credentials_file: true
+
+      - name: Setup Python for Betta provider verification
+        if: ${{ inputs.betta_internal_bootstrap_id != '' }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.15"
+          check-latest: false
+
+      - name: Install Betta Publisher readback client
+        if: ${{ inputs.betta_internal_bootstrap_id != '' }}
+        run: python3 -m pip install google-api-python-client google-auth google-auth-httplib2 httplib2
+
       - name: Verify Editor E2E before-build
+        # Betta의 실제 마켓 읽기는 이 단계 앞에서 준비한 ADC를 사용한다.
         id: editor_before_build
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
+          BETTA_BOOTSTRAP_ID: ${{ inputs.betta_internal_bootstrap_id }}
+          BETTA_BOOTSTRAP_TOKEN: ${{ secrets.BETTA_INTERNAL_BOOTSTRAP_TOKEN }}
+          RELEASE_TRACK: ${{ inputs.track }}
         run: |
           set -euo pipefail
+          bootstrap_args=()
+          if [ -n "${BETTA_BOOTSTRAP_ID:-}" ]; then
+            [ -n "$BETTA_BOOTSTRAP_TOKEN" ] || { echo "Betta claim용 등록 identity가 필요합니다." >&2; exit 1; }
+            export GH_TOKEN="$BETTA_BOOTSTRAP_TOKEN"
+            bootstrap_args=(--betta-internal-bootstrap-id "$BETTA_BOOTSTRAP_ID" --app-repository "$GITHUB_WORKSPACE" --play-track "$RELEASE_TRACK" --play-operation upload --report "$RUNNER_TEMP/betta-before-build.json")
+          fi
           node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
             --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
-            --target google-play --phase before-build
+            --target google-play --phase before-build "${bootstrap_args[@]}"
 
       - name: Resolve AAB name
         id: meta
@@ -525,7 +589,7 @@ jobs:
           retention-days: 3
 
       - name: Validate Google Play WIF config
-        if: ${{ inputs.upload }}
+        if: ${{ inputs.upload && inputs.betta_internal_bootstrap_id == '' && env.PUBLISHER_EXECUTION_COPY_PRESENT != 'true' }}
         shell: bash
         env:
           GOOGLE_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
@@ -536,22 +600,29 @@ jobs:
           [ -n "$GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL" ] || { echo "GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL var required." >&2; exit 1; }
 
       - name: Authenticate to Google Cloud
-        if: ${{ inputs.upload }}
+        if: ${{ inputs.upload && inputs.betta_internal_bootstrap_id == '' && env.PUBLISHER_EXECUTION_COPY_PRESENT != 'true' }}
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
           create_credentials_file: true
 
+      - name: Authenticate registered Publisher execution copy
+        if: ${{ inputs.upload && inputs.betta_internal_bootstrap_id == '' && env.PUBLISHER_EXECUTION_COPY_PRESENT == 'true' }}
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          credentials_json: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          create_credentials_file: true
+
       - name: Setup Python for Google Play API client
-        if: ${{ inputs.upload }}
+        if: ${{ inputs.upload && inputs.betta_internal_bootstrap_id == '' }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13.15"
           check-latest: false
 
       - name: Install Google Play API client
-        if: ${{ inputs.upload }}
+        if: ${{ inputs.upload && inputs.betta_internal_bootstrap_id == '' }}
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install google-api-python-client google-auth google-auth-httplib2 httplib2
@@ -580,10 +651,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE_TAG: ${{ steps.tag.outputs.tag }}
           RELEASE_TRACK: ${{ inputs.track }}
+          BETTA_BOOTSTRAP_ID: ${{ inputs.betta_internal_bootstrap_id }}
+          BETTA_BOOTSTRAP_TOKEN: ${{ secrets.BETTA_INTERNAL_BOOTSTRAP_TOKEN }}
+          BETTA_ARTIFACT_FILE: ${{ steps.meta.outputs.aab_path }}
         run: |
           set -euo pipefail
           play_args=(--play-operation upload)
           [ -z "$RELEASE_TRACK" ] || play_args+=(--play-track "$RELEASE_TRACK")
+          if [ -n "${BETTA_BOOTSTRAP_ID:-}" ]; then
+            [ -n "$BETTA_BOOTSTRAP_TOKEN" ] || { echo "Betta claim용 등록 identity가 필요합니다." >&2; exit 1; }
+            export GH_TOKEN="$BETTA_BOOTSTRAP_TOKEN"
+            play_args+=(--betta-internal-bootstrap-id "$BETTA_BOOTSTRAP_ID" --app-repository "$GITHUB_WORKSPACE" --artifact-file "$BETTA_ARTIFACT_FILE" --report "$RUNNER_TEMP/betta-before-deploy.json")
+          fi
           node .seorilabs-release-authority/scripts/release/verify-development-evidence.mjs \
             --repo "$GITHUB_REPOSITORY" --tag "$EVIDENCE_TAG" --sha "$(git rev-parse HEAD)" \
             --target google-play --phase before-deploy "${play_args[@]}"

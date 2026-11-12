@@ -498,6 +498,11 @@ async function findEvidenceArchive(repository, request) {
 }
 
 export async function verifyReleaseDevelopmentEvidence(options) {
+  if(options.bettaBootstrapId){
+    if(options.bootstrapId) throw new Error('INVALID_EVIDENCE_ARGUMENT');
+    const {verifyBettaInternalBootstrap}=await import('./betta-internal-execution.mjs');
+    return verifyBettaInternalBootstrap(options);
+  }
   if (options.bootstrapId) {
     const { verifyInternalTestflightBootstrap } = await import('./internal-testflight-bootstrap.mjs');
     return verifyInternalTestflightBootstrap(options);
@@ -536,7 +541,7 @@ export async function verifyReleaseDevelopmentEvidence(options) {
 export async function runDevelopmentEvidenceCli(argv, env = process.env) {
   const args = new Map();
   const allowed = new Set(['file', 'feature-inventory', 'repo', 'tag', 'sha', 'target', 'phase', 'configuration-fingerprint',
-    'rollout', 'play-track', 'play-operation', 'internal-testflight-bootstrap-id', 'verifier-sha', 'report', 'artifact-receipt', 'artifact-file', 'app-repository', 'after']);
+    'rollout', 'play-track', 'play-operation', 'internal-testflight-bootstrap-id', 'betta-internal-bootstrap-id', 'producer-run-id', 'verifier-sha', 'report', 'artifact-receipt', 'artifact-file', 'app-repository', 'after']);
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i]?.replace(/^--/u, '');
     if (!argv[i]?.startsWith('--') || !allowed.has(key) || !argv[i + 1] || argv[i + 1].startsWith('--') || args.has(key)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
@@ -550,6 +555,16 @@ export async function runDevelopmentEvidenceCli(argv, env = process.env) {
     if (!/^(0(\.\d+)?|1(\.0+)?)$/u.test(args.get('rollout')) || !(rollout > 0 && rollout <= 1)) throw new Error('INVALID_EVIDENCE_ARGUMENT');
     context.rollout = rollout;
   }
+  if(args.has('betta-internal-bootstrap-id')){
+    if(['internal-testflight-bootstrap-id','file','feature-inventory','verifier-sha','artifact-receipt','after','rollout'].some(key=>args.has(key))) throw new Error('INVALID_EVIDENCE_ARGUMENT');
+    const {verifyBettaInternalBootstrap}=await import('./betta-internal-execution.mjs');
+    const result=await verifyBettaInternalBootstrap({...context,env,bettaBootstrapId:args.get('betta-internal-bootstrap-id'),
+      producerRunId:args.get('producer-run-id'),appRepository:args.get('app-repository'),artifactFile:args.get('artifact-file')});
+    if(args.has('report')) writeFileSync(args.get('report'),`${JSON.stringify(result,null,2)}\n`);
+    process.stdout.write(`Betta 내부 배포 human_exception: ${context.target}; 제품 E2E blocked; 공개 불가\n`);
+    return result;
+  }
+  if(args.has('producer-run-id')) throw new Error('BETTA_INTERNAL_BOOTSTRAP_ID_REQUIRED');
   if (args.has('internal-testflight-bootstrap-id')) {
     if (args.has('file')) throw new Error('INVALID_EVIDENCE_ARGUMENT');
     const { verifyInternalTestflightBootstrap } = await import('./internal-testflight-bootstrap.mjs');

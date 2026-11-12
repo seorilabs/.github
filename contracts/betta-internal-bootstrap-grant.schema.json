@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "repository",
+    "sourceSha",
+    "releaseTag",
+    "configurationFingerprint",
+    "productTreeSha256",
+    "approvedAt",
+    "expiresAt",
+    "revoked",
+    "maxBuildsPerMarket",
+    "maxAcceptedUploadsPerMarket",
+    "publicReleaseAllowed",
+    "allowedErrors",
+    "evidenceSha256",
+    "inventorySha256",
+    "approvalFile",
+    "approvalSha256",
+    "proposalFile",
+    "proposalSha256",
+    "verifierCommit",
+    "googlePlay",
+    "ciRunId",
+    "originalObservationAssets",
+    "targets"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "betta-first-internal"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^betta-[a-z0-9-]+$"
+    },
+    "repository": {
+      "const": "seorilabs/betta-raising"
+    },
+    "sourceSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "releaseTag": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "configurationFingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "productTreeSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "approvedAt": {
+      "type": "string",
+      "minLength": 20
+    },
+    "expiresAt": {
+      "type": "string",
+      "minLength": 20
+    },
+    "revoked": {
+      "type": "boolean"
+    },
+    "maxBuildsPerMarket": {
+      "const": 2
+    },
+    "maxAcceptedUploadsPerMarket": {
+      "const": 1
+    },
+    "publicReleaseAllowed": {
+      "const": false
+    },
+    "allowedErrors": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "evidenceSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "inventorySha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "approvalFile": {
+      "type": "string",
+      "pattern": "^docs/[A-Za-z0-9_./-]+$"
+    },
+    "approvalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "proposalFile": {
+      "type": "string",
+      "pattern": "^docs/[A-Za-z0-9_./-]+$"
+    },
+    "proposalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "verifierCommit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "googlePlay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "packageName",
+        "accountId",
+        "versionCode",
+        "certificateSha256",
+        "workflowPath"
+      ],
+      "properties": {
+        "packageName": {
+          "const": "com.seorilabs.bettaraising"
+        },
+        "accountId": {
+          "const": "7593567020638200144"
+        },
+        "versionCode": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "certificateSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "workflowPath": {
+          "const": ".github/workflows/deploy-google-play.yml"
+        }
+      }
+    },
+    "appStore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bundleId",
+        "appId",
+        "productId",
+        "workflowId",
+        "scheme",
+        "teamId",
+        "profileUuid",
+        "profileSha256",
+        "certificateSha256",
+        "initialBuildNumber"
+      ],
+      "properties": {
+        "bundleId": {
+          "const": "com.seorilabs.bettaraising"
+        },
+        "appId": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "productId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workflowId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scheme": {
+          "type": "string",
+          "minLength": 1
+        },
+        "teamId": {
+          "const": "HCDUXX4Z3X"
+        },
+        "profileUuid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profileSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "certificateSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "initialBuildNumber": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        }
+      }
+    },
+    "workingOverrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "before-build",
+        "before-deploy"
+      ],
+      "properties": {
+        "before-build": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9_./-]+$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "before-deploy": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9_./-]+$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "ciRunId": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$"
+    },
+    "originalObservationAssets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "sha256"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]+\\.json$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "google-play",
+          "app-store"
+        ]
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "targets": {
+            "contains": {
+              "const": "app-store"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "appStore"
+        ]
+      }
+    }
+  ]
+}

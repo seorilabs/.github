@@ -32,6 +32,11 @@ on:
         required: false
         default: false
         type: boolean
+      with_rendering:
+        description: "실제 화면 캡처용 Xvfb와 소프트웨어 OpenGL을 준비한다."
+        required: false
+        default: false
+        type: boolean
       timeout_minutes:
         required: false
         default: 25
@@ -77,6 +82,17 @@ jobs:
           sudo_cmd=""; command -v sudo >/dev/null 2>&1 && sudo_cmd="sudo"
           ${sudo_cmd} apt-get update
           ${sudo_cmd} apt-get install -y libfontconfig1 fontconfig
+
+      - name: Prepare actual rendering runtime
+        if: ${{ inputs.with_rendering }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v apt-get >/dev/null 2>&1 || { echo "실제 렌더링에는 Debian 계열 Xvfb 실행 환경이 필요합니다." >&2; exit 1; }
+          sudo_cmd=""; command -v sudo >/dev/null 2>&1 && sudo_cmd="sudo"
+          ${sudo_cmd} apt-get update
+          ${sudo_cmd} apt-get install -y --no-install-recommends xvfb xauth libgl1 libglx-mesa0 libgl1-mesa-dri libegl1 libegl-mesa0
+          command -v xvfb-run >/dev/null
 
       - name: Cache Godot editor
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

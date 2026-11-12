@@ -1970,6 +1970,7 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
     'macos-26',
     "${{ (inputs.runs_on == 'ubuntu-latest' && 'ubuntu-latest') || 'seorilabs-x64' }}",
     visibilityRoutedRunner,
+    "${{ github.repository == 'seorilabs/betta-raising' && github.event.repository.private == true && inputs.betta_internal_bootstrap_id != '' && 'seorilabs-x64-android' || 'ubuntu-latest' }}",
   ]);
   const marketPermissions = {
     'rn-deploy-google-play.yml': { contents: 'read', 'id-token': 'write', packages: 'read' },
@@ -2017,7 +2018,7 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   assert.equal(resolveTagStep.env.RELEASE_EVENT_SHA, '${{ github.sha }}');
   const godotPlay = parse(workflowText('godot-deploy-google-play.yml'));
   const rnPlay = parse(workflowText('rn-deploy-google-play.yml'));
-  assert.equal(godotPlay.jobs['build-aab']['runs-on'], 'ubuntu-latest');
+  assert.equal(godotPlay.jobs['build-aab']['runs-on'], "${{ github.repository == 'seorilabs/betta-raising' && github.event.repository.private == true && inputs.betta_internal_bootstrap_id != '' && 'seorilabs-x64-android' || 'ubuntu-latest' }}");
   assert.equal(rnPlay.jobs['build-aab']['runs-on'], 'ubuntu-latest');
   for (const [name, definition] of [
     ['release-tag.yml', releaseTag],
@@ -2046,9 +2047,14 @@ test('릴리즈 경로는 최소 권한과 승인된 러너 라우팅을 유지�
   }
 });
 
-test('Android 빌드는 public/private 구분 없이 GitHub-hosted x64를 쓴다', () => {
+test('기존 Android 빌드는 hosted x64를 유지하고 Betta의 명시적 내부 경로만 전용 x64를 쓴다', () => {
   for (const name of ['rn-deploy-google-play.yml', 'godot-deploy-google-play.yml']) {
     const workflow = parse(workflowText(name));
+    if(name==='godot-deploy-google-play.yml'){
+      assert.equal(workflow.jobs['build-aab']['runs-on'], "${{ github.repository == 'seorilabs/betta-raising' && github.event.repository.private == true && inputs.betta_internal_bootstrap_id != '' && 'seorilabs-x64-android' || 'ubuntu-latest' }}");
+      assert.doesNotMatch(workflowText(name),/seorilabs-rpi-arm64/u);
+      continue;
+    }
     assert.equal(workflow.jobs['build-aab']['runs-on'], 'ubuntu-latest', name);
     // Android AAB는 GitHub-hosted x64에서만 만든다. ARC 라우팅이 되살아나지 않게 막는다.
     // 라벨 이름이 바뀌어도 걸리도록 두 ARC 스케일셋 계열을 모두 금지한다.

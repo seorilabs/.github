@@ -1231,6 +1231,42 @@ export function parseAabManifest(buffer) {
   return { packageName, versionName, versionCode };
 }
 
+/** 실제 AAB protobuf에서 SDK와 런처 방향을 읽는다. */
+export function parseAabRuntimeSettings(buffer) {
+  const decodeNode = bytes => {
+    const node = readProtobufFields(bytes), raw = node.get(1)?.[0];
+    if (!Buffer.isBuffer(raw)) throw new Error('AAB_XML_ELEMENT_REQUIRED');
+    const element = readProtobufFields(raw), attributes = {};
+    for (const bytes of element.get(4) ?? []) {
+      const attr = readProtobufFields(bytes), name = protobufString(attr, 2);
+      if (protobufString(attr, 1) !== ANDROID_RESOURCE_NAMESPACE) continue;
+      if (Object.hasOwn(attributes, name)) throw new Error('AAB_DUPLICATE_ATTRIBUTE');
+      let value = protobufString(attr, 3);
+      if (!value) {
+        const item = attr.get(6)?.[0], primitive = Buffer.isBuffer(item) ? readProtobufFields(item).get(7)?.[0] : null;
+        if (Buffer.isBuffer(primitive)) {
+          const fields = readProtobufFields(primitive);
+          value = String(fields.get(6)?.[0] ?? fields.get(7)?.[0] ?? fields.get(8)?.[0] ?? '');
+        }
+      }
+      attributes[name] = value;
+    }
+    return { name: protobufString(element, 3), attributes,
+      children: (element.get(5) ?? []).filter(child => Buffer.isBuffer(child) && Buffer.isBuffer(readProtobufFields(child).get(1)?.[0])).map(decodeNode) };
+  };
+  const root = decodeNode(buffer);
+  const sdk = root.children.filter(node => node.name === 'uses-sdk');
+  const applications = root.children.filter(node => node.name === 'application');
+  if (root.name !== 'manifest' || sdk.length !== 1 || applications.length !== 1) throw new Error('AAB_RUNTIME_METADATA_REQUIRED');
+  const launchers = applications[0].children.filter(node => ['activity', 'activity-alias'].includes(node.name)
+    && node.children.some(filter => filter.name === 'intent-filter'
+      && filter.children.some(child => child.name === 'action' && child.attributes.name === 'android.intent.action.MAIN')
+      && filter.children.some(child => child.name === 'category' && child.attributes.name === 'android.intent.category.LAUNCHER')));
+  if (launchers.length !== 1) throw new Error('AAB_SINGLE_LAUNCHER_REQUIRED');
+  return { minSdk: Number(sdk[0].attributes.minSdkVersion), targetSdk: Number(sdk[0].attributes.targetSdkVersion),
+    launchOrientation: launchers[0].attributes.screenOrientation };
+}
+
 /** plutil -convert json 출력에서 Apple marketing version과 build number를 읽는다. */
 export function parseInfoPlistJson(text) {
   let parsed;
