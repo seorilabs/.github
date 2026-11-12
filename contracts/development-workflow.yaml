@@ -249,3 +249,4 @@ bettaInternalBootstrap:
   retryRegistry: []
   grantRegistry:
     - contracts/betta-internal-bootstrap/betta-0-1-0-google-first-internal.json
+    - contracts/betta-internal-bootstrap/betta-0-1-0-google-first-internal-r1.json
