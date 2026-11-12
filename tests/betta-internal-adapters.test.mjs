@@ -88,3 +88,20 @@ test('real checkout audit detects changed tracked bytes and ignored source injec
     assert.throws(()=>verifyBettaSource(root,g,{phase:'before-build'}),/BETTA_UNTRACKED_SOURCE/u);
   }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+test('Godot import metadata is generated only for the exact tracked input',()=>{
+  const root=mkdtempSync(join(tmpdir(),'betta-import-test-'));
+  const git=(...args)=>execFileSync('git',['-C',root,...args],{stdio:['ignore','pipe','pipe']});
+  try{
+    git('init');mkdirSync(join(root,'godot'));writeFileSync(join(root,'godot','fish.png'),'tracked image fixture');writeFileSync(join(root,'godot','locale.csv'),'keys,en\nHELLO,Hello\n');git('add','.');
+    git('-c','user.name=Fixture','-c','user.email=fixture@example.test','commit','-m','fixture');
+    const g={sourceSha:git('rev-parse','HEAD').toString().trim()};g.productTreeSha256=bettaDigest(git('ls-tree','-r','-z',g.sourceSha));
+    const path=join(root,'godot','fish.png.import');
+    writeFileSync(path,'[remap]\nimporter="texture"\npath="res://.godot/imported/fish.ctex"\n[deps]\nsource_file="res://fish.png"\n[params]\ncompress/mode=0\n');
+    writeFileSync(join(root,'godot','locale.csv.import'),'[remap]\nimporter="csv_translation"\npath="res://locale.en.translation"\n[deps]\nsource_file="res://locale.csv"\n');
+    writeFileSync(join(root,'godot','locale.en.translation'),'generated translation fixture');
+    verifyBettaSource(root,g,{phase:'before-deploy'});
+    writeFileSync(path,'[remap]\npath="res://hidden.gd"\n[deps]\nsource_file="res://fish.png"\n');
+    assert.throws(()=>verifyBettaSource(root,g,{phase:'before-deploy'}),/BETTA_IMPORT_METADATA/u);
+  }finally{rmSync(root,{recursive:true,force:true});}
+});

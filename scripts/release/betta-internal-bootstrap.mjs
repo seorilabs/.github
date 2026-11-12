@@ -114,6 +114,28 @@ export function verifyBettaSource(directory,grant,{phase,credentialFile}){
     if(path===credentialPath && /^gha-creds-[a-f0-9]+\.json$/u.test(path) && lstatSync(join(root,path)).isFile() && !lstatSync(join(root,path)).isSymbolicLink()) continue;
     if(lstatSync(join(root,path)).isSymbolicLink()) fail('BETTA_SOURCE_SYMLINK');
     if(workingOverrides[path] && bettaDigest(readFileSync(join(root,path)))===workingOverrides[path]) continue;
+    if(path.startsWith('godot/') && path.endsWith('.import')){
+      const base=path.slice(0,-7),tracked=tree.toString().split('\0').some(entry=>entry.endsWith(`\t${base}`));
+      if(tracked || workingOverrides[base]){
+        const text=readFileSync(join(root,path),'utf8'),source=`res://${base.slice(6)}`;
+        const refs=[...text.matchAll(/"(res:\/\/[^"\r\n]+)"/gu)].map(m=>m[1]);
+        const translationPrefix=base.endsWith('.csv') ? `res://${base.slice(6,-4)}.` : null;
+        const translationRef=ref=>translationPrefix && text.includes('importer="csv_translation"') && ref.startsWith(translationPrefix)
+          && /^[A-Za-z]{2,3}(?:_[A-Za-z0-9]{2,8})*\.translation$/u.test(ref.slice(translationPrefix.length));
+        if(text.length>65536 || !text.includes(`source_file="${source}"`) || !/^importer="[a-z0-9_]+"$/mu.test(text)
+          || refs.some(ref=>ref!==source && !translationRef(ref) && (!ref.startsWith('res://.godot/imported/') || ref.split('/').includes('..')))
+          || /\b(?:ExtResource|SubResource|load|preload)\s*\(/u.test(text)) fail('BETTA_IMPORT_METADATA');
+        continue;
+      }
+    }
+    const translation=/^(godot\/.+)\.([A-Za-z]{2,3}(?:_[A-Za-z0-9]{2,8})*)\.translation$/u.exec(path);
+    if(translation){
+      const base=`${translation[1]}.csv`,metadata=`${base}.import`;
+      if(tree.toString().split('\0').some(entry=>entry.endsWith(`\t${base}`)) && lstatSync(join(root,metadata)).isFile()){
+        const text=readFileSync(join(root,metadata),'utf8');
+        if(text.includes('importer="csv_translation"') && text.includes(`source_file="res://${base.slice(6)}"`) && text.includes(`"res://${path.slice(6)}"`)) continue;
+      }
+    }
     if(path.endsWith('.uid')){
       const base=path.slice(0,-4),tracked=tree.toString().split('\0').some(entry=>entry.endsWith(`\t${base}`));
       if((tracked || workingOverrides[base]) && /^uid:\/\/[a-z0-9]+\s*$/u.test(readFileSync(join(root,path),'utf8'))) continue;
