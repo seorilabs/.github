@@ -30,10 +30,20 @@ export function assertRecoveryArtifact(g,a){
   || a.workflow_run?.id!==r.sourceRunIds[0] || a.workflow_run.head_sha!==g.sourceSha || a.workflow_run.repository_id!==1455493296)fail('BETTA_RECOVERY_ARTIFACT_PROVIDER');
 }
 export function assertRecoveryProducer(g,run,env){
- const r=g.existingAabRecovery;
- if(!Number.isSafeInteger(run?.workflow_id) || run.workflow_id<=0 || env.GITHUB_ACTIONS!=='true' || env.GITHUB_REPOSITORY!==g.repository || env.GITHUB_RUN_ATTEMPT!=='1' || env.GITHUB_SHA!==r.uploaderCodeSha || env.GITHUB_REF!==`refs/tags/${r.uploadExecutionTag}`
-  || String(run?.id)!==env.GITHUB_RUN_ID || run.head_sha!==r.uploaderCodeSha || run.event!=='push' || run.run_attempt!==1 || run.status!=='in_progress'
+ const r=g.existingAabRecovery,retry=r.preflightRetry,attempt=retry?.allowedAttempt??1;
+ if((retry && (run?.id!==retry.runId || run.workflow_id!==retry.workflowId)) || !Number.isSafeInteger(run?.workflow_id) || run.workflow_id<=0 || env.GITHUB_ACTIONS!=='true' || env.GITHUB_REPOSITORY!==g.repository || env.GITHUB_RUN_ATTEMPT!==String(attempt) || env.GITHUB_SHA!==r.uploaderCodeSha || env.GITHUB_REF!==`refs/tags/${r.uploadExecutionTag}`
+  || String(run?.id)!==env.GITHUB_RUN_ID || run.head_sha!==r.uploaderCodeSha || run.event!=='push' || run.run_attempt!==attempt || run.status!=='in_progress'
   || run.repository?.full_name!==g.repository || run.repository.private!==true || run.path?.split('@')[0]!==r.workflowPath)fail('BETTA_RECOVERY_PRODUCER');
+}
+export function assertRecoveryPreflight(g,{run,jobs,log}){
+ const r=g.existingAabRecovery,p=r.preflightRetry;
+ if(!p || run?.id!==p.runId || run.workflow_id!==p.workflowId || run.run_attempt!==p.failedAttempt || run.status!=='completed' || run.conclusion!=='failure'
+  || !run.referenced_workflows?.some(w=>w.path==='seorilabs/.github/.github/workflows/betta-existing-aab-upload.yml@main' && w.sha===p.originalReusableCommit)
+  || run.head_sha!==r.uploaderCodeSha || run.event!=='push' || run.path?.split('@')[0]!==r.workflowPath
+  || run.repository?.full_name!==g.repository || run.repository.private!==true || jobs.length!==1
+  || jobs[0].id!==p.jobId || jobs[0].status!=='completed' || jobs[0].conclusion!=='failure'
+  || jobs[0].steps?.filter(s=>s.name==='Verify and upload exact existing AAB' && s.status==='completed' && s.conclusion==='failure').length!==1
+  || bettaDigest(log)!==p.rawJobLogSha256)fail('BETTA_RECOVERY_PREFLIGHT_PROOF');
 }
 async function postUnique(release,name,document,request){
  const url=new URL(release.upload_url.replace(/\{.*$/u,''));
@@ -62,11 +72,27 @@ function emptyPlay(g,env){
 export async function recoverBettaExistingAab({id,env=process.env,fetchImpl=globalThis.fetch,report}){
  const request={env,fetchImpl},reviewed=await readReviewedBettaGrant(id,request),g=reviewed.grant,r=g.existingAabRecovery;
  if(!r)fail('BETTA_RECOVERY_REQUIRED');
- if(g.originalObservationAssets.length!==9 || !g.originalObservationAssets.some(o=>o.name==='historical-first-native-build-failure.bd78bd9.json') || !g.originalObservationAssets.some(o=>o.name==='historical-second-runner-loss.bd78bd9.json'))fail('BETTA_RECOVERY_FAILURE_HISTORY_REQUIRED');
+ const retry=r.preflightRetry;
+ if(g.originalObservationAssets.length!==(retry?10:9) || (retry && !g.originalObservationAssets.some(o=>o.name===retry.observationName)) || !g.originalObservationAssets.some(o=>o.name==='historical-first-native-build-failure.bd78bd9.json') || !g.originalObservationAssets.some(o=>o.name==='historical-second-runner-loss.bd78bd9.json'))fail('BETTA_RECOVERY_FAILURE_HISTORY_REQUIRED');
  const root=realpathSync(process.cwd());if(root!==realpathSync(join(env.GITHUB_WORKSPACE,'candidate')))fail('BETTA_RECOVERY_WORKSPACE');
  const current=await githubJson(`/repos/${g.repository}/actions/runs/${env.GITHUB_RUN_ID}`,request);assertRecoveryProducer(g,current,env);
  const producerRuns=await githubPaginate(`/repos/${g.repository}/actions/workflows/${current.workflow_id}/runs?head_sha=${r.uploaderCodeSha}&event=push&per_page=100`,{...request,select:d=>d.workflow_runs});
- if(!producerRuns.some(run=>run.id===current.id) || producerRuns.some(run=>run.run_attempt!==1 || (run.id!==current.id && (run.status!=='completed' || !['failure','cancelled','timed_out'].includes(run.conclusion)))))fail('BETTA_RECOVERY_PRODUCER_HISTORY');
+ if(!producerRuns.some(run=>run.id===current.id && run.run_attempt===current.run_attempt) || producerRuns.some(run=>run.id!==current.id && (run.run_attempt!==1 || run.status!=='completed' || !['failure','cancelled','timed_out'].includes(run.conclusion))))fail('BETTA_RECOVERY_PRODUCER_HISTORY');
+ if(retry){
+  const priorRun=await githubJson(`/repos/${g.repository}/actions/runs/${retry.runId}/attempts/${retry.failedAttempt}`,request);
+  const priorJobs=await githubPaginate(`/repos/${g.repository}/actions/runs/${retry.runId}/attempts/${retry.failedAttempt}/jobs?per_page=100`,{...request,select:d=>d.jobs});
+  const log=await githubDownload(`/repos/${g.repository}/actions/jobs/${retry.jobId}/logs`,{...request,accept:'application/vnd.github+json'});
+  assertRecoveryPreflight(g,{run:priorRun,jobs:priorJobs,log});
+  const bytes=await readBettaFile('seorilabs/.github',`contracts/betta-internal-bootstrap/${retry.originalGrantId}.json`,retry.originalGrantCommit,request);
+  if(bettaDigest(bytes)!==retry.originalGrantSha256)fail('BETTA_RECOVERY_PREFLIGHT_GRANT');
+  const previous=JSON.parse(bytes),currentBase={...g,existingAabRecovery:{...r}};
+  delete currentBase.existingAabRecovery.preflightRetry;
+  if(previous.verifierCommit!==retry.originalVerifierCommit)fail('BETTA_RECOVERY_PREFLIGHT_VERIFIER');
+  for(const key of Object.keys(previous).filter(k=>!['id','verifierCommit','originalObservationAssets','revoked'].includes(k)))if(!isDeepStrictEqual(previous[key],currentBase[key]))fail('BETTA_RECOVERY_PREFLIGHT_SCOPE_CHANGED');
+  for(const o of previous.originalObservationAssets)if(!g.originalObservationAssets.some(a=>a.name===o.name && a.sha256===o.sha256))fail('BETTA_RECOVERY_HISTORY_REMOVED');
+  const old=JSON.parse(await readBettaFile('seorilabs/.github',`contracts/betta-internal-bootstrap/${retry.originalGrantId}.json`,'main',request));
+  if(old.revoked!==true || old.sourceSha!==g.sourceSha)fail('BETTA_RECOVERY_OLD_ADMISSION_ACTIVE');
+ }
  const uploaderRef=await githubJson(`/repos/${g.repository}/git/ref/tags/${r.uploadExecutionTag}`,request);
  if(uploaderRef.object?.type!=='tag')fail('BETTA_RECOVERY_ANNOTATED_EXECUTION_TAG');
  const uploaderTag=await githubJson(`/repos/${g.repository}/git/tags/${uploaderRef.object.sha}`,request);
@@ -115,17 +141,18 @@ export async function recoverBettaExistingAab({id,env=process.env,fetchImpl=glob
  catch(error){originalVerdict={ok:false,errors:error.message.split('\n')};}
  const decision=validateBettaAabRecoveryContext(g,{repository:g.repository,sourceSha:g.sourceSha,tag:g.releaseTag,configurationFingerprint:fingerprint,target:'google-play',phase:'before-deploy',playTrack:'internal',playOperation:'upload'},originalVerdict);
  const artifact=await githubJson(`/repos/${g.repository}/actions/artifacts/${r.sourceArtifactId}`,request);assertRecoveryArtifact(g,artifact);
- const zip=await githubDownload(`/repos/${g.repository}/actions/artifacts/${r.sourceArtifactId}/zip`,request);if(bettaDigest(zip)!==r.sourceArtifactArchiveSha256)fail('BETTA_RECOVERY_ARCHIVE_DIGEST');
+ const zip=await githubDownload(`/repos/${g.repository}/actions/artifacts/${r.sourceArtifactId}/zip`,{...request,accept:'application/vnd.github+json'});if(bettaDigest(zip)!==r.sourceArtifactArchiveSha256)fail('BETTA_RECOVERY_ARCHIVE_DIGEST');
  const temp=mkdtempSync(join(env.RUNNER_TEMP??tmpdir(),'betta-existing-aab-')),archive=join(temp,'artifact.zip'),aab=join(temp,'betta-raising.aab');writeFileSync(archive,zip,{flag:'wx'});
  execFileSync('python3',['-c',"import sys,zipfile\nwith zipfile.ZipFile(sys.argv[1]) as z:\n n=z.namelist();assert n==['betta-raising.aab'];i=z.getinfo(n[0]);assert i.file_size==114386125;open(sys.argv[2],'xb').write(z.read(n[0]))",archive,aab]);
  const inspected=inspectBettaAab(aab,g);if(inspected.sha256!==r.artifactSha256 || readFileSync(aab).length!==r.artifactSize)fail('BETTA_RECOVERY_AAB_DIGEST');
  const notes=await readAsset('release-notes.json',r.releaseNotesSha256),notesPath=join(temp,'release-notes.json');writeFileSync(notesPath,notes,{flag:'wx'});
  emptyPlay(g,env);
  const live=await readReviewedBettaGrant(id,request);if(live.grantSha256!==reviewed.grantSha256)fail('BETTA_RECOVERY_GRANT_CHANGED');
- const reservation=await reserveRecoveryUpload(g,release,{producer:`github:${current.id}:1`,grantSha256:reviewed.grantSha256},request);
+ const producer=`github:${current.id}:${current.run_attempt}`;
+ const reservation=await reserveRecoveryUpload(g,release,{producer,grantSha256:reviewed.grantSha256},request);
  // 두 이전 admission을 원자적으로 막았다. 예약 뒤 요청은 자동 재시도하지 않는다.
  const market=emptyPlay(g,env);
- const receipt={...decision,scope:'betta_existing_aab_upload_only',artifactSourceSha:g.sourceSha,uploaderCodeSha:r.uploaderCodeSha,artifactSourceRunId:r.sourceRunIds[0],priorPhysicalBuildRunIds:r.sourceRunIds,additionalGameBuilds:0,fullWorkingTreeAuditPassed:false,originalSourceAuditStatus:r.sourceAuditStatus,sourceVerificationMode:'fresh-original-checkout-and-immutable-provider-artifact',artifact:inspected,reservation,marketBeforeUpload:market};
+ const receipt={...decision,scope:'betta_existing_aab_upload_only',producer,runAttempt:current.run_attempt,artifactSourceSha:g.sourceSha,uploaderCodeSha:r.uploaderCodeSha,artifactSourceRunId:r.sourceRunIds[0],priorPhysicalBuildRunIds:r.sourceRunIds,additionalGameBuilds:0,fullWorkingTreeAuditPassed:false,originalSourceAuditStatus:r.sourceAuditStatus,sourceVerificationMode:'fresh-original-checkout-and-immutable-provider-artifact',artifact:inspected,reservation,marketBeforeUpload:market};
  writeFileSync(report,JSON.stringify(receipt,null,2)+'\n',{flag:'wx'});
  const result=spawnSync('python3',[fileURLToPath(new URL('./upload-google-play-aab.py',import.meta.url)),'--package-name',g.googlePlay.packageName,'--aab-path',aab,'--expected-aab-sha256',r.artifactSha256,'--expected-version-code',String(g.googlePlay.versionCode),'--track','internal','--release-status','completed','--release-name','Betta Atelier 0.1.0 (1)','--release-notes-json',notesPath,'--api-timeout-seconds','120','--api-retries','0'],{env,stdio:'inherit',timeout:600000});
  if(result.status!==0)fail('BETTA_RECOVERY_UPLOAD_FAILED_OR_UNKNOWN');

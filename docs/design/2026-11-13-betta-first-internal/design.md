@@ -59,9 +59,18 @@ Cloud custom script 사이에는 임시 파일 유지를 가정하지 않는다.
 
 GitHub의 두 실제 source build와 before-build claim을 보존한다. 첫 uploader는 skipped이고 두 번째는 pending/null 및 runner lost annotation이어야 한다. 이전 두 grant의 회수, before-deploy intent 부재와 fresh Play empty를 확인한다. PodNotFound만으로 물리 worker 종료를 주장하지 않는다.
 
-업로드 예산은 grantID와 무관한 repository/Release443379082/package/versionCode1의 `com.seorilabs.bettaraising.1.upload-intent.json` 한 개로 원자적으로 예약한다. 이어 정확한 두 이전 before-deploy asset 슬롯에 명시적 `betta-recovery-upload-fence`를 POST하고 전체 바이트를 다시 읽는다. 기존 정상 claim이 먼저면422로 recovery를 중단하고, fence가 먼저면 old producer의 claim POST가422·strict kind 실패로 끝나므로 그 uploader가 실행되지 않는다. fence는 정상 claim이 아니며 정상 schema에 허용하지 않는다. 두 슬롯과 global slot의 삭제·교체·rollback은 없다. 부분 fence, POST 응답 유실, 같은 producer 재호출과 모든422는 실제 업로드 없이 중단한다. 두 fence의 admission 차단 뒤 Play empty를 다시 확인하고 단 한 번 업로드한다. 예약 뒤 실패·접수 불명에는 자동 재시도가 없다. 예약이 전혀 없는 setup 실패는 새0build 실행으로 검토·복구할 수 있지만 이전 실행은 terminal이어야 하고 rerun은 거부한다.
+업로드 예산은 grantID와 무관한 repository/Release443379082/package/versionCode1의 `com.seorilabs.bettaraising.1.upload-intent.json` 한 개로 원자적으로 예약한다. 이어 정확한 두 이전 before-deploy asset 슬롯에 명시적 `betta-recovery-upload-fence`를 POST하고 전체 바이트를 다시 읽는다. 기존 정상 claim이 먼저면422로 recovery를 중단하고, fence가 먼저면 old producer의 claim POST가422·strict kind 실패로 끝나므로 그 uploader가 실행되지 않는다. fence는 정상 claim이 아니며 정상 schema에 허용하지 않는다. 두 슬롯과 global slot의 삭제·교체·rollback은 없다. 부분 fence, POST 응답 유실, 같은 producer 재호출과 모든422는 실제 업로드 없이 중단한다. 두 fence의 admission 차단 뒤 Play empty를 다시 확인하고 단 한 번 업로드한다. 예약 뒤 실패·접수 불명에는 자동 재시도가 없다. 예약이 전혀 없는 setup 실패는 이전 실행이 terminal일 때 검토·복구할 수 있다. 일반 rerun은 거부하며 아래 실제 실패 한 건만 닫힌 재시도로 허용한다.
 
 검증은 closed schema·normal 경로 거부·immutable artifact tuple·두 빌드 이력·uploader provenance 분리·global/old fence 경합·부분 완료·응답 유실·동일 producer 재호출과 정상 schema의 fence 거부를 포함한다. 실제 archive 원본을 다운로드해 ZIPdigest와 파일명·크기·AABdigest를 사전 확인했다. 전체 Node·pack·actionlint·CI·필수 모델 리뷰와 별도 독립 구현 검토 뒤 활성화한다. 신규 범용 skip, 별도 key/계정권한·유료plan·기기·심사·공개는 추가하지 않는다.
 
 
 운영 tag는 uploader 코드 선택에만 쓰고 제품 version/원장/source는 기존 v0.1.0/code1/bd78에서 읽는다. 실제 push run과 GITHUB_REF exact값, annotated tag object와 target commit, caller 파일hash를 모두 결속한다. 기존 deploy workflow를 세 번째 실행하거나 tag를 이동·삭제해 슬롯을 다시 열지 않는다. GitHub 재사용 workflow의 github context는 호출한 workflow의 context이므로 called workflow도 실제 caller의 push를 검사한다([공식 문서](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#github-context)). 첫 모델 리뷰는 외부 문서 요청 권한을 얻지 못한 뒤 제한시간으로 종료됐으며, 최종 운영 tag diff를 포함해 허용된 한 번만 재시도한다. 새 grant는 이 코드 PR과 분리해 실제 tuple이 확정된 뒤 등록한다.
+
+
+## 업로드 예약 전 HTTP 415의 단일 재시도
+
+실제 운영 tag의 run43309802883 attempt1은 ZIP GET에 octet-stream Accept를 보내 HTTP415로 중단됐다. job131502589080의 원문54,619바이트 SHA7b1c02bf73195e25ed1343f8e0cfabafdc0ce356106fd0511c16169cb215f1be와 실패 run/jobs를 보존한다. 이 지점은 global/fence 예약, Play readback, uploader 실행보다 앞이다. 이후 provider 조회에서도 세 슬롯이 없고 Play는 비어 있다. 원래9개 관측과 별도로 10번째 원본을 추가한다. 최초 grant14a91b319cf7d0bc7b9c31bef7bac838b35af3be03b615a8b0df748a1269b51f의 전체 바이트와 기존 verifier c55980f9 및 실제 reusable 실행6e7e9a40을 각각 보존한다.
+
+GitHub Actions ZIP API의 첫 요청만 vnd.github+json Accept를 쓴다. Release asset의 octet-stream 기본과 redirect 시 인증 제거는 유지한다. 독립 범위 검토에 따라 같은 불변 caller9ff/tag와 run43309802883의 attempt2만 허용한다. 다른 run, attempt1 재사용, attempt3, 정상 native rerun, 예약 후 오류 재시도는 거부한다. 중앙 workflow가 원래 invocation ID를 새 preflight-r1 grant에 정확히 연결하며 원래 grant는 먼저 회수한다. 새 grant는 수정 코드 병합 뒤 별도 PR로 등록한다.
+
+runtime은 /attempts/1의 실패와 정확한 job 원문 digest, 원래 grant 불변 바이트와 최초9개 관측, 기존 두 grant 및 직전 grant의 회수, global/fence 부재와 실제 빈 Play를 확인한다. 실제 producer는 github:43309802883:2로 기록한다. 전체 jobs rerun은 reusable @main을 새로 해석하므로 수정 grant 활성화 뒤 한 번만 호출한다. --failed rerun, tag 이동·재발행·추가 게임빌드·원장 변경·접수 예산 초기화는 하지 않는다. 기존2native/1accepted와 C13 최초 승인·만료·QA blocked·fullWorkingTreeAuditPassed:false는 그대로다.

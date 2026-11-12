@@ -353,6 +353,62 @@
         },
         "uploadExecutionTag": {
           "const": "betta-existing-aab-upload-0.1.0"
+        },
+        "preflightRetry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "failedAttempt",
+            "allowedAttempt",
+            "jobId",
+            "rawJobLogSha256",
+            "originalGrantId",
+            "originalGrantCommit",
+            "originalGrantSha256",
+            "originalVerifierCommit",
+            "observationName",
+            "workflowId",
+            "originalReusableCommit"
+          ],
+          "properties": {
+            "runId": {
+              "const": 43309802883
+            },
+            "failedAttempt": {
+              "const": 1
+            },
+            "allowedAttempt": {
+              "const": 2
+            },
+            "jobId": {
+              "const": 131502589080
+            },
+            "rawJobLogSha256": {
+              "const": "7b1c02bf73195e25ed1343f8e0cfabafdc0ce356106fd0511c16169cb215f1be"
+            },
+            "originalGrantId": {
+              "const": "betta-0-1-0-existing-aab-upload-only"
+            },
+            "originalGrantCommit": {
+              "const": "6e7e9a4087add3d959ac41443e8662d7fc33a75f"
+            },
+            "originalGrantSha256": {
+              "const": "14a91b319cf7d0bc7b9c31bef7bac838b35af3be03b615a8b0df748a1269b51f"
+            },
+            "originalVerifierCommit": {
+              "const": "c55980f9d308fff27d7380f03e4d630dc3db147a"
+            },
+            "observationName": {
+              "const": "historical-upload-only-preflight-failure.bd78bd9.json"
+            },
+            "workflowId": {
+              "const": 416596074
+            },
+            "originalReusableCommit": {
+              "const": "6e7e9a4087add3d959ac41443e8662d7fc33a75f"
+            }
+          }
         }
       }
     }

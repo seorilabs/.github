@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   upload-existing:
-    if: ${{ github.repository == 'seorilabs/betta-raising' && github.event.repository.private == true && github.event_name == 'push' && github.ref == 'refs/tags/betta-existing-aab-upload-0.1.0' }}
+    if: ${{ github.repository == 'seorilabs/betta-raising' && github.event.repository.private == true && github.event_name == 'push' && github.ref == 'refs/tags/betta-existing-aab-upload-0.1.0' && github.run_id == '43309802883' && github.run_attempt == '2' && inputs.recovery_id == 'betta-0-1-0-existing-aab-upload-only' }}
     name: Upload previously signed Betta AAB
     runs-on: seorilabs-x64
     timeout-minutes: 20
@@ -66,7 +66,8 @@ jobs:
         working-directory: candidate
         env:
           GH_TOKEN: ${{ secrets.BETTA_INTERNAL_BOOTSTRAP_TOKEN }}
-          BETTA_EXISTING_AAB_ID: ${{ inputs.recovery_id }}
+          # 불변 caller의 기존 invocation ID를 이 preflight 복구 한 건에만 연결한다.
+          BETTA_EXISTING_AAB_ID: betta-0-1-0-existing-aab-upload-only-preflight-r1
         run: node ../authority/scripts/release/recover-betta-existing-aab.mjs
       - name: Preserve upload-only receipts
         if: ${{ always() }}
