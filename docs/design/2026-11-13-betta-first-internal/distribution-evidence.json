@@ -52,5 +52,12 @@
   "normalQaPassed": false,
   "fullOriginalWorkingTreeAuditPassed": false,
   "publicReleaseAllowed": false,
-  "gamePr2AndCallerPr4": "Ready unmerged; original main and user dirty settings preserved"
+  "gamePr2AndCallerPr4": "Ready unmerged; original main and user dirty settings preserved",
+  "nasCallerProbeSupplement": {
+    "destination": "/Volumes/Data/Backup/agent-artifacts/betta-raising/2026-11-13/bd78bd996987481d668185da815c6853c4e99a4b/internal-distribution/caller-probes-20261113T070422+0900",
+    "files": 5,
+    "bytes": 3111168,
+    "manifestSha256": "bf60c5b7440d26118619891961dfa5861be11f88c69bec37e274dce944d63d35",
+    "copyReadback": "verified"
+  }
 }
