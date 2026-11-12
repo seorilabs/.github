@@ -28,3 +28,14 @@
 첫 physical run [43286867642](https://github.com/seorilabs/betta-raising/actions/runs/43286867642)는 실제 114,386,125바이트 signed AAB를 만들었지만 before-deploy `BETTA_UNTRACKED_SOURCE`에서 중단됐다. actual uploader 단 하나의 conclusion은 skipped이고 before-deploy claim은 없다. 2026-11-12T19:31:41Z Play API에서도 bundle/APK와 모든 track이 비어 있다. 실제 AAB는 JAR 서명·certificate `e3643eed86dd6bd5d91a4b8c9f9e7e4636f9fc30bd8cdb6d7688800333d71a8a`·SDK26/36·portrait·0.1.0/code1을 작성자와 독립 검토자가 재확인했다. artifact SHA-256은 `33ef4d1103c2ebea66c5f8d478b32de559b859747f2dc44faf2e241ba09d60eb`다.
 
 첫 build 실패·raw logs·실제 run/jobs·원래 grant·첫 claim·실제 artifact 검사·빈 Play readback은 여덟 번째 원본 `historical-first-native-build-failure.bd78bd9.json`(664,134바이트, SHA-256 `961c88cbac8b973dc216b891eab902e3623524f3e6173a4e5e732ba1345365d8`)에 봉인하고 Release에서 다시 읽어 검증했다. 새 ID가 첫 physical run을 지우지 않는다. source 전체 provider run 이력과 실제 skipped uploader를 조회해 다음 claim은 attempt2로 만든다. 새 namespace에서 old-ID 요청 실패 proof를 자동 상속하지 않으며 다른 경우 접수 불명은 계속 거부한다. 총2build/1accepted 한도와 정상 제품 QA blocked는 유지한다. 세 번째 빌드는 허용하지 않는다.
+
+
+## 기존 AAB의 추가0build 업로드 결속
+
+`betta-0-1-0-existing-aab-upload-only`는 이미 검증한 첫 artifact13975726650 한 개만 재사용한다. Source bd78/v0.1.0/code1, AAB SHA33ef4d1103c2ebea66c5f8d478b32de559b859747f2dc44faf2e241ba09d60eb, archive SHA1816e94e6473a9728a34efbcffb09f5930cb9037a898171a9eabf973c88975c5와114,386,125바이트를 고정한다. 최초 승인·만료·설정·서명·99입력·원래QA를 유지하고 source working-tree 전체 감사는 false다. 첫 native실패와 두번째runner-loss의 원본을 포함한9개 관측을 봉인한다. 두 기존grant는 회수 상태다.
+
+검토된 verifier는 c55980f9d308fff27d7380f03e4d630dc3db147a, 별도 caller는9ff287c10ef6c22663c5ca99efbfe95cb14d3344(파일SHA2141c870bbbb34d49828d871c2c31e714eb9228ae7f35dc3279b2fe2cccd6864)다. Caller PR4는 Ready 미병합이며 게임PR2와 main은 유지한다. Caller의 실제 CI43302190749와 작성자Mac headless58여정이 통과했다. 이는 uploader 코드검증이며 제품원본bd78의 기존 sourceCI43281443421과 구분한다. 신규GUI회차나 정상제품QA 통과가 아니다.
+
+Annotated 운영tag betta-existing-aab-upload-0.1.0는 caller코드 선택에만 쓴다. 제품버전/원장은 v0.1.0/code1 그대로다. 추가게임빌드0회, 전송은 package/version 단일global intent와 두legacy슬롯의원자적fence 뒤 최대1접수만 허용한다. 모든422/부분완료/응답유실 뒤 자동재시도·슬롯삭제·tag재지정·rerun을 하지 않는다. 정확한tag/push/code/hash/원래CI·claim·실제provider·원장·승인·원본실패와freshPlayempty를 runtime에서 다시 확인한다.
+
+첫 grant 생성 시 GET main ref가HTTP502로 실패했으며 변경·claim·업로드는 없었다. 읽기만 재시도해 실제 tuple을 확정했다. 이 transient준비실패도 별도로 보존한다. 이등록이 기존정상QA·네이티브QA·공개권한을 바꾸지 않으며 Apple 로그인/등록/Cloud준비는 별도로 남는다.
