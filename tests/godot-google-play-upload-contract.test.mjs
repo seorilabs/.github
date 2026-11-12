@@ -98,3 +98,16 @@ for (const projectDir of ['.', 'game', 'nested game/project']) {
     }
   });
 }
+
+test('Betta upload retains the exact AAB and only public verifier receipts',async()=>{
+  const w=parse(await readFile(workflowPath,'utf8')),steps=w.jobs['build-aab'].steps;
+  const binary=steps.find(s=>s.name==='Upload AAB artifact');
+  assert.equal(binary.if,"${{ !inputs.upload || inputs.betta_internal_bootstrap_id != '' }}");
+  const evidence=steps.find(s=>s.name==='Upload Betta signed candidate evidence');
+  assert.equal(evidence.if,"${{ always() && inputs.betta_internal_bootstrap_id != '' }}");
+  assert.deepEqual(evidence.with.path.trim().split('\n').map(s=>s.trim()),[
+    '${{ runner.temp }}/betta-before-build.json','${{ runner.temp }}/betta-before-deploy.json',
+    '${{ runner.temp }}/release-binding.json','${{ runner.temp }}/release-artifact-receipt.txt',
+    '${{ runner.temp }}/release-version-ledger.json']);
+  assert.equal(evidence.with['retention-days'],3);
+});
