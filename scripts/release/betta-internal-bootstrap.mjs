@@ -19,6 +19,7 @@ export function validateBettaGrant(grant){
     if(!/^godot\/android\/build\//u.test(path)
       && !/^godot\/addons\/GodotGooglePlayBilling\/bin\/(debug|release)\/GodotGooglePlayBilling-\1\.aar$/u.test(path)
       && !/^godot\/addons\/admob\/android\/bin\/(?:package\.gd|ads\/poing_godot_admob_ads\.gd|ads\/libs\/poing-godot-admob-(?:ads|core)-(?:debug|release)\.aar)$/u.test(path)
+      && !/^godot\/addons\/admob\/internal\/translations\/admob_sample\.(?:en|pt_BR|es|zh_CN|ja)\.translation$/u.test(path)
       && !/^build\/native-downloads\/(?:android-template-v4\.7\.2|godot-google-play-billing-3\.3\.0)\.zip$/u.test(path)) fail('BETTA_SOURCE_OVERRIDE_FORBIDDEN');
   }
   return grant;
@@ -114,6 +115,23 @@ export function verifyBettaSource(directory,grant,{phase,credentialFile}){
     if(path===credentialPath && /^gha-creds-[a-f0-9]+\.json$/u.test(path) && lstatSync(join(root,path)).isFile() && !lstatSync(join(root,path)).isSymbolicLink()) continue;
     if(lstatSync(join(root,path)).isSymbolicLink()) fail('BETTA_SOURCE_SYMLINK');
     if(workingOverrides[path] && bettaDigest(readFileSync(join(root,path)))===workingOverrides[path]) continue;
+    if(path.startsWith('godot/') && path.endsWith('.import')){
+      const base=path.slice(0,-7),tracked=tree.toString().split('\0').some(entry=>entry.endsWith(`\t${base}`));
+      if(tracked || workingOverrides[base]){
+        const text=readFileSync(join(root,path),'utf8'),source=`res://${base.slice(6)}`;
+        const sections=text.split(/^\[deps\]\r?$/mu),deps=sections.length===2 ? sections[1].split(/^\[[^\]]+\]\r?$/mu)[0] : '';
+        const sourceLines=deps.match(/^source_file=.*$/gmu) ?? [];
+        const refs=[...text.matchAll(/"(res:\/\/[^"\r\n]+)"/gu)].map(m=>m[1]);
+        const translationPrefix=base.endsWith('.csv') ? `res://${base.slice(6,-4)}.` : null;
+        const translationRef=ref=>translationPrefix && text.includes('importer="csv_translation"') && ref.startsWith(translationPrefix)
+          && /^[A-Za-z]{2,3}(?:_[A-Za-z0-9]{2,8})*\.translation$/u.test(ref.slice(translationPrefix.length))
+          && !!workingOverrides[`godot/${ref.slice(6)}`];
+        if(text.length>65536 || sourceLines.length!==1 || sourceLines[0]!==`source_file="${source}"` || !/^importer="[a-z0-9_]+"$/mu.test(text)
+          || refs.some(ref=>ref!==source && !translationRef(ref) && (!ref.startsWith('res://.godot/imported/') || ref.split('/').includes('..')))
+          || /\b(?:ExtResource|SubResource|load|preload)\s*\(/u.test(text)) fail('BETTA_IMPORT_METADATA');
+        continue;
+      }
+    }
     if(path.endsWith('.uid')){
       const base=path.slice(0,-4),tracked=tree.toString().split('\0').some(entry=>entry.endsWith(`\t${base}`));
       if((tracked || workingOverrides[base]) && /^uid:\/\/[a-z0-9]+\s*$/u.test(readFileSync(join(root,path),'utf8'))) continue;

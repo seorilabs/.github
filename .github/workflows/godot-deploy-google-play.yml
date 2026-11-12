@@ -369,23 +369,28 @@ jobs:
 
       - name: Install Godot
         shell: bash
+        env:
+          BETTA_BOOTSTRAP_ID: ${{ inputs.betta_internal_bootstrap_id }}
         run: |
           set -euo pipefail
           [ -f "$SCRIPTS_DIR/install_godot_ci_dependencies.sh" ] && bash "$SCRIPTS_DIR/install_godot_ci_dependencies.sh" || true
           [ -f scripts/install_godot_ci_dependencies.sh ] && bash scripts/install_godot_ci_dependencies.sh || true
-          curl -L -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.x86_64.zip"
-          unzip -q godot.zip
+          download_dir="$GITHUB_WORKSPACE"
+          if [ -n "${BETTA_BOOTSTRAP_ID:-}" ]; then download_dir="$RUNNER_TEMP/betta-godot-downloads"; fi
+          mkdir -p "$download_dir"
+          curl -L -o "$download_dir/godot.zip" "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.x86_64.zip"
+          unzip -q "$download_dir/godot.zip" -d "$download_dir"
           # 셀프호스티드 러너 컨테이너에는 sudo 도 root 권한도 없다. godot-checks.yml 과
           # 같은 방식으로 RUNNER_TEMP 아래 설치하고 GITHUB_PATH 로 후속 step 에 노출한다.
           install_dir="$RUNNER_TEMP/godot-bin"
           mkdir -p "$install_dir"
-          mv "Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.x86_64" "$install_dir/godot"
+          mv "$download_dir/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.x86_64" "$install_dir/godot"
           chmod +x "$install_dir/godot"
           echo "$install_dir" >> "$GITHUB_PATH"
-          curl -L -o export_templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_export_templates.tpz"
-          unzip -q export_templates.tpz
+          curl -L -o "$download_dir/export_templates.tpz" "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_STATUS}/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_export_templates.tpz"
+          unzip -q "$download_dir/export_templates.tpz" -d "$download_dir"
           mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
-          mv templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}/"
+          mv "$download_dir"/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}/"
           "$install_dir/godot" --version
 
       # analytics.config.json을 직접 소비하는 앱만 secret에서 복원한다.
