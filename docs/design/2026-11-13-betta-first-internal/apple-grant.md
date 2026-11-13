@@ -39,9 +39,9 @@ Cloud의 비밀 변수7개는 기존 등록된 GH operator·ASC uploader·Distri
 
 ## 승인된 v0.1.1 SDK 복구와 추가 두 실행
 
-사용자가2026-11-13T03:56:19.371994Z에 “수정 후보로 iOS 최대 2회 추가 진행”을 명시했다. 원문·질문·최종 source와 범위는 apple-additional-candidate-approval.json 및 새 Release asset742212649(2086B/SHA55773ed14f5694add93f95c6454f60a30fbd58eafa6523737322001827a9d3b7)에 있다. 추가2회/이전2회포함총4회, accepted upload총1회다. C13 원래 승인·만료를 새 승인으로 초기화하지 않는다.
+사용자가2026-11-13T03:56:19.371994Z에 “수정 후보로 iOS 최대 2회 추가 진행”을 명시했다. 원문·질문·최종 source와 범위는 apple-additional-candidate-approval.json 및 새 Release asset742212649(2086B/SHA55773ed14f5694add93f95c6454f60a30fbd58eafa6523737322001827a9d3b7)에 있다. 추가2회/이전2회포함총4회, accepted upload총1회다. C13 원래 승인 기록과 만료는 그대로 보존한다. 새 grant의 유효 시작만 추가 승인 관측03:56:19Z로 두고, 만료는 원래2026-11-19T15:35:59Z를 유지해 기간을 늘리지 않는다.
 
-활성 승인 시점 grant는 betta-0-1-1-apple-sdk-download-recovery, SHA-256 69782fe8e4e467cb8ead29ea4aee06bdaec85b2ba3eab3225219c74b7e7f1cb8다. source 706e1130de7d123bac68193821bf301ed9ad336e, annotated v0.1.1/원장code2, 실제 sourceCI43359608916 attempt2의 Python42/headless58을 결속한다. Android 추가 실행은 없다. sourceCI attempt1 첫 실행 실패와 로컬 모델 리뷰2회 미완료도 보존하며 통과로 기록하지 않는다. 게임PR2/callerPR4/SDKfixPR5는 Ready 미병합이다.
+활성 승인 시점 grant는 betta-0-1-1-apple-sdk-download-recovery, SHA-256 b1ff3b8c80afe485d9be130f71f8e7c9a58ab53d87498a4e53da397207ef1038다. source 706e1130de7d123bac68193821bf301ed9ad336e, annotated v0.1.1/원장code2, 실제 sourceCI43359608916 attempt2의 Python42/headless58을 결속한다. Android 추가 실행은 없다. sourceCI attempt1 첫 실행 실패와 로컬 모델 리뷰2회 미완료도 보존하며 통과로 기록하지 않는다. 게임PR2/callerPR4/SDKfixPR5는 Ready 미병합이다.
 
 기존 app6834215464/product644d867e-46ae-4b8f-a634-f139c00d9fb6/workflow686987D3-6AD2-4755-9679-4FDC3CAF966B와 profile/cert/internal group을 재사용한다. 실제 Console에서 다음 Cloud 번호3을 읽었고 변경하지 않았다. 새 source claim1/2는 실제 Cloud3/4에만 대응한다. 이전 FAILED #1/#2와 claims·회수·접수0을 보존한다.
 
