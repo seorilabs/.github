@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "level": "L1",
+  "baseline": "574a75ae807b38502dddea664dfb49189494f742",
+  "changedFeatures": [
+    "betta-internal-update"
+  ],
+  "environments": [
+    "dev"
+  ],
+  "redesign": false,
+  "foundationRerun": false,
+  "floorOverrides": [],
+  "release": null
+}
