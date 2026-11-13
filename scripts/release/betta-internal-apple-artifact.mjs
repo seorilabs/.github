@@ -6,6 +6,7 @@ import { bettaDigest } from './betta-internal-bootstrap.mjs';
 const fail=code=>{throw new Error(code);};
 const exec=(program,args,options={})=>execFileSync(program,args,{stdio:['pipe','pipe','pipe'],maxBuffer:16*1024*1024,timeout:30000,...options});
 const plist=bytes=>JSON.parse(exec('python3',['-c','import plistlib,json,sys,base64,datetime; print(json.dumps(plistlib.loads(sys.stdin.buffer.read()),default=lambda v:base64.b64encode(v).decode() if isinstance(v,bytes) else v.isoformat()))'],{input:bytes}));
+export const appleCertificateArguments=(prefix,app)=>['--display',`--extract-certificates=${prefix}`,app];
 export function inspectBettaAppleApp(directory,grant,provider){
   const root=realpathSync(directory),g=grant.appStore;
   if(lstatSync(directory).isSymbolicLink() || !lstatSync(directory).isDirectory() || !root.endsWith('.app')) fail('BETTA_SIGNED_APP_REQUIRED');
@@ -28,7 +29,7 @@ export function inspectBettaAppleApp(directory,grant,provider){
     || JSON.stringify(entitlements['com.apple.developer.applesignin'])!=='["Default"]') fail('BETTA_APPLE_ARTIFACT_METADATA');
   const certDir=mkdtempSync(join(tmpdir(),'betta-signer-'));
   try{
-    const prefix=join(certDir,'certificate-');exec('codesign',['--display','--extract-certificates',prefix,root]);
+    const prefix=join(certDir,'certificate-');exec('codesign',appleCertificateArguments(prefix,root));
     const digest=bettaDigest(readFileSync(`${prefix}0`));
     if(digest!==g.certificateSha256 || profile.DeveloperCertificates?.length!==1
       || bettaDigest(Buffer.from(profile.DeveloperCertificates[0],'base64'))!==digest) fail('BETTA_APPLE_SIGNER');

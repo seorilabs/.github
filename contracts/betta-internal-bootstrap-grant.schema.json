@@ -411,6 +411,34 @@
           }
         }
       }
+    },
+    "existingIpaRecovery": {
+      "const": {
+        "sourceGrantId": "betta-0-1-1-apple-sdk-download-recovery",
+        "sourceGrantCommit": "cd6f1a8092799d813e36a862af15f9a930d25fef",
+        "sourceGrantSha256": "b1ff3b8c80afe485d9be130f71f8e7c9a58ab53d87498a4e53da397207ef1038",
+        "previousSourceSha": "bd78bd996987481d668185da815c6853c4e99a4b",
+        "runs": [
+          "19199616-067d-4497-9289-4b9bb628f0aa",
+          "064ecfc0-bcbb-470a-8fe2-0348534a4b5b",
+          "845f07b9-5601-4e01-993c-e67285709dec"
+        ],
+        "archiveActionId": "bd3ff4c0-2f4d-44db-8ae9-f4a6802fbacd",
+        "postActionId": "8cc45633-9eef-4966-8b59-5c016c787712",
+        "sourceTagId": "042b7d78-8f70-4e0c-a024-359e1ac3540e",
+        "artifactId": "50b289bc-ba5f-4b1e-b488-e2e0877354d9",
+        "archiveSize": 111239439,
+        "archiveSha256": "30ef369ae59db71cf803215c2e83d628f19c6d0ae890cabad48ee920d91aa274",
+        "ipaSize": 111349261,
+        "ipaSha256": "5ef31cb02850d4de737ac869344f5107ae9ec1b6996859850fa7736159ae4533",
+        "buildClaimSha256": "5eb5e9641240683b9c0cbd788693e7f5d4bbcde4d45b2b0c15661bfc78b1db18",
+        "logArtifactId": "e9779afd-1a31-446b-a631-9a068b98d316",
+        "logArchiveSha256": "fa98ede3782ce665f16ee3c298fe521db5afdac810227370f02ed9dcadfc11ef",
+        "additionalGameBuilds": 0,
+        "cumulativeNativeBuilds": 3,
+        "cumulativeNativeLimit": 4,
+        "acceptedUploadLimit": 1
+      }
     }
   },
   "allOf": [
@@ -449,6 +477,33 @@
               "google-play"
             ]
           }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "existingIpaRecovery"
+        ]
+      },
+      "then": {
+        "properties": {
+          "sourceSha": {
+            "const": "706e1130de7d123bac68193821bf301ed9ad336e"
+          },
+          "releaseTag": {
+            "const": "v0.1.1"
+          },
+          "targets": {
+            "const": [
+              "app-store"
+            ]
+          }
+        },
+        "not": {
+          "required": [
+            "existingAabRecovery"
+          ]
         }
       }
     }

@@ -45,7 +45,7 @@ export function assertRecoveryPreflight(g,{run,jobs,log}){
   || jobs[0].steps?.filter(s=>s.name==='Verify and upload exact existing AAB' && s.status==='completed' && s.conclusion==='failure').length!==1
   || bettaDigest(log)!==p.rawJobLogSha256)fail('BETTA_RECOVERY_PREFLIGHT_PROOF');
 }
-async function postUnique(release,name,document,request){
+export async function postUnique(release,name,document,request){
  const url=new URL(release.upload_url.replace(/\{.*$/u,''));
  if(url.origin!=='https://uploads.github.com' || url.pathname!==`/repos/seorilabs/betta-raising/releases/${release.id}/assets`)fail('BETTA_RECOVERY_UPLOAD_URL');
  url.searchParams.set('name',name);const bytes=Buffer.from(JSON.stringify(document));

@@ -26,7 +26,8 @@ export function validateBettaGrant(grant){
 }
 
 function validateBettaContext(grant,context,originalVerdict,recovery){
-  if(!!grant.existingAabRecovery!==recovery) fail(recovery ? 'BETTA_RECOVERY_REQUIRED':'BETTA_UPLOAD_ONLY_REQUIRED');
+  const mode=grant.existingAabRecovery ? 'aab' : grant.existingIpaRecovery ? 'ipa' : false;
+  if(mode!==recovery) fail(recovery ? 'BETTA_RECOVERY_REQUIRED':'BETTA_UPLOAD_ONLY_REQUIRED');
   validateBettaGrant(grant);
   if(context.repository!==grant.repository || context.sourceSha!==grant.sourceSha || context.tag!==grant.releaseTag
     || context.configurationFingerprint!==grant.configurationFingerprint) fail('BETTA_BINDING_MISMATCH');
@@ -45,7 +46,11 @@ function validateBettaContext(grant,context,originalVerdict,recovery){
 export const validateBettaInternalContext=(grant,context,originalVerdict)=>validateBettaContext(grant,context,originalVerdict,false);
 export const validateBettaAabRecoveryContext=(grant,context,originalVerdict)=>{
   if(context.phase!=='before-deploy' || context.target!=='google-play') fail('BETTA_UPLOAD_ONLY_REQUIRED');
-  return validateBettaContext(grant,context,originalVerdict,true);
+  return validateBettaContext(grant,context,originalVerdict,'aab');
+};
+export const validateBettaIpaRecoveryContext=(grant,context,originalVerdict)=>{
+  if(context.phase!=='before-deploy' || context.target!=='app-store') fail('BETTA_UPLOAD_ONLY_REQUIRED');
+  return validateBettaContext(grant,context,originalVerdict,'ipa');
 };
 
 // records는 영속 claim과 실제 provider 조회를 합쳐 만든다. JSON의 자체 verified 값은

@@ -12,14 +12,14 @@ export function validateBettaGoogleRun(run,grant,{phase,producerRunId}){
   return {producer:`github:${run.id}:1`,id:String(run.id),state:run.status==='completed' ? 'succeeded':'in_progress',runAttempt:1};
 }
 
-async function appleGet(path,env,fetchImpl){
+export async function appleGet(path,env,fetchImpl){
   if(!/^\/v1\//u.test(path) || !env.APP_STORE_CONNECT_API_KEY_ID || !env.APP_STORE_CONNECT_ISSUER_ID || !env.APP_STORE_CONNECT_PRIVATE_KEY_BASE64) fail('BETTA_APPLE_CREDENTIAL_REQUIRED');
   const token=makeAppStoreConnectToken({keyId:env.APP_STORE_CONNECT_API_KEY_ID,issuerId:env.APP_STORE_CONNECT_ISSUER_ID,privateKeyBase64:env.APP_STORE_CONNECT_PRIVATE_KEY_BASE64});
   const response=await fetchImpl(`https://api.appstoreconnect.apple.com${path}`,{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(30000)});
   if(!response.ok) fail(`BETTA_APPLE_READ_${response.status}`);
   return response.json();
 }
-async function appleList(path,env,fetchImpl){
+export async function appleList(path,env,fetchImpl){
   const data=[],seen=new Set();
   while(path){
     if(seen.has(path) || seen.size>=50) fail('BETTA_APPLE_PAGINATION');seen.add(path);
