@@ -25,3 +25,11 @@
 Cloud의 비밀 변수7개는 기존 등록된 GH operator·ASC uploader·Distribution P12와 새 앱 profile 실행 복제본만 사용한다. 공개 API가 반환하지 않는 env와 사후 작업은 실제 UI 저장 응답200의 동일 workflow resource를 다시 GET하여7개 이름·redacted_value와 정확한 group ID를 확인했다. 비밀값은 출력·파일·Git에 남기지 않았다. 저장 후 UI가 두 이름을 줄여 표시해 조회가 실패했던 기록과, 이미 존재하는 이름을 다시 추가하려다 UI validation이 거부한 기록도 보존했다. 중복된 값은 저장하지 않았다.
 
 등록 후 reviewed bytes·원래 Release 자산·만료·실제 provider/태그/서명/claims를 다시 확인한 뒤 workflow를 켜고 정확한 tag로 첫 Cloud run을 한 번 시작한다. Apple VALID와 내부 그룹 연결을 확인한 뒤 grant를 회수하고 원본 artifact·로그·처리 기록을 NAS에 크기/SHA-256으로 다시 읽어 보관한다. 실패·접수 불명에는 자동 재실행하지 않는다.
+
+## 두 실제 Cloud 실행 뒤 중단
+
+동일한 bd78/v0.1.0 후보에서 run19199616-067d-4497-9289-4b9bb628f0aa(#1)는 AdMob 다운로드 ContentTooShortError(2,958,799/3,149,407바이트), run064ecfc0-bcbb-470a-8fe2-0348534a4b5b(#2)는 Firebase SDK checksum mismatch로 종료됐다. 두 run 모두 before-build human_exception을 통과한 뒤 post-clone에서 실패했다. Archive는 FAILED, 내부 TestFlight 사후 작업은 SKIPPED이며 before-deploy claim은 없다. 정상 제품 QA나 네이티브 검수를 통과한 것으로 처리하지 않는다.
+
+2026-11-13T03:01Z 독립 provider 조회에서 정확한 source run 두 개가 FAILED이며 각 run/builds와 app/builds, app/buildUploads는 모두0건이다. 정확한 관계에서 얻은 로그 artifact는 #1 15950dc4-b8c3-486a-b68d-80c6d988c91b(1,305바이트, SHAe51a76d4ac7f7cb60c9d86ac1159a6e47bd4bf9825ab6af38daaf4325bd01346), #2 c30c3aaf-a93a-4b28-a324-d05ca8a2d88c(766바이트, SHA242eb3bc2ee5a2045916ef900d2f25cd9c0ff15e353f97c55a0c6a44545e6805)이며 ZIP CRC를 확인했다. 업로드·TestFlight VALID·내부 제공은 미완료다.
+
+허용 native2회를 소진했으므로 workflow를 disabled로 다시 읽어 확인했고 이 grant를 회수한다. 기존 profile·certificate·secret·내부 그룹·테스터와 첫 승인/만료, 두 claim·실패 로그는 보존한다. 새 후보에 이전 성공·횟수를 옮기거나 태그를 재지정하지 않는다. 다운로드 복구는 별도 제품 수정 후보로 준비하며 추가 Apple 실행은 이 grant로 시작하지 않는다. Android0.1.0(1) internal/completed는 유지한다.
