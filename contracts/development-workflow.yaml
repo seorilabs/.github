@@ -254,3 +254,4 @@ bettaInternalBootstrap:
     - contracts/betta-internal-bootstrap/betta-0-1-0-existing-aab-upload-only-preflight-r1.json
     - contracts/betta-internal-bootstrap/betta-0-1-0-apple-first-internal.json
     - contracts/betta-internal-bootstrap/betta-0-1-1-apple-sdk-download-recovery.json
+    - contracts/betta-internal-bootstrap/betta-0-1-1-existing-ipa-upload-only.json

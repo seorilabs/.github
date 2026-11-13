@@ -50,3 +50,9 @@ Cloud의 비밀 변수7개는 기존 등록된 GH operator·ASC uploader·Distri
 구성 지문 217b40d1cbc19c9ce61a8a64ab6706bf7acb95df5c1601bca7dd7dd5582f552b, 제품 tree 233c30e067edb58039d3ad4a1b31f6af87c25c50982d0af2117fe8774da02c23, 새 evidence f89ccaf43b6f4ca9028867e254784b4409aea0baf54e46a28e53eaf3a4f12df8(asset742212510)를 고정한다. 원래10관측과 추가승인·Apple두실패·sourceCI실패·모델리뷰미완료를 합친14관측을 새 Release에서 byte/size/SHA로 다시 읽었다. normal v2는 두 phase 모두 THREE_UI_ROUNDS_REQUIRED다. clean detached source706의 두 source phase 검사만 통과했으며 실제 Cloud 작업트리 전체 감사나 제품 UX/성능/네이티브 검수 통과가 아니다.
 
 독립 tuple 검토·로컬 모델 검토·중앙 CI와 등록 바이트 재확인을 마친 후 workflow를 켜고 tag reference042b7d78-8f70-4e0c-a024-359e1ac3540e로 한 번 시작한다. 기기·공개·가격/역할·새 유료 플랜은 포함하지 않는다. 추가2회/접수1회와 원래 만료를 유지하고 내부 제공 또는 허용범위 종료 후 grant를 회수한다.
+
+## Cloud3의 동일 IPA upload-only 등록
+
+코드PR349의 검토·CI 성공 및 merge 0ca7daaeacfa20694b8783578eb9ecff427e9cc9에 결속한다. 기존 SDK recovery grant는 회수됐고 Cloud workflow는 disabled다. source706e113/tagv0.1.1, 원래 만료와 추가 승인 시각, 14개 기존 관측을 유지하고 run3의 실제 post-hook 실패·정확한 export/IPA·수정 감사·NAS 관측1개를 더해15개다.
+
+새 ID betta-0-1-1-existing-ipa-upload-only, bytes SHA-256 2a670fe3e3172b650304a8dbdcc751989f5db14041259f4eb5f7e8fbcbc5fb44다. reviewed 로컬 CLI에서 실제 Cloud3 export만 검사·전송하며 추가 native0회, 기존3/4회와 접수총1회 상한을 유지한다. 공개·외부 TestFlight·기기·재서명은 없다. code/schema의 IPA_RECOVERY 고정값 그대로이며 새 검증 정책·로직은 없다. 별도 독립 운영 tuple 검토 후 metadata registry를 등록한다. 제품 normal v2/Cloud post-hook/전체 Cloud 작업트리 감사는 통과로 바꾸지 않는다. VALID와 기존 internal group 제공은 이후 실제 readback으로 확인하고 이 grant도 회수한다.
