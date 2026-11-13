@@ -101,7 +101,7 @@
     "commit": "706e1130de7d123bac68193821bf301ed9ad336e",
     "pr": 5,
     "prUrl": "https://github.com/seorilabs/betta-raising/pull/5",
-    "status": "prepared; unbuilt; additional native execution unapproved",
+    "status": "v0.1.1 tagged; extra native scope approved; recovery grant pending review/activation; no new native run",
     "ciUrl": "https://github.com/seorilabs/betta-raising/actions/runs/43359608916",
     "proposal": "apple-additional-candidate-proposal.json",
     "ciAttempt1": {
@@ -129,7 +129,10 @@
     "normalProductQaPassed": false,
     "newNativeBuilds": 0,
     "sourceModelReviewPassed": false,
-    "nasManifestSha256": "214d359e9ae10e91e0efc4be4956d075b270a75089eff0bd7e2dcbcb7c21e8a3"
+    "nasManifestSha256": "214d359e9ae10e91e0efc4be4956d075b270a75089eff0bd7e2dcbcb7c21e8a3",
+    "additionalApproval": "apple-additional-candidate-approval.json",
+    "recoveryGrant": "betta-0-1-1-apple-sdk-download-recovery",
+    "grantSha256": "69782fe8e4e467cb8ead29ea4aee06bdaec85b2ba3eab3225219c74b7e7f1cb8"
   },
   "appleNasSnapshots": [
     {

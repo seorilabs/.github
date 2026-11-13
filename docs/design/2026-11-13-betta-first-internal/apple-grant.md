@@ -35,3 +35,18 @@ Cloud의 비밀 변수7개는 기존 등록된 GH operator·ASC uploader·Distri
 허용 native2회를 소진했으므로 workflow를 disabled로 다시 읽어 확인했고 이 grant를 회수한다. 기존 profile·certificate·secret·내부 그룹·테스터와 첫 승인/만료, 두 claim·실패 로그는 보존한다. 새 후보에 이전 성공·횟수를 옮기거나 태그를 재지정하지 않는다. 다운로드 복구는 별도 제품 수정 후보로 준비하며 추가 Apple 실행은 이 grant로 시작하지 않는다. Android0.1.0(1) internal/completed는 유지한다.
 
 회수 후 registry 바이트 SHA-256은`fa78e88a115387e32fb206c124fec049fefb085794e09a51298963ca53fa77de`다. 두 before-build claim의 grantSha256은 회수 전 승인 바이트 b0899f3…를 가리키며, 원본은 승인 merge5bde089df9f1aadafda7843a1245c24cafb3f54b의 해당 grant와 NAS 원본에서 확인한다. 회수 후 바이트를 과거 실행의 승인 바이트로 대체하지 않는다.
+
+
+## 승인된 v0.1.1 SDK 복구와 추가 두 실행
+
+사용자가2026-11-13T03:56:19.371994Z에 “수정 후보로 iOS 최대 2회 추가 진행”을 명시했다. 원문·질문·최종 source와 범위는 apple-additional-candidate-approval.json 및 새 Release asset742212649(2086B/SHA55773ed14f5694add93f95c6454f60a30fbd58eafa6523737322001827a9d3b7)에 있다. 추가2회/이전2회포함총4회, accepted upload총1회다. C13 원래 승인·만료를 새 승인으로 초기화하지 않는다.
+
+활성 승인 시점 grant는 betta-0-1-1-apple-sdk-download-recovery, SHA-256 69782fe8e4e467cb8ead29ea4aee06bdaec85b2ba3eab3225219c74b7e7f1cb8다. source 706e1130de7d123bac68193821bf301ed9ad336e, annotated v0.1.1/원장code2, 실제 sourceCI43359608916 attempt2의 Python42/headless58을 결속한다. Android 추가 실행은 없다. sourceCI attempt1 첫 실행 실패와 로컬 모델 리뷰2회 미완료도 보존하며 통과로 기록하지 않는다. 게임PR2/callerPR4/SDKfixPR5는 Ready 미병합이다.
+
+기존 app6834215464/product644d867e-46ae-4b8f-a634-f139c00d9fb6/workflow686987D3-6AD2-4755-9679-4FDC3CAF966B와 profile/cert/internal group을 재사용한다. 실제 Console에서 다음 Cloud 번호3을 읽었고 변경하지 않았다. 새 source claim1/2는 실제 Cloud3/4에만 대응한다. 이전 FAILED #1/#2와 claims·회수·접수0을 보존한다.
+
+단일 IOS ARCHIVE/BettaAtelier/INTERNAL_ONLY, exact manualTag v0.1.1, disabled를 실제 GET 확인했다. 7개 redacted_value와 internal group fe2b5b03-483c-4f0a-ba37-4cc1ec80452f도 서버에서 재확인했다. 동일 production App Attest profile dc049deb-da89-418f-8c08-af8d53b4e72c/SHA52f39ebfe8c37a61f7fa608cbe3adc31bc14c1caa5d54a176a8958608665ca02와 certificate SHA6eda0a7eefe7fa7c736644d5b6a71cf5907e70da827640817024afd5ed05acb3다.
+
+구성 지문 217b40d1cbc19c9ce61a8a64ab6706bf7acb95df5c1601bca7dd7dd5582f552b, 제품 tree 233c30e067edb58039d3ad4a1b31f6af87c25c50982d0af2117fe8774da02c23, 새 evidence f89ccaf43b6f4ca9028867e254784b4409aea0baf54e46a28e53eaf3a4f12df8(asset742212510)를 고정한다. 원래10관측과 추가승인·Apple두실패·sourceCI실패·모델리뷰미완료를 합친14관측을 새 Release에서 byte/size/SHA로 다시 읽었다. normal v2는 두 phase 모두 THREE_UI_ROUNDS_REQUIRED다. clean detached source706의 두 source phase 검사만 통과했으며 실제 Cloud 작업트리 전체 감사나 제품 UX/성능/네이티브 검수 통과가 아니다.
+
+독립 tuple 검토·로컬 모델 검토·중앙 CI와 등록 바이트 재확인을 마친 후 workflow를 켜고 tag reference042b7d78-8f70-4e0c-a024-359e1ac3540e로 한 번 시작한다. 기기·공개·가격/역할·새 유료 플랜은 포함하지 않는다. 추가2회/접수1회와 원래 만료를 유지하고 내부 제공 또는 허용범위 종료 후 grant를 회수한다.
