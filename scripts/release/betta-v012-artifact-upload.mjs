@@ -19,6 +19,7 @@ import {parseTagReceipt,computeAuthorityRevision,AUTHORITY_ID} from './tag-versi
 const CENTRAL='seorilabs/.github';
 const fail=code=>{throw new Error(code);};
 const exec=(p,args)=>execFileSync(p,args,{stdio:['ignore','pipe','pipe'],maxBuffer:128*1024*1024,timeout:60000});
+export const readV012GoogleFailureLog=(repository,jobId,request)=>githubDownload(`/repos/${repository}/actions/jobs/${jobId}/logs`,{...request,accept:'application/vnd.github+json'});
 export const v012UploadSlot=g=>g.targets[0]==='google-play'?`${g.googlePlay.packageName}.3.upload-intent.json`:`${g.appStore.bundleId}.0.1.2.4.upload-intent.json`;
 export async function reserveV012ArtifactUpload(g,release,identity,request){
  const r=g.existingArtifactUpload,binding={...identity,sourceSha:g.sourceSha,artifactSha256:r.artifactSha256,additionalGameBuilds:0,recordedAt:new Date().toISOString()};
@@ -89,7 +90,7 @@ export async function recoverBettaV012Artifact({id,sourceDirectory,archiveFile,f
    validateBettaUpdatePlayMarket(original,read);
    const runs=await githubPaginate(`/repos/${g.repository}/actions/workflows/deploy-google-play.yml/runs?event=workflow_dispatch&per_page=100`,{...request,select:d=>d.workflow_runs});
    const jobs=await githubPaginate(`/repos/${g.repository}/actions/runs/${r.sourceRunId}/attempts/1/jobs?per_page=100`,{...request,select:d=>d.jobs});
-   const log=await githubDownload(`/repos/${g.repository}/actions/jobs/${r.jobId}/logs`,request);
+   const log=await readV012GoogleFailureLog(g.repository,r.jobId,request);
    assertV012GoogleHistory(g,{runs,jobs,log});return {read,runs,jobs,rawJobLogSha256:bettaDigest(log)};
   }
   const [builds,uploads,workflow,sparse,actions]=await Promise.all([list(`/v1/builds?filter[app]=${g.appStore.appId}&limit=200&include=preReleaseVersion`),list(`/v1/apps/${g.appStore.appId}/buildUploads?limit=200`),get(`/v1/ciWorkflows/${g.appStore.workflowId}`),list(`/v1/ciProducts/${g.appStore.productId}/buildRuns?limit=200`),list(`/v1/ciBuildRuns/${r.sourceRunId}/actions?limit=200`)]);
