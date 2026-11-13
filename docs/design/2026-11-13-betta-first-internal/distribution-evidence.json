@@ -92,12 +92,34 @@
     "activeApprovalBytesSha256": "b0899f3aaaa339310bab55091129105bad6d0ae437c8acea65a6d5817ab3c5e7",
     "revokedRegistryBytesSha256": "fa78e88a115387e32fb206c124fec049fefb085794e09a51298963ca53fa77de",
     "approvalMergeSha": "5bde089df9f1aadafda7843a1245c24cafb3f54b",
-    "note": "This change revokes the registry entry; read latest main to verify activation. Prior two claims remain immutable."
+    "note": "Latest main revoked bytes and prior active history independently verified; workflow disabled; old claims preserved.",
+    "mergeSha": "fc492175455af8d09a7aaafabeab9cd428e85a0a",
+    "pr": 346,
+    "mainReadbackVerified": true
   },
   "sdkDownloadRecovery": {
     "commit": "e6dbfb081bb5fe076cb90cfa74ef05fffe184f41",
     "status": "prepared; unbuilt; not approved for a third Cloud run",
     "ciUrl": "https://github.com/seorilabs/betta-raising/actions/runs/43356937054",
-    "sourceShaOrTagMoved": false
+    "sourceShaOrTagMoved": false,
+    "proposal": "apple-additional-candidate-proposal.json"
+  },
+  "appleNasSnapshots": [
+    {
+      "destination": "/Volumes/Data/Backup/agent-artifacts/betta-raising/2026-11-13/bd78bd996987481d668185da815c6853c4e99a4b/internal-distribution/apple-test-track-20261113T121532+0900",
+      "files": 675,
+      "bytes": 12825397,
+      "copiedFiles": 85,
+      "copiedBytes": 1312405,
+      "manifestSha256": "1429ae6f0450bf50175327dfcd0fdaa5ececfa5a75644bdd9dc4fb883f7f7dc0",
+      "copyReadback": "verified",
+      "copyMethod": "explicit stream, flush, fsync, reopen SHA-256; existing copies re-read and reused",
+      "localRetainedForOngoingAppleProcessing": true
+    }
+  ],
+  "appleFinalIndependentReview": {
+    "size": 6629,
+    "sha256": "0e21117e653e14ab54de66771ed8ba12e5e3bc1239f6be2a7133bc83363cfe65",
+    "nasManifestSha256": "1429ae6f0450bf50175327dfcd0fdaa5ececfa5a75644bdd9dc4fb883f7f7dc0"
   }
 }
