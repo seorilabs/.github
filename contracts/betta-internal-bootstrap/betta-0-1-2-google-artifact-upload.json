@@ -114,7 +114,7 @@
   "approvalSha256": "0d862d80914022d7f1091d3ede613598515392d2f6d57531b527d56eb7d6380b",
   "proposalFile": "docs/06-release/internal-upload-preparation.md",
   "proposalSha256": "4d2f2812b7b341b39a95318a13a535fc3d8f07adf3fbbd2e9bef2215ac6b02e0",
-  "verifierCommit": "1caee4ff8245f45423e0bc3c6a4eef5711749891",
+  "verifierCommit": "0ab145ca94b2c76a33e2b71ae1dba74f67c3edf4",
   "configurationFingerprint": "e617b1091d46c04be8c337e571e9b7a76b80ac6a38be4d3b428774c64f60769e",
   "appStore": {
     "bundleId": "com.seorilabs.bettaraising",
