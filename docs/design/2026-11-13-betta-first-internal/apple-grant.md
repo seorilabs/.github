@@ -56,3 +56,11 @@ Cloud의 비밀 변수7개는 기존 등록된 GH operator·ASC uploader·Distri
 코드PR349의 검토·CI 성공 및 merge 0ca7daaeacfa20694b8783578eb9ecff427e9cc9에 결속한다. 기존 SDK recovery grant는 회수됐고 Cloud workflow는 disabled다. source706e113/tagv0.1.1, 원래 만료와 추가 승인 시각, 14개 기존 관측을 유지하고 run3의 실제 post-hook 실패·정확한 export/IPA·수정 감사·NAS 관측1개를 더해15개다.
 
 새 ID betta-0-1-1-existing-ipa-upload-only, bytes SHA-256 2a670fe3e3172b650304a8dbdcc751989f5db14041259f4eb5f7e8fbcbc5fb44다. reviewed 로컬 CLI에서 실제 Cloud3 export만 검사·전송하며 추가 native0회, 기존3/4회와 접수총1회 상한을 유지한다. 공개·외부 TestFlight·기기·재서명은 없다. code/schema의 IPA_RECOVERY 고정값 그대로이며 새 검증 정책·로직은 없다. 별도 독립 운영 tuple 검토 후 metadata registry를 등록한다. 제품 normal v2/Cloud post-hook/전체 Cloud 작업트리 감사는 통과로 바꾸지 않는다. VALID와 기존 internal group 제공은 이후 실제 readback으로 확인하고 이 grant도 회수한다.
+
+## 내부 TestFlight 제공과 upload-only 회수
+
+2026-11-13T05:15:55Z 실제 provider와 독립 조회에서0.1.1(3), build/upload2d024237-01b3-4f06-a5cd-66ebb794df77, upload COMPLETE와errors/warnings0, build VALID, internalBuildState IN_BETA_TESTING, 기존 internal group fe2b5b03-483c-4f0a-ba37-4cc1ec80452f의 같은build 연결을 확인했다. 한·영 테스트 안내 원본 SHA7ec6aebe…와 서버값을 다시 읽어 대조했다. 등록된 내부 테스터는1명이다.
+
+실제 source706e113/IPA111349261B SHA5ef31cb0…를 재빌드·재서명 없이 한 번 전송했다. 이전3개 native FAILED와 Cloud postaction SKIPPED는 그대로이며 추가복구 native0회, 누적3/4회, 접수1회다. provider의 buildAudienceType APP_STORE_ELIGIBLE는 원문 그대로 보존하며 내부 그룹 제공·외부 제출·App Review·공개 상태를 구분한다. externalBuildState는 READY_FOR_BETA_SUBMISSION이고 실제 외부 심사·공개는 수행하지 않았다. 정상 QA와 기기 검수도 통과로 바꾸지 않는다.
+
+이 변경으로 upload-only grant를 회수한다. 회수 전2a670fe3…의 결속 원문은 승인 merge22d4e9d919ba2d3e442d7cbfa26ab6573354042c에 남고, 회수 후 registry SHA는7ec62a693a57914de621838bf56d4b7c8f0ae7599f380855ebebeb7400b22ee4다. workflow는disabled를 유지하며 인증서·profile·테스터·내부 빌드는 보존한다. 파일별 NAS size/SHA 및6개 NAS ZIP의 CRC·내부131개 항목을 직접 읽어 확인했다. 배포 원본과 로그의 위치·manifest는 distribution-evidence.json에 있다.

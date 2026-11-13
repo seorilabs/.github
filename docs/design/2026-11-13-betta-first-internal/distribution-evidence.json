@@ -46,7 +46,7 @@
       "localRetainedForOngoingApplePreparation": true
     }
   ],
-  "appleStatus": "blocked_before_upload; both allowed native attempts FAILED; TestFlight unavailable",
+  "appleStatus": "internal_available",
   "deviceUseByAgent": false,
   "productE2eStatus": "blocked",
   "normalQaPassed": false,
@@ -84,7 +84,8 @@
         "logArtifactId": "c30c3aaf-a93a-4b28-a324-d05ca8a2d88c",
         "logArchiveSha256": "242eb3bc2ee5a2045916ef900d2f25cd9c0ff15e353f97c55a0c6a44545e6805"
       }
-    ]
+    ],
+    "historicalScope": "First source bd78/v0.1.0 only; both failures preserved. See appleCurrent for the approved additional source and cumulative count."
   },
   "appleGrantRevocation": {
     "id": "betta-0-1-0-apple-first-internal",
@@ -170,5 +171,116 @@
     "size": 6629,
     "sha256": "0e21117e653e14ab54de66771ed8ba12e5e3bc1239f6be2a7133bc83363cfe65",
     "nasManifestSha256": "1429ae6f0450bf50175327dfcd0fdaa5ececfa5a75644bdd9dc4fb883f7f7dc0"
+  },
+  "appleCurrent": {
+    "sourceSha": "706e1130de7d123bac68193821bf301ed9ad336e",
+    "releaseTag": "v0.1.1",
+    "version": "0.1.1",
+    "buildNumber": "3",
+    "buildId": "2d024237-01b3-4f06-a5cd-66ebb794df77",
+    "providerReadback": {
+      "at": "2026-11-13T05:15:56.366790+00:00",
+      "builds": [
+        {
+          "id": "2d024237-01b3-4f06-a5cd-66ebb794df77",
+          "attributes": {
+            "version": "3",
+            "uploadedDate": "2026-11-12T21:13:20-08:00",
+            "expirationDate": "2027-02-10T21:13:20-08:00",
+            "expired": false,
+            "minOsVersion": "16.0",
+            "processingState": "VALID",
+            "buildAudienceType": "APP_STORE_ELIGIBLE",
+            "usesNonExemptEncryption": false
+          },
+          "marketingVersion": "0.1.1",
+          "betaDetail": {
+            "type": "buildBetaDetails",
+            "id": "2d024237-01b3-4f06-a5cd-66ebb794df77",
+            "attributes": {
+              "autoNotifyEnabled": true,
+              "internalBuildState": "IN_BETA_TESTING",
+              "externalBuildState": "READY_FOR_BETA_SUBMISSION"
+            },
+            "relationships": {
+              "build": {
+                "links": {
+                  "self": "https://api.appstoreconnect.apple.com/v1/buildBetaDetails/2d024237-01b3-4f06-a5cd-66ebb794df77/relationships/build",
+                  "related": "https://api.appstoreconnect.apple.com/v1/buildBetaDetails/2d024237-01b3-4f06-a5cd-66ebb794df77/build"
+                }
+              }
+            },
+            "links": {
+              "self": "https://api.appstoreconnect.apple.com/v1/buildBetaDetails/2d024237-01b3-4f06-a5cd-66ebb794df77"
+            }
+          },
+          "groupIds": [
+            "fe2b5b03-483c-4f0a-ba37-4cc1ec80452f"
+          ]
+        }
+      ],
+      "uploads": [
+        {
+          "id": "2d024237-01b3-4f06-a5cd-66ebb794df77",
+          "attributes": {
+            "cfBundleShortVersionString": "0.1.1",
+            "cfBundleVersion": "3",
+            "createdDate": "2026-11-12T21:11:54-08:00",
+            "state": {
+              "errors": [],
+              "warnings": [],
+              "infos": [],
+              "state": "COMPLETE"
+            },
+            "platform": "IOS",
+            "uploadedDate": "2026-11-12T21:12:41-08:00"
+          }
+        }
+      ]
+    },
+    "internalGroupId": "fe2b5b03-483c-4f0a-ba37-4cc1ec80452f",
+    "internalTesterCount": 1,
+    "acceptedUploads": 1,
+    "nativeBuildsUsed": 3,
+    "nativeBuildLimit": 4,
+    "recoveryAdditionalGameBuilds": 0,
+    "ipaSize": 111349261,
+    "ipaSha256": "5ef31cb02850d4de737ac869344f5107ae9ec1b6996859850fa7736159ae4533",
+    "signedAppTreeSha256": "d07c4384242a3ffcd5a4af6263b60d55e0eeacbcead836aaaff89d98f3ad00a5",
+    "codeMerge": {
+      "mergeCommit": {
+        "oid": "0ca7daaeacfa20694b8783578eb9ecff427e9cc9"
+      },
+      "state": "MERGED",
+      "url": "https://github.com/seorilabs/.github/pull/349"
+    },
+    "grantMerge": {
+      "mergeCommit": {
+        "oid": "22d4e9d919ba2d3e442d7cbfa26ab6573354042c"
+      },
+      "state": "MERGED",
+      "url": "https://github.com/seorilabs/.github/pull/350"
+    },
+    "activeGrantSha256": "2a670fe3e3172b650304a8dbdcc751989f5db14041259f4eb5f7e8fbcbc5fb44",
+    "grantRevokedByThisChange": true,
+    "revokedGrantSha256": "7ec62a693a57914de621838bf56d4b7c8f0ae7599f380855ebebeb7400b22ee4",
+    "notesSha256": "7ec6aebeb5c04c592b28392dcd0e199d18398b5a808efc0f00a2ca4dccb97ebd",
+    "workflowEnabled": false,
+    "normalQaPassed": false,
+    "deviceUseByAgent": false,
+    "externalTestFlightSubmitted": false,
+    "appReviewSubmitted": false,
+    "publicReleaseAllowed": false,
+    "nas": {
+      "destination": "/Volumes/Data/Backup/agent-artifacts/betta-raising/2026-11-13/706e1130de7d123bac68193821bf301ed9ad336e/internal-distribution/apple-test-track-20261113T141630+0900",
+      "files": 1059,
+      "bytes": 248494043,
+      "copiedFiles": 56,
+      "copiedBytes": 7597344,
+      "manifestSha256": "4654d0911f1ac5b4d493e654d06dfa87fe8bada1496ec12e81f40bb2914af8ff",
+      "copyReadback": "verified",
+      "copyMethod": "explicit stream, flush, fsync, reopen SHA-256; existing copies re-read and reused",
+      "localRetainedForOngoingAppleProcessing": true
+    }
   }
 }
