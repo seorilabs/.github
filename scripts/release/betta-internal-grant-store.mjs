@@ -4,6 +4,7 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import { githubJson, githubDownload, githubPaginate, resolveToken } from '../github-rest.mjs';
 import { bettaDigest, validateBettaGrant } from './betta-internal-bootstrap.mjs';
 import { BETTA_UPDATE_PROPOSAL, validateBettaUpdateApproval } from './betta-internal-update.mjs';
+import { ARTIFACT_APPROVAL, assertV012Approval } from './betta-v012-artifact-policy.mjs';
 
 const CENTRAL='seorilabs/.github',REPOSITORY='seorilabs/betta-raising';
 const fail=code=>{throw new Error(code);};
@@ -44,6 +45,15 @@ export async function readReviewedBettaGrant(id,request){
   if(bettaDigest(proposal)!==g.proposalSha256 || a.proposalSha256!==g.proposalSha256 || a.approverKind!=='human'
     || a.appRegistrationApproved!==true || a.newAppSpecificSigningApproved!==true || a.pipelineAndCentralFirstInternalExceptionPreparationApproved!==true
     || a.objective!=='internal_available' || a.deviceUseByAgent!==false || a.publicRelease!==false || a.existingReviewFailuresMustRemain!==true) fail('BETTA_APPROVAL_SCOPE');
+  if(g.existingArtifactUpload){
+    for(const path of ['scripts/release/betta-v012-artifact-policy.mjs','scripts/release/betta-v012-artifact-upload.mjs','scripts/release/recover-betta-v012-artifact.mjs']){
+      if(!(await readBettaFile(CENTRAL,path,g.verifierCommit,request)).equals(readFileSync(new URL(`../../${path}`,import.meta.url)))) fail('BETTA_VERIFIER_CHANGED');
+    }
+    const bytes=await readBettaFile(CENTRAL,ARTIFACT_APPROVAL,g.verifierCommit,request);
+    if(bettaDigest(bytes)!==g.artifactApprovalSha256) fail('BETTA_V012_APPROVAL_CHANGED');
+    const extra=JSON.parse(bytes),proposal=await readBettaFile(CENTRAL,extra.proposalFile,extra.proposalCommit,request);
+    assertV012Approval(extra,proposal);
+  }
   if(g.kind==='betta-internal-update'){
     const update=await readBettaFile(REPOSITORY,g.internalUpdate.approvalFile,g.sourceSha,request);
     if(bettaDigest(update)!==g.internalUpdate.approvalSha256) fail('BETTA_UPDATE_APPROVAL_CHANGED');

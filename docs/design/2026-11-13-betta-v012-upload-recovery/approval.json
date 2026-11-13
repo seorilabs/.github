@@ -1,0 +1,24 @@
+{
+  "approverKind": "human",
+  "userApprovalVerbatim": "기존 산출물로 업로드 전용 복구 승인",
+  "approvalObservedAt": "2026-11-13T13:31:41Z",
+  "proposalCommit": "653f2c08f2f55a17114a3dcc900cd31852502383",
+  "proposalFile": "docs/design/2026-11-13-betta-v012-upload-recovery/design.md",
+  "proposalSha256": "f03b6d9f1b6da478c458cc8b2671cd9938d5da7923d3a14d7fabdd5a98aa4f84",
+  "sourceSha": "a65470d2a67308d808a8a8f63583aa1e14cc435e",
+  "tag": "v0.1.2",
+  "additionalNativeBuilds": 0,
+  "acceptedUploadLimitPerMarket": 1,
+  "cumulativeNativeBuilds": {
+    "google-play": 3,
+    "app-store": 4
+  },
+  "cumulativeAcceptedUploadLimitPerMarket": 2,
+  "expiresAt": "2026-11-19T15:35:59.411730+00:00",
+  "originalWorkingTreeAndPostHookFailuresRemain": true,
+  "deviceUseByAgent": false,
+  "gameMainMerge": false,
+  "publicRelease": false,
+  "newCredentialsOrPaidPlans": false,
+  "uploaderRuntime": "reviewed-local-cli-no-native-build"
+}

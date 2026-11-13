@@ -37,7 +37,8 @@
     "kind": {
       "enum": [
         "betta-first-internal",
-        "betta-internal-update"
+        "betta-internal-update",
+        "betta-existing-artifact-upload"
       ]
     },
     "id": {
@@ -76,6 +77,7 @@
     },
     "maxBuildsPerMarket": {
       "enum": [
+        0,
         1,
         2
       ]
@@ -576,6 +578,72 @@
           }
         }
       }
+    },
+    "existingArtifactUpload": {
+      "oneOf": [
+        {
+          "const": {
+            "sourceGrantCommit": "bebf35f55ebcc18870bbe4ffc08c53e034e2e3c9",
+            "additionalGameBuilds": 0,
+            "previousAcceptedUploads": 1,
+            "cumulativeAcceptedUploadLimit": 2,
+            "fullOriginalWorkingTreeAuditPassed": false,
+            "operatorRuntime": "reviewed-local-cli-no-native-build",
+            "target": "google-play",
+            "sourceGrantId": "betta-0-1-2-google-drawer-fit",
+            "sourceGrantSha256": "72044cb65f0c833b76dd9007fecd36cd2f9f5bcd1331c8046a92368f28eaf6ea",
+            "buildClaimSha256": "bb2e9bfb8b830698491ab1dbe044afbef8d72c59af824393c4f0093143130154",
+            "cumulativeNativeBuilds": 3,
+            "cumulativeNativeLimit": 3,
+            "sourceRunId": 43431697154,
+            "sourceArtifactId": 14039879273,
+            "sourceArtifactName": "failed-godot-google-play-aab-43431697154-1",
+            "archiveSize": 114013277,
+            "archiveSha256": "9b653eb008bc074395a13fa47d5174339147182eebeb9b6930ee073c63bf2a60",
+            "artifactSize": 114387429,
+            "artifactSha256": "136e213a636c534d53f5ded35b911b6127039478e35dec8b01c8ac0ffbde7c77",
+            "jobId": 131906522643,
+            "rawJobLogSha256": "1301935252299d54f2fc0d451b1f6560efa68d0425b92185e637303403486c01",
+            "sourceReleaseId": 444232019,
+            "releaseNotesSha256": "49b902bb530b271b6047d16da1e2ca7cc51c482e8b29872e58f3454ee94f105d"
+          }
+        },
+        {
+          "const": {
+            "sourceGrantCommit": "bebf35f55ebcc18870bbe4ffc08c53e034e2e3c9",
+            "additionalGameBuilds": 0,
+            "previousAcceptedUploads": 1,
+            "cumulativeAcceptedUploadLimit": 2,
+            "fullOriginalWorkingTreeAuditPassed": false,
+            "operatorRuntime": "reviewed-local-cli-no-native-build",
+            "target": "app-store",
+            "sourceGrantId": "betta-0-1-2-apple-drawer-fit",
+            "sourceGrantSha256": "9e15ba1dcd182fde47516db321701a82142f990248d3f2bc9396921d6ed3e633",
+            "buildClaimSha256": "cfff36035cf52c9bedb6cbea58999d20e6706f38e024394f84437aefb63f7262",
+            "cumulativeNativeBuilds": 4,
+            "cumulativeNativeLimit": 4,
+            "sourceRunId": "f86f9acf-b194-4a10-af9d-c5bbc1b9b02a",
+            "sourceArtifactId": "ace1f3ab-1750-46bc-9df0-c5a0c54c5acf",
+            "sourceArtifactName": "BettaAtelier 0.1.2 app-store.zip",
+            "archiveSize": 111241361,
+            "archiveSha256": "e31ac18dc4f5131bf793e509b1de29e4f639714a0b46cbf412399609ff4ae147",
+            "artifactSize": 111351262,
+            "artifactSha256": "188b36af4f7490fc85a7b82355af8efd9378b7e3c06b6f6bc697f1efe8ce485e",
+            "signedAppTreeSha256": "203a0c69627fbbec3891cfad9ea87ad909e4651c8f62a5b9d1b6c1ce7cb9a550",
+            "archiveActionId": "b9efb94f-6399-4c2e-bc37-cc18cd8a42b4",
+            "postActionId": "3ada6a87-6d82-4865-96cf-1487c0d164b2",
+            "sourceTagId": "bae7c9e2-c662-4580-8144-c614370d76d5",
+            "logArtifactId": "5a0f1b37-446d-41a3-9a0a-b770a0c0bb4b",
+            "logArchiveSha256": "be7b586e9532c252ce61e34b8ec1cac860e4678b701e4c4e0479bfdb37a81788",
+            "sourceReleaseId": 444232019,
+            "releaseNotesSha256": "49b902bb530b271b6047d16da1e2ca7cc51c482e8b29872e58f3454ee94f105d"
+          }
+        }
+      ]
+    },
+    "artifactApprovalSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
     }
   },
   "allOf": [
@@ -662,7 +730,25 @@
           "required": [
             "internalUpdate"
           ]
-        }
+        },
+        "allOf": [
+          {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "existingArtifactUpload"
+                  ]
+                },
+                {
+                  "required": [
+                    "artifactApprovalSha256"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -719,6 +805,139 @@
               ]
             }
           ]
+        },
+        "allOf": [
+          {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "existingArtifactUpload"
+                  ]
+                },
+                {
+                  "required": [
+                    "artifactApprovalSha256"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "betta-existing-artifact-upload"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "existingArtifactUpload",
+          "artifactApprovalSha256"
+        ],
+        "properties": {
+          "sourceSha": {
+            "const": "a65470d2a67308d808a8a8f63583aa1e14cc435e"
+          },
+          "releaseTag": {
+            "const": "v0.1.2"
+          },
+          "maxBuildsPerMarket": {
+            "const": 0
+          },
+          "allowedErrors": {
+            "const": [
+              "THREE_UI_ROUNDS_REQUIRED"
+            ]
+          },
+          "googlePlay": {
+            "type": "object",
+            "properties": {
+              "versionCode": {
+                "const": 3
+              }
+            }
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "internalUpdate"
+              ]
+            },
+            {
+              "required": [
+                "existingAabRecovery"
+              ]
+            },
+            {
+              "required": [
+                "existingIpaRecovery"
+              ]
+            },
+            {
+              "required": [
+                "workingOverrides"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "betta-existing-artifact-upload"
+          },
+          "existingArtifactUpload": {
+            "type": "object",
+            "properties": {
+              "target": {
+                "const": "google-play"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "targets": {
+            "const": [
+              "google-play"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "betta-existing-artifact-upload"
+          },
+          "existingArtifactUpload": {
+            "type": "object",
+            "properties": {
+              "target": {
+                "const": "app-store"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "targets": {
+            "const": [
+              "app-store"
+            ]
+          }
         }
       }
     }
