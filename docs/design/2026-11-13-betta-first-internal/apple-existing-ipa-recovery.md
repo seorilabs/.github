@@ -12,4 +12,4 @@
 
 기존 L1/dev test-plan을 따른다. 실제 CLI 인자 회귀, 실패 run·artifact 선택·시장 접수 차단, 동시 원자적 슬롯, 정확한 signed app 직접 감사와 관련 전체 Betta 회귀를 실행한다. 중앙 CI와 로컬 모델 리뷰, 독립 운영 검토 뒤에 grant를 등록한다. 최종 grant도 내부 제공 뒤 회수한다. 원본과 실패·성공 근거는 NAS에 파일별 size/SHA를 다시 읽어 보존한다.
 
-업로더는 중앙에서 reviewed bytes를 확인하는 `recover-betta-existing-ipa.mjs` 로컬 CLI다. 새 CI 실행을 가장하지 않으며 보호된 CLI의 직접 실행 경로와 hash를 검사·기록한다. 소스의 producer는 기존 실제 Cloud3과 원자적 before-build claim이다. 업로드 직전 altool의 지원 환경 변수 API_PRIVATE_KEYS_DIR 아래 실제 등록 키 파일을 읽기 API용 키와 대조한다. intent 전에는 preflight 영수증을, 명령 종료 뒤에는 별도 `.upload-result.json`을 각각 변경 불가능한 파일로 남긴다. 불명 접수는 자동 재시도하지 않는다.
+업로더는 중앙에서 reviewed bytes를 확인하는 `recover-betta-existing-ipa.mjs` 로컬 CLI다. 새 CI 실행을 가장하지 않으며 보호된 CLI의 직접 실행 경로와 hash를 검사·기록한다. 소스의 producer는 기존 실제 Cloud3과 원자적 before-build claim이다. 업로드 직전 altool의 지원 환경 변수 API_PRIVATE_KEYS_DIR 아래 실제 등록 키 파일을 읽기 API용 키와 대조한다. 업로드 명령 전에는 intent/fence를 담은 preflight 영수증을, 명령 종료 뒤에는 별도 `.upload-result.json`을 각각 변경 불가능한 파일로 남긴다. 불명 접수는 자동 재시도하지 않는다.
