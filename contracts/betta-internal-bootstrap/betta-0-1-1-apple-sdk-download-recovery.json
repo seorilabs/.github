@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 1,
+  "kind": "betta-first-internal",
+  "id": "betta-0-1-1-apple-sdk-download-recovery",
+  "repository": "seorilabs/betta-raising",
+  "sourceSha": "706e1130de7d123bac68193821bf301ed9ad336e",
+  "releaseTag": "v0.1.1",
+  "targets": [
+    "app-store"
+  ],
+  "productTreeSha256": "233c30e067edb58039d3ad4a1b31f6af87c25c50982d0af2117fe8774da02c23",
+  "approvedAt": "2026-11-13T03:56:19.371994+00:00",
+  "expiresAt": "2026-11-19T15:35:59.411730+00:00",
+  "revoked": false,
+  "maxBuildsPerMarket": 2,
+  "maxAcceptedUploadsPerMarket": 1,
+  "publicReleaseAllowed": false,
+  "allowedErrors": [
+    "THREE_UI_ROUNDS_REQUIRED"
+  ],
+  "googlePlay": {
+    "packageName": "com.seorilabs.bettaraising",
+    "accountId": "7593567020638200144",
+    "versionCode": 2,
+    "certificateSha256": "e3643eed86dd6bd5d91a4b8c9f9e7e4636f9fc30bd8cdb6d7688800333d71a8a",
+    "workflowPath": ".github/workflows/deploy-google-play.yml"
+  },
+  "ciRunId": "43359608916",
+  "originalObservationAssets": [
+    {
+      "name": "historical-development-evidence.google-play.c6612e84.json",
+      "sha256": "32dfd9c447654c931c08672c4e6ce358354152d7e2dfe9c742387c9ce03abfba"
+    },
+    {
+      "name": "historical-development-evidence.app-store.c6612e84.json",
+      "sha256": "75e52f444fb581f6a84288f7ebdcb5743cbc7c60706002a2528341db6ef40550"
+    },
+    {
+      "name": "historical-review-4-result.c6612e84.json",
+      "sha256": "cc7bd705a0524b10a48038c35d89720b083909ed897f4358bf1dc05928833e56"
+    },
+    {
+      "name": "historical-candidate-ci.e4e9f67.json",
+      "sha256": "f3aed3e27bc65bf3614e026beef7e8b2ad2f588c8c81ac9f3caba4554da114ee"
+    },
+    {
+      "name": "historical-local-author-run.c13-to-e4e9f67.json",
+      "sha256": "5dd56904038b895ac52c86d6621d49d769aa652b69437e590053f94be7f28475"
+    },
+    {
+      "name": "historical-candidate-ci-2.e4e9f67.json",
+      "sha256": "f9e146fbe6589777f08159f7df4e6f49cb9084ad094244e38625409ffa960e05"
+    },
+    {
+      "name": "author-render.bd78bd9.json",
+      "sha256": "df2d26e0848f96339ae6d8e3fbb8ce20cea76dd7137717f8ad0defa69bea4956"
+    },
+    {
+      "name": "historical-first-native-build-failure.bd78bd9.json",
+      "sha256": "961c88cbac8b973dc216b891eab902e3623524f3e6173a4e5e732ba1345365d8"
+    },
+    {
+      "name": "historical-second-runner-loss.bd78bd9.json",
+      "sha256": "e275077edfe2f7a7fddd29b30a2e6fa903ed58c6ba1315b7d92e90c443b5ffe2"
+    },
+    {
+      "name": "historical-upload-only-preflight-failure.bd78bd9.json",
+      "sha256": "c7e170984be213063ec096d219b04e1290f68177c26ba7e0c2733267762fc84f"
+    },
+    {
+      "name": "apple-extra-candidate-approval.706e113.json",
+      "sha256": "55773ed14f5694add93f95c6454f60a30fbd58eafa6523737322001827a9d3b7"
+    },
+    {
+      "name": "historical-apple-download-failures.bd78bd9.json",
+      "sha256": "f36924b8228456c7e510a4932fdd05a51b60a064c0c067ee88a959525b91b8c1"
+    },
+    {
+      "name": "historical-source-ci-attempt1-failure.706e113.json",
+      "sha256": "05abdd7c69cab736505edf622e105af35999c63d4dbe3d5d051743ed145ec5e6"
+    },
+    {
+      "name": "historical-source-review-unavailable.706e113.json",
+      "sha256": "fd7f3afa08b5e94a5f49a30f1016d8dc090c011319fbd924e62558b6c353a255"
+    }
+  ],
+  "evidenceSha256": "f89ccaf43b6f4ca9028867e254784b4409aea0baf54e46a28e53eaf3a4f12df8",
+  "inventorySha256": "cfdb0969544a1a9a7bd4f7b41880dcd801e43714f12602e56c0ad4fcdad54409",
+  "approvalFile": "docs/design/2026-11-10-shared-aquarium/internal-foundation-approval.json",
+  "approvalSha256": "0d862d80914022d7f1091d3ede613598515392d2f6d57531b527d56eb7d6380b",
+  "proposalFile": "docs/06-release/internal-upload-preparation.md",
+  "proposalSha256": "4d2f2812b7b341b39a95318a13a535fc3d8f07adf3fbbd2e9bef2215ac6b02e0",
+  "verifierCommit": "de4713068c035749abff6da660a39d524c70ad3e",
+  "workingOverrides": {
+    "before-build": {},
+    "before-deploy": {
+      "build/native-downloads/android-template-v4.7.2.zip": "f7fdf644d50c0e231d8f02ae044057e489d0bcafcf50e908a4858477e7ee05ee",
+      "build/native-downloads/godot-google-play-billing-3.3.0.zip": "20d75623d6f337f08d8283c83098b73678d5f575e39247af5a8eb80588b18568",
+      "godot/addons/GodotGooglePlayBilling/bin/debug/GodotGooglePlayBilling-debug.aar": "f7f8f3f1c8099e58127332c8c27f353a7eea079e749682d2ebd83d1bd4bd6f3d",
+      "godot/addons/GodotGooglePlayBilling/bin/release/GodotGooglePlayBilling-release.aar": "b667b4ae3ecf91d7dea90bebd4ba5a7aef56cfc2cd7de4787aeb51a1927dcef7",
+      "godot/addons/admob/android/bin/ads/libs/poing-godot-admob-ads-debug.aar": "fac3128d6e64b59666b1bac3097952bbbde2f1b1573656cd51b9f64f745edd79",
+      "godot/addons/admob/android/bin/ads/libs/poing-godot-admob-ads-release.aar": "aeca6a3c813da770390dc1d574765b17d8ba78fe0cf1cb61438dc08df1fe1c67",
+      "godot/addons/admob/android/bin/ads/libs/poing-godot-admob-core-debug.aar": "f78a4075635d4d3f27d7de66d350fb77c16f21e60e24ceee702c80efe5b96e29",
+      "godot/addons/admob/android/bin/ads/libs/poing-godot-admob-core-release.aar": "f89e3f1096047fabc83208e4e00a3f0aef847229bcb68cc01e791bd57468fda0",
+      "godot/addons/admob/android/bin/ads/poing_godot_admob_ads.gd": "aaf3ba790995e030fd677791d275952ef3d92561fcba1589ed2324dfe49550f2",
+      "godot/addons/admob/android/bin/package.gd": "6bc1f451f6a737380b4a140d1c00f1807371fe7ce1f2ecf437f08fdf4eda0be7",
+      "godot/android/build/assetPackInstallTime/build.gradle": "9634b498debb6134aadc9ac0e00ad31cffc0a857ec87028631025b15f202378b",
+      "godot/android/build/build.gradle": "ed953e0de4e3334ad6959e30178e9d312a2b6ec8eb664e477913040dbae7d232",
+      "godot/android/build/config.gradle": "b639cb6bcf22ed5280d24612c24cfc238ded1a95eb87e14c6bd11d6366b83313",
+      "godot/android/build/gradle.properties": "513f3c1bf1086916480b39e5e31bbb7f1231d7d7178017177aa43f04ba05fe6b",
+      "godot/android/build/gradle/wrapper/gradle-wrapper.jar": "e996d452d2645e70c01c11143ca2d3742734a28da2bf61f25c82bdc288c9e637",
+      "godot/android/build/gradle/wrapper/gradle-wrapper.properties": "9aaa00cfbcf73d3726b647453c639e63e0bc1f32afdde686c679673fe53a3dc3",
+      "godot/android/build/gradlew": "63135287117a1e6d12c84580f1f49c61d1ba02218ecd28660605e97f976e7d65",
+      "godot/android/build/gradlew.bat": "af835f98787e9269af5a046edcb821a592fed372139df7b947b471a63cfc236b",
+      "godot/android/build/libs/debug/godot-lib.template_debug.aar": "9cfb115e508ce98e8cf9b655927ef894cdfc2fede18a82f995842388f7754102",
+      "godot/android/build/libs/release/godot-lib.template_release.aar": "8791eecfe7c96a4de2d188a0bccfe9b83b92589a5a6825847473416a990e8629",
+      "godot/android/build/res/values-ar/godot_project_name_string.xml": "35cc35ac7085563f26dd94a23d0991cfb007b9bcddc755309e097f6c0ead8af1",
+      "godot/android/build/res/values-bg/godot_project_name_string.xml": "ac59dbc5bb00e97b3a431bd6f8084ab7dcf7010bfedccd5a52b4ae79b589ba9b",
+      "godot/android/build/res/values-ca/godot_project_name_string.xml": "d5b57b1ad8a182d65676c1f5aa1a06265145932870d574a6d150f2bf2137ffad",
+      "godot/android/build/res/values-cs/godot_project_name_string.xml": "0f3d7ec5566e9673b1d6094068951c1cde9a9451a3323919ade6224f9c601794",
+      "godot/android/build/res/values-da/godot_project_name_string.xml": "1fbee5dac9e4de44650c30574b98d1a0c1d3ff0daf38e9a7c65340af3a98355a",
+      "godot/android/build/res/values-de/godot_project_name_string.xml": "568484ae8547b32b1c2785821184530b1c042049d39a25547ec0450e43de2dd3",
+      "godot/android/build/res/values-el/godot_project_name_string.xml": "7663375877e59dc4065bc2ea534342b5d2868a686534836decaa4a7aed172f3b",
+      "godot/android/build/res/values-en/godot_project_name_string.xml": "4954530360653ce11c5397ea502b21a40526b087808d17597806aa059f97a53e",
+      "godot/android/build/res/values-es-rES/godot_project_name_string.xml": "40ff5caa21267ce5b759188ce103aa7660465fae316d2783c8b5179ffdccdb77",
+      "godot/android/build/res/values-es/godot_project_name_string.xml": "82fe14b1c519a4c69dd228fdd6ed9b223dd703980d0ed534c0b440302378eadd",
+      "godot/android/build/res/values-fa/godot_project_name_string.xml": "9b0cd8aae173442a8c8f55f29cc9169b0b8a1a4e6cbb193afcf51615ce039f32",
+      "godot/android/build/res/values-fi/godot_project_name_string.xml": "3b916fe281544484f76853cc35fec2642cf3c15066a49f9f5d419050c5e5c016",
+      "godot/android/build/res/values-fr/godot_project_name_string.xml": "1f504b7a2170cb70313f661cf58fdf04c270d92fe28d6c71d717b9a783358d36",
+      "godot/android/build/res/values-hi/godot_project_name_string.xml": "4e171c884e5c75e9028155e59f8b7199dd4c9b0af2eae306b72f9d661c9accc5",
+      "godot/android/build/res/values-hr/godot_project_name_string.xml": "d571f859beb4ddc3dd57865be72a981787ab13bbb56e208251aefeab8db5721b",
+      "godot/android/build/res/values-hu/godot_project_name_string.xml": "afeef40fcd594465caf26a8da9437752c5a02a733d32647527f6b40dc8dfc2e6",
+      "godot/android/build/res/values-in/godot_project_name_string.xml": "a1dee697ca5dc989f8c28a3f1749e9d429e5934a436d1ba667cef240cd5f3fdf",
+      "godot/android/build/res/values-it/godot_project_name_string.xml": "aaf3439fef529c6c2154588b336e2c24bf639cb564664aecceb68daf64f06b20",
+      "godot/android/build/res/values-iw/godot_project_name_string.xml": "0b6de58b61bfdf1a781af2a35e8018b4091fe3d31158c47393a3a4c2155bc87d",
+      "godot/android/build/res/values-ja/godot_project_name_string.xml": "33df55aa55ce0711895e8ae9ebb988a512fa8c89c5095774b117a42f104eb087",
+      "godot/android/build/res/values-ko/godot_project_name_string.xml": "8a68adc6456ef72ad33d36df6ad7c22f7037ba9f2648df133fbb3307b467700f",
+      "godot/android/build/res/values-lt/godot_project_name_string.xml": "dc715384903357f5096daceadfca278c4c968de8c8eb99e4c6e2547217756d25",
+      "godot/android/build/res/values-lv/godot_project_name_string.xml": "cf3018ddacda6a96e8ba10047943f7abf6eabafcf201dd979a9e0b408052d962",
+      "godot/android/build/res/values-nb/godot_project_name_string.xml": "cea0509994cdf4476afb5b17e58449a7e5457c15635a7885dbb2e014c0263252",
+      "godot/android/build/res/values-nl/godot_project_name_string.xml": "60a82909300e44b08c40240064013aab4ac757e6cfcef6100f758293e0ef27a1",
+      "godot/android/build/res/values-pl/godot_project_name_string.xml": "90856df8452e18c2d80627cf57e5aca00dcd7b921099fef85cb30f79c0438922",
+      "godot/android/build/res/values-pt/godot_project_name_string.xml": "9349c2b5663801d8692fe7b4214de97e81a20ebe1f06b4ea65028a5ac9e74da0",
+      "godot/android/build/res/values-ro/godot_project_name_string.xml": "b5f18c21e5a1718ff911c48a36422edfd66e3bbfaa81b6e2e5ca0d9706431918",
+      "godot/android/build/res/values-ru/godot_project_name_string.xml": "fd7b2d7b9917ca4fa238f0f24c583274d0138ea99f3527a17af32dad96d228c2",
+      "godot/android/build/res/values-sk/godot_project_name_string.xml": "a43cf1bd57aac5882a2b1037ed8f68b728099259ccfbe3b4c158c039b013df1f",
+      "godot/android/build/res/values-sl/godot_project_name_string.xml": "4817b8d12c12397a2387e30e2b88012735442286a25f11dd9816ca2858079b49",
+      "godot/android/build/res/values-sr/godot_project_name_string.xml": "80da161627547e6bfc30e1af2d1010495f53db9eeea145f461c4b9e0c07f8952",
+      "godot/android/build/res/values-sv/godot_project_name_string.xml": "253b08d8c0f0c55d8cb5b03dd43ee69915453468ddeb124162fd053f116e0e58",
+      "godot/android/build/res/values-th/godot_project_name_string.xml": "8e63c4dcd24eac63eae93e71abc4fb752de40ffb68281e2c0cc8b2c1459a8ed1",
+      "godot/android/build/res/values-tl/godot_project_name_string.xml": "02d85fdff40d8b37feba626f9b031d395ef590ce68ac4a59ea640cf80c9d9d24",
+      "godot/android/build/res/values-tr/godot_project_name_string.xml": "8467529d813eca923355d37559df80a5b9660047d94e1176651c83801bf17810",
+      "godot/android/build/res/values-uk/godot_project_name_string.xml": "b7d7fbce5fcdbc2795a26850ce57f9768517a710abb6834ba7a97438006d3a8a",
+      "godot/android/build/res/values-vi/godot_project_name_string.xml": "85db943f6c9aeb55f67809c832d45001aea7cf3366aeefb0f951e46c10624a30",
+      "godot/android/build/res/values-zh-rHK/godot_project_name_string.xml": "39c2313c365cbc65859a74146adfb37e838837129904b912f56d9303107bd5d4",
+      "godot/android/build/res/values-zh-rTW/godot_project_name_string.xml": "2dd4ea39a4014d9963258dceeae82bd7302b473036a9f2d12362e6be3f8198d2",
+      "godot/android/build/res/values-zh/godot_project_name_string.xml": "3847b6b5a85cca7afe4c2584993fb49b1508be374302b2a4cd4f079aa36c553f",
+      "godot/android/build/res/values/godot_project_name_string.xml": "5e204674fde28bc7ecec68bb4fd990b2a4d82f77d786c4aee288d466f7dac4e9",
+      "godot/android/build/res/values/themes.xml": "fa7cccb16370f63b4f01c9516f8a4b120d8a4613f4627de9cb2e374a5ac299fd",
+      "godot/android/build/settings.gradle": "653f2bdd4087a4f34da4e3cb731e41fc9791337a35e998f18cf637cdb2daa05a",
+      "godot/android/build/src/androidTestInstrumented/java/com/godot/game/GodotAppTest.kt": "2cd6419672260ae444e3d10f6b8be64d7ebf4381760976e8347a34d0ee33443b",
+      "godot/android/build/src/instrumented/AndroidManifest.xml": "e76c8f118dafe9231986fc4af56f57a237a6366045090d264ee9eae9dd4fe67a",
+      "godot/android/build/src/instrumented/assets/.godot/.gdignore": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "godot/android/build/src/instrumented/assets/.godot/global_script_class_cache.cfg": "4866068e070bf1d0d93df3c8325608ef12afba9999f5e9c4427b8a11570efdf9",
+      "godot/android/build/src/instrumented/assets/.godot/imported/icon.svg-218a8f2b3041327d8a5756f3a245f83b.ctex": "b2e3bbbcc91cced05da4ace045babc50920b8420bea21cd3a74d2e7d0d4382b6",
+      "godot/android/build/src/instrumented/assets/.godot/imported/icon.svg-218a8f2b3041327d8a5756f3a245f83b.md5": "8204e78cf7292dd5e7e3c62297ec75a23836f930ece6ec033201280488204a7a",
+      "godot/android/build/src/instrumented/assets/.godot/scene_groups_cache.cfg": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "godot/android/build/src/instrumented/assets/.godot/uid_cache.bin": "9f509573964460f6b79a8878fb21c32ba8c36c78b3e464f220c51226061c8d72",
+      "godot/android/build/src/instrumented/assets/icon.svg": "313d61f6f411c5c5ee494a9e3862ed4e66cff1931214a4a062b283f9ae0f5fbd",
+      "godot/android/build/src/instrumented/assets/icon.svg.import": "87a0f875a2348df2e1ed3d66e208044b2a20084bac2e935c6983d5579670593e",
+      "godot/android/build/src/instrumented/assets/main.gd": "1fd73ed065a04e7550cb5a6a8a12566ed6772a716e8a4ccf81f92e62fd37c39f",
+      "godot/android/build/src/instrumented/assets/main.gd.uid": "23c8cb99e819acdde3d6a856267db08e7b7a9f1098e98fa2e210ab701801865d",
+      "godot/android/build/src/instrumented/assets/main.tscn": "34d51d8d86eca84f17b0aaa909977475fe7384f8cd3487243abf66173b5159c2",
+      "godot/android/build/src/instrumented/assets/project.godot": "617ddb7fc2cd721f0e43656cff57473e399f3b42680281bf1d0f1220c81cb39f",
+      "godot/android/build/src/instrumented/assets/test/android_plugin/signal_tests.gd": "107820a3b6317d90a5babf9186eb86fb375fea8990b664c8f9e10fbe61f1f8ba",
+      "godot/android/build/src/instrumented/assets/test/android_plugin/signal_tests.gd.uid": "6d6adc784f3f46a488dc508c651bc21034a8e78a406467e0d5983cb9b86c0edd",
+      "godot/android/build/src/instrumented/assets/test/base_test.gd": "946c4e146bd9377ff6802d245a0e2cd66978a1351fd4e5edb79f0c46443815c9",
+      "godot/android/build/src/instrumented/assets/test/base_test.gd.uid": "6e95fb1c1730e3053545c1a914058a799ce85dad5e3c4e46e4643f96265c59f9",
+      "godot/android/build/src/instrumented/assets/test/file_access/file_access_tests.gd": "46924ef0d83b51751ad3a7b9ed53ff4cd6f96a17d5112a3f71540b9179319163",
+      "godot/android/build/src/instrumented/assets/test/file_access/file_access_tests.gd.uid": "ae6b6ffe9498a0be3b73aeadc064316fbe22ddb70aefa01586d1cb10915fee37",
+      "godot/android/build/src/instrumented/assets/test/javaclasswrapper/java_class_wrapper_tests.gd": "a91da79f747f50e52f6f66e171def91ab8a27cf068f1ec9cf7398bf58a78e2f6",
+      "godot/android/build/src/instrumented/assets/test/javaclasswrapper/java_class_wrapper_tests.gd.uid": "19075aff45f9329cafe70b312b1b15af15fcdb8ff690298af418f3cd74c1be97",
+      "godot/android/build/src/instrumented/java/com/godot/game/test/GodotAppInstrumentedTestPlugin.kt": "9ae5decaf8e6fe1bc71c15c79b46a1ad9149d3eedebeae5a66431ff87f04ea97",
+      "godot/android/build/src/instrumented/java/com/godot/game/test/SignalTestPlugin.kt": "e923035fcec144e6501a8dc34498fa9f0548d9970d5196efdfdc2d31134bc933",
+      "godot/android/build/src/instrumented/java/com/godot/game/test/javaclasswrapper/TestClass.kt": "a268b86311f34a4452cb3f37ad777c516f1a0d5b947ec9880062f47dba912b2a",
+      "godot/android/build/src/instrumented/java/com/godot/game/test/javaclasswrapper/TestClass2.kt": "494959bb43d4bbdbf18a18a8bec0967c9e392af222587841f61f4bd4a2258a46",
+      "godot/android/build/src/instrumented/java/com/godot/game/test/javaclasswrapper/TestClass3.kt": "0e3fe64db558b572cf2cb9441412c08ddb53ac41f2946067ac665f4c00c64fff",
+      "godot/android/build/src/instrumented/res/values/strings.xml": "cd303482dbb96a681443309095f0fb75589baf27f32d36ae4916cf45ff8e2abb",
+      "godot/android/build/src/main/AndroidManifest.xml": "2a68ba08e3e047ffdb9ff433d02035fb99046ee5478c4e2e2b0ed25f1a833605",
+      "godot/android/build/src/main/java/com/godot/game/GodotApp.java": "6bd6e6280ef42fee606e1243a4e89f73a4dbe76207d799af7d38b7e4e54052bb",
+      "godot/addons/admob/internal/translations/admob_sample.pt_BR.translation": "89616bfa0b609c7fac86b5a02472346b26bacb9d1170205abdd001f29d983e87",
+      "godot/addons/admob/internal/translations/admob_sample.zh_CN.translation": "d03dd0e4d878d71c02870aae8386df76c469e9675e1777d603e7169057ae4c81",
+      "godot/addons/admob/internal/translations/admob_sample.ja.translation": "7368bed2a4b3d04c833afd52f4522db130c19ec0311049a9928e82ba4a9ed0c9",
+      "godot/addons/admob/internal/translations/admob_sample.es.translation": "d874424464cbcacf31fdc19fa06d056f3c31da7dcce79f2551e57d81b6368787",
+      "godot/addons/admob/internal/translations/admob_sample.en.translation": "ca08a5f19a7536ae567731fcf3496aa5499746d4c30ed8e1b3440f57dd83f577"
+    }
+  },
+  "configurationFingerprint": "217b40d1cbc19c9ce61a8a64ab6706bf7acb95df5c1601bca7dd7dd5582f552b",
+  "appStore": {
+    "bundleId": "com.seorilabs.bettaraising",
+    "appId": "6834215464",
+    "productId": "644d867e-46ae-4b8f-a634-f139c00d9fb6",
+    "workflowId": "686987D3-6AD2-4755-9679-4FDC3CAF966B",
+    "scheme": "BettaAtelier",
+    "teamId": "HCDUXX4Z3X",
+    "profileUuid": "dc049deb-da89-418f-8c08-af8d53b4e72c",
+    "profileSha256": "52f39ebfe8c37a61f7fa608cbe3adc31bc14c1caa5d54a176a8958608665ca02",
+    "certificateSha256": "6eda0a7eefe7fa7c736644d5b6a71cf5907e70da827640817024afd5ed05acb3",
+    "initialBuildNumber": "3"
+  }
+}

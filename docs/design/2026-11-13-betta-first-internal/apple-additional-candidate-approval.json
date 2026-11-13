@@ -1,0 +1,44 @@
+{
+  "kind": "additional-apple-internal-candidate-proposal",
+  "approved": true,
+  "candidateSha": "706e1130de7d123bac68193821bf301ed9ad336e",
+  "candidateChange": "Pinned SDK download integrity/retry; valid inventory-bound test plan; fail-closed request to unregistered recovery grant",
+  "proposedVersionTag": "v0.1.1",
+  "originalTagMustRemainUnchanged": "v0.1.0",
+  "historicalAppleNativeRuns": [
+    "19199616-067d-4497-9289-4b9bb628f0aa",
+    "064ecfc0-bcbb-470a-8fe2-0348534a4b5b"
+  ],
+  "historicalAppleNativeBuildsUsed": 2,
+  "proposedAdditionalAppleNativeBuildLimit": 2,
+  "maximumTotalAppleNativeBuildsAcrossOldAndNewCandidates": 4,
+  "acceptedAppleUploadsAlreadyUsed": 0,
+  "maximumAcceptedAppleUploadsAcrossOldAndNewCandidates": 1,
+  "originalApprovalExpiresAtMustNotReset": "2026-11-19T15:35:59.411730+00:00",
+  "appId": "6834215464",
+  "bundleId": "com.seorilabs.bettaraising",
+  "internalGroupId": "fe2b5b03-483c-4f0a-ba37-4cc1ec80452f",
+  "sameRegisteredSigningAndUploader": true,
+  "objective": "TestFlight VALID and internal group available",
+  "newPaidPlanOrFinancialBudgetChange": false,
+  "newCredentialOrAccountRoleChange": false,
+  "additionalAndroidBuild": false,
+  "deviceUse": false,
+  "appReviewOrPublicRelease": false,
+  "gameMainMerge": false,
+  "originalQaFailuresMustRemain": true,
+  "estimatedElapsedMinutes": [
+    30,
+    60
+  ],
+  "approvalReason": "The reviewed grant is bound to bd78/v0.1.0 and allowed two native runs, both exhausted; it is now revoked. The new source/tag and additional Cloud execution need a separate reviewed binding before execution.",
+  "preparedRecoveryGrantId": "betta-0-1-1-apple-sdk-download-recovery",
+  "priorUnbuiltDraftCommits": [
+    "e6dbfb081bb5fe076cb90cfa74ef05fffe184f41",
+    "e727dce5cd3f80dba9479a4be7ee404979faeb04"
+  ],
+  "approvalObservedAt": "2026-11-13T03:56:19.371994+00:00",
+  "approvalVerbatim": "수정 후보로 iOS 최대 2회 추가 진행",
+  "approvalQuestionSourceSha": "706e1130de7d123bac68193821bf301ed9ad336e",
+  "originalC13ApprovalTimestampUnchanged": "2026-11-12T15:35:59.411730+00:00"
+}
