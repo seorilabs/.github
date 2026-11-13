@@ -3,6 +3,7 @@ import { parse } from 'yaml';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { githubJson, githubDownload, githubPaginate, resolveToken } from '../github-rest.mjs';
 import { bettaDigest, validateBettaGrant } from './betta-internal-bootstrap.mjs';
+import { BETTA_UPDATE_PROPOSAL, validateBettaUpdateApproval } from './betta-internal-update.mjs';
 
 const CENTRAL='seorilabs/.github',REPOSITORY='seorilabs/betta-raising';
 const fail=code=>{throw new Error(code);};
@@ -31,7 +32,7 @@ export async function readReviewedBettaGrant(id,request){
   }
   const comparison=await githubJson(`/repos/${CENTRAL}/compare/${g.verifierCommit}...main`,request);
   if(!['ahead','identical'].includes(comparison.status)) fail('BETTA_VERIFIER_NOT_REVIEWED');
-  for(const path of ['scripts/release/betta-internal-bootstrap.mjs','scripts/release/betta-internal-grant-store.mjs','scripts/release/betta-internal-provider.mjs','scripts/release/betta-internal-execution.mjs','scripts/release/betta-internal-apple-artifact.mjs','scripts/release/betta-internal-retry-proof.mjs','scripts/release/betta-existing-aab-recovery.mjs','scripts/release/recover-betta-existing-aab.mjs','scripts/release/betta-existing-ipa-recovery.mjs','scripts/release/recover-betta-existing-ipa.mjs','scripts/release/upload-google-play-aab.py','scripts/release/google_play_client.py','.github/workflows/betta-existing-aab-upload.yml','scripts/release/verify-development-evidence.mjs','scripts/release/tag-version-authority.mjs','scripts/release/read-google-play-version-codes.py','scripts/github-rest.mjs','contracts/release-version-authority.yaml','contracts/betta-internal-bootstrap.schema.json','contracts/betta-internal-bootstrap-grant.schema.json','package.json','package-lock.json','.github/workflows/godot-deploy-google-play.yml']){
+  for(const path of ['scripts/release/betta-internal-update.mjs','scripts/release/betta-internal-bootstrap.mjs','scripts/release/betta-internal-grant-store.mjs','scripts/release/betta-internal-provider.mjs','scripts/release/betta-internal-execution.mjs','scripts/release/betta-internal-apple-artifact.mjs','scripts/release/betta-internal-retry-proof.mjs','scripts/release/betta-existing-aab-recovery.mjs','scripts/release/recover-betta-existing-aab.mjs','scripts/release/betta-existing-ipa-recovery.mjs','scripts/release/recover-betta-existing-ipa.mjs','scripts/release/upload-google-play-aab.py','scripts/release/google_play_client.py','.github/workflows/betta-existing-aab-upload.yml','scripts/release/verify-development-evidence.mjs','scripts/release/tag-version-authority.mjs','scripts/release/read-google-play-version-codes.py','scripts/github-rest.mjs','contracts/release-version-authority.yaml','contracts/betta-internal-bootstrap.schema.json','contracts/betta-internal-bootstrap-grant.schema.json','package.json','package-lock.json','.github/workflows/godot-deploy-google-play.yml']){
     const reviewed=await readBettaFile(CENTRAL,path,g.verifierCommit,request);
     if(!reviewed.equals(readFileSync(new URL(`../../${path}`,import.meta.url)))) fail('BETTA_VERIFIER_CHANGED');
   }
@@ -43,6 +44,14 @@ export async function readReviewedBettaGrant(id,request){
   if(bettaDigest(proposal)!==g.proposalSha256 || a.proposalSha256!==g.proposalSha256 || a.approverKind!=='human'
     || a.appRegistrationApproved!==true || a.newAppSpecificSigningApproved!==true || a.pipelineAndCentralFirstInternalExceptionPreparationApproved!==true
     || a.objective!=='internal_available' || a.deviceUseByAgent!==false || a.publicRelease!==false || a.existingReviewFailuresMustRemain!==true) fail('BETTA_APPROVAL_SCOPE');
+  if(g.kind==='betta-internal-update'){
+    const update=await readBettaFile(REPOSITORY,g.internalUpdate.approvalFile,g.sourceSha,request);
+    if(bettaDigest(update)!==g.internalUpdate.approvalSha256) fail('BETTA_UPDATE_APPROVAL_CHANGED');
+    const [centralProposal,productComparison]=await Promise.all([
+      readBettaFile(BETTA_UPDATE_PROPOSAL.repository,BETTA_UPDATE_PROPOSAL.file,BETTA_UPDATE_PROPOSAL.commit,request),
+      githubJson(`/repos/${REPOSITORY}/compare/${g.internalUpdate.approvedProductSource}...${g.sourceSha}`,request)]);
+    validateBettaUpdateApproval(g,JSON.parse(update),centralProposal,productComparison);
+  }
   return {...found,grantSha256:bettaDigest(found.bytes)};
 }
 
@@ -54,7 +63,7 @@ export async function readBettaClaims(release,grant,target,request){
     if(asset.size>32768) fail('BETTA_CLAIM_SIZE');
     const bytes=await githubDownload(`/repos/${REPOSITORY}/releases/assets/${asset.id}`,request);
     const claim=JSON.parse(bytes);
-    if(!validClaim(claim) || !Number.isFinite(Date.parse(claim.recordedAt)) || claim.id!==grant.id || claim.target!==target || claim.sourceSha!==grant.sourceSha || ![1,2].includes(claim.attempt)
+    if(!validClaim(claim) || !Number.isFinite(Date.parse(claim.recordedAt)) || claim.id!==grant.id || claim.target!==target || claim.sourceSha!==grant.sourceSha || ![1,2].includes(claim.attempt) || claim.attempt>(grant.maxBuildsPerMarket ?? 2)
       || !['before-build','before-deploy'].includes(claim.phase) || asset.name!==`${prefix}${claim.attempt}.${claim.phase}.json`) fail('BETTA_CLAIM_BINDING');
     claims.push({...claim,assetId:asset.id});
   }

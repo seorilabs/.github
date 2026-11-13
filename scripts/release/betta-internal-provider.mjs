@@ -3,6 +3,7 @@ import { makeAppStoreConnectToken } from '../trigger-xcode-cloud.mjs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { reviewedBettaNoUpload } from './betta-internal-retry-proof.mjs';
+import { validateBettaUpdatePlayMarket, validateBettaUpdateAppleMarket } from './betta-internal-update.mjs';
 const fail=code=>{throw new Error(code);};
 
 export function validateBettaGoogleRun(run,grant,{phase,producerRunId}){
@@ -46,7 +47,7 @@ export function validateBettaCloudRun({run,workflow,product,app,tag},grant,env){
     || env.CI_PRODUCT_ID!==g.productId || env.CI_XCODE_SCHEME!==g.scheme || run?.id!==env.CI_BUILD_ID || String(r?.number)!==env.CI_BUILD_NUMBER
     || r.sourceCommit?.commitSha!==grant.sourceSha || r.startReason!=='MANUAL' || r.isPullRequestBuild!==false
     || run.relationships?.workflow?.data?.id!==g.workflowId || run.relationships?.product?.data?.id!==g.productId
-    || !Number.isSafeInteger(r.number) || r.number<Number(g.initialBuildNumber) || r.number>=Number(g.initialBuildNumber)+2
+    || !Number.isSafeInteger(r.number) || r.number<Number(g.initialBuildNumber) || r.number>=Number(g.initialBuildNumber)+(grant.maxBuildsPerMarket ?? 2)
     || tag?.attributes?.kind!=='TAG' || tag.attributes.name!==grant.releaseTag || tag.id!==run.relationships?.sourceBranchOrTag?.data?.id) fail('BETTA_APPLE_PRODUCER');
   return {producer:`xcode-cloud:${run.id}`,id:run.id,number:r.number,state:r.executionProgress==='COMPLETE' ? (r.completionStatus==='SUCCEEDED'?'succeeded':'failed'):'in_progress'};
 }
@@ -56,7 +57,7 @@ export async function observeBettaGoogleBuilds(grant,{id,phase,fetchImpl=globalT
     const current=validateBettaGoogleRun(run,grant,{phase,producerRunId:id});
     const runs=await githubPaginate(`/repos/${grant.repository}/actions/workflows/deploy-google-play.yml/runs?head_sha=${grant.sourceSha}&event=workflow_dispatch&per_page=100`,{...request,select:d=>d.workflow_runs});
     const matching=runs.filter(r=>r.head_sha===grant.sourceSha && r.path?.split('@')[0]===grant.googlePlay.workflowPath);
-    if(!matching.some(r=>String(r.id)===id) || matching.length>2 || matching.some(r=>r.run_attempt!==1)) fail('BETTA_GOOGLE_BUILD_LIMIT');
+    if(!matching.some(r=>String(r.id)===id) || matching.length>(grant.maxBuildsPerMarket ?? 2) || matching.some(r=>r.run_attempt!==1)) fail('BETTA_GOOGLE_BUILD_LIMIT');
     const ordered=[...matching].sort((a,b)=>BigInt(a.id)<BigInt(b.id)?-1:1);
     if(new Set(ordered.map(r=>String(r.id))).size!==ordered.length || String(ordered.at(-1).id)!==id) fail('BETTA_PREVIOUS_ATTEMPT_UNRESOLVED');
     const ordinal=ordered.findIndex(r=>String(r.id)===id)+1;
@@ -90,7 +91,8 @@ export async function observeBettaProvider(grant,options,claims,request){
       market=JSON.parse(execFileSync('python3',[fileURLToPath(new URL('./read-google-play-version-codes.py',import.meta.url)),
         '--package-name',grant.googlePlay.packageName,'--api-timeout-seconds','30','--api-retries','0'],{env,stdio:['ignore','pipe','pipe'],timeout:60000,maxBuffer:1024*1024}));
     }catch{fail('BETTA_LIVE_PLAY_READBACK_REQUIRED');}
-    if(market.kind!=='google-play-version-code-readback' || market.packageName!==grant.googlePlay.packageName || market.status!=='READY'
+    if(grant.kind==='betta-internal-update') validateBettaUpdatePlayMarket(grant,market);
+    else if(market.kind!=='google-play-version-code-readback' || market.packageName!==grant.googlePlay.packageName || market.status!=='READY'
       || market.maxVersionCode!==null || market.bundleVersionCodes?.length!==0 || market.apkVersionCodes?.length!==0
       || !Array.isArray(market.tracks) || market.tracks.some(t=>t.versionCodes?.length!==0)) fail('BETTA_MARKET_ALREADY_HAS_BUILD');
     const id=options.producerRunId ?? env.GITHUB_RUN_ID;
@@ -101,8 +103,9 @@ export async function observeBettaProvider(grant,options,claims,request){
   const g=grant.appStore,id=env.CI_BUILD_ID;
   if(!/^[A-Za-z0-9-]+$/u.test(id ?? '')) fail('BETTA_CLOUD_CI_REQUIRED');
   const [accepted,uploads]=await Promise.all([
-    appleList(`/v1/builds?filter[app]=${g.appId}&limit=200`,env,fetchImpl),appleList(`/v1/apps/${g.appId}/buildUploads?limit=200`,env,fetchImpl)]);
-  if(accepted.length || uploads.length) fail('BETTA_MARKET_ALREADY_HAS_UPLOAD');
+    appleList(`/v1/builds?filter[app]=${g.appId}&limit=200${grant.kind==='betta-internal-update'?'&include=preReleaseVersion':''}`,env,fetchImpl),appleList(`/v1/apps/${g.appId}/buildUploads?limit=200`,env,fetchImpl)]);
+  if(grant.kind==='betta-internal-update') validateBettaUpdateAppleMarket(grant,accepted,uploads);
+  else if(accepted.length || uploads.length) fail('BETTA_MARKET_ALREADY_HAS_UPLOAD');
   const [runDoc,workflowDoc,productDoc,appDoc]=await Promise.all([
     appleGet(`/v1/ciBuildRuns/${id}?include=workflow,product,sourceBranchOrTag`,env,fetchImpl),appleGet(`/v1/ciWorkflows/${g.workflowId}?include=product`,env,fetchImpl),
     appleGet(`/v1/ciProducts/${g.productId}?include=app`,env,fetchImpl),appleGet(`/v1/apps/${g.appId}`,env,fetchImpl)]);
@@ -112,7 +115,7 @@ export async function observeBettaProvider(grant,options,claims,request){
   const list=await appleGet(`/v1/ciWorkflows/${g.workflowId}/buildRuns?limit=200`,env,fetchImpl);
   if(list.links?.next) fail('BETTA_CLOUD_PAGINATION_REQUIRES_INSPECTION');
   const matching=list.data.filter(r=>r.attributes?.sourceCommit?.commitSha===grant.sourceSha);
-  if(!matching.some(r=>r.id===id) || matching.length>2) fail('BETTA_CLOUD_BUILD_LIMIT');
+  if(!matching.some(r=>r.id===id) || matching.length>(grant.maxBuildsPerMarket ?? 2)) fail('BETTA_CLOUD_BUILD_LIMIT');
   const previous=[];
   for(const claim of claims.filter(c=>c.phase==='before-build' && c.producer!==current.producer)){
     const prior=matching.find(r=>`xcode-cloud:${r.id}`===claim.producer);

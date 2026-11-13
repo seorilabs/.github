@@ -246,6 +246,15 @@ bettaInternalBootstrap:
   maxBuildsPerMarket: 2
   maxAcceptedUploadsPerMarket: 1
   phases: [before-build, before-deploy]
+  singleInternalUpdate:
+    kind: betta-internal-update
+    releaseTag: v0.1.2
+    approvedProductSource: 479d9c7a803d7446fcce322238c5d74f0d22c112
+    maxBuildsPerMarket: 1
+    maxAcceptedUploadsPerMarket: 1
+    existingMarketState: exact-reviewed-baseline
+    activation: separate-reviewed-source-tag-ci-provider-grants
+    nativeQaWaived: false
   retryRegistry: []
   grantRegistry:
     - contracts/betta-internal-bootstrap/betta-0-1-0-google-first-internal.json

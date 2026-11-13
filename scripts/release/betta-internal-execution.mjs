@@ -62,7 +62,7 @@ export async function verifyBettaInternalBootstrap(options){
   const claims=await readBettaClaims(release,g,options.target,request);
   if(claims.some(c=>c.grantSha256!==reviewed.grantSha256 || c.configurationFingerprint!==fingerprint
     || Date.parse(c.recordedAt)<Date.parse(g.approvedAt) || Date.parse(c.recordedAt)>Date.now())) fail('BETTA_CLAIM_CHANGED_OR_CLOCK_REVERSED');
-  const provider=await observeBettaProvider(g,options,claims,request),attempt=chooseBettaAttempt(provider.attempts,provider.producer);
+  const provider=await observeBettaProvider(g,options,claims,request),attempt=chooseBettaAttempt(provider.attempts,provider.producer,g.maxBuildsPerMarket);
   let artifact;
   if(options.phase==='before-deploy'){
     const buildClaim=claims.find(c=>c.phase==='before-build' && c.attempt===attempt && c.producer===provider.producer);
@@ -73,6 +73,6 @@ export async function verifyBettaInternalBootstrap(options){
   const claim={schemaVersion:1,kind:'betta-internal-claim',id:g.id,target:options.target,phase:options.phase,attempt,producer:provider.producer,sourceSha:g.sourceSha,
     grantSha256:reviewed.grantSha256,configurationFingerprint:fingerprint,recordedAt:new Date().toISOString(),...(artifact?{artifactSha256:artifact.sha256}: {})};
   const stored=await createBettaClaim(release,claim,request);
-  return {...decision,scope:'betta_first_internal_only',releaseTag:g.releaseTag,configurationFingerprint:fingerprint,
+  return {...decision,scope:g.kind==='betta-internal-update'?'betta_single_internal_update':'betta_first_internal_only',releaseTag:g.releaseTag,configurationFingerprint:fingerprint,
     producer:provider.producer,attempt,claimAssetId:stored.assetId,grantSha256:reviewed.grantSha256,sourceVerificationMode,...(artifact?{artifact}: {})};
 }

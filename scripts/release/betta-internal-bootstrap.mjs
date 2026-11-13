@@ -55,13 +55,13 @@ export const validateBettaIpaRecoveryContext=(grant,context,originalVerdict)=>{
 
 // records는 영속 claim과 실제 provider 조회를 합쳐 만든다. JSON의 자체 verified 값은
 // 외부 입력으로 받지 않으며, 실제 소비자 adapter가 조회한 값만 이 함수에 전달한다.
-export function chooseBettaAttempt(records,producer){
-  if(!Array.isArray(records) || !producer || records.length>2
+export function chooseBettaAttempt(records,producer,limit=2){
+  if(![1,2].includes(limit) || !Array.isArray(records) || !producer || records.length>limit
     || records.some((record,i)=>record.attempt!==i+1) || new Set(records.map(record=>record.producer)).size!==records.length) fail('BETTA_ATTEMPT_HISTORY_INVALID');
   const same=records.find(record=>record.producer===producer);
   if(same) return same.attempt;
   if(records.length===0) return 1;
-  if(records.length>=2) fail('BETTA_BUILD_LIMIT');
+  if(records.length>=limit) fail('BETTA_BUILD_LIMIT');
   const previous=records[0];
   if(previous.state!=='failed' || previous.providerVerified!==true || previous.acceptedUpload!==false) fail('BETTA_PREVIOUS_ATTEMPT_UNRESOLVED');
   return 2;
