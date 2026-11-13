@@ -11,7 +11,7 @@
   "productTreeSha256": "8bbc17c3dabb06a12efe853636747beff1335214e92c2ee79289a0ae49bb4066",
   "approvedAt": "2026-11-13T12:19:41Z",
   "expiresAt": "2026-11-19T15:35:59.411730+00:00",
-  "revoked": false,
+  "revoked": true,
   "maxBuildsPerMarket": 1,
   "maxAcceptedUploadsPerMarket": 1,
   "publicReleaseAllowed": false,
