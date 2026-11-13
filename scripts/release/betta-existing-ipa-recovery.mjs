@@ -1,9 +1,10 @@
 // 실패한 Cloud #3의 정확한 App Store export만 재사용한다. 빌드·재서명·재시도는 없다.
-import {readFileSync,writeFileSync,mkdtempSync,rmSync,realpathSync,readdirSync} from 'node:fs';
+import {readFileSync,writeFileSync,mkdtempSync,rmSync,realpathSync,readdirSync,lstatSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {isDeepStrictEqual} from 'node:util';
+import {fileURLToPath} from 'node:url';
 import {githubJson,githubDownload,githubPaginate} from '../github-rest.mjs';
 import {readReviewedBettaGrant,readBettaFile} from './betta-internal-grant-store.mjs';
 import {bettaDigest,verifyBettaSource,validateBettaIpaRecoveryContext} from './betta-internal-bootstrap.mjs';
@@ -45,7 +46,15 @@ export async function reserveIpaUpload(g,release,identity,request){
  for(const attempt of [1,2])fences.push(await postUnique(release,`${IPA_RECOVERY.sourceGrantId}.app-store.${attempt}.before-deploy.json`,{kind:'betta-recovery-upload-fence',...binding,globalUploadIntentAssetId:global.assetId},request));
  return {global,fences};
 }
+export function assertIpaUploadCredentials(env){
+ if(env.APP_STORE_CONNECT_API_KEY_ID!=='UHVPXA39JA' || !env.API_PRIVATE_KEYS_DIR || !env.APP_STORE_CONNECT_ISSUER_ID || !env.APP_STORE_CONNECT_PRIVATE_KEY_BASE64)fail('BETTA_APPLE_UPLOAD_CREDENTIAL_REQUIRED');
+ const key=join(env.API_PRIVATE_KEYS_DIR,`AuthKey_${env.APP_STORE_CONNECT_API_KEY_ID}.p8`);
+ if(!lstatSync(key).isFile() || lstatSync(key).isSymbolicLink() || !readFileSync(key).equals(Buffer.from(env.APP_STORE_CONNECT_PRIVATE_KEY_BASE64,'base64')))fail('BETTA_APPLE_UPLOAD_KEY_MISMATCH');
+}
 export async function recoverBettaExistingIpa({id,sourceDirectory,archiveFile,logArchiveFile,report,upload=false,env=process.env,fetchImpl=globalThis.fetch}){
+ if(existsSync(report) || existsSync(report+'.upload-result.json'))fail('BETTA_IPA_REPORT_ALREADY_EXISTS');
+ if(upload && (env.GITHUB_ACTIONS==='true' || env.CI_XCODE_CLOUD==='TRUE' || !process.argv[1]
+  || realpathSync(process.argv[1])!==realpathSync(fileURLToPath(new URL('./recover-betta-existing-ipa.mjs',import.meta.url)))))fail('BETTA_IPA_REVIEWED_LOCAL_CLI_REQUIRED');
  const request={env,fetchImpl},reviewed=await readReviewedBettaGrant(id,request),g=reviewed.grant,r=IPA_RECOVERY;
  if(!isDeepStrictEqual(g.existingIpaRecovery,r))fail('BETTA_IPA_REVIEWED_BINDING');
  const originalBytes=await readBettaFile('seorilabs/.github',`contracts/betta-internal-bootstrap/${r.sourceGrantId}.json`,r.sourceGrantCommit,request);
@@ -116,17 +125,19 @@ export async function recoverBettaExistingIpa({id,sourceDirectory,archiveFile,lo
   exec('unzip',['-tq',ipa]);exec('ditto',['-x','-k',ipa,join(temp,'signed')]);
   const payload=join(temp,'signed','Payload');if(JSON.stringify(readdirSync(payload))!=='["BettaAtelier.app"]')fail('BETTA_IPA_PAYLOAD');
   const inspected=inspectBettaAppleApp(join(payload,'BettaAtelier.app'),g,{number:3});
-  const producer=`local-existing-ipa:${r.runs[2]}`,identity={producer,grantId:g.id,grantSha256:reviewed.grantSha256,artifact:inspected};
+  const producer=`local-existing-ipa:${r.runs[2]}`,identity={producer,grantId:g.id,grantSha256:reviewed.grantSha256,artifact:inspected,
+   uploaderRuntime:'local-reviewed-cli',uploaderEntrySha256:bettaDigest(readFileSync(new URL('./recover-betta-existing-ipa.mjs',import.meta.url)))};
   const result={...decision,scope:'betta_existing_ipa_upload_only',...identity,additionalGameBuilds:0,cumulativeNativeBuilds:3,originalPostHookPassed:false,fullCloudWorkingTreeAuditPassed:false,
    sourceVerificationMode:'fresh-original-checkout-and-exact-provider-export',ipaSha256:r.ipaSha256,archiveSha256:r.archiveSha256,providerBeforeUpload:before,uploadInvoked:false};
   if(upload){
-   if(!env.API_PRIVATE_KEYS_DIR || !env.APP_STORE_CONNECT_API_KEY_ID || !env.APP_STORE_CONNECT_ISSUER_ID)fail('BETTA_APPLE_UPLOAD_CREDENTIAL_REQUIRED');
+   assertIpaUploadCredentials(env);
    assertIpaHistory(g,await market());
    result.reservation=await reserveIpaUpload(g,release,identity,request);
   }
   writeFileSync(report,JSON.stringify(result,null,2)+'\n',{flag:'wx'});
   if(upload){
    const outcome=spawnSync('xcrun',['altool','--upload-app','--type','ios','--file',ipa,'--apiKey',env.APP_STORE_CONNECT_API_KEY_ID,'--apiIssuer',env.APP_STORE_CONNECT_ISSUER_ID,'--output-format','json'],{env,stdio:'inherit',timeout:1200000});
+   writeFileSync(report+'.upload-result.json',JSON.stringify({...result,uploadInvoked:true,uploadCommandExit:outcome.status,uploadCommand:outcome.status===0?'succeeded; processing and internal availability require provider readback':'failed or unknown; no automatic retry'},null,2)+'\n',{flag:'wx'});
    if(outcome.status!==0)fail('BETTA_IPA_UPLOAD_FAILED_OR_UNKNOWN');
    return {...result,uploadInvoked:true,uploadCommand:'succeeded; processing and internal availability require provider readback'};
   }
