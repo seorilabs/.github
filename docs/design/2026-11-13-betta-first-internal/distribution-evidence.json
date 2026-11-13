@@ -46,7 +46,7 @@
       "localRetainedForOngoingApplePreparation": true
     }
   ],
-  "appleStatus": "not_uploaded; login user verification, app record, App Attest production profile, private Xcode Cloud and TestFlight remain",
+  "appleStatus": "blocked_before_upload; both allowed native attempts FAILED; TestFlight unavailable",
   "deviceUseByAgent": false,
   "productE2eStatus": "blocked",
   "normalQaPassed": false,
@@ -59,5 +59,45 @@
     "bytes": 3111168,
     "manifestSha256": "bf60c5b7440d26118619891961dfa5861be11f88c69bec37e274dce944d63d35",
     "copyReadback": "verified"
+  },
+  "appleAttempts": {
+    "sourceSha": "bd78bd996987481d668185da815c6853c4e99a4b",
+    "nativeBuildsUsed": 2,
+    "nativeBuildLimit": 2,
+    "acceptedUploads": 0,
+    "testFlightAvailable": false,
+    "workflowEnabled": false,
+    "runs": [
+      {
+        "id": "19199616-067d-4497-9289-4b9bb628f0aa",
+        "number": 1,
+        "conclusion": "FAILED",
+        "error": "AdMob ContentTooShortError: 2958799/3149407 bytes",
+        "logArtifactId": "15950dc4-b8c3-486a-b68d-80c6d988c91b",
+        "logArchiveSha256": "e51a76d4ac7f7cb60c9d86ac1159a6e47bd4bf9825ab6af38daaf4325bd01346"
+      },
+      {
+        "id": "064ecfc0-bcbb-470a-8fe2-0348534a4b5b",
+        "number": 2,
+        "conclusion": "FAILED",
+        "error": "Firebase SDK checksum mismatch",
+        "logArtifactId": "c30c3aaf-a93a-4b28-a324-d05ca8a2d88c",
+        "logArchiveSha256": "242eb3bc2ee5a2045916ef900d2f25cd9c0ff15e353f97c55a0c6a44545e6805"
+      }
+    ]
+  },
+  "appleGrantRevocation": {
+    "id": "betta-0-1-0-apple-first-internal",
+    "revoked": true,
+    "activeApprovalBytesSha256": "b0899f3aaaa339310bab55091129105bad6d0ae437c8acea65a6d5817ab3c5e7",
+    "revokedRegistryBytesSha256": "fa78e88a115387e32fb206c124fec049fefb085794e09a51298963ca53fa77de",
+    "approvalMergeSha": "5bde089df9f1aadafda7843a1245c24cafb3f54b",
+    "note": "This change revokes the registry entry; read latest main to verify activation. Prior two claims remain immutable."
+  },
+  "sdkDownloadRecovery": {
+    "commit": "e6dbfb081bb5fe076cb90cfa74ef05fffe184f41",
+    "status": "prepared; unbuilt; not approved for a third Cloud run",
+    "ciUrl": "https://github.com/seorilabs/betta-raising/actions/runs/43356937054",
+    "sourceShaOrTagMoved": false
   }
 }

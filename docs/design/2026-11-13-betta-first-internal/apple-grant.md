@@ -4,7 +4,7 @@
 
 ## 정확한 실행 대상
 
-- grant: betta-0-1-0-apple-first-internal, SHA-256 b0899f3aaaa339310bab55091129105bad6d0ae437c8acea65a6d5817ab3c5e7
+- grant: betta-0-1-0-apple-first-internal, 활성 승인 시점 바이트 SHA-256 b0899f3aaaa339310bab55091129105bad6d0ae437c8acea65a6d5817ab3c5e7
 - 소스 bd78bd996987481d668185da815c6853c4e99a4b / v0.1.0 / 원장 code1 / 성공 sourceCI43281443421
 - verifier 7e096896a8a7b08053d6f90a851bdc99fed67cbb
 - app6834215464 / bundle com.seorilabs.bettaraising / SKU seorilabs-betta-raising / en-US / iOS
@@ -33,3 +33,5 @@ Cloud의 비밀 변수7개는 기존 등록된 GH operator·ASC uploader·Distri
 2026-11-13T03:01Z 독립 provider 조회에서 정확한 source run 두 개가 FAILED이며 각 run/builds와 app/builds, app/buildUploads는 모두0건이다. 정확한 관계에서 얻은 로그 artifact는 #1 15950dc4-b8c3-486a-b68d-80c6d988c91b(1,305바이트, SHAe51a76d4ac7f7cb60c9d86ac1159a6e47bd4bf9825ab6af38daaf4325bd01346), #2 c30c3aaf-a93a-4b28-a324-d05ca8a2d88c(766바이트, SHA242eb3bc2ee5a2045916ef900d2f25cd9c0ff15e353f97c55a0c6a44545e6805)이며 ZIP CRC를 확인했다. 업로드·TestFlight VALID·내부 제공은 미완료다.
 
 허용 native2회를 소진했으므로 workflow를 disabled로 다시 읽어 확인했고 이 grant를 회수한다. 기존 profile·certificate·secret·내부 그룹·테스터와 첫 승인/만료, 두 claim·실패 로그는 보존한다. 새 후보에 이전 성공·횟수를 옮기거나 태그를 재지정하지 않는다. 다운로드 복구는 별도 제품 수정 후보로 준비하며 추가 Apple 실행은 이 grant로 시작하지 않는다. Android0.1.0(1) internal/completed는 유지한다.
+
+회수 후 registry 바이트 SHA-256은`fa78e88a115387e32fb206c124fec049fefb085794e09a51298963ca53fa77de`다. 두 before-build claim의 grantSha256은 회수 전 승인 바이트 b0899f3…를 가리키며, 원본은 승인 merge5bde089df9f1aadafda7843a1245c24cafb3f54b의 해당 grant와 NAS 원본에서 확인한다. 회수 후 바이트를 과거 실행의 승인 바이트로 대체하지 않는다.
