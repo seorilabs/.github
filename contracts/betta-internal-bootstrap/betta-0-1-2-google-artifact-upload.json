@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 1,
+  "kind": "betta-existing-artifact-upload",
+  "id": "betta-0-1-2-google-artifact-upload",
+  "repository": "seorilabs/betta-raising",
+  "sourceSha": "a65470d2a67308d808a8a8f63583aa1e14cc435e",
+  "releaseTag": "v0.1.2",
+  "targets": [
+    "google-play"
+  ],
+  "productTreeSha256": "8bbc17c3dabb06a12efe853636747beff1335214e92c2ee79289a0ae49bb4066",
+  "approvedAt": "2026-11-13T13:31:41Z",
+  "expiresAt": "2026-11-19T15:35:59.411730+00:00",
+  "revoked": false,
+  "maxBuildsPerMarket": 0,
+  "maxAcceptedUploadsPerMarket": 1,
+  "publicReleaseAllowed": false,
+  "allowedErrors": [
+    "THREE_UI_ROUNDS_REQUIRED"
+  ],
+  "googlePlay": {
+    "packageName": "com.seorilabs.bettaraising",
+    "accountId": "7593567020638200144",
+    "versionCode": 3,
+    "certificateSha256": "e3643eed86dd6bd5d91a4b8c9f9e7e4636f9fc30bd8cdb6d7688800333d71a8a",
+    "workflowPath": ".github/workflows/deploy-google-play.yml"
+  },
+  "ciRunId": "43427192956",
+  "originalObservationAssets": [
+    {
+      "name": "historical-development-evidence.google-play.c6612e84.json",
+      "sha256": "32dfd9c447654c931c08672c4e6ce358354152d7e2dfe9c742387c9ce03abfba"
+    },
+    {
+      "name": "historical-development-evidence.app-store.c6612e84.json",
+      "sha256": "75e52f444fb581f6a84288f7ebdcb5743cbc7c60706002a2528341db6ef40550"
+    },
+    {
+      "name": "historical-review-4-result.c6612e84.json",
+      "sha256": "cc7bd705a0524b10a48038c35d89720b083909ed897f4358bf1dc05928833e56"
+    },
+    {
+      "name": "historical-candidate-ci.e4e9f67.json",
+      "sha256": "f3aed3e27bc65bf3614e026beef7e8b2ad2f588c8c81ac9f3caba4554da114ee"
+    },
+    {
+      "name": "historical-local-author-run.c13-to-e4e9f67.json",
+      "sha256": "5dd56904038b895ac52c86d6621d49d769aa652b69437e590053f94be7f28475"
+    },
+    {
+      "name": "historical-candidate-ci-2.e4e9f67.json",
+      "sha256": "f9e146fbe6589777f08159f7df4e6f49cb9084ad094244e38625409ffa960e05"
+    },
+    {
+      "name": "author-render.bd78bd9.json",
+      "sha256": "df2d26e0848f96339ae6d8e3fbb8ce20cea76dd7137717f8ad0defa69bea4956"
+    },
+    {
+      "name": "historical-first-native-build-failure.bd78bd9.json",
+      "sha256": "961c88cbac8b973dc216b891eab902e3623524f3e6173a4e5e732ba1345365d8"
+    },
+    {
+      "name": "historical-second-runner-loss.bd78bd9.json",
+      "sha256": "e275077edfe2f7a7fddd29b30a2e6fa903ed58c6ba1315b7d92e90c443b5ffe2"
+    },
+    {
+      "name": "historical-upload-only-preflight-failure.bd78bd9.json",
+      "sha256": "c7e170984be213063ec096d219b04e1290f68177c26ba7e0c2733267762fc84f"
+    },
+    {
+      "name": "apple-extra-candidate-approval.706e113.json",
+      "sha256": "55773ed14f5694add93f95c6454f60a30fbd58eafa6523737322001827a9d3b7"
+    },
+    {
+      "name": "historical-apple-download-failures.bd78bd9.json",
+      "sha256": "f36924b8228456c7e510a4932fdd05a51b60a064c0c067ee88a959525b91b8c1"
+    },
+    {
+      "name": "historical-source-ci-attempt1-failure.706e113.json",
+      "sha256": "05abdd7c69cab736505edf622e105af35999c63d4dbe3d5d051743ed145ec5e6"
+    },
+    {
+      "name": "historical-source-review-unavailable.706e113.json",
+      "sha256": "fd7f3afa08b5e94a5f49a30f1016d8dc090c011319fbd924e62558b6c353a255"
+    },
+    {
+      "name": "historical-apple-run3-posthook-failure.706e113.json",
+      "sha256": "dccb29c11a44b35b223ac0e5dbeaff655e593a8efc63cfaf6e8f86265cbe1d6e"
+    },
+    {
+      "name": "historical-drawer-input-observations.479d9c7.json",
+      "sha256": "93ba98c8879f2afd9ecfd17357d859a0c22021156a6c841c6dc05893b7071bcc"
+    },
+    {
+      "name": "historical-update-preparation.305ba6a.json",
+      "sha256": "66036e270537a8bbae3e087b48c2b48c551daf006e6a9a3761051e97c60120c6"
+    },
+    {
+      "name": "author-render.a65470d.json",
+      "sha256": "a9769d11bc113d1b4d527b6e66194014d9b7a5aec2cb3774bf52be0c0d3a558a"
+    },
+    {
+      "name": "historical-android-v012-cache-failure.json",
+      "sha256": "6f2de8a166349dfb2a1b708d7ca3cc4d3828aa05dcb5bf27dcfa54ee28e01567"
+    },
+    {
+      "name": "historical-apple-v012-posthook-failure.json",
+      "sha256": "100a1788c1ce64e38d890bbc10d2a77b7c596207eb4e3358550c759c3b269983"
+    }
+  ],
+  "evidenceSha256": "ee501d5ad6395a23cb0b771d0dcfee384913ebc291df5ea8bcd63de35a9a883d",
+  "inventorySha256": "cfdb0969544a1a9a7bd4f7b41880dcd801e43714f12602e56c0ad4fcdad54409",
+  "approvalFile": "docs/design/2026-11-10-shared-aquarium/internal-foundation-approval.json",
+  "approvalSha256": "0d862d80914022d7f1091d3ede613598515392d2f6d57531b527d56eb7d6380b",
+  "proposalFile": "docs/06-release/internal-upload-preparation.md",
+  "proposalSha256": "4d2f2812b7b341b39a95318a13a535fc3d8f07adf3fbbd2e9bef2215ac6b02e0",
+  "verifierCommit": "1caee4ff8245f45423e0bc3c6a4eef5711749891",
+  "configurationFingerprint": "e617b1091d46c04be8c337e571e9b7a76b80ac6a38be4d3b428774c64f60769e",
+  "appStore": {
+    "bundleId": "com.seorilabs.bettaraising",
+    "appId": "6834215464",
+    "productId": "644d867e-46ae-4b8f-a634-f139c00d9fb6",
+    "workflowId": "686987D3-6AD2-4755-9679-4FDC3CAF966B",
+    "scheme": "BettaAtelier",
+    "teamId": "HCDUXX4Z3X",
+    "profileUuid": "dc049deb-da89-418f-8c08-af8d53b4e72c",
+    "profileSha256": "52f39ebfe8c37a61f7fa608cbe3adc31bc14c1caa5d54a176a8958608665ca02",
+    "certificateSha256": "6eda0a7eefe7fa7c736644d5b6a71cf5907e70da827640817024afd5ed05acb3",
+    "initialBuildNumber": "4"
+  },
+  "artifactApprovalSha256": "53a7bc1750a9599b276b355c2b01b5b8c05354629079531abc8c5f68d3d9ad34",
+  "existingArtifactUpload": {
+    "sourceGrantCommit": "bebf35f55ebcc18870bbe4ffc08c53e034e2e3c9",
+    "additionalGameBuilds": 0,
+    "previousAcceptedUploads": 1,
+    "cumulativeAcceptedUploadLimit": 2,
+    "fullOriginalWorkingTreeAuditPassed": false,
+    "operatorRuntime": "reviewed-local-cli-no-native-build",
+    "target": "google-play",
+    "sourceGrantId": "betta-0-1-2-google-drawer-fit",
+    "sourceGrantSha256": "72044cb65f0c833b76dd9007fecd36cd2f9f5bcd1331c8046a92368f28eaf6ea",
+    "buildClaimSha256": "bb2e9bfb8b830698491ab1dbe044afbef8d72c59af824393c4f0093143130154",
+    "cumulativeNativeBuilds": 3,
+    "cumulativeNativeLimit": 3,
+    "sourceRunId": 43431697154,
+    "sourceArtifactId": 14039879273,
+    "sourceArtifactName": "failed-godot-google-play-aab-43431697154-1",
+    "archiveSize": 114013277,
+    "archiveSha256": "9b653eb008bc074395a13fa47d5174339147182eebeb9b6930ee073c63bf2a60",
+    "artifactSize": 114387429,
+    "artifactSha256": "136e213a636c534d53f5ded35b911b6127039478e35dec8b01c8ac0ffbde7c77",
+    "jobId": 131906522643,
+    "rawJobLogSha256": "1301935252299d54f2fc0d451b1f6560efa68d0425b92185e637303403486c01",
+    "sourceReleaseId": 444232019,
+    "releaseNotesSha256": "49b902bb530b271b6047d16da1e2ca7cc51c482e8b29872e58f3454ee94f105d"
+  }
+}
