@@ -98,11 +98,38 @@
     "mainReadbackVerified": true
   },
   "sdkDownloadRecovery": {
-    "commit": "e6dbfb081bb5fe076cb90cfa74ef05fffe184f41",
-    "status": "prepared; unbuilt; not approved for a third Cloud run",
-    "ciUrl": "https://github.com/seorilabs/betta-raising/actions/runs/43356937054",
+    "commit": "706e1130de7d123bac68193821bf301ed9ad336e",
+    "pr": 5,
+    "prUrl": "https://github.com/seorilabs/betta-raising/pull/5",
+    "status": "prepared; unbuilt; additional native execution unapproved",
+    "ciUrl": "https://github.com/seorilabs/betta-raising/actions/runs/43359608916",
+    "proposal": "apple-additional-candidate-proposal.json",
+    "ciAttempt1": {
+      "conclusion": "failure",
+      "error": "first-launch test Godot exit252/FATAL index",
+      "logSha256": "72fcaa931e2cc68c307c541a26acdfff24a24e8c8be4f5d0f364d9ba3c7845c3"
+    },
+    "ciAttempt2": {
+      "conclusion": "success",
+      "pythonTests": 42,
+      "headlessScenarios": 58,
+      "rawLogBytes": 176842,
+      "rawLogSha256": "b226d38d6f31d5ce236fca4336ecc12add0f84e824f6e2e67b5a3176f872392e"
+    },
+    "localModelReview": {
+      "status": "unavailable; not passed",
+      "executions": 2,
+      "reasons": [
+        "timeout600035ms",
+        "tool-step-limit185446ms"
+      ]
+    },
     "sourceShaOrTagMoved": false,
-    "proposal": "apple-additional-candidate-proposal.json"
+    "historicalNativeRunsPreserved": true,
+    "normalProductQaPassed": false,
+    "newNativeBuilds": 0,
+    "sourceModelReviewPassed": false,
+    "nasManifestSha256": "214d359e9ae10e91e0efc4be4956d075b270a75089eff0bd7e2dcbcb7c21e8a3"
   },
   "appleNasSnapshots": [
     {
@@ -112,6 +139,25 @@
       "copiedFiles": 85,
       "copiedBytes": 1312405,
       "manifestSha256": "1429ae6f0450bf50175327dfcd0fdaa5ececfa5a75644bdd9dc4fb883f7f7dc0",
+      "copyReadback": "verified",
+      "copyMethod": "explicit stream, flush, fsync, reopen SHA-256; existing copies re-read and reused",
+      "localRetainedForOngoingAppleProcessing": true
+    },
+    {
+      "destination": "/Volumes/Data/Backup/agent-artifacts/betta-raising/2026-11-13/bd78bd996987481d668185da815c6853c4e99a4b/internal-distribution/apple-test-track-20261113T124205+0900",
+      "files": 788,
+      "bytes": 23255970,
+      "manifestSha256": "f3118f8c518ae8b42f6cf19e7288f5a49f920e9bf45bbe49b0f18e0b81138bc1",
+      "copyReadback": "verified",
+      "purpose": "Preserves complete source review failure originals and first final-candidate CI failure before local cleanup"
+    },
+    {
+      "destination": "/Volumes/Data/Backup/agent-artifacts/betta-raising/2026-11-13/bd78bd996987481d668185da815c6853c4e99a4b/internal-distribution/apple-test-track-20261113T125333+0900",
+      "files": 870,
+      "bytes": 12439242,
+      "copiedFiles": 33,
+      "copiedBytes": 924710,
+      "manifestSha256": "214d359e9ae10e91e0efc4be4956d075b270a75089eff0bd7e2dcbcb7c21e8a3",
       "copyReadback": "verified",
       "copyMethod": "explicit stream, flush, fsync, reopen SHA-256; existing copies re-read and reused",
       "localRetainedForOngoingAppleProcessing": true
