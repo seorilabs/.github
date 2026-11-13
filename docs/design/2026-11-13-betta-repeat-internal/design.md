@@ -4,6 +4,8 @@
 
 현재 중앙 경로는 첫 배포 전용이다. `scripts/release/betta-internal-provider.mjs`의 `observeBettaProvider`는 Play에 빌드가 있으면 `BETTA_MARKET_ALREADY_HAS_BUILD`, Apple에 빌드나 upload가 있으면 `BETTA_MARKET_ALREADY_HAS_UPLOAD`를 반환한다. 현재 Play internal에는0.1.0/code1 completed가 있고 TestFlight에는 build3 VALID가 있다. 따라서 새 grant 번호만 등록해도 업데이트할 수 없다. 기존 검사나 기존 빌드를 지워서 우회하지 않는다.
 
+일반 경로도 원래 shared-aquarium L3/redesign 계획, SDK 계획과 현재 UI 계획을 유지한 상태에서 실제 검사했다. 두 마켓 모두 `THREE_UI_ROUNDS_REQUIRED`로 차단됐다. 이전 미완료 설계를 빼거나 baseline을 옮겨 통과로 만들지 않는다. 이번 단일 내부 업데이트 승인도 원래 QA 실패를 정상 제품 QA 통과로 바꾸지 않는다.
+
 ## 승인받을 변경
 
 기존 첫 배포 분기는 그대로 두고, 등록된 정확한 이전 배포를 보존하는 **단일 내부 업데이트 경로**를 중앙에 추가한다. 운영 설정의 정본은 기존 중앙 API와 불변 ConfigRevision을 유지한다. 새로운 앱별 운영 JSON이나 별도 가격·서명 정본을 만들지 않는다. 새 예외는 변경 가능한 운영 설정이 아닌 검토한 source/태그/provider 관측에 고정한 한시 승인으로 취급한다.
@@ -14,7 +16,8 @@
 | 마켓 |package/bundle com.seorilabs.bettaraising, Play 계정7593567020638200144, Apple app6834215464 |
 | 이전 배포 |Play code1, Apple0.1.1/build3. 실행 직전 실제 IDs·digest·상태를 다시 읽어 승인 원본으로 보존 |
 | 새 배포 |v0.1.2, 원장 발급 Android code3, Apple의 실제 다음 build번호(현재 기대4) |
-| 상한 |마켓마다 새 native1회, 접수1회. 이전 Android2/Apple3회 기록과 이전 접수는 보존하며 재시도하지 않음 |
+| 상한 |마켓마다 새 native1회, 접수1회. 이전 Android2/Apple3회 기록을 포함한 누적 native 상한은 Android3/Apple4이며 누적 접수는 마켓마다2회. 재시도하지 않음 |
+| 만료 |기존2026-11-19T15:35:59Z를 연장하지 않음 |
 | 서명·권한 |기존 등록 publisher, 팀·인증서·프로필 재사용. 새 키·역할·유료 플랜·가격 없음 |
 | 끝점 |Play internal completed와 TestFlight VALID/내부 그룹 제공. 외부 TestFlight·심사·공개·기기 조작·게임 main 반영 없음 |
 | 기존 QA |기존 독립 UI·성능·네이티브 미완료와 실패는 유지. 정상 제품 QA 통과·nativeQaWaived로 표시하지 않음 |
