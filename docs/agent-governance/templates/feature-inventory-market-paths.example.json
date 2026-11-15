@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "e2e": {"workflow": ".github/workflows/godot-checks.yml"},
+  "platformPaths": ["native/android/export/**", "native/ios/export/**"],
+  "platformPathsByMarket": {
+    "google-play": ["native/android/export/**"],
+    "app-store": ["native/ios/export/**"],
+    "apps-in-toss": []
+  },
+  "features": [
+    {"id": "core-loop", "core": true, "paths": ["game/**"]},
+    {
+      "id": "account", "core": false,
+      "platformPaths": ["native/ios/auth/**"],
+      "platformPathsByMarket": {"google-play": [], "app-store": ["native/ios/auth/**"], "apps-in-toss": []}
+    },
+    {
+      "id": "ads", "core": false,
+      "platformPaths": ["native/android/ads/**"],
+      "platformPathsByMarket": {"google-play": ["native/android/ads/**"], "app-store": [], "apps-in-toss": []}
+    }
+  ]
+}

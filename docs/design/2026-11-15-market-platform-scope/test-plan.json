@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "level": "L1",
+  "baseline": "5d7f6d3116521a776e7fc94631b7507ccfcb4274",
+  "changedFeatures": [
+    "market-platform-path-classification"
+  ],
+  "environments": [
+    "dev"
+  ],
+  "redesign": false,
+  "floorOverrides": [],
+  "release": null
+}

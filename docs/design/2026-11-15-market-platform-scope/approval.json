@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "status": "approved",
+  "approvedAt": "2026-11-15T07:21:54Z",
+  "timeBasis": "first clock observation after explicit user answer; original message timestamp unavailable",
+  "approverKind": "human",
+  "approver": "user",
+  "approvedCommit": "0e95fcd4fb3c9d0fbc5ebad1d64d7e871d30869e",
+  "answer": "보완안과 추가 검수까지 승인",
+  "questionItemId": "[\"request_user_input_async\",\"call_8f4b11a8ac8a4eb8a5273ad7423017be\",0]",
+  "scope": "paired central native-market classification and Android0.1.1 declaration/inventory/bundle checks; independent dev UI12-14 each<=60min total<=180min; Google Play public objective remains approved",
+  "excludes": [
+    "device access",
+    "additional paid API",
+    "waiving original seven-day observation",
+    "UI15"
+  ],
+  "documents": {
+    "design.md": "d057afada7e29ddfc17c5eca63b062acc56dc65227d53089d37364de49c19c6f",
+    "test-plan.json": "f0d836c145ac8cc5621a9f17205289615851c605630fe384d6457b424c4bb873"
+  }
+}
