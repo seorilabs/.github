@@ -20,6 +20,22 @@ export const marketPlatforms = target => policy.testLevels.marketPlatforms[targe
 const undotted = value => value.replace(/(^|\/)\./gu, '$1');
 export const touches = (file, pattern) => posix.matchesGlob(file, pattern) || posix.matchesGlob(undotted(file), undotted(pattern));
 const globs = value => Array.isArray(value) && value.length > 0 && value.every(p => typeof p === 'string' && p.trim());
+const NATIVE_MARKETS = Object.keys(policy.testLevels.marketPlatforms).filter(target => marketPlatforms(target).length > 0);
+const validPlatformPaths = value => {
+  if (value.platformPathsByMarket === undefined) return value.platformPaths === undefined || globs(value.platformPaths);
+  const mapping = value.platformPathsByMarket;
+  if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)
+    || Object.keys(mapping).length !== NATIVE_MARKETS.length
+    || !NATIVE_MARKETS.every(target => Object.hasOwn(mapping, target)
+      && Array.isArray(mapping[target]) && (mapping[target].length === 0 || globs(mapping[target])))) return false;
+  const union = new Set(Object.values(mapping).flat());
+  return Array.isArray(value.platformPaths)
+    && (value.platformPaths.length === 0 || globs(value.platformPaths))
+    && union.size === new Set(value.platformPaths).size
+    && value.platformPaths.every(path => union.has(path));
+};
+const platformPathsFor = (value, target) => value?.platformPathsByMarket === undefined
+  ? value?.platformPaths ?? [] : value.platformPathsByMarket[target] ?? [];
 
 // 기능 목록 schemaVersion 1: 모든 기능에 선택 paths, 기반 기능은 paths 필수, 최상위 선택 regressionPaths. 기반 기능 paths가 실기기 하한을 만든다.
 // 선택 runtimeKind(ui/service)는 mixed 제품의 기능별 실행을 구분한다. 기존 ui/service 제품의 실행 규칙은 유지한다.
@@ -30,11 +46,11 @@ const validFeature = (f, version) => typeof f?.id === 'string' && f.id.trim() &&
   && (f.foundation === undefined || typeof f.foundation === 'boolean')
   && (f.paths === undefined || globs(f.paths))
   && (f.foundation !== true || globs(f.paths))
-  && (f.platformPaths === undefined || (version === 2 && globs(f.platformPaths)));
+  && (version === 2 ? validPlatformPaths(f) : f.platformPaths === undefined && f.platformPathsByMarket === undefined);
 const validVersionFields = inventory => inventory.schemaVersion === 2
   ? E2E_WORKFLOW.test(inventory.e2e?.workflow ?? '') && (inventory.e2e.command === undefined || (typeof inventory.e2e.command === 'string' && inventory.e2e.command.trim()))
-    && (inventory.platformPaths === undefined || globs(inventory.platformPaths))
-  : inventory.e2e === undefined && inventory.platformPaths === undefined;
+    && validPlatformPaths(inventory)
+  : inventory.e2e === undefined && inventory.platformPaths === undefined && inventory.platformPathsByMarket === undefined;
 export const validInventory = inventory => [1, 2].includes(inventory?.schemaVersion) && Array.isArray(inventory.features) && inventory.features.length > 0
   && inventory.features.every(f => validFeature(f, inventory.schemaVersion)) && new Set(inventory.features.map(f => f.id)).size === inventory.features.length
   && (inventory.regressionPaths === undefined || globs(inventory.regressionPaths)) && validVersionFields(inventory);
@@ -65,7 +81,7 @@ export function testPlanProblems(plan, inventory) {
   if (new Set(nativeKeys).size !== nativeKeys.length) problems.push('duplicate-platform-validation');
   for (const item of native) {
     if (!platformInventory) problems.push('platform-validation-needs-inventory-v2');
-    if (!features.get(item.featureId)?.platformPaths?.length) problems.push(`platform-validation-not-native ${item.featureId}`);
+    if (!platformPathsFor(features.get(item.featureId), item.target).length) problems.push(`platform-validation-not-native ${item.featureId}`);
     if (!(plan.release?.markets ?? []).includes(item.target)) problems.push(`platform-validation-market-not-planned ${item.target}`);
     if (!plan.environments.includes('dev')) problems.push('platform-validation-needs-dev');
   }
@@ -122,12 +138,12 @@ export function computeFloor({ merged, inventory, changes, baselineInventories, 
   const firstRelease = merged.baselines.includes(null);
   const regressionPaths = Array.isArray(inventory.regressionPaths) ? inventory.regressionPaths : policy.floors.defaultRegressionPaths;
   const hits = paths => Array.isArray(paths) && files.some(file => paths.some(p => touches(file, p)));
-  const touched = inventory.features.filter(f => hits(f.paths) || hits(f.platformPaths)).map(f => f.id);
+  const touched = inventory.features.filter(f => hits(f.paths) || hits(platformPathsFor(f, target))).map(f => f.id);
   const regressionTriggered = firstRelease || unknown || files.some(file => regressionPaths.some(p => touches(file, p)));
   const regression = regressionTriggered && (firstRelease || !merged.regressionOverride);
   const platforms = marketPlatforms(target);
   const deviceFloor = platforms.length === 0 ? [] : inventory.schemaVersion === 2
-    ? platformFloor({ merged, inventory, files, hits, firstRelease, baselineInventories })
+    ? platformFloor({ merged, inventory, files, hits, firstRelease, baselineInventories, target })
     : foundationFloor({ merged, inventory, touched });
   return { touched, regression, deviceFloor, platforms, level: regression ? 'L3' : deviceFloor.length > 0 ? 'L2' : 'L1' };
 }
@@ -141,20 +157,24 @@ function foundationFloor({ merged, inventory, touched }) {
 // 첫 출시와 기준 태그에 없던 플랫폼 기능(결제·로그인을 처음 붙이는 경우 등)은 승인된 낮춤이 있어도 실기기에서 실행한다.
 // 후보에서 플랫폼 경로를 지우거나 좁혀도 하한을 피하지 못하게, 바뀐 파일은 후보와 기준 태그의 플랫폼 경로를 합쳐 판정한다.
 // 형식이 맞지 않거나 읽을 수 없는 기준 기능 목록은 없는 것으로 보고 중앙 기본 경로를 더한다.
-function platformFloor({ merged, inventory, files, hits, firstRelease, baselineInventories }) {
+function platformFloor({ merged, inventory, files, hits, firstRelease, baselineInventories, target }) {
   const bases = merged.baselines.filter(baseline => baseline !== null).map(baseline => baselineInventories?.[baseline]);
   const readable = bases.filter(validInventory);
   const unreadable = readable.length !== bases.length;
-  const ownPaths = (source, id) => source.features.find(f => f.id === id)?.platformPaths ?? [];
+  const featureOf = (source, id) => source.features.find(f => f.id === id);
+  const ownPaths = (source, id) => platformPathsFor(featureOf(source, id), target);
   const platformPathsOf = id => [inventory, ...readable].flatMap(source => ownPaths(source, id));
-  const commonOf = source => (source.schemaVersion === 2 && Array.isArray(source.platformPaths) ? source.platformPaths : policy.floors.defaultPlatformPaths);
+  const commonOf = source => source.schemaVersion === 2 && Array.isArray(source.platformPaths)
+    ? platformPathsFor(source, target) : policy.floors.defaultPlatformPaths;
   const commonPaths = [...new Set([...[inventory, ...readable].flatMap(commonOf), ...(unreadable ? policy.floors.defaultPlatformPaths : [])])];
   const platformFeatures = inventory.features.map(f => f.id).filter(id => platformPathsOf(id).length > 0);
   const raised = new Set(platformFeatures.filter(id => hits(platformPathsOf(id))));
   if (files.some(file => commonPaths.some(p => touches(file, p)))) {
     for (const id of platformFeatures.length > 0 ? platformFeatures : inventory.features.filter(f => f.core).map(f => f.id)) raised.add(id);
   }
-  const isNew = id => firstRelease || unreadable || readable.some(base => !base.features.some(f => f.id === id));
+  const isNew = id => firstRelease || unreadable || readable.some(base => !featureOf(base, id)
+    || ((featureOf(inventory, id)?.platformPathsByMarket !== undefined || featureOf(base, id)?.platformPathsByMarket !== undefined)
+      && ownPaths(inventory, id).length > 0 && ownPaths(base, id).length === 0));
   const first = new Set(platformFeatures.filter(isNew));
   const floor = [...first].map(featureId => ({ featureId, rule: 'platform-first' }));
   for (const featureId of raised) if (!first.has(featureId) && !merged.platformOverrides.includes(featureId)) floor.push({ featureId, rule: 'platform' });

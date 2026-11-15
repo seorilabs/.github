@@ -7,7 +7,8 @@ import {DESIGN, context, evidence, inventory, plan, run} from './helpers/test-le
 const ALL = ['create', 'settings', 'store', 'purchase', 'ads'];
 const FINGERPRINT = 'c'.repeat(64);
 const inv = () => ({...inventory(), schemaVersion: 2, e2e: {workflow: '.github/workflows/godot-checks.yml'},
-  features: inventory().features.map(f => f.id === 'ads' ? {...f, platformPaths: ['native/ads/**']} : f)});
+  features: inventory().features.map(f => f.id === 'ads' ? {...f, platformPaths: ['native/ads/**'],
+    platformPathsByMarket: {'google-play': ['native/ads/**'], 'app-store': ['native/ads/**'], 'apps-in-toss': []}} : f)});
 const alternative = () => ({featureId: 'ads', target: 'google-play', kind: 'native-development', configurationFingerprint: FINGERPRINT, reason: '실제 SDK와 서버 지급을 격리 개발 환경에서 검증', checks: ['sdk-completion', 'server-delivery']});
 function fixture() {
   const source = inv();

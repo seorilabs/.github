@@ -414,6 +414,9 @@
         "platformPaths": {
           "const": "device-run-or-approved-real-native-development-on-target-market-platform"
         },
+        "marketPlatformPaths": {
+          "const": "v2-optional-native-market-map-with-legacy-union"
+        },
         "commonPlatformPaths": {
           "const": "device-or-approved-real-native-development-of-platform-features-or-core"
         },

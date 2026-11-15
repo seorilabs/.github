@@ -97,7 +97,12 @@
 | `e2e.command` | 선택. 로컬·CI에서 쓰는 명령(예: `npm run test:e2e`) |
 | `features[].platformPaths` | 바뀌면 그 기능을 실기기에서 실행해야 하는 경로(네이티브 플러그인, SDK 호출 구현). 대체 구현 뒤의 게임 로직·화면은 넣지 않는다 |
 | 최상위 `platformPaths` | 바뀌면 플랫폼 기능 전체(없으면 핵심 기능)를 실기기에서 실행. 생략하면 [중앙 기본값](../../contracts/development-workflow.yaml)의 `defaultPlatformPaths` |
+| 기능별·최상위 선택 `platformPathsByMarket` | v2에서 `google-play`, `app-store`, `apps-in-toss` 세 키를 모두 갖는 glob 배열 맵. 미채택 마켓은 빈 배열. 전체 `platformPaths`는 맵 값의 합집합과 일치해야 함 |
 | `foundation`·`paths` | 기능 실행 범위와 [이어받기](#영향-없는-기반-기능)에 그대로 쓴다. v2에서는 실기기 하한을 만들지 않는다 |
+
+마켓을 분리하는 기능 목록은 [선택 맵 예제](templates/feature-inventory-market-paths.example.json)를 참고한다. 기존 [v2 예제](templates/feature-inventory-v2.example.json)는 맵 없는 보수적 동작을 유지한다.
+
+마켓 맵을 명시하면 기능 영향·공통 경로·첫 출시·새 플랫폼 기능·실제 SDK 개발 검수 계획에 검증 대상 마켓의 경로를 사용한다. 맵이 없으면 기존 전체 배열과 중앙 기본값의 보수적 동작을 유지한다. v1의 맵, 누락·추가 마켓, 잘못된 배열·glob와 합집합 불일치는 거절한다. 명시된 모든 마켓이 미채택이면 빈 합집합 배열도 허용한다. 기준 태그와 현재 후보의 대상 마켓 경로를 함께 읽으므로 후보에서 맵을 지우거나 좁혀도 기존 경로의 하한을 피할 수 없다. 맵을 사용한 기능이 다른 마켓에서 처음 네이티브 경로를 채택하면 기존 기능 ID여도 새 플랫폼 기능으로 검사한다. 기준 목록을 읽을 수 없을 때의 중앙 기본값과 첫 출시 하한은 유지한다.
 
 | 바뀐 파일·상황 | v2 하한 | 낮추기 |
 |---|---|---|
