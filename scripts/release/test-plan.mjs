@@ -174,7 +174,8 @@ function platformFloor({ merged, inventory, files, hits, firstRelease, baselineI
   }
   const isNew = id => firstRelease || unreadable || readable.some(base => !featureOf(base, id)
     || ((featureOf(inventory, id)?.platformPathsByMarket !== undefined || featureOf(base, id)?.platformPathsByMarket !== undefined)
-      && ownPaths(inventory, id).length > 0 && ownPaths(base, id).length === 0));
+      && ownPaths(inventory, id).length > 0
+      && (ownPaths(base, id).length === 0 || featureOf(base, id)?.platformPathsByMarket === undefined)));
   const first = new Set(platformFeatures.filter(isNew));
   const floor = [...first].map(featureId => ({ featureId, rule: 'platform-first' }));
   for (const featureId of raised) if (!first.has(featureId) && !merged.platformOverrides.includes(featureId)) floor.push({ featureId, rule: 'platform' });

@@ -79,6 +79,22 @@ test('C3 first adoption in another market remains non-waivable for an existing f
     plan: {floorOverrides: [{rule: 'platform', featureId: 'ads', reason: '가상 입력의 일반 낮춤'}]}});
   assert.deepEqual(result.deviceFloor, [{featureId: 'ads', rule: 'platform-first'}]);
 });
+test('C3 adopting a map cannot infer prior target adoption from an unmapped baseline union', () => {
+  const baseline = inventory();
+  const ads = baseline.features.find(value => value.id === 'ads');
+  delete ads.platformPathsByMarket;
+  ads.platformPaths = ['native/ios/ads/**'];
+  assert.deepEqual(floor(inventory(), 'google-play', {baseline, files: ['native/android/ads/Bridge.kt'],
+    plan: {floorOverrides: [{rule: 'platform', featureId: 'ads', reason: '가상 기존 기능'}]}}).deviceFloor,
+  [{featureId: 'ads', rule: 'platform-first'}]);
+});
+test('C3 an unmapped baseline retains its conservative union when the candidate opts in', () => {
+  const baseline = inventory();
+  const account = baseline.features.find(value => value.id === 'account');
+  delete account.platformPathsByMarket;
+  assert.deepEqual(floor(inventory(), 'google-play', {baseline, files: ['native/ios/account/Link.mm']}).deviceFloor,
+    [{featureId: 'account', rule: 'platform'}]);
+});
 test('C3 unreadable baseline retains conservative defaults and first-adoption requirements', () => {
   const result = floor(inventory(), 'google-play', {baseline: null, files: ['godot/export_presets.cfg']});
   assert.deepEqual(result.deviceFloor, [{featureId: 'ads', rule: 'platform-first'}, {featureId: 'widget', rule: 'platform-first'}]);
