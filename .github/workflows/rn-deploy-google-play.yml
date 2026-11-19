@@ -86,6 +86,11 @@ on:
         required: false
         default: ""
         type: string
+      verify_runtime_release_script:
+        description: "AAB 런타임 버전 검증용 Node 스크립트. --aab, AAB 경로, Android 프로젝트 경로를 전달한다."
+        required: false
+        default: ""
+        type: string
       timeout_minutes:
         required: false
         default: 35
@@ -265,6 +270,10 @@ jobs:
         env:
           PREPARE_SCRIPT: ${{ inputs.prepare_script }}
           RELEASE_VERSION: ${{ steps.release.outputs.version_name }}
+          SEORI_RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          SEORI_RELEASE_VERSION: ${{ steps.release.outputs.version_name }}
+          SEORI_RELEASE_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
+          SEORI_RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
         run: |
           set -euo pipefail
           node "$PREPARE_SCRIPT" --android
@@ -398,6 +407,19 @@ jobs:
             echo "검증된 AAB 디렉터리에 .aab가 정확히 하나여야 한다: $bundles" >&2
             exit 1
           }
+
+      - name: Verify AAB runtime release version
+        if: inputs.verify_runtime_release_script != ''
+        shell: bash
+        env:
+          VERIFY_RUNTIME_RELEASE_SCRIPT: ${{ inputs.verify_runtime_release_script }}
+          AAB_PATH: ${{ steps.provenance.outputs.artifact_path }}
+          ANDROID_DIR: ${{ steps.android.outputs.android_dir }}
+          SEORI_RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          SEORI_RELEASE_VERSION: ${{ steps.release.outputs.version_name }}
+          SEORI_RELEASE_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
+          SEORI_RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
+        run: node "$VERIFY_RUNTIME_RELEASE_SCRIPT" --aab "$AAB_PATH" "$ANDROID_DIR"
 
       - name: Upload AAB artifact
         if: ${{ !inputs.upload }}

@@ -84,6 +84,11 @@ on:
         required: false
         default: ""
         type: string
+      verify_runtime_release_script:
+        description: "archive 및 IPA 런타임 버전 검증용 Node 스크립트. --archive 또는 --ipa 뒤에 산출물과 소스맵 경로를 전달한다."
+        required: false
+        default: ""
+        type: string
       pod_install_args:
         description: >-
           pod install 에 붙일 인자. 기본은 없음(평범한 pod install).
@@ -170,6 +175,7 @@ jobs:
       EXPORT_OPTIONS_PLIST: ${{ inputs.export_options_plist }}
       FIREBASE_RESTORE_SCRIPT: ${{ inputs.firebase_restore_script }}
       PREPARE_SCRIPT: ${{ inputs.prepare_script }}
+      VERIFY_RUNTIME_RELEASE_SCRIPT: ${{ inputs.verify_runtime_release_script }}
       POST_ARCHIVE_VALIDATION_SCRIPT: ${{ inputs.post_archive_validation_script }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
 
@@ -358,12 +364,23 @@ jobs:
           node "$FIREBASE_RESTORE_SCRIPT" --ios --require
 
       - name: Run caller preparation
+        id: prepare_runtime
         if: ${{ inputs.prepare_script != '' }}
         shell: bash
+        env:
+          SEORI_RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          SEORI_RELEASE_VERSION: ${{ steps.release.outputs.apple_marketing_version }}
+          SEORI_RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
         run: |
           set -euo pipefail
           [ -f "$PREPARE_SCRIPT" ] || { echo "prepare script가 없다: $PREPARE_SCRIPT" >&2; exit 1; }
+          SEORI_RELEASE_VERSION_CODE="$(node --input-type=module -e '
+            import { deriveTagEncodedVersionCode } from "./.seorilabs-release-authority/scripts/release/tag-version-authority.mjs";
+            process.stdout.write(String(deriveTagEncodedVersionCode(process.env.SEORI_RELEASE_TAG)));
+          ')"
+          export SEORI_RELEASE_VERSION_CODE
           node "$PREPARE_SCRIPT" --ios
+          echo "runtime_version_code=$SEORI_RELEASE_VERSION_CODE" >> "$GITHUB_OUTPUT"
 
       - name: Install CocoaPods dependencies
         shell: bash
@@ -503,6 +520,9 @@ jobs:
           # 이미 키체인에 있는 배포 인증서와 설치한 App Store 프로파일로 manual 서명한다.
           # -allowProvisioningUpdates 를 붙이면 Xcode 가 러너마다 Apple Development 인증서를
           # 새로 발급해 Apple 계정 인증서 한도를 소진한다. 여기서는 새로 만들 것이 없다.
+          if [ -n "${VERIFY_RUNTIME_RELEASE_SCRIPT:-}" ]; then
+            export SOURCEMAP_FILE="$RUNNER_TEMP/release-main.jsbundle.map"
+          fi
           xcodebuild archive \
             -workspace "$XCODE_WORKSPACE_PATH" \
             -scheme "$XCODE_SCHEME" \
@@ -683,6 +703,17 @@ jobs:
           }
           bash "$POST_ARCHIVE_VALIDATION_SCRIPT"
 
+      - name: Verify archive runtime release version
+        if: ${{ inputs.verify_runtime_release_script != '' }}
+        shell: bash
+        env:
+          ARCHIVE_PATH: ${{ steps.meta.outputs.archive_path }}
+          SEORI_RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          SEORI_RELEASE_VERSION: ${{ steps.release.outputs.apple_marketing_version }}
+          SEORI_RELEASE_VERSION_CODE: ${{ steps.prepare_runtime.outputs.runtime_version_code }}
+          SEORI_RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
+        run: node "$VERIFY_RUNTIME_RELEASE_SCRIPT" --archive "$ARCHIVE_PATH" "$RUNNER_TEMP/release-main.jsbundle.map"
+
       - name: Verify Editor E2E before-deploy
         id: editor_before_deploy
         shell: bash
@@ -708,6 +739,10 @@ jobs:
           PROFILE_NAME: ${{ steps.signing.outputs.profile_name }}
           PROFILE_BUNDLE_ID: ${{ steps.signing.outputs.profile_bundle_id }}
           INPUT_BUNDLE_ID: ${{ inputs.bundle_id }}
+          SEORI_RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          SEORI_RELEASE_VERSION: ${{ steps.release.outputs.apple_marketing_version }}
+          SEORI_RELEASE_VERSION_CODE: ${{ steps.prepare_runtime.outputs.runtime_version_code }}
+          SEORI_RELEASE_SOURCE_SHA: ${{ steps.tag.outputs.sha }}
         run: |
           set -euo pipefail
           [ -f "$EXPORT_OPTIONS_PLIST" ] || { echo "exportOptions.plist가 없다: $EXPORT_OPTIONS_PLIST" >&2; exit 1; }
@@ -739,6 +774,19 @@ jobs:
           esac
           echo "적용되는 export 옵션:"
           plutil -p "$effective" | sed 's/^/  /'
+
+          if [ -n "${VERIFY_RUNTIME_RELEASE_SCRIPT:-}" ]; then
+            plutil -replace destination -string export "$effective"
+            xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" -exportPath "$EXPORT_DIR" -exportOptionsPlist "$effective"
+            shopt -s nullglob
+            ipas=("$EXPORT_DIR"/*.ipa)
+            [ "${#ipas[@]}" -eq 1 ] || { echo "검증할 IPA가 하나여야 한다." >&2; exit 1; }
+            ipa="${ipas[0]}"
+            node "$VERIFY_RUNTIME_RELEASE_SCRIPT" --ipa "$ipa" "$RUNNER_TEMP/release-main.jsbundle.map" "$ARCHIVE_PATH"
+            API_PRIVATE_KEYS_DIR="$(dirname "$ASC_KEY_PATH")" xcrun altool --upload-app \
+              --file "$ipa" --type ios --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+            exit 0
+          fi
 
           # -allowProvisioningUpdates 를 쓰지 않는다. ASC 인증은 업로드에만 쓴다.
           xcodebuild -exportArchive \
